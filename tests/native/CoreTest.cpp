@@ -316,6 +316,32 @@ int main(int argc, char **argv) {
   }
   assert(math && code && table);
   RichText renderer(argv[1], argv[2]);
+  auto tables = parseMarkdown(
+      "| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | [b](center) | "
+      "[c](right) |\n\n| Other |\n| --- |\n| short |\n");
+  renderer.prepare(tables, 780);
+  assert(tables.blocks.size() == 4);
+  assert(tables.blocks[0].tableId == tables.blocks[1].tableId);
+  assert(tables.blocks[2].tableId != tables.blocks[0].tableId);
+  assert(tables.blocks[0].columnWidths == tables.blocks[1].columnWidths);
+  assert(tables.blocks[2].columnWidths.size() == 1);
+  auto aligned = renderer.layout(tables.blocks[1], 780);
+  assert(aligned.links.size() == 2);
+  assert(aligned.links[0].x > tables.blocks[1].columnWidths[0] + 20);
+  assert(aligned.links[1].x > 700);
+  Block mixedCell;
+  mixedCell.kind = "code";
+  mixedCell.runs = {{"value = ", "", 0}, {"x^2", "", Math}};
+  auto mixedLayout = renderer.layout(mixedCell, 1);
+  mixedCell.runs.erase(mixedCell.runs.begin());
+  auto mathOnlyLayout = renderer.layout(mixedCell, 1);
+  assert(mixedLayout.height == mathOnlyLayout.height && mixedLayout.width > mathOnlyLayout.width);
+  Block multiline = tables.blocks[1];
+  multiline.cells[0] = {{"first\nsecond", "", 0}};
+  multiline.cells[1] = {{"next", "target", 0}};
+  auto multilineLayout = renderer.layout(multiline, 780);
+  assert(multilineLayout.height > aligned.height);
+  assert(multilineLayout.links[0].x >= multiline.columnWidths[0]);
   for (auto value :
        {"\\frac{1}{2}", "\\sqrt{x^2+y^2}", "\\sum_{i=1}^{n} i",
         "\\int_0^1 x^2 dx", "\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}",

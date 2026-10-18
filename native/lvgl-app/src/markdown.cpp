@@ -19,7 +19,7 @@ namespace {
 struct Parser {
   Document doc;
   Block *block = nullptr;
-  int indent = 0, quote = 0, style = 0;
+  int indent = 0, quote = 0, style = 0, tableId = 0;
   std::vector<int> styles, ordered;
   std::vector<std::string> links;
   bool cell = false;
@@ -75,14 +75,20 @@ int enterBlock(MD_BLOCKTYPE type, void *detail, void *ctx) {
   case MD_BLOCK_HR:
     p.begin("hr");
     break;
+  case MD_BLOCK_TABLE:
+    ++p.tableId;
+    break;
   case MD_BLOCK_TR:
     p.begin("table");
+    p.block->tableId = p.tableId;
     break;
   case MD_BLOCK_TH:
   case MD_BLOCK_TD:
     if (!p.block || p.block->kind != "table")
       p.begin("table");
     p.block->cells.emplace_back();
+    p.block->cellAlignments.push_back(
+        static_cast<MD_BLOCK_TD_DETAIL *>(detail)->align);
     p.block->header = type == MD_BLOCK_TH;
     p.cell = true;
     break;
@@ -401,8 +407,8 @@ Bitmap RichText::formula(const std::string &source, int size) {
     throw std::runtime_error("Formula too large");
   const float formulaSize = size * 1.5f;
   std::unique_ptr<tex::TeXRender> r(
-      tex::LaTeX::parse(tex::utf82wide(source), 4096, formulaSize, formulaSize * .2,
-                        (0xff000000u | theme::text)));
+      tex::LaTeX::parse(tex::utf82wide(source), 4096, formulaSize,
+                        formulaSize * .2, (0xff000000u | theme::text)));
   Bitmap b;
   b.width = std::max(1, r->getWidth() + 4);
   b.height = std::max(1, r->getHeight() + 4);
@@ -441,13 +447,17 @@ void RichText::prepare(Document &document, int width, int size) {
     size_t end = i;
     std::vector<int> widths;
     while (end < document.blocks.size() &&
-           document.blocks[end].kind == "table") {
+           document.blocks[end].kind == "table" &&
+           document.blocks[end].tableId == document.blocks[i].tableId) {
       auto &row = document.blocks[end];
       widths.resize(std::max(widths.size(), row.cells.size()), 140);
       for (size_t column = 0; column < row.cells.size(); ++column) {
         Block cell;
         cell.kind = "code";
         cell.runs = row.cells[column];
+        if (row.header)
+          for (auto &run : cell.runs)
+            run.style |= Bold;
         widths[column] =
             std::max(widths[column], layout(cell, 1, size).width + 14);
       }
@@ -462,6 +472,58 @@ void RichText::prepare(Document &document, int width, int size) {
 }
 RichLayout RichText::layout(const Block &block, int width, int size) {
   p_->pieces.clear();
+  if (block.kind == "table") {
+    std::vector<Piece> pieces;
+    struct CellSpan {
+      size_t begin, end;
+      int height;
+    };
+    std::vector<CellSpan> spans;
+    int cellX = block.quote * 12 + std::max(0, block.indent - 1) * 20,
+        rowHeight = 20;
+    const size_t count =
+        std::max(block.cells.size(), block.columnWidths.size());
+    for (size_t column = 0; column < count; ++column) {
+      Block cell;
+      cell.kind = "code";
+      if (column < block.cells.size())
+        cell.runs = block.cells[column];
+      if (block.header)
+        for (auto &run : cell.runs)
+          run.style |= Bold;
+      auto cellLayout = layout(cell, 1, size);
+      const int cellWidth = column < block.columnWidths.size()
+                                ? block.columnWidths[column]
+                                : std::max(140, cellLayout.width + 14);
+      const int alignment = column < block.cellAlignments.size()
+                                ? block.cellAlignments[column]
+                                : MD_ALIGN_DEFAULT;
+      const int spare = std::max(0, cellWidth - cellLayout.width);
+      const int offset = alignment == MD_ALIGN_RIGHT    ? spare
+                         : alignment == MD_ALIGN_CENTER ? spare / 2
+                                                        : 0;
+      const size_t begin = pieces.size();
+      for (auto piece : p_->pieces) {
+        piece.x += cellX + offset;
+        pieces.push_back(std::move(piece));
+      }
+      spans.push_back({begin, pieces.size(), cellLayout.height});
+      rowHeight = std::max(rowHeight, cellLayout.height);
+      cellX += cellWidth;
+    }
+    for (const auto &span : spans)
+      for (size_t i = span.begin; i < span.end; ++i)
+        pieces[i].y += (rowHeight - span.height) / 2;
+    p_->pieces = std::move(pieces);
+    RichLayout result;
+    result.width = std::max(width, cellX);
+    result.height = rowHeight;
+    for (const auto &piece : p_->pieces)
+      if (!piece.target.empty())
+        result.links.push_back({int(piece.x), int(piece.y), int(piece.width),
+                                int(piece.height), piece.target});
+    return result;
+  }
   int actualSize =
       block.kind == "h" ? std::max(size, 31 - block.level * 2) : size;
   auto surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
@@ -487,7 +549,7 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
     if (run.style & Math) {
       try {
         auto bitmap = std::make_shared<Bitmap>(formula(run.text, actualSize));
-        if (!forceWidth && x + bitmap->width > width && x > left)
+        if (!forceWidth && block.kind != "code" && x + bitmap->width > width && x > left)
           newline();
         Piece p;
         p.math = bitmap;
@@ -542,28 +604,10 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
       maxWidth = std::max(maxWidth, x + 6);
     }
   };
-  if (block.kind == "table") {
-    float cellX = left;
-    int cols = std::max(1, int(block.cells.size()));
-    int cellW = std::max(140, (width - int(left)) / cols);
-    size_t column = 0;
-    for (auto &cell : block.cells) {
-      x = cellX;
-      for (auto &r : cell)
-        add(r, 1);
-      cellX += column < block.columnWidths.size()
-                   ? block.columnWidths[column]
-                   : std::max(float(cellW), x - cellX + 15);
-      ++column;
-      x = cellX;
-    }
-    maxWidth = std::max(maxWidth, cellX);
-  } else {
-    if (!block.marker.empty())
-      add({block.marker, "", 0}, 0);
-    for (auto &r : block.runs)
-      add(r, 0);
-  }
+  if (!block.marker.empty())
+    add({block.marker, "", 0}, 0);
+  for (auto &run : block.runs)
+    add(run, 0);
   newline();
   RichLayout layout;
   layout.width = std::ceil(maxWidth);
@@ -594,9 +638,28 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
                          ((value >> 8) & 255) / 255., (value & 255) / 255.);
   };
   if (block.kind == "code" || block.kind == "table") {
-    color(theme::code);
+    color(block.kind == "table" && block.header ? theme::surface : theme::code);
     cairo_rectangle(c, left, top, b.width, height);
     cairo_fill(c);
+  }
+  if (block.kind == "table") {
+    color(theme::border);
+    cairo_set_line_width(c, 1);
+    const float tableLeft =
+        block.quote * 12 + std::max(0, block.indent - 1) * 20;
+    float edge = tableLeft + .5f;
+    cairo_move_to(c, edge, .5);
+    cairo_line_to(c, edge, info.height - .5);
+    for (int cellWidth : block.columnWidths) {
+      edge += cellWidth;
+      cairo_move_to(c, edge - 1, .5);
+      cairo_line_to(c, edge - 1, info.height - .5);
+    }
+    cairo_move_to(c, tableLeft, .5);
+    cairo_line_to(c, info.width, .5);
+    cairo_move_to(c, tableLeft, info.height - .5);
+    cairo_line_to(c, info.width, info.height - .5);
+    cairo_stroke(c);
   }
   if (block.quote) {
     color(theme::muted);

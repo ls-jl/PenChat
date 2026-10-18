@@ -1174,6 +1174,7 @@ void App::newChat() {
   reasoningMetadata_ = Json::object();
   expandedReasoning_.clear();
   reasoningOverrides_.clear();
+  tableScrolls_.clear();
   draft_.clear();
   chatFollowing_ = true;
   chatScroll_ = 0;
@@ -1181,7 +1182,7 @@ void App::newChat() {
   show("chat");
 }
 void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
-                      bool subdued) {
+                      bool subdued, const std::string &context) {
   auto doc = parseMarkdown(text, generating_ && parent == liveContent_);
   rich_.prepare(doc, width - 4);
   auto appendText = [&](const Block &b) {
@@ -1190,23 +1191,36 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
     auto layout = rich_.layout(b, width - 4);
     auto holder = box(parent, 0, 0, width, layout.height, theme::background);
     lv_obj_set_scroll_dir(holder, LV_DIR_HOR);
+    if (b.tableId)
+      lv_obj_set_scroll_elastic(holder, false);
     lv_obj_set_scrollbar_mode(holder, LV_SCROLLBAR_MODE_AUTO);
     auto spacer = box(holder, layout.width - 1, 0, 1, 1, theme::background);
     lv_obj_set_style_bg_opa(spacer, 0, 0);
     lv_obj_add_event_cb(
         holder,
         [](lv_event_t *e) {
-          static_cast<App *>(lv_event_get_user_data(e))->paintVisible();
+          static_cast<App *>(lv_event_get_user_data(e))
+              ->richScrolled(static_cast<lv_obj_t *>(lv_event_get_target(e)));
         },
         LV_EVENT_SCROLL, this);
-    rasters_.push_back({holder,
-                        parent,
-                        b,
-                        width - 4,
-                        layout.height,
-                        layout.width,
-                        subdued,
-                        {}});
+    rasters_.push_back(
+        {holder,
+         parent,
+         b,
+         width - 4,
+         layout.height,
+         layout.width,
+         subdued,
+         b.tableId,
+         b.tableId ? context + ":table:" + std::to_string(b.tableId) : "",
+         {}});
+    if (b.tableId) {
+      syncingTableScroll_ = true;
+      lv_obj_update_layout(holder);
+      lv_obj_scroll_to_x(holder, tableScrolls_[rasters_.back().tableKey],
+                         LV_ANIM_OFF);
+      syncingTableScroll_ = false;
+    }
   };
   for (const auto &b : doc.blocks) {
     Block part = b;
@@ -1368,7 +1382,7 @@ void App::renderMessages(bool bottom) {
           auto detail = box(wrap, 0, 0, textWidth, LV_SIZE_CONTENT);
           lv_obj_set_scrollable(detail, false);
           lv_obj_set_flex_flow(detail, LV_FLEX_FLOW_COLUMN);
-          richMessage(detail, reason, textWidth, true);
+          richMessage(detail, reason, textWidth, true, id + ":reasoning");
         }
       } else
         label(header, title, 0, 10, textWidth, 20, theme::reasoning);
@@ -1393,7 +1407,7 @@ void App::renderMessages(bool bottom) {
         lv_obj_set_scrollable(contentBox, false);
         if (id == assistant_)
           liveContent_ = contentBox;
-        richMessage(contentBox, content, textWidth);
+        richMessage(contentBox, content, textWidth, false, id);
       }
     }
     if (stringValue(m, "status") == "error")
@@ -1408,7 +1422,8 @@ void App::renderMessages(bool bottom) {
   lv_obj_stop_scroll_anim(body_);
   const int maximum = std::max(
       0, int(lv_obj_get_scroll_y(body_) + lv_obj_get_scroll_bottom(body_)));
-  lv_obj_scroll_to_y(body_, (bottom || follow) ? maximum : std::min(scroll, maximum),
+  lv_obj_scroll_to_y(body_,
+                     (bottom || follow) ? maximum : std::min(scroll, maximum),
                      LV_ANIM_OFF);
   chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
   chatFollowing_ = follow || (messageOffset_ == 0 && maximum == 0);
@@ -1435,7 +1450,7 @@ void App::renderLiveMessage() {
                  rasters_.end());
   lv_obj_clean(liveContent_);
   richMessage(liveContent_, output_.empty() ? "正在生成…" : output_,
-              lv_obj_get_width(liveContent_));
+              lv_obj_get_width(liveContent_), false, assistant_);
   lv_obj_update_layout(messageContent_);
   lv_obj_scroll_to_y(body_, chatFollowing_ ? LV_COORD_MAX : scroll,
                      LV_ANIM_OFF);
@@ -1444,6 +1459,24 @@ void App::renderLiveMessage() {
   updateChatControls(true);
   paintVisible();
   refreshImages();
+}
+void App::richScrolled(lv_obj_t *object) {
+  if (syncingTableScroll_)
+    return;
+  syncingTableScroll_ = true;
+  for (const auto &source : rasters_) {
+    if (source.holder != object || !source.tableId)
+      continue;
+    const int x = lv_obj_get_scroll_x(object);
+    tableScrolls_[source.tableKey] = x;
+    for (auto &row : rasters_)
+      if (row.owner == source.owner && row.tableId == source.tableId &&
+          row.holder != object)
+        lv_obj_scroll_to_x(row.holder, x, LV_ANIM_OFF);
+    break;
+  }
+  paintVisible();
+  syncingTableScroll_ = false;
 }
 void App::paintVisible() {
   if (!body_)
@@ -2469,6 +2502,16 @@ void App::tick() {
   }
 }
 Json App::diagnostics() const {
+  Json tableRows = Json::array();
+  for (const auto &r : rasters_)
+    if (r.tableId) {
+      lv_area_t area;
+      lv_obj_get_coords(r.holder, &area);
+      tableRows.push_back({{"id", r.tableId},
+                           {"y", area.y1},
+                           {"scroll", lv_obj_get_scroll_x(r.holder)},
+                           {"width", r.contentWidth}});
+    }
   Json photoBounds = Json::array();
   for (auto object : chatPhotos_) {
     auto holder = lv_obj_get_parent(object);
@@ -2563,6 +2606,7 @@ Json App::diagnostics() const {
        reasoningMetadata_.value("reasoning_observed", false)},
       {"reasoning_expanded_count", expandedReasoning_.size()},
       {"chat_images", photoBounds},
+      {"table_rows", tableRows},
       {"to_bottom_x", toBottom_ ? lv_obj_get_x(toBottom_) : -1},
       {"to_bottom_y", toBottom_ ? lv_obj_get_y(toBottom_) : -1},
       {"to_bottom_opacity",

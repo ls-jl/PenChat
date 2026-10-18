@@ -20,6 +20,8 @@ class App {
     Block block;
     int width, height, contentWidth;
     bool subdued;
+    int tableId;
+    std::string tableKey;
     std::map<std::pair<int, int>, lv_obj_t *> tiles;
   };
   Json lastTouch_ = Json::object();
@@ -167,8 +169,11 @@ class App {
   void albumPage();
   void renderMessages(bool bottom);
   void richMessage(lv_obj_t *parent, const std::string &text, int width,
-                   bool subdued = false);
+                   bool subdued = false, const std::string &context = "");
   void paintVisible();
+  void richScrolled(lv_obj_t *object);
+  bool syncingTableScroll_ = false;
+  std::map<std::string, int> tableScrolls_;
   void renderLiveMessage();
   void refreshImages();
   void edit(const std::string &text, const std::string &placeholder,
