@@ -334,6 +334,32 @@ int main(int argc, char **argv) {
   }
   assert(math && code && table);
   RichText renderer(argv[1], argv[2], argv[3]);
+  // Mixed styles within a word must not create new wrap opportunities.
+  Block words;
+  words.runs = {{"中文中文中 ", "", 0}, {"hel", "word", Bold},
+                {"lo", "word", Italic}, {" world", "next", 0}};
+  auto wrapped = renderer.layout(words, 150);
+  int wordY = -1, nextY = -1;
+  for (const auto &hit : wrapped.links) {
+    assert(hit.x >= 6 && hit.x + hit.w <= 145);
+    if (hit.target == "word") {
+      if (wordY < 0) wordY = hit.y;
+      assert(hit.y == wordY);
+    } else if (hit.target == "next") {
+      if (nextY < 0) nextY = hit.y;
+      assert(hit.y == nextY);
+    }
+  }
+  assert(wordY > 5);
+  words.runs = {{std::string(90, 'W'), "long", 0}};
+  auto oversized = renderer.layout(words, 100);
+  assert(oversized.links.size() == 90);
+  assert(oversized.links.back().y > oversized.links.front().y);
+  for (const auto &hit : oversized.links) assert(hit.x + hit.w <= 95);
+  words.kind = "code";
+  auto unwrapped = renderer.layout(words, 100);
+  assert(unwrapped.links.front().y == unwrapped.links.back().y);
+  assert(unwrapped.width > 100);
   FT_Library fontLibrary;
   FT_Face symbolFace;
   assert(FT_Init_FreeType(&fontLibrary) == 0);

@@ -605,6 +605,11 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
               ? float(actualSize * .62) *
                     (static_cast<unsigned char>(ch[0]) >= 128 ? 2 : 1)
               : e.x_advance;
+      if (block.kind != "code" && (ch == " " || ch == "\t") &&
+          (x == left || x + advance > width - 6)) {
+        if (x > left) newline();
+        continue;
+      }
       if (!forceWidth && block.kind != "code" && x + advance > width - 6 &&
           x > left)
         newline();
@@ -626,8 +631,51 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
   };
   if (!block.marker.empty())
     add({block.marker, "", 0}, 0);
-  for (auto &run : block.runs)
-    add(run, 0);
+  // Keep word fragments together even when Markdown changes style/link midway.
+  // CJK characters remain independent wrapping units; oversized words retain
+  // character wrapping so an identifier or URL can never overflow the reader.
+  std::vector<Run> word;
+  float wordWidth = 0;
+  auto flushWord = [&]() {
+    if (word.empty()) return;
+    const bool wrap = block.kind != "code";
+    if (wrap && x > left && x + wordWidth > width - 6) newline();
+    const bool fits = wordWidth <= width - 6 - left;
+    for (const auto &part : word) add(part, wrap && fits ? 1 : 0);
+    word.clear();
+    wordWidth = 0;
+  };
+  auto wordCharacter = [](uint32_t cp) {
+    return (cp < 128 && (std::isalnum(static_cast<unsigned char>(cp)) ||
+                         cp == '_' || cp == '\'')) ||
+           (cp >= 0xc0 && cp <= 0x52f && cp != 0xd7 && cp != 0xf7) ||
+           (cp >= 0x1e00 && cp <= 0x1eff) || cp == 0x2019;
+  };
+  for (const auto &run : block.runs) {
+    if (run.style & (Math | Image)) {
+      flushWord();
+      add(run, 0);
+      continue;
+    }
+    for (const auto &ch : characters(run.text)) {
+      const auto cp = codepoint(ch);
+      if (wordCharacter(cp)) {
+        p_->select(c, actualSize, run.style, cp);
+        cairo_text_extents_t extents;
+        cairo_text_extents(c, ch.c_str(), &extents);
+        wordWidth += (run.style & Mono)
+            ? float(actualSize * .62) * (cp >= 128 ? 2 : 1)
+            : extents.x_advance;
+        if (!word.empty() && word.back().style == run.style &&
+            word.back().link == run.link) word.back().text += ch;
+        else word.push_back({ch, run.link, run.style});
+      } else {
+        flushWord();
+        add({ch, run.link, run.style}, 0);
+      }
+    }
+  }
+  flushWord();
   newline();
   RichLayout layout;
   layout.width = std::ceil(maxWidth);
