@@ -1,4 +1,5 @@
 #include "hardware.hpp"
+#include "frame_queue.hpp"
 #include "png.hpp"
 #include "preview.hpp"
 #include "protocol.hpp"
@@ -112,6 +113,8 @@ public:
   void close() noexcept override {}
   size_t managedBytes() const noexcept override { return 0; }
   void infer(const NetworkBatch &, Heads &h) override {
+    if (const char *delay = getenv("PENCHAT_TEST_SCAN_INFER_MS"))
+      std::this_thread::sleep_for(std::chrono::milliseconds(std::max(0, std::min(500, atoi(delay)))));
     const unsigned bins[9] = {384, 384, 512, 512, 512, 512, 512, 512, 1};
     for (unsigned k = 0; k < 9; ++k) {
       h[k].assign(32 * bins[k], -80);
@@ -147,7 +150,9 @@ class Worker {
   bool requireRelease_ = false, keyDown_ = false, draining_ = false;
   unsigned afterStop_ = 0;
   bool haveSequence_ = false;
-  uint64_t lastSequence_ = 0, droppedRaw_ = 0;
+  uint64_t lastSequence_ = 0, droppedRaw_ = 0, recoveredGaps_ = 0;
+  unsigned framesSinceGap_ = 16;
+  int64_t lastRawTimestamp_ = 0;
   std::string captureFailure_;
   std::atomic<int64_t> firstSelectedUs_{0}, firstBatchUs_{0};
   std::atomic<unsigned> warnings_{0};
@@ -159,6 +164,9 @@ class Worker {
   std::mutex eventMutex_;
   std::deque<Event> events_;
   Hardware hardware_;
+  std::unique_ptr<FrameQueue> ingress_;
+  bool engineSealed_ = false;
+  uint64_t discardedBacklog_ = 0;
   Light light_;
   Config config_;
   std::unique_ptr<Engine> engine_;
@@ -168,10 +176,16 @@ class Worker {
   Json counts() {
     auto r = scan_ ? engine_->preview(scan_) : ResultHandle{};
     Counts c = r ? r->counts() : Counts{};
-    return {{"received", c.received},        {"filtered", c.filtered},
+    const auto queued = ingress_ ? ingress_->pending() : 0;
+    return {{"received", c.received + queued},        {"filtered", c.filtered},
             {"selected", c.selected},        {"committed", c.committed},
-            {"pending", c.pending},          {"unlocated", c.unlocated},
+            {"pending", c.pending + queued},          {"unlocated", c.unlocated},
             {"batches", c.inferenceBatches}, {"dropped_raw", droppedRaw_},
+            {"recovered_gaps", recoveredGaps_},
+            {"queued", queued},
+            {"queue_peak", ingress_ ? ingress_->peak() : 0},
+            {"spilled", ingress_ ? ingress_->spilled() : 0},
+            {"discarded_backlog", discardedBacklog_},
             {"warnings", warnings_.load()}};
   }
   void emit(const std::string &type, Json data = Json::object()) {
@@ -220,6 +234,7 @@ class Worker {
     exported_ = Json::object();
   }
   void release() {
+    ingress_.reset();
     preview_.cancelAndWait();
     if (scan_) {
       engine_->endScan(scan_);
@@ -254,6 +269,10 @@ class Worker {
   void begin() {
     if (!armed_ || scan_ || requireRelease_)
       return;
+    mkdir(directory_.c_str(), 0700);
+    ingress_ = std::make_unique<FrameQueue>(directory_);
+    engineSealed_ = false;
+    discardedBacklog_ = 0;
     const auto begin = engine_->beginScan(
         config_, {[this](const Event &e) {
           // State/preview counts are polled and coalesced; only
@@ -287,7 +306,9 @@ class Worker {
     firstFrame_ = 0;
     lastFrame_ = pressTime_;
     haveSequence_ = false;
-    droppedRaw_ = 0;
+    droppedRaw_ = recoveredGaps_ = 0;
+    framesSinceGap_ = 16;
+    lastRawTimestamp_ = 0;
     captureFailure_.clear();
     afterStop_ = 0;
     capturing_ = true;
@@ -305,7 +326,6 @@ class Worker {
     capturing_ = false;
     draining_ = false;
     light_.request(false);
-    engine_->endScan(scan_);
     state_ = "processing";
     emit("processing", {{"counts", counts()}});
   }
@@ -518,7 +538,7 @@ public:
             pixels[size_t(y) * 496 + x] = 30;
       frame(pixels.data(), 496,
             j.value("rawSequence", haveSequence_ ? lastSequence_ + 1 : uint64_t(0)),
-            clockUs());
+            j.value("rawTimestamp", clockUs()));
     }
 #endif
   }
@@ -535,30 +555,63 @@ public:
       // A backwards/reset sequence is not billions of missing frames.
       if (distance > 1 && distance < 0x80000000u)
         droppedRaw_ += distance - 1;
-      captureFailure_ = distance > 1 && distance < 0x80000000u
-                            ? "sensor_sequence_gap"
-                            : "sensor_sequence_reset";
-      requireRelease_ = true;
-      drain();
-      seal();
-      return;
+      // The selector already removes redundant raw frames before matching.
+      // An isolated missing sensor frame at ~90fps need not terminate the scan;
+      // retain the next real frame, never synthesize pixels or conceal loss.
+      const bool recoverable = distance == 2 && timestamp > lastRawTimestamp_ &&
+          timestamp - lastRawTimestamp_ <= 35000 && framesSinceGap_ >= 16;
+      if (recoverable) {
+        ++recoveredGaps_;
+        framesSinceGap_ = 0;
+      } else {
+        captureFailure_ = distance > 1 && distance < 0x80000000u
+                              ? "sensor_sequence_gap"
+                              : "sensor_sequence_reset";
+        requireRelease_ = true;
+        drain();
+        seal();
+        return;
+      }
     }
     haveSequence_ = true;
     lastSequence_ = sequence;
+    lastRawTimestamp_ = timestamp;
+    framesSinceGap_ = std::min(16u, framesSinceGap_ + 1);
     const bool wasDraining = draining_;
-    auto p = engine_->pushFrame(scan_, pixels, 496, 360, stride, sequence,
-                                timestamp);
-    if (p.accepted && !firstFrame_)
-      firstFrame_ = lastFrame_;
-    if (p.code == Code::StopCapture) {
-      requireRelease_ = true;
-      drain();
-      if (!p.accepted)
-        seal();
-    } else if (!p.accepted)
-      throw std::runtime_error("pen frame rejected");
+    ingress_->push(pixels, stride, sequence, timestamp);
+    if (!firstFrame_) firstFrame_ = lastFrame_;
     if (wasDraining && capturing_ && afterStop_ && --afterStop_ == 0)
       seal();
+  }
+  void pumpFrames() {
+    if (!scan_ || finished_ || engineSealed_) return;
+    // Leave substantial headroom below the engine's 240-frame high-water mark.
+    // Deferred frames stay losslessly ordered in the bounded spill queue.
+    auto memory = engine_->metrics();
+    if (memory.frames >= 128) {
+      auto result = engine_->preview(scan_);
+      if (result && result->counts().unlocated)
+        throw std::runtime_error("NPU stitching failed with retained frames");
+    }
+    for (unsigned n = memory.frames; ingress_ && n < 128 && n < memory.frames + 16; ++n) {
+      FrameQueue::Frame frame;
+      if (!ingress_->pop(frame)) break;
+      auto pushed = engine_->pushFrame(scan_, frame.pixels.data(), 496, 360, 496,
+                                        frame.sequence, frame.timestamp);
+      if (pushed.code == Code::StopCapture || !pushed.accepted) {
+        captureFailure_ = "scan engine memory capacity";
+        discardedBacklog_ += ingress_->pending() + (pushed.accepted ? 0 : 1);
+        ingress_.reset();
+        requireRelease_ = true;
+        drain();
+        seal();
+        break;
+      }
+    }
+    if (!capturing_ && (!ingress_ || ingress_->pending() == 0)) {
+      engineSealed_ = true;
+      engine_->endScan(scan_);
+    }
   }
   void tick() {
     if (capturing_) {
@@ -601,6 +654,7 @@ public:
       if (capturing_ && clockUs() - lastFrame_ > 5000000)
         throw std::runtime_error("pen camera stalled");
     }
+    pumpFrames();
     std::deque<Event> events;
     {
       std::lock_guard<std::mutex> l(eventMutex_);
@@ -638,7 +692,7 @@ public:
     if (scan_ && !finished_ && clockUs() >= nextPreview_) {
       nextPreview_ = clockUs() + 100000;
       requestPreview();
-      emit("progress", {{"counts", counts()}});
+      emit("progress", {{"counts", counts()}, {"phase", state_}});
     }
     publishPreview();
     if (armed_ || capturing_) {
@@ -650,6 +704,9 @@ public:
   void fail(const std::string &why) {
     if (scan_ && !finished_) {
       captureFailure_ = why;
+      discardedBacklog_ += ingress_ ? ingress_->pending() : 0;
+      ingress_.reset();
+      engineSealed_ = true;
       light_.off();
       hardware_.close();
       armed_ = false;

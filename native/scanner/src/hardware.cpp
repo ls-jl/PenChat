@@ -254,7 +254,8 @@ void Hardware::openCamera() {
   stride_ = f.fmt.pix_mp.plane_fmt[0].bytesperline;
   require(stride_ >= 496, "invalid pen stride");
   v4l2_requestbuffers r{};
-  r.count = 4;
+  // Absorb short scheduler stalls without dropping real sensor frames.
+  r.count = 12;
   r.type = f.type;
   r.memory = V4L2_MEMORY_MMAP;
   require(io(video_, VIDIOC_REQBUFS, &r) == 0 && r.count >= 2 && r.count <= 16,

@@ -3,6 +3,9 @@
 namespace penchat {
 namespace {
 std::string scanReason(const std::string &reason) {
+  if (reason.find("temporary queue storage stalled") != std::string::npos ||
+      reason.find("temporary queue I/O") != std::string::npos)
+    return "扫描暂存写入过慢或失败，请稍后重试";
   if (reason.find("16 MiB") != std::string::npos)
     return "图片超过16MiB或保存失败，请缩短扫描后重试";
   if (reason == "sensor_sequence_gap" || reason == "sensor_sequence_reset")
@@ -96,6 +99,9 @@ void App::scanPage() {
              std::to_string(c.value("selected", uint64_t(0))) + " 帧" +
              (c.value("warnings", 0u) ? "，存在光照估计回退，请核对"
                                       : "，请确认使用");
+    if (c.value("recovered_gaps", uint64_t(0)))
+      text = "传感器漏 " + std::to_string(c.value("recovered_gaps", uint64_t(0))) +
+             " 帧（已续扫） · " + text;
     lv_label_set_text(scanLabel_, text.c_str());
   }
 }
@@ -142,9 +148,10 @@ void App::scanEvent(const Event &event) {
     }
   } else if (event.type == "scan_progress" && scanLabel_) {
     auto c = j.value("counts", Json::object());
-    auto text = "正向扫描 · 选中 " + std::to_string(c.value("selected", uint64_t(0))) +
+    auto text = std::string(j.value("phase", std::string()) == "processing" ? "拼接中 · 选中 " : "正向扫描 · 选中 ") + std::to_string(c.value("selected", uint64_t(0))) +
                 " 帧 · 已拼接 " +
-                std::to_string(c.value("committed", uint64_t(0))) + " 帧";
+                std::to_string(c.value("committed", uint64_t(0))) + " 帧 · 待处理 " +
+                std::to_string(c.value("pending", uint64_t(0))) + " 帧";
     lv_label_set_text(scanLabel_, text.c_str());
   } else if (event.type == "scan_processing" && scanLabel_)
     lv_label_set_text(scanLabel_, "采集已结束，正在完成剩余拼接…");
