@@ -56,11 +56,12 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
          const Screen &s, std::string workspace, std::string dataDir,
          const std::string &fontPath, const std::string &resources)
     : db_(db), bridge_(bridge), display_(display), input_(input), screen_(s),
-      images_(events_), camera_(events_, join(dataDir, "DCIM")),
+      images_(events_), camera_(events_, join(dataDir, "camera-tmp")),
       scanner_(events_, workspace, dataDir),
       rich_(fontPath, resources,
             join(workspace, "assets/fonts/DejaVuSans.ttf")),
       workspace_(std::move(workspace)), dataDir_(std::move(dataDir)) {
+  clearCrop();
   auto config = db_.settings();
   session_ = stringValue(config, "active_session_id");
   if (session_.empty() ||
@@ -946,6 +947,8 @@ void App::build() {
     cameraPage();
   else if (view_ == "album")
     albumPage();
+  else if (view_ == "crop")
+    cropPage();
   if (view_ == "chat" && scanner_.available()) {
     auto hint = box(screenObj_, 12, 60, 64, 64);
     lv_obj_set_scrollable(hint, false);
@@ -968,6 +971,8 @@ void App::build() {
   syncScanner();
 }
 void App::show(const std::string &view) {
+  if (view_ == "crop" && view != "crop")
+    clearCrop();
   if (view_ == "scan" && view != "scan") {
     scanner_.eligible(false, session_);
     scanId_ = 0;
@@ -2295,6 +2300,7 @@ void App::shutdown() {
   modelCancel_ = true;
   titleCancel_ = true;
   camera_.stop();
+  clearCrop();
   if (network_.joinable())
     network_.join();
   if (modelWorker_.joinable())
@@ -2307,6 +2313,10 @@ void App::shutdown() {
 void App::handle(const Json &m) {
   auto type = m.value("type", std::string());
 #ifndef __aarch64__
+  if (type == "camera.test") {
+    beginCrop(m.at("photo"));
+    return;
+  }
   if (type == "scanner.test") {
     scanner_.test(m);
     return;
@@ -2560,9 +2570,35 @@ void App::tick() {
     else if (e.type == "camera_started" && view_ == "camera") {
       if (status_)
         lv_label_set_text(status_, "");
-    } else if (e.type == "photo" && view_ == "camera" && visible_ &&
-               !navigationOpen_)
-      attach(e.data);
+    } else if (e.type == "photo") {
+      if (view_ == "camera" && visible_ && !navigationOpen_)
+        beginCrop(e.data);
+      else
+        unlink(e.data.value("path", std::string()).c_str());
+    } else if (e.type == "crop_confirm" && view_ == "crop" && !cropBusy_)
+      confirmCrop();
+    else if (e.type == "crop_done" && view_ == "crop" && cropBusy_ &&
+             e.data.value("generation",-1)==cropGeneration_) {
+      if (cropWorker_.joinable()) cropWorker_.join();
+      cropBusy_ = false;
+      if (cropResult_.contains("error")) {
+        build();
+        error(cropResult_["error"].get<std::string>());
+      } else {
+        try {
+          auto model = currentModel();
+          bindPreferences(model);
+          db_.append(session_, "user", "", cropResult_, sessionPreferences_);
+          clearCrop(true);
+          chatFollowing_ = true;
+          messageOffset_ = 0;
+          show("chat");
+        } catch (const std::exception &failure) {
+          build();
+          error(failure.what());
+        }
+      }
+    }
   }
   tickTitles();
   if (dirty_ && ticks() >= renderDue_) {
@@ -2694,6 +2730,10 @@ Json App::diagnostics() const {
       {"reasoning_observed",
        reasoningMetadata_.value("reasoning_observed", false)},
       {"reasoning_expanded_count", expandedReasoning_.size()},
+      {"crop_rect", {cropX_, cropY_, cropW_, cropH_}},
+      {"crop_preview", {cropPreviewW_, cropPreviewH_}},
+      {"crop_save_album", cropSaveAlbum_},
+      {"crop_busy", cropBusy_},
       {"chat_images", photoBounds},
       {"table_rows", tableRows},
       {"to_bottom_x", toBottom_ ? lv_obj_get_x(toBottom_) : -1},

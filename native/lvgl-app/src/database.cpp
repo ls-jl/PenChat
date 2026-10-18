@@ -455,7 +455,7 @@ std::string Database::append(const std::string &s, const std::string &role,
               "width,height,display_src,metadata_json,created_at) "
               "VALUES(?,?,?,'image',?,?,?,?,?,?,?,?)",
               {asset, s, id, image.value("source", std::string("camera")),
-               image.value("source", std::string()) == "scan" ? Json(stored)
+               (image.value("source", std::string()) == "scan" || image.value("ephemeral",false)) ? Json(stored)
                                                               : image["path"],
                stored, image.value("width", 0), image.value("height", 0),
                preview, image.value("metadata", Json::object()).dump(),

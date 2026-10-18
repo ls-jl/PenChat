@@ -54,7 +54,7 @@ add_library(penchat_core STATIC src/common.cpp src/database.cpp src/network.cpp 
 target_include_directories(penchat_core PUBLIC src "${DEPS}/webp/src" "${DEPS}/json/single_include" "${DEPS}/include" "${CAMERA}/src" "${CAMERA}/third_party/stb" "${LIBDRM_DIR}" "${LIBDRM_DIR}/include/drm")
 target_compile_options(penchat_core PRIVATE -Wall -Wextra -Werror=return-type)
 target_link_libraries(penchat_core PUBLIC md4c microtex webpdecoder lvgl::lvgl ${SQLITE_LIB} ${CURL_LIB} dl pthread m)
-add_executable(penchat-lvgl src/main.cpp src/platform.cpp src/app.cpp src/app_history.cpp src/scanner_ui.cpp)
+add_executable(penchat-lvgl src/main.cpp src/platform.cpp src/app.cpp src/app_history.cpp src/scanner_ui.cpp src/app_crop.cpp)
 target_link_libraries(penchat-lvgl penchat_core)
 target_include_directories(penchat-lvgl PRIVATE "${DEPS}/lvgl")
 if(CMAKE_CROSSCOMPILING)

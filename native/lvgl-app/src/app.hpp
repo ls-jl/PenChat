@@ -167,6 +167,20 @@ class App {
   void goBack();
   void closeNavigation(bool resumeCamera = true);
   void cameraPage();
+  void cropPage();
+  void updateCrop();
+  void beginCrop(const Json &photo);
+  void confirmCrop();
+  void clearCrop(bool keepAlbum = false);
+  Json cropPhoto_, cropResult_;
+  std::thread cropWorker_;
+  int cropGeneration_ = 0;
+  bool cropBusy_ = false, cropSaveAlbum_ = false;
+  int cropX_ = 0, cropY_ = 0, cropW_ = 0, cropH_ = 0;
+  int cropPreviewW_ = 0, cropPreviewH_ = 0;
+  lv_obj_t *cropSelection_ = nullptr;
+  lv_obj_t *cropShades_[4] = {};
+
   void albumPage();
   void renderMessages(bool bottom);
   void richMessage(lv_obj_t *parent, const std::string &text, int width,

@@ -104,3 +104,5 @@ PenChat is an independent application. Never read external application databases
 Every delivered fix increments the package patch version (0.1.0 → 0.1.1 → 0.1.2). Keep package-lock root metadata in sync; build identity and AMR filename derive from package.json.
 
 Commit every completed change to Git after validation. Each delivered fix also increments the patch version; never claim uncommitted work is committed.
+
+Camera captures stay in camera-tmp until crop confirmation. Confirm attaches without auto-send. Persist saveCameraToAlbum; only explicit opt-in creates a new PenChat photo in /userdisk/Pictures. Never alter existing system photos; cancellation and exit discard temporary captures.

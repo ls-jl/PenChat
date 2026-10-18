@@ -73,6 +73,7 @@ if __name__=='__main__':
     assert 'ORANGE' in device.adb('cat /proc/device-tree/model')
     close_app();pull(DATA+'/penchat.db',OUT/'before.db')
     before_files=set(device.adb('find '+DATA+'/DCIM '+DATA+'/assets -type f 2>/dev/null || true').splitlines())
+    before_album=set(device.adb('find /userdisk/Pictures -maxdepth 1 -name \"PenChat*.jpg\" -type f 2>/dev/null || true').splitlines())
     parent=device.adb('pidof miniapp')
     sdk=__import__('os').environ.get('RK_SDK_ROOT','/home/ls-jl/dictpen/x7pro/android13_sdk/RK3562_Android13.0_SDK')
     toolchain=__import__('os').environ.get('JSAPI_TOOLCHAIN_ROOT',sdk+'/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu')
@@ -101,7 +102,16 @@ if __name__=='__main__':
         mode('ok')
         # Enable image auto-send using the actual settings UI, then take a real photo.
         device.open_settings();device.tap(300,134);device.to_chat()
-        device.tap(128,232);device.tap(200,38);device.view('camera');time.sleep(.5);device.tap(888,133);device.view('chat');wait_reply(5,'complete');assert requests()[-1]['has_image'];results.append('camera-auto-send')
+        device.tap(128,232);device.tap(200,38);device.view('camera');time.sleep(.5);device.tap(888,133);device.view('crop')
+        state=device.state();assert not state['crop_save_album']
+        w,h=state['crop_preview'];x=86+12+(630-w)//2+3;y=(266-h)//2+3
+        device.adb('/tmp/penchat-ui-tap '+str(y+113)+' '+str(959-x)+' '+str(y+153)+' '+str(909-x)+' 25 2>/dev/null')
+        state=device.state();rect=state['crop_rect'];assert rect[0]>=45 and rect[1]>=35,(rect,state['touch'])
+        device.capture('camera-crop')
+        # Save the confirmed crop to the shared album, but never auto-send it.
+        count=len(requests());device.tap(830,120);device.tap(835,180);device.view('chat')
+        assert len(requests())==count
+        device.tap(908,232);wait_reply(5,'complete');assert requests()[-1]['has_image'];results.append('camera-crop-pending-and-album')
         # Disable auto-send, pick the saved photo through the real album UI, then send manually.
         device.open_settings();device.tap(300,134);device.to_chat()
         count=len(requests());device.tap(128,232);device.tap(200,82);device.view('album');device.tap(200,95);device.view('chat');time.sleep(.2)
@@ -245,6 +255,8 @@ if __name__=='__main__':
         close_app();push(OUT/'before.db',DATA+'/penchat.db')
         after_files=set(device.adb('find '+DATA+'/DCIM '+DATA+'/assets -type f 2>/dev/null || true').splitlines())
         for path in after_files-before_files:device.adb('rm -f -- '+shlex.quote(path))
+        after_album=set(device.adb('find /userdisk/Pictures -maxdepth 1 -name \"PenChat*.jpg\" -type f 2>/dev/null || true').splitlines())
+        for path in after_album-before_album:device.adb('rm -f -- '+shlex.quote(path))
         fixture_requests=requests()
         device.adb('kill -TERM '+fixture_pid)
         fixture_process.wait(timeout=5)
