@@ -31,10 +31,10 @@ class Server(BasicServer):
                 item={'id':'reason-'+str(len(self.requests)),'type':'reasoning','status':'completed','summary':[], 'encrypted_content':'opaque-test-only'}
                 if mode!='none':
                     emit({'type':'response.output_item.added','output_index':0,'item':{'id':item['id'],'type':'reasoning'}})
-                    if mode=='summary':
+                    if mode in ('summary','summary-delayed'):
                         emit({'type':'response.reasoning_summary_text.delta','output_index':0,'summary_index':0,'delta':'公开总结'})
                         item['summary']=[{'type':'summary_text','text':'公开总结'}]
-                    time.sleep(1.8 if mode=="delayed" else .25)
+                    time.sleep(1.8 if mode in ('delayed','summary-delayed') else .25)
                     emit({'type':'response.output_item.done','output_index':0,'item':item})
                 emit({'type':'response.output_text.delta','output_index':1,'delta':'回答完成。'})
                 final=({'output':[item] if mode!='none' else []})

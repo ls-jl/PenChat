@@ -126,6 +126,7 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
           session_ = id;
           sessionPreferences_ = db_.sessionPreferences(id);
           expandedReasoning_.clear();
+          reasoningOverrides_.clear();
           pullNeedsPause_ = pullTrackActivity_ = false;
           db_.setting("active_session_id", id);
           messageOffset_ = 0;
@@ -271,6 +272,7 @@ void App::retireSession(const std::string &id, bool archive) {
     session_ = uid("session");
     sessionPreferences_ = Json::object();
     expandedReasoning_.clear();
+    reasoningOverrides_.clear();
     draft_.clear();
     db_.setting("active_session_id", nullptr);
     pullNeedsPause_ = pullTrackActivity_ = false;

@@ -66,6 +66,7 @@ def seed(path,api):
     db.execute("insert or replace into app_settings(key,value_json,updated_at) values('penchat_settings',?,?)",(json.dumps({'autoSendCapturedContent':False}),now))
     db.execute("insert or replace into app_settings(key,value_json,updated_at) values('auto_title_enabled','true',1)")
     db.execute("insert or replace into app_settings(key,value_json,updated_at) values('title_model_id','\"\"',1)")
+    db.execute("insert or replace into app_settings(key,value_json,updated_at) values('reasoning_display','\"collapsed\"',1)")
     db.commit();db.close()
 
 if __name__=='__main__':

@@ -148,6 +148,7 @@ lv_obj_t *App::imageWidget(lv_obj_t *parent) {
                 }),
             self->imageRequests_.end());
         self->placeholders_.erase(object);
+        self->chatPhotos_.erase(object);
         auto texture = self->textures_.find(object);
         if (texture != self->textures_.end()) {
           lv_image_cache_drop(&texture->second->descriptor);
@@ -158,19 +159,29 @@ lv_obj_t *App::imageWidget(lv_obj_t *parent) {
   return object;
 }
 void App::image(lv_obj_t *parent, const std::string &path, int x, int y, int w,
-                int h, std::function<void()> click, bool rightAligned) {
-  auto holder = box(parent, x, y, w, h, theme::surface);
+                int h, std::function<void()> click, bool rightAligned,
+                bool chatPhoto) {
+  auto holder =
+      box(parent, x, y, chatPhoto ? std::min(w, h) : w, h, theme::surface);
   lv_obj_set_scrollable(holder, false);
   lv_obj_set_style_bg_opa(holder, LV_OPA_TRANSP, 0);
   auto placeholder = label(holder, "加载图片…", 0, 0, w, 17, theme::muted);
   lv_obj_center(placeholder);
   auto o = imageWidget(holder);
   placeholders_[o] = placeholder;
+  if (chatPhoto) {
+    chatPhotos_.insert(o);
+    lv_obj_set_style_radius(holder, 12, 0);
+    lv_obj_set_style_clip_corner(holder, true, 0);
+    lv_obj_set_width(placeholder, LV_PCT(100));
+  }
   lv_obj_align(o, rightAligned ? LV_ALIGN_RIGHT_MID : LV_ALIGN_CENTER, 0, 0);
-  auto key = images_.request(path, w, h);
+  auto key = images_.request(path, w, h, chatPhoto);
   imageRequests_.push_back({o, key});
   if (auto frame = images_.get(key)) {
     texture(o, frame);
+    if (chatPhoto)
+      lv_obj_set_size(holder, frame->width, frame->height);
     lv_obj_set_hidden(placeholder, true);
   } else if (images_.failed(key))
     lv_label_set_text(placeholder, "图片读取失败");
@@ -1162,13 +1173,15 @@ void App::newChat() {
   sessionPreferences_ = Json::object();
   reasoningMetadata_ = Json::object();
   expandedReasoning_.clear();
+  reasoningOverrides_.clear();
   draft_.clear();
   chatFollowing_ = true;
   chatScroll_ = 0;
   messageOffset_ = 0;
   show("chat");
 }
-void App::richMessage(lv_obj_t *parent, const std::string &text, int width, bool subdued) {
+void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
+                      bool subdued) {
   auto doc = parseMarkdown(text, generating_ && parent == liveContent_);
   rich_.prepare(doc, width - 4);
   auto appendText = [&](const Block &b) {
@@ -1186,8 +1199,14 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width, bool
           static_cast<App *>(lv_event_get_user_data(e))->paintVisible();
         },
         LV_EVENT_SCROLL, this);
-    rasters_.push_back(
-        {holder, parent, b, width - 4, layout.height, layout.width, subdued, {}});
+    rasters_.push_back({holder,
+                        parent,
+                        b,
+                        width - 4,
+                        layout.height,
+                        layout.width,
+                        subdued,
+                        {}});
   };
   for (const auto &b : doc.blocks) {
     Block part = b;
@@ -1223,6 +1242,9 @@ void App::renderMessages(bool bottom) {
   reasoningHeaders_.clear();
   lv_obj_clean(messageContent_);
   auto messages = db_.messages(session_, messageOffset_, 30);
+  const auto reasoningMode =
+      db_.settings().value("reasoning_display", std::string("collapsed"));
+  expandedReasoning_.clear();
   rows_ = messages;
   hasConversationContent_ =
       !db_.query("SELECT id FROM chat_messages WHERE session_id=? AND "
@@ -1242,14 +1264,38 @@ void App::renderMessages(bool bottom) {
     lv_obj_set_scrollable(welcome, false);
     auto title = label(welcome, PENCHAT_NAME, 0, 42, width, 30);
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-    auto hint =
-        label(welcome, db_.models().empty() ? "请在设置中添加 Provider 和模型" : "有什么可以帮你？", 0, 86, width, 23, theme::muted);
+    auto hint = label(welcome,
+                      db_.models().empty() ? "请在设置中添加 Provider 和模型"
+                                           : "有什么可以帮你？",
+                      0, 86, width, 23, theme::muted);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
   }
+  lv_obj_t *photoGroup = nullptr;
   for (const auto &m : messages) {
     bool user = m.value("role", std::string()) == "user";
     const bool hasImage = !stringValue(m, "stored_path").empty() ||
                           !stringValue(m, "original_path").empty();
+    // Consecutive image-only user messages share one wrapping gallery. Keep
+    // database rows and request order unchanged; never group across a reply.
+    if (user && hasImage && stringValue(m, "output_text").empty()) {
+      if (!photoGroup) {
+        photoGroup = box(messageContent_, 0, 0, width, LV_SIZE_CONTENT);
+        lv_obj_set_scrollable(photoGroup, false);
+        lv_obj_set_flex_flow(photoGroup, LV_FLEX_FLOW_ROW_WRAP);
+        lv_obj_set_flex_align(photoGroup, LV_FLEX_ALIGN_END,
+                              LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+        lv_obj_set_style_pad_column(photoGroup, 8, 0);
+        lv_obj_set_style_pad_row(photoGroup, 8, 0);
+      }
+      auto path = stringValue(m, "display_src");
+      if (path.empty())
+        path = stringValue(m, "stored_path");
+      if (path.empty())
+        path = stringValue(m, "original_path");
+      image(photoGroup, path, 0, 0, width, 140, {}, false, true);
+      continue;
+    }
+    photoGroup = nullptr;
     int contentWidth = user ? width * 3 / 4 : width;
     if (user && stringValue(m, "stored_path").empty() &&
         stringValue(m, "original_path").empty()) {
@@ -1297,13 +1343,19 @@ void App::renderMessages(bool bottom) {
       reasoningHeaders_.push_back(header);
       lv_obj_set_scrollable(header, false);
       if (!reason.empty()) {
-        auto toggle = [this, id] {
-          if (expandedReasoning_.count(id))
-            expandedReasoning_.erase(id);
-          else
-            expandedReasoning_.insert(id);
-          chatFollowing_ = false;
-          renderMessages(false);
+        bool expanded =
+            reasoningMode == "always" ||
+            (reasoningMode == "during" && id == assistant_ && generating_ &&
+             !metadata.value("reasoning_complete", false));
+        auto manual = reasoningOverrides_.find(id);
+        if (manual != reasoningOverrides_.end())
+          expanded = manual->second;
+        if (expanded)
+          expandedReasoning_.insert(id);
+        auto toggle = [this, id, expanded] {
+          events_.push(
+              "reasoning_toggle",
+              {{"id", id}, {"expanded", !expanded}, {"session", session_}});
         };
         icon(header,
              expandedReasoning_.count(id) ? "chevron-down" : "chevron-right", 0,
@@ -1311,7 +1363,7 @@ void App::renderMessages(bool bottom) {
         auto titleButton = button(header, title, 44, 0, 300, 44, toggle,
                                   theme::background, LV_TEXT_ALIGN_LEFT);
         lv_obj_set_style_text_color(lv_obj_get_child(titleButton, 0),
-                                   lv_color_hex(theme::reasoning), 0);
+                                    lv_color_hex(theme::reasoning), 0);
         if (expandedReasoning_.count(id)) {
           auto detail = box(wrap, 0, 0, textWidth, LV_SIZE_CONTENT);
           lv_obj_set_scrollable(detail, false);
@@ -1329,7 +1381,7 @@ void App::renderMessages(bool bottom) {
     if (!path.empty()) {
       auto imgBox = box(wrap, 0, 0, textWidth, 140);
       lv_obj_set_scrollable(imgBox, false);
-      image(imgBox, path, 0, 0, textWidth, 140, {}, user);
+      image(imgBox, path, 0, 0, textWidth, 140, {}, user, true);
     }
     if (!content.empty()) {
       if (user)
@@ -1353,10 +1405,13 @@ void App::renderMessages(bool bottom) {
       renderMessages(true);
     });
   lv_obj_update_layout(messageContent_);
-  lv_obj_scroll_to_y(body_, (bottom || follow) ? LV_COORD_MAX : scroll,
+  lv_obj_stop_scroll_anim(body_);
+  const int maximum = std::max(
+      0, int(lv_obj_get_scroll_y(body_) + lv_obj_get_scroll_bottom(body_)));
+  lv_obj_scroll_to_y(body_, (bottom || follow) ? maximum : std::min(scroll, maximum),
                      LV_ANIM_OFF);
   chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
-  chatFollowing_ = follow;
+  chatFollowing_ = follow || (messageOffset_ == 0 && maximum == 0);
   chatLayout_ = previousLayout;
   updateChatControls(true);
   paintVisible();
@@ -1425,8 +1480,9 @@ void App::paintVisible() {
     for (auto position : wanted)
       if (!r.tiles.count(position)) {
         int x = position.first, y = position.second;
-        auto bitmap = rich_.paint(r.block, r.width, y,
-                                  std::min(128, r.height - y), 21, x, 512, r.subdued);
+        auto bitmap =
+            rich_.paint(r.block, r.width, y, std::min(128, r.height - y), 21, x,
+                        512, r.subdued);
         auto frame = std::make_shared<ImageFrame>();
         frame->width = bitmap.width;
         frame->height = bitmap.height;
@@ -1457,17 +1513,40 @@ void App::paintVisible() {
   }
 }
 void App::refreshImages() {
+  bool resized = false;
   for (auto &request : imageRequests_) {
     auto frame = images_.get(request.second);
     if (frame) {
       if (!textures_.count(request.first) ||
           textures_[request.first]->frame != frame)
         texture(request.first, frame);
+      if (chatPhotos_.count(request.first)) {
+        auto holder = lv_obj_get_parent(request.first);
+        if (lv_obj_get_width(holder) != frame->width ||
+            lv_obj_get_height(holder) != frame->height) {
+          lv_obj_set_size(holder, frame->width, frame->height);
+          resized = true;
+        }
+      }
       if (placeholders_.count(request.first))
         lv_obj_set_hidden(placeholders_[request.first], true);
     } else if (images_.failed(request.second) &&
                placeholders_.count(request.first))
       lv_label_set_text(placeholders_[request.first], "图片读取失败");
+  }
+  if (resized && view_ == "chat" && body_ && messageContent_) {
+    const bool previous = chatLayout_;
+    chatLayout_ = true;
+    lv_obj_update_layout(messageContent_);
+    const int maximum = std::max(
+        0, int(lv_obj_get_scroll_y(body_) + lv_obj_get_scroll_bottom(body_)));
+    lv_obj_scroll_to_y(
+        body_, chatFollowing_ ? maximum : std::min(chatScroll_, maximum),
+        LV_ANIM_OFF);
+    chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
+    chatLayout_ = previous;
+    updateChatControls(true);
+    paintVisible();
   }
 }
 void App::pageHeader(const std::string &title) {
@@ -1493,14 +1572,16 @@ void App::settingsPage() {
     archiveOffset_ = 0;
     show("archives");
   });
-  action(settings.value("autoSendCapturedContent", false)
-             ? "图片自动发送：开" : "图片自动发送：关", left, 62, [this] {
-    auto settings = db_.settings().value("penchat_settings", Json::object());
-    settings["autoSendCapturedContent"] =
-        !settings.value("autoSendCapturedContent", false);
-    db_.setting("penchat_settings", settings);
-    build();
-  });
+  action(settings.value("autoSendCapturedContent", false) ? "图片自动发送：开"
+                                                          : "图片自动发送：关",
+         left, 62, [this] {
+           auto settings =
+               db_.settings().value("penchat_settings", Json::object());
+           settings["autoSendCapturedContent"] =
+               !settings.value("autoSendCapturedContent", false);
+           db_.setting("penchat_settings", settings);
+           build();
+         });
   const bool autoTitle = config.value("auto_title_enabled", true);
   action(autoTitle ? "自动命名：开" : "自动命名：关", right, 62,
          [this, autoTitle] {
@@ -1518,17 +1599,42 @@ void App::settingsPage() {
   action("命名模型：" + titleModelName, left, 120,
          [this] { modelPicker(true); });
   const auto summary = db_.summary();
-  auto storage = box(body_, right, 120, column, 48, theme::surface);
+  auto storage = box(body_, left, 178, column, 48, theme::surface);
   lv_obj_set_scrollable(storage, false);
   lv_obj_set_style_radius(storage, 10, 0);
-  auto count = label(storage, "存储：" + summary["sessions"].dump() +
-                     " 个会话 / " + summary["messages"].dump() + " 条消息",
+  auto count = label(storage,
+                     "存储：" + summary["sessions"].dump() + " 个会话 / " +
+                         summary["messages"].dump() + " 条消息",
                      12, 0, column - 24, 20, theme::muted);
   lv_label_set_long_mode(count, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(count, font(20)->line_height);
   lv_obj_align(count, LV_ALIGN_LEFT_MID, 12, 0);
-  label(body_, PENCHAT_NAME " " PENCHAT_VERSION " · LVGL 9.6.0", left, 182, width, 16,
-        theme::muted);
+  const auto reasoningMode =
+      config.value("reasoning_display", std::string("collapsed"));
+  const std::string reasoningName = reasoningMode == "always" ? "始终展开"
+                                    : reasoningMode == "during"
+                                        ? "思考完毕后收起"
+                                        : "不展开";
+  action("思考过程：" + reasoningName, right, 120,
+         [this] { reasoningDisplayPicker(); });
+  label(body_, PENCHAT_NAME " " PENCHAT_VERSION " · LVGL 9.6.0", right, 192,
+        column, 16, theme::muted);
+}
+void App::reasoningDisplayPicker() {
+  modal("自动展开思考过程", "");
+  const std::pair<const char *, const char *> choices[] = {
+      {"collapsed", "不展开"},
+      {"during", "思考完毕后收起"},
+      {"always", "始终展开"}};
+  const auto mode =
+      db_.settings().value("reasoning_display", std::string("collapsed"));
+  for (int i = 0; i < 3; ++i) {
+    const std::string key = choices[i].first;
+    button(modal_, (mode == key ? "● " : "○ ") + std::string(choices[i].second),
+           16 + i * 278, 65, 266, 52, [this, key] {
+             events_.push("reasoning_display", {{"mode", key}});
+           });
+  }
 }
 void App::providerPage() {
   int w = screen_.width - 118;
@@ -1882,15 +1988,17 @@ void App::historyDrawer() {
   // LVGL needs scrollable extent before it will start an elastic gesture.
   // A transparent one-pixel tail also enables bounce for short/empty lists.
   if (lv_obj_get_scroll_bottom(navigationList_) <= 0) {
-    auto tail = box(navigationList_, 0, lv_obj_get_height(navigationList_), 1, 1);
+    auto tail =
+        box(navigationList_, 0, lv_obj_get_height(navigationList_), 1, 1);
     lv_obj_set_style_bg_opa(tail, LV_OPA_TRANSP, 0);
     lv_obj_set_scrollable(tail, false);
     lv_obj_set_clickable(tail, false);
     lv_obj_update_layout(navigationList_);
   }
   const int end = std::max(0, int(lv_obj_get_scroll_y(navigationList_) +
-                                 lv_obj_get_scroll_bottom(navigationList_)));
-  lv_obj_scroll_to_y(navigationList_, std::min(navigationScroll_, end), LV_ANIM_OFF);
+                                  lv_obj_get_scroll_bottom(navigationList_)));
+  lv_obj_scroll_to_y(navigationList_, std::min(navigationScroll_, end),
+                     LV_ANIM_OFF);
 }
 void App::cameraPage() {
   lv_obj_set_scrollable(body_, false);
@@ -2246,7 +2354,22 @@ void App::tick() {
       scanEvent(e);
       continue;
     }
-    if (e.type == "history_context") {
+    if (e.type == "reasoning_toggle") {
+      if (view_ == "chat" &&
+          e.data.value("session", std::string()) == session_) {
+        input_.cancel();
+        lv_obj_stop_scroll_anim(body_);
+        reasoningOverrides_[e.data["id"].get<std::string>()] =
+            e.data["expanded"].get<bool>();
+        chatFollowing_ = false;
+        renderMessages(false);
+      }
+    } else if (e.type == "reasoning_display") {
+      input_.cancel();
+      db_.setting("reasoning_display", e.data.at("mode"));
+      reasoningOverrides_.clear();
+      build();
+    } else if (e.type == "history_context") {
       auto id = e.data.value("id", std::string());
       if (navigationOpen_ && !modal_ && !keyboard_ &&
           longPressedSession_ == id) {
@@ -2346,6 +2469,18 @@ void App::tick() {
   }
 }
 Json App::diagnostics() const {
+  Json photoBounds = Json::array();
+  for (auto object : chatPhotos_) {
+    auto holder = lv_obj_get_parent(object);
+    lv_area_t bounds;
+    lv_obj_get_coords(holder, &bounds);
+    photoBounds.push_back(
+        {{"x", bounds.x1},
+         {"y", bounds.y1},
+         {"width", lv_obj_get_width(holder)},
+         {"height", lv_obj_get_height(holder)},
+         {"radius", lv_obj_get_style_radius(holder, LV_PART_MAIN)}});
+  }
   auto model = db_.activeModel();
   auto selected = sessionPreferences_.value("model_id", std::string());
   if (!selected.empty()) {
@@ -2427,6 +2562,7 @@ Json App::diagnostics() const {
       {"reasoning_observed",
        reasoningMetadata_.value("reasoning_observed", false)},
       {"reasoning_expanded_count", expandedReasoning_.size()},
+      {"chat_images", photoBounds},
       {"to_bottom_x", toBottom_ ? lv_obj_get_x(toBottom_) : -1},
       {"to_bottom_y", toBottom_ ? lv_obj_get_y(toBottom_) : -1},
       {"to_bottom_opacity",

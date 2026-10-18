@@ -186,17 +186,14 @@ Json requestBody(const Json &m, Json input, bool streaming) {
 void streamChat(const Json &m, Json input, std::atomic<bool> &cancel,
                 Events &events, int generation) {
   Json tag = {{"generation", generation}};
-  bool ended = false;
+  bool ended = false, stateChanged = false;
   std::string protocolError;
   ReasoningStream state(ticks());
-  int64_t published = 0;
-  auto publish = [&](bool force) {
-    if (!force && ticks() - published < 50)
-      return;
-    published = ticks();
+  auto publish = [&] {
+    const auto published = ticks();
     auto snapshot = state.snapshot(published);
     snapshot["generation"] = generation;
-    events.push("response_state", snapshot);
+    events.pushLatest("response_state", snapshot);
   };
   try {
     for (auto &item : input)
@@ -231,7 +228,7 @@ void streamChat(const Json &m, Json input, std::atomic<bool> &cancel,
             error.empty() ? "Response did not complete" : error.dump();
       }
       state.consume(j, type, ticks());
-      publish(false);
+      stateChanged = true;
       if (type == "response.completed")
         ended = true;
       if (j.contains("choices") && !j["choices"].empty()) {
@@ -245,11 +242,20 @@ void streamChat(const Json &m, Json input, std::atomic<bool> &cancel,
     auto result =
         http(apiRoot(m) + (completions(m) ? "/chat/completions" : "/responses"),
              "POST", headers, requestBody(m, input, true).dump(), cancel,
-             [&](const char *p, size_t n) { parser.feed(p, n); });
+             [&](const char *p, size_t n) {
+               parser.feed(p, n);
+               // Publish the tail of each received chunk, even if the server
+               // pauses after the first reasoning delta. UI painting remains
+               // throttled; only the latest pending snapshot is retained.
+               if (stateChanged) {
+                 publish();
+                 stateChanged = false;
+               }
+             });
     if (!cancel)
       parser.finish();
     state.finish(ticks());
-    publish(true);
+    publish();
     Json out = tag;
     if (cancel) {
       events.push("cancelled", out);
@@ -268,7 +274,7 @@ void streamChat(const Json &m, Json input, std::atomic<bool> &cancel,
       events.push("done", out);
   } catch (const std::exception &e) {
     state.finish(ticks());
-    publish(true);
+    publish();
     Json out = tag;
     out["error"] = e.what();
     events.push("network_error", out);

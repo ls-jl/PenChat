@@ -51,6 +51,9 @@ class App {
        reasoningMetadata_ = Json::object(), modelForm_ = Json::object();
   std::string effortMemory_, popupKind_;
   std::set<std::string> expandedReasoning_;
+  std::map<std::string, bool> reasoningOverrides_;
+  std::set<lv_obj_t *> chatPhotos_;
+  void reasoningDisplayPicker();
   std::vector<lv_obj_t *> reasoningHeaders_;
   bool modelAdvanced_ = false, hasConversationContent_ = false;
   bool navigationPointerDown_ = false, navigationBackdrop_ = false;
@@ -131,8 +134,8 @@ class App {
                    lv_text_align_t align = LV_TEXT_ALIGN_CENTER);
   lv_obj_t *imageWidget(lv_obj_t *parent);
   void image(lv_obj_t *parent, const std::string &path, int x, int y, int w,
-             int h, std::function<void()> click = {},
-             bool rightAligned = false);
+             int h, std::function<void()> click = {}, bool rightAligned = false,
+             bool chatPhoto = false);
   void texture(lv_obj_t *object, std::shared_ptr<ImageFrame> frame,
                bool premultiplied = false);
   lv_obj_t *icon(lv_obj_t *parent, const std::string &kind, int x, int y, int w,
@@ -163,7 +166,8 @@ class App {
   void cameraPage();
   void albumPage();
   void renderMessages(bool bottom);
-  void richMessage(lv_obj_t *parent, const std::string &text, int width, bool subdued = false);
+  void richMessage(lv_obj_t *parent, const std::string &text, int width,
+                   bool subdued = false);
   void paintVisible();
   void renderLiveMessage();
   void refreshImages();
