@@ -2,6 +2,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TARGET=${1:-orange}
+python3 "$ROOT/scripts/stage-fonts.py"
 bash "$ROOT/scripts/prepare-native-system.sh"
 python3 "$ROOT/scripts/fetch-lvgl-deps.py"
 python3 "$ROOT/scripts/prepare-microtex.py"

@@ -1,0 +1,8 @@
+{
+  "file": "DejaVuSans.ttf",
+  "sha256": "b085ec81bb04599e00edf512dee0c7f4c8252dea711dc7139da8c986159ad785",
+  "bytes": 759720,
+  "source": "https://dejavu-fonts.github.io/",
+  "package": "fonts-dejavu-core 2.37-deepin3",
+  "license": "LICENSE.txt"
+}

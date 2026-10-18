@@ -70,7 +70,7 @@ enable_testing()
 add_executable(penchat-tests "${ROOT}/tests/native/CoreTest.cpp")
 target_link_libraries(penchat-tests penchat_core)
 target_compile_options(penchat-tests PRIVATE -UNDEBUG)
-add_test(NAME penchat-core COMMAND penchat-tests "${DEPS}/chinese.ttf" "${DEPS}/microtex/res")
+add_test(NAME penchat-core COMMAND penchat-tests "${DEPS}/chinese.ttf" "${DEPS}/microtex/res" "${ROOT}/assets/fonts/DejaVuSans.ttf")
 
 if(CMAKE_CROSSCOMPILING)
  target_link_options(penchat-tests PRIVATE -static-libstdc++ -static-libgcc -Wl,--allow-shlib-undefined)

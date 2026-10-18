@@ -9,12 +9,14 @@
 #include "titles.hpp"
 #include "utils/indexed_arr.h"
 #include <cassert>
+#include <ft2build.h>
+#include FT_FREETYPE_H
 #include <cstring>
 #include <iostream>
 #include <unistd.h>
 using namespace penchat;
 int main(int argc, char **argv) {
-  assert(argc == 3);
+  assert(argc == 4);
   const auto pull = pullGeometry({86, 0, 956, 266}, 960, 266, 208);
   assert(pull.start == 12 && pull.fill == 117 && pull.contains(500, 207));
   assert(!pull.contains(500, 208) && !pull.contains(85, 100));
@@ -315,7 +317,24 @@ int main(int argc, char **argv) {
       math |= (r.style & Math) != 0;
   }
   assert(math && code && table);
-  RichText renderer(argv[1], argv[2]);
+  RichText renderer(argv[1], argv[2], argv[3]);
+  FT_Library fontLibrary;
+  FT_Face symbolFace;
+  assert(FT_Init_FreeType(&fontLibrary) == 0);
+  assert(FT_New_Face(fontLibrary, argv[3], 0, &symbolFace) == 0);
+  for (uint32_t cp : {0x2713u, 0x2714u, 0x2717u, 0x2718u, 0x2611u, 0x2610u, 0x2192u, 0x21d2u, 0x221eu})
+    assert(FT_Get_Char_Index(symbolFace, cp) != 0);
+  FT_Done_Face(symbolFace);
+  FT_Done_FreeType(fontLibrary);
+  for (const auto &symbol : {"✓", "✔", "✗", "✘", "☑", "☐", "→", "⇒", "∞"}) {
+    Block symbolBlock;
+    symbolBlock.runs = {{symbol, "", 0}};
+    auto symbolLayout = renderer.layout(symbolBlock, 100);
+    auto bitmap = renderer.paint(symbolBlock, 100, 0, symbolLayout.height);
+    bool visible = false;
+    for (size_t i = 3; i < bitmap.pixels.size(); i += 4) visible |= bitmap.pixels[i] != 0;
+    assert(visible);
+  }
   auto tables = parseMarkdown(
       "| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | [b](center) | "
       "[c](right) |\n\n| Other |\n| --- |\n| short |\n");

@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
       screen.rotation = 0;
     lv_init();
     lv_tick_set_cb([]() -> uint32_t { return uint32_t(ticks()); });
-    initializeFonts(fontPath);
+    initializeFonts(fontPath, join(workspace, "assets/fonts/DejaVuSans.ttf"));
     Display display(screen, headless);
     Input input;
     Bridge bridge(fd);

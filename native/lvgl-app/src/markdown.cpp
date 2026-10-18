@@ -346,6 +346,14 @@ Document parseMarkdown(const std::string &source, bool streaming) {
     throw std::runtime_error("Markdown parse failed");
   return std::move(p.doc);
 }
+static uint32_t codepoint(const std::string &text) {
+  if (text.empty()) return 0;
+  const auto lead = static_cast<unsigned char>(text[0]);
+  if (lead < 128) return lead;
+  uint32_t value = lead & (text.size() == 2 ? 31 : text.size() == 3 ? 15 : 7);
+  for (size_t i = 1; i < text.size(); ++i) value = (value << 6) | (static_cast<unsigned char>(text[i]) & 63);
+  return value;
+}
 struct Piece {
   std::string text, target;
   int style = 0;
@@ -354,15 +362,19 @@ struct Piece {
 };
 struct RichText::Impl {
   FT_Library library = nullptr;
-  FT_Face face = nullptr, monoFace = nullptr;
-  cairo_font_face_t *cairoFace = nullptr, *monoCairo = nullptr;
+  FT_Face face = nullptr, monoFace = nullptr, fallbackFace = nullptr;
+  cairo_font_face_t *cairoFace = nullptr, *monoCairo = nullptr, *fallbackCairo = nullptr;
   std::map<std::string, std::shared_ptr<Bitmap>> cache;
   std::deque<std::string> order;
   size_t cacheBytes = 0;
   std::vector<Piece> pieces;
-  void select(cairo_t *c, int size, int style, bool cjk = false) {
-    cairo_set_font_face(c, (style & Mono) && !cjk && monoCairo ? monoCairo
-                                                               : cairoFace);
+  void select(cairo_t *c, int size, int style, uint32_t cp = 0) {
+    const bool mono = (style & Mono) && cp < 128 && monoCairo;
+    auto selected = mono ? monoFace : face;
+    auto cairoSelected = mono ? monoCairo : cairoFace;
+    if (cp && !FT_Get_Char_Index(selected, cp) && fallbackCairo)
+      cairoSelected = fallbackCairo;
+    cairo_set_font_face(c, cairoSelected);
     cairo_matrix_t matrix;
     cairo_matrix_init_scale(&matrix, size, size);
     if (style & Italic)
@@ -370,7 +382,7 @@ struct RichText::Impl {
     cairo_set_font_matrix(c, &matrix);
   }
 };
-RichText::RichText(const std::string &fontPath, const std::string &res)
+RichText::RichText(const std::string &fontPath, const std::string &res, const std::string &fallbackPath)
     : p_(new Impl) {
   if (FT_Init_FreeType(&p_->library) ||
       FT_New_Face(p_->library, fontPath.c_str(), 0, &p_->face))
@@ -380,6 +392,11 @@ RichText::RichText(const std::string &fontPath, const std::string &res)
                    join(res, "fonts/latin/optional/cmtt10.ttf").c_str(), 0,
                    &p_->monoFace))
     p_->monoCairo = cairo_ft_font_face_create_for_ft_face(p_->monoFace, 0);
+  if (!fallbackPath.empty()) {
+    if (FT_New_Face(p_->library, fallbackPath.c_str(), 0, &p_->fallbackFace))
+      throw std::runtime_error("Cannot load symbol fallback font");
+    p_->fallbackCairo = cairo_ft_font_face_create_for_ft_face(p_->fallbackFace, 0);
+  }
   setFallbackFont(fontPath);
   tex::LaTeX::init(res);
 }
@@ -389,6 +406,8 @@ RichText::~RichText() {
     cairo_font_face_destroy(p_->monoCairo);
   if (p_->monoFace)
     FT_Done_Face(p_->monoFace);
+  if (p_->fallbackCairo) cairo_font_face_destroy(p_->fallbackCairo);
+  if (p_->fallbackFace) FT_Done_Face(p_->fallbackFace);
   cairo_font_face_destroy(p_->cairoFace);
   FT_Done_Face(p_->face);
   FT_Done_FreeType(p_->library);
@@ -576,8 +595,9 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
         newline();
         continue;
       }
-      p_->select(c, actualSize, run.style,
-                 static_cast<unsigned char>(ch[0]) >= 128);
+      const auto cp = codepoint(ch);
+      if ((cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0xe0100 && cp <= 0xe01ef) || cp == 0x200d || cp == 0x200c || cp == 0x200b) continue;
+      p_->select(c, actualSize, run.style, cp);
       cairo_text_extents_t e;
       cairo_text_extents(c, ch.c_str(), &e);
       float advance =
@@ -690,8 +710,7 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
       cairo_surface_destroy(m);
       continue;
     }
-    p_->select(c, actual, p.style,
-               !p.text.empty() && static_cast<unsigned char>(p.text[0]) >= 128);
+    p_->select(c, actual, p.style, codepoint(p.text));
     if (!p.target.empty())
       color(subdued ? theme::reasoningLink : theme::link);
     else

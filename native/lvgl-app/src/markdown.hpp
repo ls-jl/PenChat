@@ -46,7 +46,7 @@ class RichText {
   std::unique_ptr<Impl> p_;
 
 public:
-  RichText(const std::string &fontPath, const std::string &resourcePath);
+  RichText(const std::string &fontPath, const std::string &resourcePath, const std::string &fallbackPath = "");
   ~RichText();
   Bitmap formula(const std::string &text, int size);
   void prepare(Document &document, int width, int size = 21);

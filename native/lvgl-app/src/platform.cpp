@@ -126,13 +126,14 @@ struct Glyph {
 };
 struct Typeface {
   lv_font_t font{};
-  FT_Face face = nullptr;
+  FT_Face face = nullptr, fallbackFace = nullptr;
   std::map<uint32_t, Glyph> glyphs;
 };
 static FT_Library ft;
-static std::string fontPath;
+static std::string fontPath, symbolFontPath;
 static std::map<int, std::unique_ptr<Typeface>> fonts;
-void initializeFonts(const std::string &path) {
+void initializeFonts(const std::string &path, const std::string &fallbackPath) {
+  symbolFontPath = fallbackPath;
   fontPath = path;
   if (FT_Init_FreeType(&ft))
     throw std::runtime_error("FreeType initialization failed");
@@ -142,9 +143,10 @@ static Glyph &glyph(Typeface *t, uint32_t cp) {
   if (found != t->glyphs.end())
     return found->second;
   Glyph g;
-  if (FT_Load_Char(t->face, cp, FT_LOAD_RENDER))
+  const auto face = !FT_Get_Char_Index(t->face, cp) && t->fallbackFace ? t->fallbackFace : t->face;
+  if (FT_Load_Char(face, cp, FT_LOAD_RENDER))
     return t->glyphs[cp];
-  auto slot = t->face->glyph;
+  auto slot = face->glyph;
   auto &d = g.metrics;
   d.adv_w = std::max(0L, slot->advance.x / 64);
   d.box_w = slot->bitmap.width;
@@ -168,6 +170,9 @@ lv_font_t *font(int size, bool bold) {
   if (FT_New_Face(ft, fontPath.c_str(), 0, &t->face))
     throw std::runtime_error("Cannot load Chinese font: " + fontPath);
   FT_Set_Pixel_Sizes(t->face, 0, size);
+  if (FT_New_Face(ft, symbolFontPath.c_str(), 0, &t->fallbackFace))
+    throw std::runtime_error("Cannot load symbol fallback font");
+  FT_Set_Pixel_Sizes(t->fallbackFace, 0, size);
   auto &f = t->font;
   f.user_data = t.get();
   f.line_height = (t->face->size->metrics.height + 63) / 64;

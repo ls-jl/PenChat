@@ -57,7 +57,8 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
          const std::string &fontPath, const std::string &resources)
     : db_(db), bridge_(bridge), display_(display), input_(input), screen_(s),
       images_(events_), camera_(events_, join(dataDir, "DCIM")),
-      scanner_(events_, workspace, dataDir), rich_(fontPath, resources),
+      scanner_(events_, workspace, dataDir),
+      rich_(fontPath, resources, join(workspace, "assets/fonts/DejaVuSans.ttf")),
       workspace_(std::move(workspace)), dataDir_(std::move(dataDir)) {
   auto config = db_.settings();
   session_ = stringValue(config, "active_session_id");

@@ -43,5 +43,5 @@ public:
   std::vector<Json> receive();
 };
 lv_font_t *font(int size, bool bold = false);
-void initializeFonts(const std::string &path);
+void initializeFonts(const std::string &path, const std::string &fallbackPath);
 } // namespace penchat

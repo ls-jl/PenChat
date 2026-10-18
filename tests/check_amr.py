@@ -47,3 +47,9 @@ with zipfile.ZipFile(path) as archive:
         data=archive.read(member).lower()
         assert not any(word.lower() in data or word.lower() in member.lower().encode() for word in forbidden), member
 print('PenChat identity: no former identifiers in production payload.')
+
+fontlock=json.loads((ROOT/'native/fonts/lock.json').read_text())
+with zipfile.ZipFile(path) as archive:
+    assert hashlib.sha256(archive.read('assets/fonts/'+fontlock['file'])).hexdigest()==fontlock['sha256']
+    assert archive.read('assets/fonts/LICENSE.txt')==(ROOT/'native/fonts/LICENSE.txt').read_bytes()
+print('Fallback font and redistribution license verified.')
