@@ -21,4 +21,5 @@ else
   python3 "$task_root/scripts/prepare-scanner.py" --bundle "$task_bundle" --stage
   mkdir -p "$task_root/assets/bin"
   install -m755 "$task_root/build/scanner-orange/penchat-scanner" "$task_root/assets/bin/penchat-scanner"
+  bash "$task_root/scripts/strip-production.sh" "$task_root/assets/bin/penchat-scanner"
 fi

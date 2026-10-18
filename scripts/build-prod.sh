@@ -5,6 +5,7 @@ cd "$ROOT"
 python3 "$ROOT/scripts/stage-fonts.py"
 python3 "$ROOT/scripts/prepare-scanner.py" --stage
 [ -x "$ROOT/assets/bin/penchat-scanner" ] || { echo 'Build scanner native executable first.' >&2; exit 1; }
+bash "$ROOT/scripts/strip-production.sh"
 "$ROOT/scripts/stage-native-libs.sh"
 rm -rf .falcon_ .falcon_tmp
 aiot-cli -c -q -p

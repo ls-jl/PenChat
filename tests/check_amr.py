@@ -53,3 +53,23 @@ with zipfile.ZipFile(path) as archive:
     assert hashlib.sha256(archive.read('assets/fonts/'+fontlock['file'])).hexdigest()==fontlock['sha256']
     assert archive.read('assets/fonts/LICENSE.txt')==(ROOT/'native/fonts/LICENSE.txt').read_bytes()
 print('Fallback font and redistribution license verified.')
+
+# Dynamic symbols remain for the loader; private/debug symbols must not ship.
+with zipfile.ZipFile(path) as archive:
+    elf_count=0
+    for member in archive.namelist():
+        data=archive.read(member)
+        if not data.startswith(b'\x7fELF'):continue
+        elf_count+=1
+        assert data[4:6]==b'\x02\x01',member
+        offset=struct.unpack_from('<Q',data,40)[0]
+        entry_size,count,names_index=struct.unpack_from('<HHH',data,58)
+        assert entry_size==64 and 0<names_index<count and offset+count*entry_size<=len(data),member
+        names_header=offset+names_index*entry_size
+        names_offset,names_size=struct.unpack_from('<QQ',data,names_header+24)
+        names=data[names_offset:names_offset+names_size]
+        for i in range(count):
+            name_offset=struct.unpack_from('<I',data,offset+i*entry_size)[0]
+            name=names[name_offset:].split(b'\0',1)[0].decode('ascii')
+            assert name not in ('.symtab','.gnu_debugdata') and not name.startswith(('.debug_','.zdebug_')), (member,name)
+print(f'Production ELF stripping verified: {elf_count} files, no private symbol tables or debug sections.')
