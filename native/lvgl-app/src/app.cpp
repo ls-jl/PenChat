@@ -1168,7 +1168,7 @@ void App::newChat() {
   messageOffset_ = 0;
   show("chat");
 }
-void App::richMessage(lv_obj_t *parent, const std::string &text, int width) {
+void App::richMessage(lv_obj_t *parent, const std::string &text, int width, bool subdued) {
   auto doc = parseMarkdown(text, generating_ && parent == liveContent_);
   rich_.prepare(doc, width - 4);
   auto appendText = [&](const Block &b) {
@@ -1187,7 +1187,7 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width) {
         },
         LV_EVENT_SCROLL, this);
     rasters_.push_back(
-        {holder, parent, b, width - 4, layout.height, layout.width, {}});
+        {holder, parent, b, width - 4, layout.height, layout.width, subdued, {}});
   };
   for (const auto &b : doc.blocks) {
     Block part = b;
@@ -1308,16 +1308,18 @@ void App::renderMessages(bool bottom) {
         icon(header,
              expandedReasoning_.count(id) ? "chevron-down" : "chevron-right", 0,
              0, 44, 44, toggle, theme::background, theme::muted);
-        button(header, title, 44, 0, 300, 44, toggle, theme::background,
-               LV_TEXT_ALIGN_LEFT);
+        auto titleButton = button(header, title, 44, 0, 300, 44, toggle,
+                                  theme::background, LV_TEXT_ALIGN_LEFT);
+        lv_obj_set_style_text_color(lv_obj_get_child(titleButton, 0),
+                                   lv_color_hex(theme::reasoning), 0);
         if (expandedReasoning_.count(id)) {
           auto detail = box(wrap, 0, 0, textWidth, LV_SIZE_CONTENT);
           lv_obj_set_scrollable(detail, false);
           lv_obj_set_flex_flow(detail, LV_FLEX_FLOW_COLUMN);
-          richMessage(detail, reason, textWidth);
+          richMessage(detail, reason, textWidth, true);
         }
       } else
-        label(header, title, 0, 10, textWidth, 20, theme::muted);
+        label(header, title, 0, 10, textWidth, 20, theme::reasoning);
     }
     auto path = stringValue(m, "display_src");
     if (path.empty())
@@ -1424,7 +1426,7 @@ void App::paintVisible() {
       if (!r.tiles.count(position)) {
         int x = position.first, y = position.second;
         auto bitmap = rich_.paint(r.block, r.width, y,
-                                  std::min(128, r.height - y), 21, x, 512);
+                                  std::min(128, r.height - y), 21, x, 512, r.subdued);
         auto frame = std::make_shared<ImageFrame>();
         frame->width = bitmap.width;
         frame->height = bitmap.height;

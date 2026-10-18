@@ -19,6 +19,7 @@ class App {
     lv_obj_t *holder, *owner;
     Block block;
     int width, height, contentWidth;
+    bool subdued;
     std::map<std::pair<int, int>, lv_obj_t *> tiles;
   };
   Json lastTouch_ = Json::object();
@@ -162,7 +163,7 @@ class App {
   void cameraPage();
   void albumPage();
   void renderMessages(bool bottom);
-  void richMessage(lv_obj_t *parent, const std::string &text, int width);
+  void richMessage(lv_obj_t *parent, const std::string &text, int width, bool subdued = false);
   void paintVisible();
   void renderLiveMessage();
   void refreshImages();

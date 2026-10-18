@@ -43,7 +43,7 @@ public:
   void prepare(Document &document, int width, int size = 21);
   RichLayout layout(const Block &block, int width, int size = 21);
   Bitmap paint(const Block &block, int width, int top, int height, int size = 21, int left = 0,
-               int windowWidth = 0);
+               int windowWidth = 0, bool subdued = false);
   void clearCache();
 };
 } // namespace penchat

@@ -576,7 +576,7 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
   return layout;
 }
 Bitmap RichText::paint(const Block &block, int width, int top, int height,
-                       int size, int left, int windowWidth) {
+                       int size, int left, int windowWidth, bool subdued) {
   auto info = layout(block, width, size);
   Bitmap b;
   b.width =
@@ -616,22 +616,27 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
       auto m = cairo_image_surface_create_for_data(
           p.math->pixels.data(), CAIRO_FORMAT_ARGB32, p.math->width,
           p.math->height, p.math->width * 4);
-      cairo_set_source_surface(c, m, p.x, p.y);
-      cairo_paint(c);
+      if (subdued) {
+        color(theme::reasoning);
+        cairo_mask_surface(c, m, p.x, p.y);
+      } else {
+        cairo_set_source_surface(c, m, p.x, p.y);
+        cairo_paint(c);
+      }
       cairo_surface_destroy(m);
       continue;
     }
     p_->select(c, actual, p.style,
                !p.text.empty() && static_cast<unsigned char>(p.text[0]) >= 128);
     if (!p.target.empty())
-      color(theme::link);
+      color(subdued ? theme::reasoningLink : theme::link);
     else
-      color(theme::text);
+      color(subdued ? theme::reasoning : theme::text);
     if (p.style & Mono) {
       color(theme::surface);
       cairo_rectangle(c, p.x, p.y, p.width, p.height);
       cairo_fill(c);
-      color(theme::text);
+      color(subdued ? theme::reasoning : theme::text);
     }
     cairo_move_to(c, p.x, p.y + p.baseline);
     cairo_show_text(c, p.text.c_str());
