@@ -1,0 +1,5 @@
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+set(CMAKE_CXX_COMPILER "${CMAKE_CURRENT_LIST_DIR}/../../scripts/scanner-cxx.py")
+set(CMAKE_CXX_FLAGS_INIT "-mno-outline-atomics")
+set(CMAKE_EXE_LINKER_FLAGS_INIT "-Wl,--allow-shlib-undefined")

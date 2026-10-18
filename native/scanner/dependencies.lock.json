@@ -1,0 +1,91 @@
+{
+  "source_commit": "21bfd280fbb97969ff7883d107aeaa8f21982fc7",
+  "files": {
+    "engine/include/pen_stream/stream.hpp": "44de04e9b16b1d4d9e28943822529d2cce19821346e85cba52a4f52b1da0c604",
+    "engine/include/rknn/rknn_api.h": "c48e11a6f41b451a5fd1e4ad774ea60252d3d94f78bee9b21ea3d21b21deba9a",
+    "engine/src/canvas.cpp": "f99f14bac1972f298f4212179a4d2aa3727c5e89ca8c52265a346293ea970f32",
+    "engine/src/geometry.cpp": "7ab4adac94108557178c6d98d9a38b023db26f815dc7eb11bfccd5db873479ec",
+    "engine/src/geometry_decoder.cpp": "044f6de680b4514277b3691ad972facef29d48038a83423e312e2dfb5c932766",
+    "engine/src/geometry_decoder.hpp": "055c87481ee716559b58f22adf997d7a1a0e9bd96d118e65ca434ce2ab8b8fdd",
+    "engine/src/internal.hpp": "5b993b290e9db3709c3cdccbcf5aedb552b6d9fa3f7265fa83a7fdd8be579742",
+    "engine/src/photo_cpu.hpp": "aca85afe830e1da02cac8306e98a79da7613598e18c5062e25d681b97eb58a8a",
+    "engine/src/resize_compat.cpp": "af0d7a5d2506e059b66f8b964a5bfe27856db6874a60ebeab25377c3bf147e98",
+    "engine/src/rknn.cpp": "0012ef4a069673647aa6106f6aae151ac88fee3ef915755a89772fcc406ea442",
+    "engine/src/stream.cpp": "0c4593b9cec4f3ea8fff7c3e449fa1d6fbb35e44fddcbebfaeb19b99d21dd32c",
+    "engine/tests/fake_runtime.cpp": "2d7f7780a3faa239bb39c7e152a06a218554559a1f3b5f540602314a666a2da8",
+    "engine/tests/test_adapter.cpp": "90d08f0fad9d704c7664f7c6c017638b7c9f24bc28fdff18bd3086de41e84cc0",
+    "engine/tests/test_stream.cpp": "a3ed8734d031088910fb834baf65f94893bc3c3aa0ba485fbb7e4e2a2efda161",
+    "tests/replay.cpp": "39064d6c26e1f1b000d6deda66fef62e9aa23875126849e8088af560aa1c4d38"
+  },
+  "resources": {
+    "pintu_32.rknn": {
+      "sha256": "276e806fee39e6fce57f1cb39ac9742710bc324b85bbecde328d6d75c1c56b6a",
+      "source": "models/rknn/pintu_32.rknn"
+    },
+    "demo_gain.json": {
+      "sha256": "73b4f4c5165c7305734519cef9f7664678ce8ebbc4fa0def8b430ab3687ba617",
+      "source": "resources/illumination/demo_gain.json"
+    },
+    "demo_gain_160x288.f32": {
+      "sha256": "ec4f17e90781fd9b67b5ca0c8d9fed450dbb5890a19ebfa3979809553bc52ec8",
+      "source": "resources/illumination/demo_gain_160x288.f32"
+    }
+  },
+  "runtime": {
+    "libopencv_core.so.3.4": {
+      "root": "bundle",
+      "source": "third_party/opencv-arm/lib/libopencv_core.so.3.4.3",
+      "sha256": "18223b35f27e5134333dbafc95d3b3c508274d0159f1c9d9d78156da6963530c"
+    },
+    "libopencv_imgproc.so.3.4": {
+      "root": "bundle",
+      "source": "third_party/opencv-arm/lib/libopencv_imgproc.so.3.4.3",
+      "sha256": "4ce7050a29306313fa45f80da76f83bb7e64d98bb94e290052d0253b5d681dee"
+    },
+    "libpng16.so.16": {
+      "root": "board",
+      "source": "libpng16.so.16.37.0",
+      "sha256": "03366d21709a4f146b381e9aad452d7a9819316ca3f7cdcaddc00fc8dcf13451"
+    },
+    "libz.so.1": {
+      "root": "board",
+      "source": "libz.so.1.2.11",
+      "sha256": "3703d76eb1a8f5bbbbec471a33d9efa827bfcfbb86e56f430130e69de406a007"
+    },
+    "libstdc++.so.6": {
+      "root": "board",
+      "source": "libstdc++.so.6.0.29",
+      "sha256": "77280d912c04c9ee9eaea6f38442a223a348886e5ff06dddd3914b5fcb881036"
+    }
+  },
+  "png_source": {
+    "LICENSE": "bf5e22b9dce8464064ae17a48ea1133c3369ac9e1d80ef9e320e5219aa14ea9b",
+    "example.c": "82b0815b6bde29198f8de1e4ebc1a6c681f34f137e4f9c187e578acb233f817c",
+    "png.c": "076016c5c68222b59b3634bf4730dbf5e0d11825fb077e1fcebfff1802e9b41f",
+    "png.h": "f8e248049a97831f5e9fb24ec0c7c6b7cacb3b3ba7303300b4f5b2b90bae3c40",
+    "pngconf.h": "0ba884e89c5bfa8f86ad9286fedc4d26bb6f51f0dba7aaaf67e70baa6fd17a30",
+    "pngdebug.h": "58941a11daeee436541b19684f711efc84354e9c36a3be274315a412be219e45",
+    "pngerror.c": "eff6d2c20c58c2ace633aae6e2a0cafefc0a81c1e8f7a3717b0afcd1266af6e3",
+    "pngget.c": "edee02d7d95d99a6ab94660c91d47b39f037f3ca3883f97eb7f8aff37a976661",
+    "pnginfo.h": "87cb3efc4dcf22b46f2a01225d5c6eea7722753d85cb4e6f69cc48bb61b7687c",
+    "pnglibconf.h": "2f3a206eca397c8bf969a39f6c5287120063477bf1faefc047a0ae01681ac9c4",
+    "pngmem.c": "9de067f559b202f63be02e26cc6bd6e320131727de5533eb51728b50af5c4b3b",
+    "pngpread.c": "408d18c3226201a1fc6433fae88b9b28c5a2def2462dceb5b6952a787ed77282",
+    "pngpriv.h": "cfd75ff2fad5095512437787dfbe178fe746c31c2f84d247796455fbee42de2f",
+    "pngread.c": "04da40a295a22c6b151b91a20940d2a6d0f98287dcc548a10e4af24b82a595a7",
+    "pngrio.c": "e82f31b39701aa872f9c38a66e98d3d58fa2c681e2d027543404d5e52312a92d",
+    "pngrtran.c": "13cded3e936938ebf42c75ddac7c853094d3b5fa614495ada1f81540d36cdb31",
+    "pngrutil.c": "60fccdea9db5574a3783deaa1c7e55c4eaf63a2cf1e2cc183dfa3644b4276fe2",
+    "pngset.c": "c05f540e61c84f448f0ebfdac21414f621788436ba83cff28b2624141b66a738",
+    "pngstruct.h": "47c8d2bdfe616d6316785a420512eabf8746bb1b56e7b2e8cb1b2aad3d75ec63",
+    "pngtest.c": "eec118620f24a6603523395cd1eb65d7ad71118d3a918bfca2b0af810074587f",
+    "pngtrans.c": "7897d8e254c4a4d5b4531217bf91383c4f82ad542458efa9530acf56c9b3b39b",
+    "pngusr.h": "6eb761d409de722dc911a31124f0c62766bff8e1d4c6acb2cb5c34902f9330c6",
+    "pngwio.c": "c598db8a3d4232c23418199c047a784a735307dd655486fcb7d4edc34b753418",
+    "pngwrite.c": "c8024698ffb538565afeb5615512dcc6e7205fcdae4f46afacc420e7cbda8cae",
+    "pngwtran.c": "81a5e4ea609250ecee20c8587aa429a3cb728d2197a1b96841a34807032fae60",
+    "pngwutil.c": "433a3451e9398d3dd6af4ae10727ac62692b150cf785de21c4c919eb16c729f5"
+  },
+  "png_version": "1.6.37",
+  "toolchain": "GCC12 C++17 headers plus board glibc 2.17 headers and normal GCC6 CRT; private board libstdc++ 6.0.29"
+}

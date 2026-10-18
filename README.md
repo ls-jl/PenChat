@@ -1,0 +1,19 @@
+# PenChat
+
+独立的 ORANGE 原生 LVGL 聊天应用，版本与 AppID 以 `package.json` 为准。
+
+## 功能
+
+聊天、Markdown/公式、模型与推理强度、历史重命名/置顶/归档、自动标题、拍照和相册、正向纸面扫描、系统中文输入法及 API Key OCR。
+
+首次启动没有 Provider、密钥和聊天记录，请在设置中配置模型。应用仅访问自身 `penchat.db`、DCIM 和图片资产，不导入其他应用的数据。
+
+## 构建
+
+需要 CMake、主机 C/C++ 工具链、aiot-cli、ORANGE AArch64 工具链及扫描资源包。
+运行 `npm run build:host`、`npm test`、`npm run test:sanitize`；生产构建使用 `npm run build:native`、`npm run build:prod`、`npm run check:package`。
+依赖来源和摘要见 native 下的锁文件；扫描资源准备见 `native/scanner/README.md`。构建脚本重新获取锁定依赖，不提交下载内容或二进制。
+
+设备验收固定 ORANGE MEB0400008900794。安装包位于 dist，以清单中的 AppID 和版本命名。不得重启系统 MiniApp 宿主或修改其他应用的数据。
+
+图标是暂用的钢笔与气泡几何图形，源文件为 `assets/penchat-icon.svg`。

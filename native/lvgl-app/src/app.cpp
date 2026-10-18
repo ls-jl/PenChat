@@ -1,0 +1,2449 @@
+#include "app.hpp"
+#include "src/misc/cache/instance/lv_image_cache.h"
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <dirent.h>
+#include <iostream>
+#include <sys/stat.h>
+#include <unistd.h>
+namespace penchat {
+namespace {
+constexpr int64_t PullPauseMs = 500;
+constexpr int64_t PullSlowTimeMs = 160;
+void onClick(lv_obj_t *object, std::function<void()> action) {
+  auto f = new std::function<void()>(std::move(action));
+  lv_obj_set_clickable(object, true);
+  lv_obj_add_event_cb(
+      object,
+      [](lv_event_t *e) {
+        if (lv_event_get_code(e) == LV_EVENT_DELETE) {
+          delete static_cast<std::function<void()> *>(
+              lv_event_get_user_data(e));
+          return;
+        }
+        try {
+          auto callback =
+              *static_cast<std::function<void()> *>(lv_event_get_user_data(e));
+          callback();
+        } catch (const std::exception &err) {
+          std::cerr << "UI action: " << err.what() << '\n';
+        }
+      },
+      LV_EVENT_CLICKED, f);
+  lv_obj_add_event_cb(
+      object,
+      [](lv_event_t *e) {
+        delete static_cast<std::function<void()> *>(lv_event_get_user_data(e));
+      },
+      LV_EVENT_DELETE, f);
+}
+std::string stringValue(const Json &j, const char *key,
+                        const std::string &fallback = "") {
+  auto i = j.find(key);
+  return i != j.end() && i->is_string() ? i->get<std::string>() : fallback;
+}
+bool hasText(const std::string &text) {
+  return std::any_of(text.begin(), text.end(),
+                     [](unsigned char c) { return !std::isspace(c); });
+}
+std::string basename(const std::string &p) {
+  auto slash = p.rfind('/');
+  return p.substr(slash == std::string::npos ? 0 : slash + 1);
+}
+} // namespace
+App::App(Database &db, Bridge &bridge, Display &display, Input &input,
+         const Screen &s, std::string workspace, std::string dataDir,
+         const std::string &fontPath, const std::string &resources)
+    : db_(db), bridge_(bridge), display_(display), input_(input), screen_(s),
+      images_(events_), camera_(events_, join(dataDir, "DCIM")),
+      scanner_(events_, workspace, dataDir), rich_(fontPath, resources),
+      workspace_(std::move(workspace)), dataDir_(std::move(dataDir)) {
+  auto config = db_.settings();
+  session_ = stringValue(config, "active_session_id");
+  if (session_.empty() ||
+      db_.query(
+             "SELECT id FROM chat_sessions WHERE id=? AND status!='archived'",
+             {session_})
+          .empty())
+    session_ = uid("session");
+  sessionPreferences_ = db_.sessionPreferences(session_);
+  build();
+  for (const auto &job : db_.pendingTitles())
+    titleJobs_.push_back(job);
+}
+App::~App() {
+  shutdown();
+  clear();
+}
+lv_obj_t *App::box(lv_obj_t *parent, int x, int y, int w, int h,
+                   uint32_t color) {
+  auto o = lv_obj_create(parent);
+  lv_obj_remove_style_all(o);
+  lv_obj_set_pos(o, x, y);
+  lv_obj_set_size(o, w, h);
+  lv_obj_set_style_bg_color(o, lv_color_hex(color), 0);
+  lv_obj_set_style_bg_opa(o, 255, 0);
+  lv_obj_set_style_text_font(o, font(21), 0);
+  lv_obj_set_style_text_color(o, lv_color_hex(theme::text), 0);
+  return o;
+}
+lv_obj_t *App::label(lv_obj_t *parent, const std::string &text, int x, int y,
+                     int w, int size, uint32_t color) {
+  auto o = lv_label_create(parent);
+  lv_obj_set_pos(o, x, y);
+  lv_obj_set_width(o, w);
+  lv_obj_set_style_text_font(o, font(size), 0);
+  lv_obj_set_style_text_color(o, lv_color_hex(color), 0);
+  lv_label_set_text(o, text.c_str());
+  return o;
+}
+lv_obj_t *App::button(lv_obj_t *parent, const std::string &text, int x, int y,
+                      int w, int h, std::function<void()> click, uint32_t color,
+                      lv_text_align_t align) {
+  auto o = box(parent, x, y, w, h, color);
+  lv_obj_set_scrollable(o, false);
+  lv_obj_set_style_radius(o, 10, 0);
+  auto l = label(o, text, 0, 0, w - 24, 20);
+  // A fixed-height action must never center an arbitrarily tall wrapped label.
+  lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
+  lv_obj_set_height(l, font(20)->line_height);
+  lv_obj_set_style_text_align(l, align, 0);
+  lv_obj_align(l, LV_ALIGN_CENTER, 0, 0);
+  onClick(o, std::move(click));
+  return o;
+}
+void App::texture(lv_obj_t *object, std::shared_ptr<ImageFrame> frame,
+                  bool premultiplied) {
+  if (!frame)
+    return;
+  auto t = std::unique_ptr<Texture>(new Texture);
+  t->frame = std::move(frame);
+  auto &d = t->descriptor;
+  d.header.magic = LV_IMAGE_HEADER_MAGIC;
+  d.header.cf = LV_COLOR_FORMAT_ARGB8888;
+  d.header.w = t->frame->width;
+  d.header.h = t->frame->height;
+  d.header.stride = t->frame->width * 4;
+  d.header.flags = premultiplied ? LV_IMAGE_FLAGS_PREMULTIPLIED : 0;
+  d.data = t->frame->pixels.data();
+  d.data_size = t->frame->pixels.size();
+  if (textures_.count(object))
+    lv_image_cache_drop(&textures_[object]->descriptor);
+  lv_image_set_src(object, &d);
+  textures_[object] = std::move(t);
+}
+lv_obj_t *App::imageWidget(lv_obj_t *parent) {
+  auto object = lv_image_create(parent);
+  lv_obj_add_event_cb(
+      object,
+      [](lv_event_t *event) {
+        auto self = static_cast<App *>(lv_event_get_user_data(event));
+        auto object = static_cast<lv_obj_t *>(lv_event_get_target(event));
+        self->imageRequests_.erase(
+            std::remove_if(
+                self->imageRequests_.begin(), self->imageRequests_.end(),
+                [object](const std::pair<lv_obj_t *, std::string> &r) {
+                  return r.first == object;
+                }),
+            self->imageRequests_.end());
+        self->placeholders_.erase(object);
+        auto texture = self->textures_.find(object);
+        if (texture != self->textures_.end()) {
+          lv_image_cache_drop(&texture->second->descriptor);
+          self->textures_.erase(texture);
+        }
+      },
+      LV_EVENT_DELETE, this);
+  return object;
+}
+void App::image(lv_obj_t *parent, const std::string &path, int x, int y, int w,
+                int h, std::function<void()> click, bool rightAligned) {
+  auto holder = box(parent, x, y, w, h, theme::surface);
+  lv_obj_set_scrollable(holder, false);
+  lv_obj_set_style_bg_opa(holder, LV_OPA_TRANSP, 0);
+  auto placeholder = label(holder, "加载图片…", 0, 0, w, 17, theme::muted);
+  lv_obj_center(placeholder);
+  auto o = imageWidget(holder);
+  placeholders_[o] = placeholder;
+  lv_obj_align(o, rightAligned ? LV_ALIGN_RIGHT_MID : LV_ALIGN_CENTER, 0, 0);
+  auto key = images_.request(path, w, h);
+  imageRequests_.push_back({o, key});
+  if (auto frame = images_.get(key)) {
+    texture(o, frame);
+    lv_obj_set_hidden(placeholder, true);
+  } else if (images_.failed(key))
+    lv_label_set_text(placeholder, "图片读取失败");
+  if (click)
+    onClick(holder, std::move(click));
+}
+lv_obj_t *App::icon(lv_obj_t *parent, const std::string &kind, int x, int y,
+                    int w, int h, std::function<void()> action,
+                    uint32_t background, uint32_t ink) {
+  auto object = box(parent, x, y, w, h, background);
+  lv_obj_set_scrollable(object, false);
+  lv_obj_set_style_radius(object, std::min(w, h) / 2, 0);
+  auto data = new std::pair<std::string, uint32_t>(kind, ink);
+  lv_obj_add_event_cb(
+      object,
+      [](lv_event_t *e) {
+        auto data = static_cast<std::pair<std::string, uint32_t> *>(
+            lv_event_get_user_data(e));
+        auto object = static_cast<lv_obj_t *>(lv_event_get_target(e));
+        lv_area_t area;
+        lv_obj_get_coords(object, &area);
+        auto layer = lv_event_get_layer(e);
+        const int cx = (area.x1 + area.x2) / 2, cy = (area.y1 + area.y2) / 2;
+        auto line = [&](float x1, float y1, float x2, float y2) {
+          lv_draw_line_dsc_t d;
+          lv_draw_line_dsc_init(&d);
+          d.color = lv_color_hex(data->second);
+          d.width = 2;
+          d.round_start = d.round_end = 1;
+          d.p1.x = cx + x1;
+          d.p1.y = cy + y1;
+          d.p2.x = cx + x2;
+          d.p2.y = cy + y2;
+          lv_draw_line(layer, &d);
+        };
+        auto circle = [&](float x, float y, float radius) {
+          for (int i = 0; i < 24; ++i) {
+            float a = i * 6.2831853f / 24, b = (i + 1) * 6.2831853f / 24;
+            line(x + std::cos(a) * radius, y + std::sin(a) * radius,
+                 x + std::cos(b) * radius, y + std::sin(b) * radius);
+          }
+        };
+        const auto &k = data->first;
+        if (k == "chevron-right" || k == "chevron-down") {
+          if (k == "chevron-right") {
+            line(-3, -6, 3, 0);
+            line(3, 0, -3, 6);
+          } else {
+            line(-6, -3, 0, 3);
+            line(0, 3, 6, -3);
+          }
+        } else if (k == "gauge") {
+          for (int i = 0; i < 24; ++i) {
+            float a = (140 + i * 260.0f / 24) * 3.14159265f / 180,
+                  b = (140 + (i + 1) * 260.0f / 24) * 3.14159265f / 180;
+            line(std::cos(a) * 11, std::sin(a) * 11, std::cos(b) * 11,
+                 std::sin(b) * 11);
+          }
+          circle(0, 0, 2);
+          line(-1, -2, -5, -8);
+        } else if (k == "plus") {
+          line(-8, 0, 8, 0);
+          line(0, -8, 0, 8);
+        } else if (k == "back") {
+          line(4, -9, -5, 0);
+          line(-5, 0, 4, 9);
+        } else if (k == "pin") {
+          line(-5, -8, 5, -8);
+          line(-4, -8, -4, 0);
+          line(4, -8, 4, 0);
+          line(-4, 0, -8, 4);
+          line(4, 0, 8, 4);
+          line(-8, 4, 8, 4);
+          line(0, 4, 0, 11);
+        } else if (k == "menu") {
+          line(-10, -4, 10, -4);
+          line(-10, 4, 3, 4);
+        } else if (k == "trash") {
+          line(-8, -6, 8, -6);
+          line(-3, -9, 3, -9);
+          line(-6, -6, -5, 10);
+          line(-5, 10, 5, 10);
+          line(5, 10, 6, -6);
+          line(-2, -2, -2, 6);
+          line(2, -2, 2, 6);
+        } else if (k == "up" || k == "down") {
+          const int sign = k == "up" ? -1 : 1;
+          line(0, -9, 0, 9);
+          line(-7, sign * 2, 0, sign * 9);
+          line(0, sign * 9, 7, sign * 2);
+        } else if (k == "stop") {
+          for (int i = -6; i <= 6; ++i)
+            line(-6, i, 6, i);
+        } else if (k == "history") {
+          circle(0, 0, 10);
+          line(0, -6, 0, 0);
+          line(0, 0, 5, 3);
+        } else if (k == "settings") {
+          circle(0, 0, 7);
+          circle(0, 0, 2);
+          for (int i = 0; i < 8; ++i) {
+            float a = i * 6.2831853f / 8;
+            line(std::cos(a) * 8, std::sin(a) * 8, std::cos(a) * 11,
+                 std::sin(a) * 11);
+          }
+        } else if (k == "camera") {
+          line(-11, -6, -5, -6);
+          line(-5, -6, -3, -9);
+          line(-3, -9, 3, -9);
+          line(3, -9, 5, -6);
+          line(5, -6, 11, -6);
+          line(11, -6, 11, 9);
+          line(11, 9, -11, 9);
+          line(-11, 9, -11, -6);
+          circle(0, 1, 5);
+        } else if (k == "newchat") {
+          line(-8, -8, 0, -8);
+          line(-8, -8, -8, 9);
+          line(-8, 9, 9, 9);
+          line(9, 9, 9, 2);
+          line(-2, 4, 1, 3);
+          line(1, 3, 10, -6);
+          line(10, -6, 6, -10);
+          line(6, -10, -3, -1);
+          line(-3, -1, -2, 4);
+        } else if (k == "album") {
+          line(-10, -10, 10, -10);
+          line(10, -10, 10, 10);
+          line(10, 10, -10, 10);
+          line(-10, 10, -10, -10);
+          circle(4, -4, 2);
+          line(-9, 6, -3, -1);
+          line(-3, -1, 2, 5);
+          line(2, 5, 5, 2);
+          line(5, 2, 9, 7);
+        }
+      },
+      LV_EVENT_DRAW_MAIN, data);
+  lv_obj_add_event_cb(
+      object,
+      [](lv_event_t *e) {
+        delete static_cast<std::pair<std::string, uint32_t> *>(
+            lv_event_get_user_data(e));
+      },
+      LV_EVENT_DELETE, data);
+  if (action)
+    onClick(object, std::move(action));
+  else
+    lv_obj_set_clickable(object, false);
+  return object;
+}
+void App::closeAttachments() {
+  popupKind_.clear();
+  if (!attachments_)
+    return;
+  auto object = attachments_;
+  attachments_ = nullptr;
+  lv_obj_delete(object);
+}
+void App::toggleAttachments() {
+  if (attachments_) {
+    closeAttachments();
+    return;
+  }
+  resetPull();
+  attachments_ = box(screenObj_, 86, 0, screen_.width - 86, screen_.height);
+  popupKind_ = "attachments";
+  lv_obj_set_style_bg_opa(attachments_, 0, 0);
+  lv_obj_set_scrollable(attachments_, false);
+  onClick(attachments_, [this] { closeAttachments(); });
+  auto menu = box(attachments_, 20, 12, 260, 188, theme::surface);
+  lv_obj_set_style_radius(menu, 16, 0);
+  lv_obj_set_scrollable(menu, false);
+  const std::vector<std::string> names{"拍照", "相册", "模型", "推理强度"};
+  const std::vector<std::string> icons{"camera", "album", "settings", "gauge"};
+  for (int i = 0; i < 4; ++i) {
+    auto action = [this, i] {
+      if (i == 0)
+        show("camera");
+      else if (i == 1)
+        show("album");
+      else if (i == 2)
+        modelPicker();
+      else {
+        bool enabled =
+            sessionPreferences_.value("gauge", !effortMemory_.empty());
+        if (enabled)
+          chooseEffort("");
+        sessionPreferences_["gauge"] = !enabled;
+        savePreferences();
+        build();
+      }
+    };
+    icon(menu, icons[i], 4, 4 + i * 44, 44, 44, action, theme::surface);
+    button(menu, names[i], 48, 4 + i * 44, 208, 44, action, theme::surface,
+           LV_TEXT_ALIGN_LEFT);
+  }
+}
+Json App::currentModel() {
+  auto id = sessionPreferences_.value("model_id", std::string());
+  Json model = Json::object();
+  if (id.empty())
+    model = db_.activeModel();
+  else
+    for (const auto &candidate : db_.models())
+      if (candidate["id"] == id) {
+        model = candidate;
+        break;
+      }
+  return model.empty()
+             ? model
+             : resolveReasoning(model, sessionPreferences_, effortMemory_);
+}
+void App::savePreferences() {
+  db_.saveSessionPreferences(session_, sessionPreferences_);
+}
+void App::bindPreferences(const Json &model) {
+  if (model.empty())
+    return;
+  // Once content is committed, remember the defaults that this conversation
+  // actually used, including an inherited process-only effort and gauge.
+  sessionPreferences_["model_id"] = model["id"];
+  if (!sessionPreferences_.contains("effort")) {
+    const auto effort = model.value("effective_effort", std::string());
+    if (!effort.empty())
+      sessionPreferences_["effort"] = effort;
+  }
+  if (!sessionPreferences_.contains("gauge"))
+    sessionPreferences_["gauge"] = !effortMemory_.empty();
+}
+void App::chooseModel(const std::string &id) {
+  sessionPreferences_["model_id"] = id;
+  db_.selectModel(id);
+  savePreferences();
+}
+void App::chooseEffort(const std::string &key) {
+  sessionPreferences_["effort"] = key;
+  effortMemory_ = key;
+  savePreferences();
+}
+void App::modelPicker(bool forTitles) {
+  closeAttachments();
+  resetPull();
+  attachments_ = box(screenObj_, 86, 0, screen_.width - 86, screen_.height);
+  popupKind_ = forTitles ? "title_models" : "models";
+  lv_obj_set_style_bg_opa(attachments_, 0, 0);
+  lv_obj_set_scrollable(attachments_, false);
+  onClick(attachments_, [this] { closeAttachments(); });
+  auto panel = box(attachments_, 20, 12, 650, 188, theme::surface);
+  lv_obj_set_scroll_dir(panel, LV_DIR_VER);
+  auto current = currentModel();
+  if (forTitles)
+    current = {{"id", db_.settings().value("title_model_id", std::string())}};
+  int y = 4;
+  if (forTitles) {
+    button(
+        panel, "跟随当前聊天模型", 8, y, 620, 44,
+        [this] {
+          db_.setting("title_model_id", "");
+          build();
+        },
+        theme::surface, LV_TEXT_ALIGN_LEFT);
+    y += 48;
+  }
+  auto models = db_.models();
+  std::sort(models.begin(), models.end(), [](const Json &a, const Json &b) {
+    return a.value("name", std::string()) < b.value("name", std::string());
+  });
+  for (const auto &provider : db_.providers()) {
+    label(panel, provider.value("name", std::string("Provider")), 14, y, 610,
+          18, theme::muted);
+    y += 30;
+    for (const auto &model : models)
+      if (model["provider_id"] == provider["id"]) {
+        auto id = model["id"].get<std::string>();
+        button(
+            panel,
+            (current.value("id", std::string()) == id ? "● " : "○ ") +
+                model.value("name", std::string()),
+            8, y, 620, 44,
+            [this, id, forTitles] {
+              if (forTitles)
+                db_.setting("title_model_id", id);
+              else
+                chooseModel(id);
+              build();
+            },
+            theme::surface, LV_TEXT_ALIGN_LEFT);
+        y += 46;
+      }
+  }
+  if (models.empty())
+    button(panel, "添加 Provider / 模型", 10, 50, 600, 48,
+           [this] { show("provider"); });
+}
+void App::effortPicker() {
+  auto model = currentModel();
+  if (model.empty()) {
+    modal("选择模型", "请先选择一个可用模型。");
+    return;
+  }
+  auto options = effortChoices(model);
+  closeAttachments();
+  resetPull();
+  attachments_ = box(screenObj_, 86, 0, screen_.width - 86, screen_.height);
+  popupKind_ = "effort";
+  lv_obj_set_style_bg_opa(attachments_, 0, 0);
+  lv_obj_set_scrollable(attachments_, false);
+  onClick(attachments_, [this] { closeAttachments(); });
+  auto panel = box(attachments_, 20, 12, 830, 188, theme::surface);
+  lv_obj_set_scrollable(panel, false);
+  lv_obj_set_style_radius(panel, 16, 0);
+  auto selected = model.value("effective_effort", std::string());
+  if (selected.empty())
+    selected = "api_default";
+  auto title =
+      label(panel, effortLabel(selected) + " · 推理强度", 24, 14, 600, 24);
+  button(panel, "跟随设置", 664, 4, 156, 44, [this] {
+    chooseEffort("");
+    build();
+  });
+  auto slider = lv_slider_create(panel);
+  lv_obj_set_pos(slider, 40, 76);
+  lv_obj_set_size(slider, 750, 44);
+  lv_slider_set_range(slider, 0,
+                      options.size() == 1 ? 2 : int(options.size()) - 1);
+  auto found = std::find(options.begin(), options.end(), selected);
+  lv_slider_set_value(slider,
+                      options.size() == 1      ? 1
+                      : found == options.end() ? 0
+                                               : int(found - options.begin()),
+                      LV_ANIM_OFF);
+  lv_obj_set_style_bg_color(slider, lv_color_hex(theme::border), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(slider, lv_color_hex(theme::accent),
+                            LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(slider, lv_color_hex(theme::text), LV_PART_KNOB);
+  lv_obj_set_style_radius(slider, 22, LV_PART_MAIN);
+  lv_obj_set_style_radius(slider, 22, LV_PART_INDICATOR);
+  if (selected.empty()) {
+    lv_obj_set_style_bg_opa(slider, 0, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(slider, 0, LV_PART_KNOB);
+  }
+  struct Choice {
+    App *app;
+    lv_obj_t *title;
+    std::vector<std::string> options;
+    bool selected;
+  };
+  auto data = new Choice{this, title, options, !selected.empty()};
+  lv_obj_add_event_cb(
+      slider,
+      [](lv_event_t *e) {
+        auto data = static_cast<Choice *>(lv_event_get_user_data(e));
+        if (lv_event_get_code(e) == LV_EVENT_DELETE) {
+          delete data;
+          return;
+        }
+        auto slider = static_cast<lv_obj_t *>(lv_event_get_target(e));
+        int index = std::min(int(data->options.size()) - 1,
+                             int(lv_slider_get_value(slider)));
+        const auto key = data->options[index];
+        if (lv_event_get_code(e) == LV_EVENT_DRAW_MAIN) {
+          lv_area_t area;
+          lv_obj_get_coords(slider, &area);
+          for (size_t i = 0; i < data->options.size(); ++i) {
+            if (data->selected && int(i) == index)
+              continue;
+            int x = data->options.size() == 1
+                        ? (area.x1 + area.x2) / 2
+                        : area.x1 + int(i) * (area.x2 - area.x1) /
+                                        int(data->options.size() - 1);
+            int y = (area.y1 + area.y2) / 2;
+            lv_draw_rect_dsc_t dot;
+            lv_draw_rect_dsc_init(&dot);
+            dot.bg_color = lv_color_hex(theme::muted);
+            dot.bg_opa = 150;
+            dot.radius = 4;
+            lv_area_t bounds{x - 4, y - 4, x + 4, y + 4};
+            lv_draw_rect(lv_event_get_layer(e), &dot, &bounds);
+          }
+        } else if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
+          lv_label_set_text(data->title,
+                            (effortLabel(key) + " · 推理强度").c_str());
+          data->selected = true;
+          if (data->options.size() == 1)
+            lv_slider_set_value(slider, 1, LV_ANIM_OFF);
+          lv_obj_set_style_bg_opa(slider, 255, LV_PART_KNOB);
+          lv_obj_set_style_bg_opa(slider, 255, LV_PART_INDICATOR);
+        } else if (lv_event_get_code(e) == LV_EVENT_RELEASED) {
+          data->app->chooseEffort(key);
+          lv_label_set_text(data->title,
+                            (effortLabel(key) + " · 推理强度").c_str());
+          data->selected = true;
+          if (data->options.size() == 1)
+            lv_slider_set_value(slider, 1, LV_ANIM_OFF);
+          lv_obj_set_style_bg_opa(slider, 255, LV_PART_KNOB);
+          lv_obj_set_style_bg_opa(slider, 255, LV_PART_INDICATOR);
+        }
+      },
+      LV_EVENT_ALL, data);
+  for (size_t i = 0; i < options.size(); ++i) {
+    int x =
+        options.size() == 1 ? 415 : 40 + int(i) * 750 / int(options.size() - 1);
+    auto caption = label(panel, effortLabel(options[i]), x - 38, 138, 76, 18);
+    lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
+  }
+}
+void App::modelPage() {
+  pageHeader("模型推理设置");
+  const auto id = modelForm_.value("id", std::string());
+  button(screenObj_, "参数映射", 650, 2, 140, 44, [this] {
+    modelAdvanced_ = !modelAdvanced_;
+    build();
+  });
+  button(screenObj_, "保存", 806, 2, 130, 44, [this, id] {
+    db_.saveModelCapabilities(id, modelForm_["reasoning"]);
+    show("provider");
+  });
+  auto name = label(body_, modelForm_.value("name", std::string()), 10, 0, 800,
+                    19, theme::muted);
+  lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
+  lv_obj_set_height(name, 26);
+  auto &caps = modelForm_["reasoning"];
+  auto &levels = caps["levels"];
+  int n = 0;
+  for (const auto &key : effortOrder()) {
+    if (modelAdvanced_) {
+      if (levels.contains(key)) {
+        button(
+            body_, effortLabel(key) + "：" + levels[key].get<std::string>(), 10,
+            34 + n * 48, 800, 44,
+            [this, key] {
+              edit(
+                  modelForm_["reasoning"]["levels"][key].get<std::string>(),
+                  "API 参数值",
+                  [this, key](const std::string &value) {
+                    if (hasText(value))
+                      modelForm_["reasoning"]["levels"][key] = value;
+                    build();
+                  },
+                  128, "EnUSOnly");
+            },
+            theme::surface, LV_TEXT_ALIGN_LEFT);
+        ++n;
+      }
+    } else {
+      button(
+          body_,
+          std::string(levels.contains(key) ? "● " : "○ ") + effortLabel(key),
+          10 + (n % 2) * 410, 34 + (n / 2) * 48, 395, 44,
+          [this, key] {
+            auto &levels = modelForm_["reasoning"]["levels"];
+            if (levels.contains(key))
+              levels.erase(key);
+            else
+              levels[key] = key;
+            build();
+          },
+          theme::surface, LV_TEXT_ALIGN_LEFT);
+      ++n;
+    }
+  }
+  if (!modelAdvanced_)
+    button(
+        body_, caps.value("summary", false) ? "公开总结：开" : "公开总结：关",
+        10, 182, 800, 44,
+        [this] {
+          auto &caps = modelForm_["reasoning"];
+          caps["summary"] = !caps.value("summary", false);
+          build();
+        },
+        theme::surface, LV_TEXT_ALIGN_LEFT);
+}
+void App::resetPull() {
+  const bool wasPulling = pulling_;
+  if (pulling_)
+    input_.cancel();
+  if (body_ && lv_obj_get_style_translate_y(body_, LV_PART_MAIN) != 0) {
+    const int translation = lv_obj_get_style_translate_y(body_, LV_PART_MAIN);
+    lv_anim_delete(body_, nullptr);
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, body_);
+    lv_anim_set_exec_cb(&animation, [](void *object, int32_t y) {
+      lv_obj_set_style_translate_y(static_cast<lv_obj_t *>(object), y, 0);
+    });
+    lv_anim_set_values(&animation, translation, 0);
+    lv_anim_set_duration(&animation, 160);
+    lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
+    lv_anim_start(&animation);
+  }
+  pullCandidate_ = pulling_ = false;
+  pullCreateAllowed_ = false;
+  pullProgress_ = 0;
+  if (pullIndicator_)
+    lv_obj_delete(pullIndicator_);
+  pullIndicator_ = pullArc_ = pullLabel_ = pullBadge_ = nullptr;
+  updateChatControls(wasPulling);
+}
+bool App::chatTouch(int x, int y, bool pressed) {
+  const bool began = pressed && !touchDown_;
+  touchDown_ = pressed;
+  const auto now = ticks();
+  if (began) {
+    // Read resting viewport bounds, not its animated pull translation. The
+    // launcher has already applied rotation and touch offsets exactly once.
+    if (view_ == "chat" && body_ && chatControls_) {
+      lv_obj_update_layout(body_);
+      lv_area_t bounds;
+      lv_obj_get_coords(body_, &bounds);
+      const int tx = lv_obj_get_style_translate_x(body_, LV_PART_MAIN);
+      const int ty = lv_obj_get_style_translate_y(body_, LV_PART_MAIN);
+      pullGeometry_ =
+          pullGeometry({bounds.x1 - tx, bounds.y1 - ty, bounds.x2 + 1 - tx,
+                        bounds.y2 + 1 - ty},
+                       screen_.width, screen_.height,
+                       screen_.height - lv_obj_get_height(chatControls_) - 10);
+    }
+    const bool inReader = pullGeometry_.contains(x, y);
+    pullTrackActivity_ = view_ == "chat" && !navigationOpen_ && !modal_ &&
+                         !attachments_ && inReader;
+    pullCreateAllowed_ =
+        !pullNeedsPause_ || now - pullLastActivity_ >= PullPauseMs;
+    pullCandidate_ = view_ == "chat" && !navigationOpen_ && !modal_ &&
+                     !attachments_ && hasConversationContent_ &&
+                     messageOffset_ == 0 && chatFollowing_ && body_ &&
+                     lv_obj_get_scroll_bottom(body_) <= 10 && inReader;
+    if (pullCandidate_) {
+      for (const auto &r : rasters_) {
+        lv_area_t a;
+        lv_obj_get_coords(r.holder, &a);
+        if (r.contentWidth > r.width && x >= a.x1 && x <= a.x2 && y >= a.y1 &&
+            y <= a.y2)
+          pullCandidate_ = false;
+      }
+    }
+    // Catch an in-flight return at its visible position when touched again.
+    if (pullCandidate_)
+      lv_anim_delete(body_, nullptr);
+    pullStartX_ = x;
+    pullStartY_ = y;
+    pullMotionY_ = y;
+    pullMotionTime_ = 0;
+    pullSlowDistance_ = 0;
+    pullSlowTime_ = 0;
+  }
+  if (pullNeedsPause_ && pullTrackActivity_)
+    pullLastActivity_ = now;
+  if (!pressed)
+    pullTrackActivity_ = false;
+  if (attachments_ && popupKind_ == "attachments" && pressed && !began &&
+      std::abs(pullStartY_ - y) > 8) {
+    closeAttachments();
+    input_.cancel();
+  }
+  if (!pullCandidate_ && !pulling_)
+    return false;
+  const int dy = pullStartY_ - y, dx = std::abs(pullStartX_ - x);
+  if (pressed && y != pullMotionY_) {
+    const int step = pullMotionY_ - y;
+    // Falcon can deliver several moves together. Average a stretch of motion,
+    // rather than treating each near-zero delivery interval as a fast flick.
+    // Exclude the initial hold and bound later gaps; a stationary release never
+    // promotes a guarded gesture.
+    const auto elapsed =
+        pullMotionTime_ ? std::min<int64_t>(250, now - pullMotionTime_) : 0;
+    if (step > 0 && pullMotionTime_) {
+      pullSlowDistance_ += step;
+      pullSlowTime_ += elapsed;
+      if (pullSlowDistance_ >= pullGeometry_.slowDistance &&
+          pullSlowTime_ >= PullSlowTimeMs &&
+          pullSlowDistance_ * 1000 <= pullGeometry_.slowSpeed * pullSlowTime_)
+        pullCreateAllowed_ = true;
+    } else {
+      pullSlowDistance_ = 0;
+      pullSlowTime_ = 0;
+    }
+    pullMotionY_ = y;
+    pullMotionTime_ = now;
+  }
+  if (!pulling_ && (dy < -pullGeometry_.start ||
+                    (dx > pullGeometry_.sideways && dx >= std::abs(dy)))) {
+    resetPull();
+    return false;
+  }
+  if (!pulling_ && pressed && dy > pullGeometry_.start && dy > dx) {
+    pulling_ = true;
+    pullVisualOrigin_ = lv_obj_get_style_translate_y(body_, LV_PART_MAIN);
+    lv_anim_delete(body_, nullptr);
+    chatLayout_ = true;
+    input_.cancel();
+    lv_obj_stop_scroll_anim(body_);
+    lv_obj_scroll_to_y(body_, LV_COORD_MAX, LV_ANIM_OFF);
+    chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
+    chatLayout_ = false;
+    pullIndicator_ = box(screenObj_, 381, 168, 280, 98);
+    lv_obj_set_style_bg_opa(pullIndicator_, 0, 0);
+    lv_obj_set_scrollable(pullIndicator_, false);
+    pullArc_ = lv_arc_create(pullIndicator_);
+    lv_obj_set_pos(pullArc_, 114, 0);
+    lv_obj_set_size(pullArc_, 52, 52);
+    lv_arc_set_rotation(pullArc_, 270);
+    lv_arc_set_bg_angles(pullArc_, 0, 360);
+    lv_arc_set_range(pullArc_, 0, 100);
+    lv_obj_remove_style(pullArc_, nullptr, LV_PART_KNOB);
+    lv_obj_set_style_arc_color(pullArc_, lv_color_hex(0x19284c), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(pullArc_, lv_color_hex(theme::accent),
+                               LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(pullArc_, 3, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(pullArc_, 3, LV_PART_INDICATOR);
+    lv_obj_set_clickable(pullArc_, false);
+    pullBadge_ =
+        icon(pullIndicator_, "newchat", 114, 0, 52, 52, {}, theme::accent);
+    lv_obj_set_hidden(pullBadge_, true);
+    pullLabel_ = label(pullIndicator_, "新聊天", 0, 60, 280, 20);
+    lv_obj_set_style_text_align(pullLabel_, LV_TEXT_ALIGN_CENTER, 0);
+    updateChatControls(true);
+  }
+  if (pulling_) {
+    const int dragOffset = std::max(0, dy - pullGeometry_.start);
+    lv_obj_set_style_translate_y(
+        body_, std::max(-pullGeometry_.stretch, pullVisualOrigin_ - dragOffset),
+        0);
+    paintVisible();
+    // Guarded rapid swipes still stretch/retract, using the same viewport
+    // transform as an accepted pull instead of LVGL's elastic scroll physics.
+    lv_obj_set_hidden(pullIndicator_, !pullCreateAllowed_);
+    if (pullCreateAllowed_) {
+      // Once progress is shown, releasing (even partially) needs no quiet gap
+      // before the next attempt. Only a new return from history rearms it.
+      pullNeedsPause_ = false;
+      pullTrackActivity_ = false;
+    }
+    pullProgress_ =
+        pullCreateAllowed_
+            ? std::max(0, std::min(100, (dy - pullGeometry_.start) * 100 /
+                                            pullGeometry_.fill))
+            : 0;
+    lv_arc_set_value(pullArc_, pullProgress_);
+    lv_obj_set_hidden(pullBadge_, pullProgress_ != 100);
+    lv_obj_set_hidden(pullArc_, pullProgress_ == 100);
+    lv_label_set_text(pullLabel_, pullProgress_ == 100 ? "松开新建" : "新聊天");
+    if (!pressed) {
+      const bool create = pullProgress_ == 100;
+      resetPull();
+      if (create)
+        newChat();
+    }
+    return true;
+  }
+  if (!pressed)
+    resetPull();
+  // Keep LVGL's elastic scroll from moving the page before this gesture wins.
+  // Downward/horizontal motion above the slop already releases the candidate.
+  return pressed && pullCandidate_ && !began;
+}
+void App::clear() {
+  scanImage_ = scanLabel_ = scanUse_ = scanHint_ = nullptr;
+  historyRows_.clear();
+  historyContextId_.clear();
+  reasoningHeaders_.clear();
+  if (navigationList_)
+    navigationScroll_ = std::max(0, int(lv_obj_get_scroll_y(navigationList_)));
+  navigation_ = navigationList_ = navigationActive_ = nullptr;
+  resetPull();
+  if (touchDown_)
+    input_.cancel();
+  attachments_ = modal_ = nullptr;
+  popupKind_.clear();
+  if (chatControls_)
+    lv_anim_delete(chatControls_, nullptr);
+  if (body_)
+    lv_anim_delete(body_, nullptr);
+  chatControls_ = toBottom_ = nullptr;
+  chatControlsTarget_ = -1;
+  rasters_.clear();
+  imageRequests_.clear();
+  placeholders_.clear();
+  if (screenObj_) {
+    lv_obj_delete(screenObj_);
+    screenObj_ = nullptr;
+  }
+  for (auto &t : textures_)
+    lv_image_cache_drop(&t.second->descriptor);
+  textures_.clear();
+  body_ = messageContent_ = composer_ = status_ = cameraImage_ = liveContent_ =
+      nullptr;
+}
+void App::build() {
+  if (body_ && builtView_ == "chat" && !chatLayout_)
+    chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
+  chatLayout_ = true;
+  clear();
+  screenObj_ = box(lv_screen_active(), 0, 0, screen_.width, screen_.height);
+  lv_obj_set_scrollable(screenObj_, false);
+  icon(screenObj_, view_ == "chat" ? "menu" : "back", 16, 8, 48, 48, [this] {
+    if (view_ == "chat")
+      toggleNavigation();
+    else
+      goBack();
+  });
+  int w = screen_.width - 90;
+  body_ = box(screenObj_, 86, 0, w, screen_.height);
+  lv_obj_set_scroll_dir(body_, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(body_, LV_SCROLLBAR_MODE_AUTO);
+  if (view_ == "chat")
+    chat();
+  else if (view_ == "settings")
+    settingsPage();
+  else if (view_ == "provider")
+    providerPage();
+  else if (view_ == "archives")
+    archivesPage();
+  else if (view_ == "model")
+    modelPage();
+  else if (view_ == "keyscan")
+    keyScanPage();
+  else if (view_ == "scan")
+    scanPage();
+  else if (view_ == "camera")
+    cameraPage();
+  else if (view_ == "album")
+    albumPage();
+  if (view_ == "chat" && scanner_.available()) {
+    auto hint = box(screenObj_, 12, 60, 64, 64);
+    lv_obj_set_scrollable(hint, false);
+    scanHint_ = label(hint, "扫描\n准备中", 4, 5, 60, 14, theme::muted);
+    onClick(hint, [this] {
+      auto state = scanner_.state().value("type", std::string());
+      if (state == "error" || state == "fatal") {
+        scanner_.eligible(false, session_);
+        scanner_.eligible(true, session_);
+        syncScanner();
+      }
+    });
+  }
+  refreshImages();
+  if (navigationOpen_)
+    historyDrawer();
+  lv_obj_update_layout(screenObj_);
+  builtView_ = view_;
+  chatLayout_ = false;
+  syncScanner();
+}
+void App::show(const std::string &view) {
+  if (view_ == "scan" && view != "scan") {
+    scanner_.eligible(false, session_);
+    scanId_ = 0;
+    scanResult_ = Json::object();
+    scanConfirming_ = false;
+  }
+  closeNavigation(false);
+  closeAttachments();
+  resetPull();
+  if (view_ == "provider" && view != "provider" && view != "keyscan") {
+    providerForm_ = Json::object();
+    modelNames_.clear();
+    ++modelGeneration_;
+    modelCancel_ = true;
+  }
+  if (view_ == "keyscan" && view != "keyscan") {
+    stopKeyScan();
+    if (view != "provider")
+      providerForm_ = Json::object();
+  }
+  if (view_ == "camera" && view != "camera")
+    camera_.stop();
+  view_ = view;
+  notice_.clear();
+  build();
+  if (view_ == "camera" && visible_)
+    whenScannerReleased([this] {
+      if (view_ == "camera" && visible_ && !keyboard_)
+        camera_.start();
+    });
+}
+void App::error(const std::string &m) {
+  notice_ = m;
+  if (status_)
+    lv_label_set_text(status_, m.c_str());
+  else
+    modal("提示", m);
+}
+void App::modal(const std::string &title, const std::string &text) {
+  closeAttachments();
+  resetPull();
+  if (modal_)
+    lv_obj_delete(modal_);
+  auto layer = box(screenObj_, 84, 5, screen_.width - 92, screen_.height - 10,
+                   theme::surface);
+  modal_ = layer;
+  lv_obj_add_event_cb(
+      layer,
+      [](lv_event_t *e) {
+        static_cast<App *>(lv_event_get_user_data(e))->modal_ = nullptr;
+      },
+      LV_EVENT_DELETE, this);
+  lv_obj_set_style_border_color(layer, lv_color_hex(theme::border), 0);
+  lv_obj_set_style_border_width(layer, 1, 0);
+  label(layer, title, 15, 7, screen_.width - 140, 23);
+  auto scroll = box(layer, 10, 42, screen_.width - 120, screen_.height - 115,
+                    theme::surface);
+  label(scroll, text, 5, 0, screen_.width - 145, 20);
+  button(layer, "关闭", screen_.width - 205, screen_.height - 66, 100, 40,
+         [layer] { lv_obj_delete(layer); });
+}
+void App::edit(const std::string &text, const std::string &placeholder,
+               std::function<void(const std::string &)> callback, int maxLength,
+               const char *inputType, std::function<void()> cancelled) {
+  if (keyboard_)
+    return;
+  closeNavigation(false);
+  closeAttachments();
+  resetPull();
+  keyboard_ = true;
+  editCancellation_ = std::move(cancelled);
+  keyboardId_ = uid("edit");
+  const auto originView = view_;
+  const int originScroll = body_ ? lv_obj_get_scroll_y(body_) : 0;
+  editCompletion_ = [this, callback, originView,
+                     originScroll](const std::string &value) {
+    callback(value);
+    if (view_ == originView && body_) {
+      lv_obj_update_layout(body_);
+      lv_obj_scroll_to_y(body_, originScroll, LV_ANIM_OFF);
+      paintVisible();
+    }
+  };
+  input_.release();
+  const auto id = keyboardId_;
+  const std::string kind = inputType;
+  whenScannerReleased([this, id, text, placeholder, maxLength, kind] {
+    if (keyboard_ && keyboardId_ == id && visible_) {
+      display_.visible(false);
+      bridge_.send("keyboard.open", {{"requestId", id},
+                                     {"text", text},
+                                     {"placeholder", placeholder},
+                                     {"maxlength", maxLength},
+                                     {"inputType", kind}});
+    }
+  });
+}
+void App::chat() {
+  int width = screen_.width - 90;
+  lv_obj_set_height(body_, screen_.height);
+  // At the edge, rapid guarded swipes must not repeatedly stretch and snap
+  // back.
+  lv_obj_set_scroll_elastic(body_, false);
+  lv_obj_set_scroll_chain_ver(body_, false);
+  messageContent_ = box(body_, 0, 0, width, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(messageContent_, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(messageContent_, 10, 0);
+  lv_obj_set_style_pad_bottom(messageContent_, 74, 0);
+  lv_obj_set_scrollable(messageContent_, false);
+  lv_obj_add_event_cb(
+      body_,
+      [](lv_event_t *e) {
+        static_cast<App *>(lv_event_get_user_data(e))->chatScrolled();
+      },
+      LV_EVENT_SCROLL, this);
+  renderMessages(chatFollowing_);
+  chatControls_ =
+      box(screenObj_, 106, screen_.height - 58, 830, 48, theme::surface);
+  lv_obj_set_scrollable(chatControls_, false);
+  lv_obj_set_style_radius(chatControls_, 24, 0);
+  icon(
+      chatControls_, "plus", 2, 2, 44, 44, [this] { toggleAttachments(); },
+      theme::surface);
+  const bool gauge = sessionPreferences_.value("gauge", !effortMemory_.empty());
+  if (gauge)
+    icon(
+        chatControls_, "gauge", 730, 2, 44, 44, [this] { effortPicker(); },
+        theme::surface, theme::muted);
+  composer_ = button(
+      chatControls_, draft_.empty() ? "询问 " PENCHAT_NAME : draft_, 50, 2,
+      gauge ? 674 : 726, 44,
+      [this] {
+        edit(
+            draft_, "请输入消息",
+            [this](const std::string &s) {
+              draft_ = s;
+              build();
+            },
+            8192);
+      },
+      theme::surface, LV_TEXT_ALIGN_LEFT);
+  if (draft_.empty())
+    lv_obj_set_style_text_color(lv_obj_get_child(composer_, 0),
+                                lv_color_hex(theme::muted), 0);
+  const bool sendEnabled = generating_ || canSend();
+  auto send = icon(
+      chatControls_, generating_ ? "stop" : "up", 780, 2, 44, 44,
+      [this] {
+        if (generating_)
+          cancel_ = true;
+        else if (canSend())
+          sendMessage();
+      },
+      sendEnabled ? theme::text : theme::border, theme::background);
+  // Equal 2px insets keep the circle concentric with the capsule end cap.
+  lv_obj_align(send, LV_ALIGN_RIGHT_MID, -2, 0);
+  if (!sendEnabled)
+    lv_obj_set_clickable(send, false);
+  toBottom_ = icon(
+      screenObj_, "down", 499, screen_.height - 114, 44, 44,
+      [this] { jumpToBottom(); }, theme::surface);
+  lv_obj_set_style_border_color(toBottom_, lv_color_hex(theme::border), 0);
+  lv_obj_set_style_border_width(toBottom_, 1, 0);
+  updateChatControls(false);
+}
+void App::chatScrolled() {
+  if (chatLayout_ || view_ != "chat" || !body_)
+    return;
+  closeAttachments();
+  chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
+  const bool wasFollowing = chatFollowing_;
+  chatFollowing_ = messageOffset_ == 0 && lv_obj_get_scroll_bottom(body_) <= 10;
+  if (!wasFollowing && chatFollowing_ &&
+      lv_obj_get_scroll_y(body_) + lv_obj_get_scroll_bottom(body_) > 0)
+    pullNeedsPause_ = true;
+  // Native inertia and repeated swipes both postpone the quiet period.
+  if (pullNeedsPause_ && !pulling_)
+    pullLastActivity_ = ticks();
+  updateChatControls(true);
+  paintVisible();
+}
+void App::updateChatControls(bool animate) {
+  if (!chatControls_ || !toBottom_)
+    return;
+  lv_obj_set_hidden(toBottom_, chatFollowing_ || pulling_);
+  bool overContent = false;
+  if (messageContent_) {
+    lv_area_t buttonArea;
+    lv_obj_get_coords(toBottom_, &buttonArea);
+    for (uint32_t i = 0; i < lv_obj_get_child_count(messageContent_); ++i) {
+      lv_area_t area;
+      lv_obj_get_coords(lv_obj_get_child(messageContent_, i), &area);
+      if (area.x1 <= buttonArea.x2 && area.x2 >= buttonArea.x1 &&
+          area.y1 <= buttonArea.y2 && area.y2 >= buttonArea.y1) {
+        overContent = true;
+        break;
+      }
+    }
+  }
+  lv_obj_set_style_bg_opa(toBottom_, overContent ? 160 : 255, 0);
+  lv_obj_set_style_border_opa(toBottom_, overContent ? 160 : 255, 0);
+  const int target =
+      chatFollowing_ && !pulling_ ? screen_.height - 58 : screen_.height + 2;
+  if (chatControlsTarget_ == target)
+    return;
+  chatControlsTarget_ = target;
+  lv_anim_delete(chatControls_, nullptr);
+  if (!animate) {
+    lv_obj_set_y(chatControls_, target);
+    return;
+  }
+  lv_anim_t animation;
+  lv_anim_init(&animation);
+  lv_anim_set_var(&animation, chatControls_);
+  lv_anim_set_exec_cb(&animation, [](void *object, int32_t value) {
+    lv_obj_set_y(static_cast<lv_obj_t *>(object), value);
+  });
+  lv_anim_set_values(&animation, lv_obj_get_y(chatControls_), target);
+  lv_anim_set_duration(&animation, 160);
+  lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
+  lv_anim_start(&animation);
+}
+void App::jumpToBottom() {
+  pullNeedsPause_ = true;
+  pullLastActivity_ = ticks();
+  chatFollowing_ = true;
+  if (messageOffset_ != 0) {
+    messageOffset_ = 0;
+    renderMessages(true);
+    return;
+  }
+  chatLayout_ = true;
+  lv_obj_scroll_to_y(body_, LV_COORD_MAX, LV_ANIM_OFF);
+  chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
+  chatLayout_ = false;
+  updateChatControls(true);
+  paintVisible();
+}
+void App::newChat() {
+  pullNeedsPause_ = false;
+  pullTrackActivity_ = false;
+  stopNetwork();
+  session_ = uid("session");
+  sessionPreferences_ = Json::object();
+  reasoningMetadata_ = Json::object();
+  expandedReasoning_.clear();
+  draft_.clear();
+  chatFollowing_ = true;
+  chatScroll_ = 0;
+  messageOffset_ = 0;
+  show("chat");
+}
+void App::richMessage(lv_obj_t *parent, const std::string &text, int width) {
+  auto doc = parseMarkdown(text, generating_ && parent == liveContent_);
+  rich_.prepare(doc, width - 4);
+  auto appendText = [&](const Block &b) {
+    if (b.runs.empty() && b.cells.empty() && b.kind != "hr")
+      return;
+    auto layout = rich_.layout(b, width - 4);
+    auto holder = box(parent, 0, 0, width, layout.height, theme::background);
+    lv_obj_set_scroll_dir(holder, LV_DIR_HOR);
+    lv_obj_set_scrollbar_mode(holder, LV_SCROLLBAR_MODE_AUTO);
+    auto spacer = box(holder, layout.width - 1, 0, 1, 1, theme::background);
+    lv_obj_set_style_bg_opa(spacer, 0, 0);
+    lv_obj_add_event_cb(
+        holder,
+        [](lv_event_t *e) {
+          static_cast<App *>(lv_event_get_user_data(e))->paintVisible();
+        },
+        LV_EVENT_SCROLL, this);
+    rasters_.push_back(
+        {holder, parent, b, width - 4, layout.height, layout.width, {}});
+  };
+  for (const auto &b : doc.blocks) {
+    Block part = b;
+    part.runs.clear();
+    bool split = false;
+    for (const auto &r : b.runs) {
+      if (!(r.style & Image)) {
+        part.runs.push_back(r);
+        continue;
+      }
+      appendText(part);
+      part.runs.clear();
+      part.marker.clear();
+      split = true;
+      auto h = box(parent, 0, 0, width, 145, theme::background);
+      image(h, r.link, 0, 0, width, 145);
+    }
+    if (split)
+      appendText(part);
+    else
+      appendText(b);
+  }
+}
+void App::renderMessages(bool bottom) {
+  if (!messageContent_)
+    return;
+  const int scroll = chatScroll_;
+  const bool follow = messageOffset_ == 0 && (bottom || chatFollowing_);
+  const bool previousLayout = chatLayout_;
+  chatLayout_ = true;
+  rasters_.clear();
+  liveContent_ = nullptr;
+  reasoningHeaders_.clear();
+  lv_obj_clean(messageContent_);
+  auto messages = db_.messages(session_, messageOffset_, 30);
+  rows_ = messages;
+  hasConversationContent_ =
+      !db_.query("SELECT id FROM chat_messages WHERE session_id=? AND "
+                 "(length(trim(coalesce(output_text,'')))>0 OR "
+                 "message_type='image') LIMIT 1",
+                 {session_})
+           .empty();
+  int width = screen_.width - 112;
+  bool more = int(messages.size()) >= 30;
+  if (more)
+    button(messageContent_, "加载更早消息", 0, 0, width, 35, [this] {
+      messageOffset_ += 30;
+      renderMessages(true);
+    });
+  if (messages.empty()) {
+    auto welcome = box(messageContent_, 0, 0, width, 166);
+    lv_obj_set_scrollable(welcome, false);
+    auto title = label(welcome, PENCHAT_NAME, 0, 42, width, 30);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+    auto hint =
+        label(welcome, db_.models().empty() ? "请在设置中添加 Provider 和模型" : "有什么可以帮你？", 0, 86, width, 23, theme::muted);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+  }
+  for (const auto &m : messages) {
+    bool user = m.value("role", std::string()) == "user";
+    const bool hasImage = !stringValue(m, "stored_path").empty() ||
+                          !stringValue(m, "original_path").empty();
+    int contentWidth = user ? width * 3 / 4 : width;
+    if (user && stringValue(m, "stored_path").empty() &&
+        stringValue(m, "original_path").empty()) {
+      lv_point_t measured;
+      const auto text = stringValue(m, "output_text");
+      lv_text_get_size(&measured, text.c_str(), font(21), 0, 0, LV_COORD_MAX,
+                       LV_TEXT_FLAG_NONE);
+      contentWidth = std::min(contentWidth, std::max(48, int(measured.x) + 24));
+    }
+    auto row = box(messageContent_, 0, 0, width, LV_SIZE_CONTENT);
+    lv_obj_set_scrollable(row, false);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, user ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    auto wrap = box(row, 0, 0, contentWidth, LV_SIZE_CONTENT,
+                    user && !hasImage ? theme::surface : theme::background);
+    lv_obj_set_flex_flow(wrap, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_scrollable(wrap, false);
+    lv_obj_set_style_pad_all(wrap, hasImage ? 0 : (user ? 12 : 8), 0);
+    lv_obj_set_style_radius(wrap, user ? 18 : 0, 0);
+    const int textWidth = contentWidth - (hasImage ? 0 : (user ? 24 : 16));
+    auto id = m["id"].get<std::string>();
+    std::string content =
+        id == assistant_ ? output_ : stringValue(m, "output_text");
+    if (id == assistant_ && content.empty() && generating_)
+      content = "正在生成…";
+    auto reason =
+        id == assistant_ ? reasoning_ : stringValue(m, "reasoning_text");
+    auto metadata =
+        id == assistant_ ? reasoningMetadata_ : objectField(m, "metadata_json");
+    if (!user &&
+        (!reason.empty() || metadata.value("reasoning_observed", false))) {
+      std::string title = "思考过程";
+      if (id == assistant_ && generating_ &&
+          !metadata.value("reasoning_complete", false))
+        title = "正在思考…";
+      else if (metadata.contains("reasoning_duration_ms")) {
+        const auto seconds =
+            metadata["reasoning_duration_ms"].get<int64_t>() / 1000;
+        title = "思考了 " +
+                (seconds >= 60 ? std::to_string(seconds / 60) + "分" : "") +
+                std::to_string(seconds % 60) + "秒";
+      }
+      auto header = box(wrap, 0, 0, textWidth, 44);
+      reasoningHeaders_.push_back(header);
+      lv_obj_set_scrollable(header, false);
+      if (!reason.empty()) {
+        auto toggle = [this, id] {
+          if (expandedReasoning_.count(id))
+            expandedReasoning_.erase(id);
+          else
+            expandedReasoning_.insert(id);
+          chatFollowing_ = false;
+          renderMessages(false);
+        };
+        icon(header,
+             expandedReasoning_.count(id) ? "chevron-down" : "chevron-right", 0,
+             0, 44, 44, toggle, theme::background, theme::muted);
+        button(header, title, 44, 0, 300, 44, toggle, theme::background,
+               LV_TEXT_ALIGN_LEFT);
+        if (expandedReasoning_.count(id)) {
+          auto detail = box(wrap, 0, 0, textWidth, LV_SIZE_CONTENT);
+          lv_obj_set_scrollable(detail, false);
+          lv_obj_set_flex_flow(detail, LV_FLEX_FLOW_COLUMN);
+          richMessage(detail, reason, textWidth);
+        }
+      } else
+        label(header, title, 0, 10, textWidth, 20, theme::muted);
+    }
+    auto path = stringValue(m, "display_src");
+    if (path.empty())
+      path = stringValue(m, "stored_path");
+    if (path.empty())
+      path = stringValue(m, "original_path");
+    if (!path.empty()) {
+      auto imgBox = box(wrap, 0, 0, textWidth, 140);
+      lv_obj_set_scrollable(imgBox, false);
+      image(imgBox, path, 0, 0, textWidth, 140, {}, user);
+    }
+    if (!content.empty()) {
+      if (user)
+        label(wrap, content, 0, 0, textWidth, 21);
+      else {
+        auto contentBox =
+            box(wrap, 0, 0, textWidth, LV_SIZE_CONTENT, theme::background);
+        lv_obj_set_flex_flow(contentBox, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_scrollable(contentBox, false);
+        if (id == assistant_)
+          liveContent_ = contentBox;
+        richMessage(contentBox, content, textWidth);
+      }
+    }
+    if (stringValue(m, "status") == "error")
+      label(wrap, "生成失败，可重新发送", 0, 0, textWidth, 17, theme::danger);
+  }
+  if (messageOffset_ > 0)
+    button(messageContent_, "加载较新消息", 0, 0, width, 35, [this] {
+      messageOffset_ = std::max(0, messageOffset_ - 30);
+      renderMessages(true);
+    });
+  lv_obj_update_layout(messageContent_);
+  lv_obj_scroll_to_y(body_, (bottom || follow) ? LV_COORD_MAX : scroll,
+                     LV_ANIM_OFF);
+  chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
+  chatFollowing_ = follow;
+  chatLayout_ = previousLayout;
+  updateChatControls(true);
+  paintVisible();
+  refreshImages();
+}
+void App::renderLiveMessage() {
+  if (reasoningMetadata_.value("reasoning_observed", false) ||
+      !reasoning_.empty()) {
+    renderMessages(false);
+    return;
+  }
+  if (!liveContent_ || !messageContent_)
+    return;
+  const int scroll = chatScroll_;
+  const bool previousLayout = chatLayout_;
+  chatLayout_ = true;
+  rasters_.erase(std::remove_if(rasters_.begin(), rasters_.end(),
+                                [this](const Raster &r) {
+                                  return r.owner == liveContent_;
+                                }),
+                 rasters_.end());
+  lv_obj_clean(liveContent_);
+  richMessage(liveContent_, output_.empty() ? "正在生成…" : output_,
+              lv_obj_get_width(liveContent_));
+  lv_obj_update_layout(messageContent_);
+  lv_obj_scroll_to_y(body_, chatFollowing_ ? LV_COORD_MAX : scroll,
+                     LV_ANIM_OFF);
+  chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
+  chatLayout_ = previousLayout;
+  updateChatControls(true);
+  paintVisible();
+  refreshImages();
+}
+void App::paintVisible() {
+  if (!body_)
+    return;
+  lv_area_t viewport;
+  lv_obj_get_coords(body_, &viewport);
+  for (auto &r : rasters_) {
+
+    lv_area_t area;
+    lv_obj_get_coords(r.holder, &area);
+    int from = std::max(0, viewport.y1 - area.y1 - 128),
+        to = std::min(r.height, viewport.y2 - area.y1 + 128);
+    int left = std::max(0, int(lv_obj_get_scroll_x(r.holder))),
+        right = std::min(r.contentWidth, left + r.width + 512);
+    std::set<std::pair<int, int>> wanted;
+    if (to >= from)
+      for (int y = (from / 128) * 128; y < to; y += 128)
+        for (int x = (left / 512) * 512; x < right; x += 512)
+          wanted.insert({x, y});
+    for (auto it = r.tiles.begin(); it != r.tiles.end();) {
+      if (wanted.count(it->first)) {
+        ++it;
+        continue;
+      }
+      auto object = it->second;
+      lv_obj_delete(object);
+      auto texture = textures_.find(object);
+      if (texture != textures_.end()) {
+        lv_image_cache_drop(&texture->second->descriptor);
+        textures_.erase(texture);
+      }
+      it = r.tiles.erase(it);
+    }
+    for (auto position : wanted)
+      if (!r.tiles.count(position)) {
+        int x = position.first, y = position.second;
+        auto bitmap = rich_.paint(r.block, r.width, y,
+                                  std::min(128, r.height - y), 21, x, 512);
+        auto frame = std::make_shared<ImageFrame>();
+        frame->width = bitmap.width;
+        frame->height = bitmap.height;
+        frame->pixels = std::move(bitmap.pixels);
+        auto object = imageWidget(r.holder);
+        lv_obj_set_pos(object, x, y);
+        texture(object, frame, true);
+        r.tiles[position] = object;
+        auto hits = rich_.layout(r.block, r.width).links;
+        onClick(object, [this, object, hits, x, y] {
+          lv_point_t point;
+          auto indev = lv_indev_active();
+          if (!indev)
+            return;
+          lv_indev_get_point(indev, &point);
+          lv_area_t area;
+          lv_obj_get_coords(object, &area);
+          for (auto &hit : hits)
+            if (point.x - area.x1 + x >= hit.x &&
+                point.x - area.x1 + x < hit.x + hit.w &&
+                point.y - area.y1 + y >= hit.y &&
+                point.y - area.y1 + y < hit.y + hit.h) {
+              modal("链接", hit.target);
+              break;
+            }
+        });
+      }
+  }
+}
+void App::refreshImages() {
+  for (auto &request : imageRequests_) {
+    auto frame = images_.get(request.second);
+    if (frame) {
+      if (!textures_.count(request.first) ||
+          textures_[request.first]->frame != frame)
+        texture(request.first, frame);
+      if (placeholders_.count(request.first))
+        lv_obj_set_hidden(placeholders_[request.first], true);
+    } else if (images_.failed(request.second) &&
+               placeholders_.count(request.first))
+      lv_label_set_text(placeholders_[request.first], "图片读取失败");
+  }
+}
+void App::pageHeader(const std::string &title) {
+  label(screenObj_, title, 96, 7, screen_.width - 130, 26);
+  lv_obj_set_pos(body_, 86, 48);
+  lv_obj_set_height(body_, screen_.height - 48);
+  lv_obj_set_style_pad_bottom(body_, 12, 0);
+}
+void App::settingsPage() {
+  pageHeader("设置");
+  const int width = screen_.width - 118;
+  const int gap = 14, column = (width - gap) / 2;
+  const int left = 10, right = left + column + gap;
+  const auto config = db_.settings();
+  const auto settings = config.value("penchat_settings", Json::object());
+  auto action = [&](const std::string &text, int x, int y,
+                    std::function<void()> callback) {
+    return button(body_, text, x, y, column, 48, std::move(callback),
+                  theme::surface, LV_TEXT_ALIGN_LEFT);
+  };
+  action("模型管理", left, 4, [this] { show("provider"); });
+  action("归档会话", right, 4, [this] {
+    archiveOffset_ = 0;
+    show("archives");
+  });
+  action(settings.value("autoSendCapturedContent", false)
+             ? "图片自动发送：开" : "图片自动发送：关", left, 62, [this] {
+    auto settings = db_.settings().value("penchat_settings", Json::object());
+    settings["autoSendCapturedContent"] =
+        !settings.value("autoSendCapturedContent", false);
+    db_.setting("penchat_settings", settings);
+    build();
+  });
+  const bool autoTitle = config.value("auto_title_enabled", true);
+  action(autoTitle ? "自动命名：开" : "自动命名：关", right, 62,
+         [this, autoTitle] {
+           db_.setting("auto_title_enabled", !autoTitle);
+           if (autoTitle)
+             titleCancel_ = true;
+           build();
+         });
+  auto titleModelId = config.value("title_model_id", std::string());
+  std::string titleModelName =
+      titleModelId.empty() ? "跟随当前聊天模型" : "指定模型不可用";
+  for (const auto &m : db_.models())
+    if (m["id"] == titleModelId)
+      titleModelName = m.value("name", std::string());
+  action("命名模型：" + titleModelName, left, 120,
+         [this] { modelPicker(true); });
+  const auto summary = db_.summary();
+  auto storage = box(body_, right, 120, column, 48, theme::surface);
+  lv_obj_set_scrollable(storage, false);
+  lv_obj_set_style_radius(storage, 10, 0);
+  auto count = label(storage, "存储：" + summary["sessions"].dump() +
+                     " 个会话 / " + summary["messages"].dump() + " 条消息",
+                     12, 0, column - 24, 20, theme::muted);
+  lv_label_set_long_mode(count, LV_LABEL_LONG_MODE_DOTS);
+  lv_obj_set_height(count, font(20)->line_height);
+  lv_obj_align(count, LV_ALIGN_LEFT_MID, 12, 0);
+  label(body_, PENCHAT_NAME " " PENCHAT_VERSION " · LVGL 9.6.0", left, 182, width, 16,
+        theme::muted);
+}
+void App::providerPage() {
+  int w = screen_.width - 118;
+  pageHeader(providerForm_.empty()          ? "Provider / 模型"
+             : providerForm_.contains("id") ? "编辑 Provider"
+                                            : "添加 Provider");
+  if (providerForm_.empty()) {
+    button(screenObj_, "添加 Provider", screen_.width - 212, 5, 195, 38,
+           [this] {
+             providerForm_ = {{"name", "OpenAI"},
+                              {"baseURL", "https://api.openai.com/v1"},
+                              {"apiKey", ""},
+                              {"api", "responses"}};
+             modelNames_.clear();
+             ++modelGeneration_;
+             modelCancel_ = true;
+             build();
+           });
+    int y = 5;
+    auto models = db_.models();
+    auto providers = db_.providers();
+    for (const auto &p : providers) {
+      auto title = label(body_, p.value("name", std::string("Provider")), 10,
+                         y + 5, w - 130, 21);
+      lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
+      lv_obj_set_height(title, font(21)->line_height);
+      auto providerId = p["id"].get<std::string>();
+      button(body_, "编辑", w - 105, y, 95, 38,
+             [this, providerId] { editProvider(providerId); });
+      y += 46;
+      for (const auto &m : models) {
+        if (m["provider_id"] != providerId)
+          continue;
+        std::string title = m.value("is_default", 0) ? "● " : "○ ";
+        title += m["name"].get<std::string>();
+        auto id = m["id"].get<std::string>();
+        button(
+            body_, title, 10, y, w - 125, 44,
+            [this, id] {
+              chooseModel(id);
+              build();
+            },
+            theme::surface, LV_TEXT_ALIGN_LEFT);
+        button(body_, "编辑", w - 105, y, 95, 44, [this, m] {
+          modelForm_ = m;
+          modelForm_["reasoning"] = reasoningCapabilities(m);
+          modelAdvanced_ = false;
+          show("model");
+        });
+        y += 53;
+      }
+      y += 10;
+    }
+    if (providers.empty())
+      label(body_, "尚未配置模型，请添加 Provider", 10, y, w, 21);
+    return;
+  }
+  auto field = [&](const std::string &key, const std::string &name, int x,
+                   int y, int width, bool secret = false) {
+    std::string value = providerForm_.value(key, std::string());
+    if (secret && !value.empty())
+      value = "••••••••";
+    button(
+        body_, name + "：" + (value.empty() ? "点击填写" : value), x, y, width,
+        40,
+        [this, key, name] {
+          edit(
+              providerForm_.value(key, std::string()), name,
+              [this, key](const std::string &v) {
+                providerForm_[key] = v;
+                build();
+              },
+              4096,
+              key == "name"     ? "ZhCNPreferred"
+              : key == "apiKey" ? "EnUSOnly"
+                                : "EnUSPreferred");
+        },
+        theme::surface, LV_TEXT_ALIGN_LEFT);
+  };
+  const int columnWidth = (w - 30) / 2;
+  const int right = 20 + columnWidth;
+  field("name", "名称", 10, 4, columnWidth);
+  field("baseURL", "Base URL", right, 4, columnWidth);
+  field("apiKey", "API Key", 10, 54, columnWidth - 120, true);
+  button(
+      body_, "扫描 Key", columnWidth - 100, 54, 110, 40,
+      [this] { startKeyScan(); }, theme::surface);
+  button(body_,
+         providerForm_.value("api", std::string()) == "chat"
+             ? "接口：Chat Completions"
+             : "接口：Responses",
+         right, 54, columnWidth, 40, [this] {
+           providerForm_["api"] =
+               providerForm_.value("api", std::string()) == "chat" ? "responses"
+                                                                   : "chat";
+           build();
+         });
+  field("model", "手动模型（逗号分隔）", 10, 104, w - 20);
+  const int actionGap = 16;
+  const int actionWidth = (w - 20 - 2 * actionGap) / 3;
+  button(body_, "自动拉取模型", 10, 154, actionWidth, 42,
+         [this] { fetchModels(); });
+  button(
+      body_, "保存", 10 + actionWidth + actionGap, 154, actionWidth, 42,
+      [this] { saveProvider(); }, theme::surface);
+  button(body_, "取消", 10 + 2 * (actionWidth + actionGap), 154, actionWidth,
+         42, [this] {
+           ++modelGeneration_;
+           modelCancel_ = true;
+           providerForm_ = Json::object();
+           modelNames_.clear();
+           build();
+         });
+  button(
+      body_,
+      "默认推理强度：" +
+          effortLabel(providerForm_.value("default_effort", std::string())),
+      10, 204, w - 20, 44,
+      [this] {
+        std::vector<std::string> values{""};
+        values.insert(values.end(), effortOrder().begin(), effortOrder().end());
+        auto current =
+            std::find(values.begin(), values.end(),
+                      providerForm_.value("default_effort", std::string()));
+        providerForm_["default_effort"] =
+            current == values.end() || ++current == values.end() ? values[0]
+                                                                 : *current;
+        build();
+      },
+      theme::surface, LV_TEXT_ALIGN_LEFT);
+  status_ = label(body_, notice_, 10, 258, w, 19);
+  int y = 294;
+  for (auto &name : modelNames_) {
+    auto nameLabel = label(body_, name, 15, y, w, 20);
+    lv_label_set_long_mode(nameLabel, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_height(nameLabel, font(20)->line_height);
+    y += 30;
+  }
+}
+void App::editProvider(const std::string &id) {
+  ++modelGeneration_;
+  modelCancel_ = true;
+  providerForm_ = db_.providerForm(id);
+  modelNames_.clear();
+  notice_.clear();
+  build();
+}
+void App::startKeyScan() {
+  stopKeyScan();
+  ocrId_ = uid("ocr");
+  ocrActive_ = true;
+  ocrNotice_ = "请按压笔头，单行划过完整 API Key";
+  show("keyscan");
+  const auto id = ocrId_;
+  whenScannerReleased([this, id] {
+    if (ocrActive_ && ocrId_ == id && view_ == "keyscan" && visible_)
+      bridge_.send("ocr.start", {{"requestId", id}});
+  });
+}
+void App::stopKeyScan() {
+  if (ocrActive_)
+    bridge_.send("ocr.cancel", {{"requestId", ocrId_}});
+  ocrActive_ = false;
+  ocrId_.clear();
+}
+void App::keyScanPage() {
+  pageHeader("扫描 API Key");
+  label(body_, ocrNotice_, 10, 5, screen_.width - 135, 23);
+  label(body_, "识别后请核对字母、数字及连字符；不会自动保存。", 10, 52,
+        screen_.width - 135, 19, theme::muted);
+  button(
+      body_, ocrActive_ ? "重新开始" : "重新扫描", 10, 114, 220, 46,
+      [this] { startKeyScan(); }, theme::surface);
+  button(body_, "取消", 250, 114, 220, 46, [this] { show("provider"); });
+}
+void App::fetchModels() {
+  if (modelsBusy_.exchange(true))
+    return;
+  if (modelWorker_.joinable())
+    modelWorker_.join();
+  Json model = {{"base_url", providerForm_.value("baseURL", std::string())},
+                {"api_key", providerForm_.value("apiKey", std::string())},
+                {"headers_json", "{}"}};
+  notice_ = "正在拉取模型…";
+  build();
+  modelCancel_ = false;
+  const int generation = ++modelGeneration_;
+  modelWorker_ = std::thread([this, model, generation] {
+    auto result = http(apiRoot(model) + "/models", "GET", apiHeaders(model), "",
+                       modelCancel_);
+    Json data = {{"error", result.error},
+                 {"status", result.status},
+                 {"generation", generation}};
+    auto body = Json::parse(result.body, nullptr, false);
+    if (!body.is_discarded())
+      data["body"] = body;
+    events_.push("models", data);
+    modelsBusy_ = false;
+  });
+}
+void App::saveProvider() {
+  auto name = providerForm_.value("name", std::string()),
+       base = providerForm_.value("baseURL", std::string()),
+       key = providerForm_.value("apiKey", std::string());
+  if (name.empty() || base.empty() || key.empty() ||
+      (base.find("https://") != 0 && base.find("http://") != 0)) {
+    error("请填写名称、Base URL 和 API Key");
+    return;
+  }
+  auto manual = providerForm_.value("model", std::string());
+  std::vector<std::string> names;
+  std::replace(manual.begin(), manual.end(), '\n', ',');
+  size_t start = 0;
+  while (start < manual.size()) {
+    auto end = manual.find(',', start);
+    auto n = manual.substr(start, end == std::string::npos ? end : end - start);
+    while (!n.empty() && std::isspace(static_cast<unsigned char>(n.front())))
+      n.erase(n.begin());
+    while (!n.empty() && std::isspace(static_cast<unsigned char>(n.back())))
+      n.pop_back();
+    if (!n.empty() && std::find(names.begin(), names.end(), n) == names.end())
+      names.push_back(n);
+    if (end == std::string::npos)
+      break;
+    start = end + 1;
+  }
+  if (names.empty())
+    names = modelNames_;
+  if (names.empty()) {
+    error("请填写或拉取至少一个模型");
+    return;
+  }
+  db_.saveProvider(providerForm_, names);
+  ++modelGeneration_;
+  modelCancel_ = true;
+  providerForm_ = Json::object();
+  show("provider");
+}
+void App::goBack() {
+  if (view_ == "archives")
+    show("settings");
+  else if (view_ == "model" || view_ == "keyscan")
+    show("provider");
+  else if (view_ == "provider") {
+    if (!providerForm_.empty()) {
+      providerForm_ = Json::object();
+      modelNames_.clear();
+      ++modelGeneration_;
+      modelCancel_ = true;
+      build();
+    } else
+      show("settings");
+  } else if (view_ == "settings") {
+    show("chat");
+    toggleNavigation();
+  } else
+    show("chat");
+}
+void App::closeNavigation(bool resumeCamera) {
+  const bool wasOpen = navigationOpen_;
+  navigationOpen_ = false;
+  historyRows_.clear();
+  navigationBackdrop_ = navigationPointerDown_ = false;
+  auto object = navigation_;
+  navigation_ = navigationList_ = navigationActive_ = nullptr;
+  if (object)
+    lv_obj_delete(object);
+  if (wasOpen && resumeCamera && view_ == "camera" && visible_ && !keyboard_)
+    camera_.start();
+}
+void App::toggleNavigation() {
+  if (navigationOpen_) {
+    closeNavigation();
+    return;
+  }
+  closeAttachments();
+  resetPull();
+  if (view_ == "keyscan")
+    show("provider");
+  if (view_ == "camera")
+    camera_.stop();
+  historyOffset_ = 0;
+  navigationScroll_ = 0;
+  navigationOpen_ = true;
+  historyDrawer();
+}
+void App::historyDrawer() {
+  // Only the drawer is replaced when paging, keeping the underlying form/draft.
+  if (navigationList_)
+    navigationScroll_ = lv_obj_get_scroll_y(navigationList_);
+  historyRows_.clear();
+  auto previous = navigation_;
+  navigation_ = navigationList_ = navigationActive_ = nullptr;
+  if (previous)
+    lv_obj_delete(previous);
+  navigation_ = box(screenObj_, 0, 0, screen_.width, screen_.height, 0x000000);
+  lv_obj_set_scrollable(navigation_, false);
+  lv_obj_set_style_bg_opa(navigation_, 120, 0);
+  lv_obj_set_clickable(navigation_, true);
+  const int panelWidth = screen_.width * 2 / 3;
+  const int listWidth = panelWidth - 24;
+  auto panel =
+      box(navigation_, 0, 0, panelWidth, screen_.height, theme::sidebar);
+  lv_obj_set_scrollable(panel, false);
+  navigationList_ =
+      box(panel, 12, 8, listWidth, screen_.height - 70, theme::sidebar);
+  lv_obj_set_scroll_dir(navigationList_, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(navigationList_, LV_SCROLLBAR_MODE_AUTO);
+  auto sessions = db_.sessions(historyOffset_);
+  if (sessions.empty()) {
+    label(navigationList_, "暂无历史对话", 12, 8, listWidth - 24, 21,
+          theme::muted);
+    label(navigationList_, "发送文字或图片后会自动保存", 12, 44, listWidth - 24,
+          18, theme::muted);
+  }
+  int y = 0;
+  for (const auto &s : sessions) {
+    auto id = s["id"].get<std::string>();
+    auto row = historyRow(navigationList_, s, y, listWidth);
+    if (id == session_)
+      navigationActive_ = row;
+    y += 50;
+  }
+  if (historyOffset_ > 0)
+    button(navigationList_, "上一页", 0, y, 160, 44, [this] {
+      historyOffset_ = std::max(0, historyOffset_ - 30);
+      navigationScroll_ = 0;
+      historyDrawer();
+    });
+  if (sessions.size() == 30)
+    button(navigationList_, "下一页", 180, y, 160, 44, [this] {
+      historyOffset_ += 30;
+      navigationScroll_ = 0;
+      historyDrawer();
+    });
+  const int footerWidth = (panelWidth - 36) / 2;
+  auto footerAction = [&](int x, int width, const char *kind, const char *title,
+                          std::function<void()> action) {
+    icon(panel, kind, x, screen_.height - 54, 48, 48, action, theme::sidebar);
+    button(panel, title, x + 52, screen_.height - 54, width - 52, 48, action,
+           theme::sidebar, LV_TEXT_ALIGN_LEFT);
+  };
+  footerAction(12, footerWidth, "newchat", "新建聊天", [this] { newChat(); });
+  footerAction(panelWidth - 156, 144, "settings", "设置",
+               [this] { show("settings"); });
+  lv_obj_update_layout(navigation_);
+  lv_obj_scroll_to_y(navigationList_, navigationScroll_, LV_ANIM_OFF);
+}
+void App::cameraPage() {
+  lv_obj_set_scrollable(body_, false);
+  // A quiet, borderless viewfinder; the image keeps its original aspect ratio.
+  auto preview = box(body_, 8, 8, screen_.width - 230, screen_.height - 16,
+                     theme::sidebar);
+  lv_obj_set_scrollable(preview, false);
+  cameraImage_ = imageWidget(preview);
+  lv_obj_center(cameraImage_);
+  const int railX = screen_.width - 220;
+  auto title = label(body_, "拍照", railX, 28, 124, 21);
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+  auto shutter = box(body_, railX + 26, (screen_.height - 72) / 2, 72, 72,
+                     theme::background);
+  lv_obj_set_scrollable(shutter, false);
+  lv_obj_set_style_radius(shutter, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_border_width(shutter, 3, 0);
+  lv_obj_set_style_border_color(shutter, lv_color_hex(theme::text), 0);
+  auto center = box(shutter, 5, 5, 56, 56, theme::text);
+  lv_obj_set_style_radius(center, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_scrollable(center, false);
+  lv_obj_set_clickable(center, false);
+  lv_obj_center(center);
+  onClick(shutter, [this] { camera_.capture(); });
+  auto hint = label(body_, "轻触快门", railX, 185, 124, 17, theme::muted);
+  lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+  status_ = label(preview, "相机启动中…", 12, 12, screen_.width - 254, 19,
+                  theme::muted);
+}
+void App::albumPage() {
+  int w = screen_.width - 118;
+  pageHeader("相册");
+  std::vector<std::pair<int64_t, std::string>> files;
+  for (auto &dir :
+       std::vector<std::string>{join(dataDir_, "DCIM")}) {
+    DIR *d = opendir(dir.c_str());
+    if (!d)
+      continue;
+    while (auto e = readdir(d)) {
+      std::string n = e->d_name;
+      auto lower = n;
+      std::transform(lower.begin(), lower.end(), lower.begin(),
+                     [](unsigned char c) { return std::tolower(c); });
+      if (lower.find(".jpg") == std::string::npos &&
+          lower.find(".jpeg") == std::string::npos &&
+          lower.find(".png") == std::string::npos &&
+          lower.find(".bmp") == std::string::npos &&
+          lower.find(".webp") == std::string::npos)
+        continue;
+      auto p = join(dir, n);
+      struct stat st;
+      if (!stat(p.c_str(), &st) && S_ISREG(st.st_mode))
+        files.push_back({int64_t(st.st_mtime), p});
+    }
+    closedir(d);
+  }
+  std::map<std::string, std::string> scanPreviews;
+  for (auto &asset : db_.query("SELECT stored_path,display_src,created_at FROM "
+                               "message_assets WHERE source_type='scan'")) {
+    auto path = asset.value("stored_path", std::string());
+    if (!path.empty() && access(path.c_str(), R_OK) == 0) {
+      files.push_back({asset.value("created_at", int64_t(0)) / 1000, path});
+      scanPreviews[path] = stringValue(asset, "display_src");
+    }
+  }
+  std::sort(files.rbegin(), files.rend());
+  int begin = albumPage_ * 12, end = std::min(int(files.size()), begin + 12);
+  for (int i = begin; i < end; ++i) {
+    auto path = files[i].second;
+    int pos = i - begin, x = 10 + (pos % 3) * (w / 3), y = 4 + (pos / 3) * 145;
+    auto preview =
+        scanPreviews.count(path) ? scanPreviews[path] : std::string();
+    image(body_, preview.empty() ? path : preview, x, y, w / 3 - 15, 105,
+          [this, path, preview] {
+            Json image = {{"path", path}, {"source", "album"}};
+            if (!preview.empty())
+              image["previewPath"] = preview;
+            attach(image);
+          });
+    auto caption = label(body_, basename(path), x, y + 108, w / 3 - 20, 15);
+    lv_label_set_long_mode(caption, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_height(caption, font(15)->line_height);
+  }
+  int y = 4 + ((end - begin + 2) / 3) * 145;
+  if (albumPage_)
+    button(body_, "上一页", 10, y, 140, 38, [this] {
+      --albumPage_;
+      build();
+    });
+  if (end < int(files.size()))
+    button(body_, "下一页", 170, y, 140, 38, [this] {
+      ++albumPage_;
+      build();
+    });
+  if (files.empty())
+    label(body_, "暂无图片", 10, 17, w, 23);
+}
+void App::stopNetwork() {
+  cancel_ = true;
+  if (network_.joinable())
+    network_.join();
+  for (auto &event : events_.drain()) {
+    if (event.type == "response_state" &&
+        event.data.value("generation", -1) == networkGeneration_) {
+      output_ = event.data.value("output", std::string());
+      reasoning_ = event.data.value("reasoning", std::string());
+      reasoningMetadata_ = event.data.value("metadata", Json::object());
+    } else if (event.type != "done" && event.type != "cancelled" &&
+               event.type != "network_error")
+      events_.push(event.type, event.data);
+  }
+  if (generating_ && !assistant_.empty())
+    db_.updateMessage(assistant_, output_, reasoning_, "cancelled", Json(),
+                      reasoningMetadata_);
+  generating_ = false;
+  assistant_.clear();
+  ++networkGeneration_;
+}
+bool App::canSend() {
+  if (hasText(draft_))
+    return true;
+  // Pending user content survives an interruption or image auto-send being off.
+  auto latest = db_.messages(session_, 0, 1);
+  return !latest.empty() && stringValue(latest[0], "role") == "user" &&
+         (hasText(stringValue(latest[0], "output_text")) ||
+          !stringValue(latest[0], "stored_path").empty() ||
+          !stringValue(latest[0], "original_path").empty());
+}
+void App::sendMessage() {
+  if (generating_ || !canSend())
+    return;
+  auto model = currentModel();
+  if (model.empty()) {
+    modal("请选择可用模型",
+          "当前模型未配置或已停用，请从加号菜单选择模型，或进入设置添加。");
+    return;
+  }
+  bindPreferences(model);
+  savePreferences();
+  if (hasText(draft_)) {
+    db_.append(session_, "user", draft_, Json::object(), sessionPreferences_);
+    draft_.clear();
+  }
+  auto input = db_.responseInput(session_, "", model);
+  if (input.empty())
+    return;
+  if (network_.joinable())
+    network_.join();
+  messageOffset_ = 0;
+  chatFollowing_ = true;
+  assistant_ = db_.append(session_, "assistant", "", Json::object(),
+                          sessionPreferences_);
+  db_.recordRequest(assistant_, model);
+  reasoningMetadata_ = Json::object();
+  output_.clear();
+  reasoning_.clear();
+  generating_ = true;
+  cancel_ = false;
+  int generation = ++networkGeneration_;
+  network_ = std::thread([this, model, input, generation] {
+    streamChat(model, input, cancel_, events_, generation);
+  });
+  build();
+}
+void App::attach(const Json &image) {
+  chatFollowing_ = true;
+  messageOffset_ = 0;
+  auto model = currentModel();
+  bindPreferences(model);
+  db_.append(session_, "user", "", image, sessionPreferences_);
+  show("chat");
+  if (db_.settings()
+          .value("penchat_settings", Json::object())
+          .value("autoSendCapturedContent", false) &&
+      !generating_)
+    sendMessage();
+}
+void App::suspend(bool value) {
+  if (value) {
+    visible_ = false;
+    scanner_.eligible(false, session_);
+    afterScanRelease_ = {};
+    if (view_ == "scan") {
+      scanId_ = 0;
+      scanResult_ = Json::object();
+      view_ = "chat";
+      build();
+    }
+    closeNavigation(false);
+  }
+  closeAttachments();
+  resetPull();
+  touchDown_ = false;
+  pullTrackActivity_ = false;
+  visible_ = !value;
+  input_.release();
+  display_.visible(!value && !keyboard_);
+  if (value) {
+    camera_.stop();
+    if (view_ == "keyscan") {
+      stopKeyScan();
+      view_ = "provider";
+      build();
+    }
+  } else if (view_ == "camera")
+    camera_.start();
+}
+void App::shutdown() {
+  scanner_.eligible(false, session_);
+  afterScanRelease_ = {};
+  stopKeyScan();
+  cancel_ = true;
+  modelCancel_ = true;
+  titleCancel_ = true;
+  camera_.stop();
+  if (network_.joinable())
+    network_.join();
+  if (modelWorker_.joinable())
+    modelWorker_.join();
+  if (titleWorker_.joinable())
+    titleWorker_.join();
+  if (generating_ && !assistant_.empty())
+    stopNetwork();
+}
+void App::handle(const Json &m) {
+  auto type = m.value("type", std::string());
+#ifndef __aarch64__
+  if (type == "scanner.test") {
+    scanner_.test(m);
+    return;
+  }
+#endif
+  if (type == "init") {
+    bridge_.generation(m.value("generation", 0));
+    bridge_.send("ready");
+    syncScanner();
+    return;
+  }
+  if (m.value("generation", bridge_.generation()) != bridge_.generation())
+    return;
+  if (type == "display.area") {
+    if (m.value("x", 0) != 0 || m.value("y", 0) != 0 ||
+        m.value("width", screen_.width) != screen_.width ||
+        m.value("height", screen_.height) != screen_.height)
+      throw std::runtime_error("ORANGE requires a full-screen 960x266 hole");
+    resetPull();
+    input_.cancel();
+    bridge_.send("display.ready", {{"requestId", m.value("requestId", Json())},
+                                   {"width", screen_.width},
+                                   {"height", screen_.height},
+                                   {"rotation", screen_.rotation},
+                                   {"xoffset", screen_.xoffset},
+                                   {"yoffset", screen_.yoffset}});
+  }
+  if (type == "touch.debug")
+    lastTouch_ = m;
+  if (type == "touch" && visible_ && !keyboard_) {
+    lastTouch_ = m;
+    const int x = m.value("x", 0), y = m.value("y", 0);
+    const bool pressed = m.value("pressed", false);
+    if (navigationOpen_ && !modal_) {
+      if (pressed && !navigationPointerDown_) {
+        navigationBackdrop_ = x >= screen_.width * 2 / 3;
+        navigationStartX_ = x;
+        navigationStartY_ = y;
+        navigationDistance_ = 0;
+      }
+      navigationPointerDown_ = pressed;
+      if (navigationBackdrop_) {
+        const int dx = x - navigationStartX_, dy = y - navigationStartY_;
+        navigationDistance_ = std::max(navigationDistance_, dx * dx + dy * dy);
+        if (!pressed || m.value("cancelled", false)) {
+          bool close = !m.value("cancelled", false) &&
+                       navigationDistance_ <= 144 && x >= screen_.width * 2 / 3;
+          navigationBackdrop_ = navigationPointerDown_ = false;
+          input_.cancel();
+          if (close)
+            closeNavigation();
+        }
+        return;
+      }
+      if (m.value("cancelled", false))
+        navigationPointerDown_ = false;
+    }
+    if (m.value("cancelled", false)) {
+      resetPull();
+      touchDown_ = false;
+      pullTrackActivity_ = false;
+      input_.cancel();
+    } else if (!chatTouch(x, y, pressed))
+      input_.touch(x, y, pressed);
+  } else if (type == "visibility")
+    suspend(!m.value("visible", false));
+  else if (type == "keyboard.result") {
+    if (!keyboard_ || m.value("requestId", std::string()) != keyboardId_)
+      return;
+    keyboard_ = false;
+    auto completion = std::move(editCompletion_);
+    auto cancellation = std::move(editCancellation_);
+    if (m.value("confirmed", false) && completion)
+      completion(m.value("text", std::string()));
+    else if (cancellation)
+      cancellation();
+    display_.visible(visible_);
+  } else if (type == "ocr.status" && ocrActive_ &&
+             m.value("requestId", std::string()) == ocrId_) {
+    ocrNotice_ = m.value("started", false) ? "正在识别，请完成本次划扫…"
+                                           : "请按压笔头，单行划过完整 API Key";
+    if (view_ == "keyscan")
+      build();
+  } else if (type == "ocr.result") {
+    if (!ocrActive_ || view_ != "keyscan" ||
+        m.value("requestId", std::string()) != ocrId_)
+      return;
+    ocrActive_ = false;
+    ocrId_.clear();
+    if (m.value("confirmed", false)) {
+      try {
+        const auto text = ocrKeyCandidate(m.value("text", std::string()));
+        show("provider");
+        edit(
+            text, "核对 OCR 识别的 API Key",
+            [this](const std::string &key) {
+              providerForm_["apiKey"] = key;
+              build();
+            },
+            4096, "EnUSOnly");
+      } catch (...) {
+        ocrNotice_ = "未识别到可用文字，请重新扫描或手动输入。";
+        build();
+      }
+    } else {
+      ocrNotice_ = m.value("error", std::string("扫描已取消，可重新扫描。"));
+      build();
+    }
+  } else if (type == "diagnostic") {
+    auto state = diagnostics();
+    state["summary"] = db_.summary();
+    bridge_.send("diagnostic", state);
+  } else if (type == "exit")
+    suspend(true);
+  syncScanner();
+}
+void App::tick() {
+  if (afterScanRelease_ && scanner_.released()) {
+    auto callback = std::move(afterScanRelease_);
+    afterScanRelease_ = {};
+    callback();
+  }
+  syncScanner();
+  for (auto &e : events_.drain()) {
+    if (e.type.find("scan_") == 0) {
+      scanEvent(e);
+      continue;
+    }
+    if (e.type == "history_context") {
+      auto id = e.data.value("id", std::string());
+      if (navigationOpen_ && !modal_ && !keyboard_ &&
+          longPressedSession_ == id) {
+        input_.cancel();
+        historyContext(id);
+      }
+    } else if (e.type == "title_result") {
+      auto title = db_.settings().value("auto_title_enabled", true)
+                       ? fitTitle(e.data.value("title", std::string()))
+                       : std::string();
+      if (db_.finishTitle(e.data["session"], e.data["token"], title))
+        historyDirty_ = true;
+    } else if (e.type == "response_state" || e.type == "delta" ||
+               e.type == "reasoning" || e.type == "done" ||
+               e.type == "cancelled" || e.type == "network_error") {
+      if (e.data.value("generation", -1) != networkGeneration_ || !generating_)
+        continue;
+      if (e.type == "response_state") {
+        output_ = e.data.value("output", std::string());
+        reasoning_ = e.data.value("reasoning", std::string());
+        reasoningMetadata_ = e.data.value("metadata", Json::object());
+      }
+      if (e.type == "delta")
+        output_ += e.data.value("text", std::string());
+      if (e.type == "reasoning")
+        reasoning_ += e.data.value("text", std::string());
+      dirty_ = true;
+      if (e.type == "done" || e.type == "cancelled" ||
+          e.type == "network_error") {
+        dirty_ = false;
+        generating_ = false;
+        auto status = e.type == "done"        ? "complete"
+                      : e.type == "cancelled" ? "cancelled"
+                                              : "error";
+        Json err = e.type == "network_error" ? e.data["error"] : Json();
+        db_.updateMessage(assistant_, output_, reasoning_, status, err,
+                          reasoningMetadata_);
+        if (e.type == "done")
+          scheduleTitle();
+        if (e.type == "network_error")
+          notice_ = e.data.value("error", std::string("网络错误"));
+        if (view_ == "chat") {
+          build();
+          if (!notice_.empty())
+            modal("生成失败", notice_);
+        }
+      }
+    } else if (e.type == "models") {
+      if (e.data.value("generation", -1) != modelGeneration_)
+        continue;
+      modelNames_.clear();
+      if (e.data.value("status", 0) >= 200 && e.data.value("status", 0) < 300 &&
+          e.data.contains("body") && e.data["body"].contains("data")) {
+        for (auto &m : e.data["body"]["data"])
+          if (m.contains("id") && m["id"].is_string())
+            modelNames_.push_back(m["id"]);
+        notice_ = "已获取 " + std::to_string(modelNames_.size()) + " 个模型";
+      } else
+        notice_ = "拉取失败：" + e.data.value("error", std::string());
+      if (view_ == "provider")
+        build();
+    } else if (e.type == "image_ready" || e.type == "image_error")
+      refreshImages();
+    else if (e.type == "camera_error" && view_ == "camera")
+      error(e.data.value("error", std::string("相机失败")));
+    else if (e.type == "camera_started" && view_ == "camera") {
+      if (status_)
+        lv_label_set_text(status_, "");
+    } else if (e.type == "photo" && view_ == "camera" && visible_ &&
+               !navigationOpen_)
+      attach(e.data);
+  }
+  tickTitles();
+  if (dirty_ && ticks() >= renderDue_) {
+    renderDue_ = ticks() + 100;
+    dirty_ = false;
+    if (!assistant_.empty())
+      db_.updateMessage(assistant_, output_, reasoning_,
+                        generating_ ? "streaming" : "complete", Json(),
+                        reasoningMetadata_);
+    if (view_ == "chat")
+      renderLiveMessage();
+  }
+  if (view_ == "camera" && visible_ && !keyboard_ && !navigationOpen_ &&
+      ticks() - lastCameraFrame_ >= 60) {
+    lastCameraFrame_ = ticks();
+    auto frame = camera_.frame();
+    if (frame && cameraImage_) {
+      texture(cameraImage_, frame);
+      auto holder = lv_obj_get_parent(cameraImage_);
+      lv_image_set_scale(
+          cameraImage_,
+          std::min(lv_obj_get_width(holder) * 256 / frame->width,
+                   lv_obj_get_height(holder) * 256 / frame->height));
+      lv_obj_center(cameraImage_);
+    }
+  }
+}
+Json App::diagnostics() const {
+  auto model = db_.activeModel();
+  auto selected = sessionPreferences_.value("model_id", std::string());
+  if (!selected.empty()) {
+    model = Json::object();
+    for (const auto &m : db_.models())
+      if (m["id"] == selected) {
+        model = m;
+        break;
+      }
+  }
+  if (!model.empty())
+    model = resolveReasoning(model, sessionPreferences_, effortMemory_);
+  lv_area_t reasonHeader{};
+  if (!reasoningHeaders_.empty())
+    lv_obj_get_coords(reasoningHeaders_.back(), &reasonHeader);
+
+  lv_area_t active{}, capsule{}, send{};
+  if (chatControls_) {
+    lv_obj_get_coords(chatControls_, &capsule);
+    lv_obj_get_coords(lv_obj_get_child(chatControls_, -1), &send);
+  }
+  if (navigationActive_)
+    lv_obj_get_coords(navigationActive_, &active);
+  Json historyRows = Json::array();
+  for (const auto &entry : historyRows_) {
+    lv_area_t area;
+    lv_obj_get_coords(entry.second, &area);
+    historyRows.push_back({{"id", entry.first},
+                           {"x", (area.x1 + area.x2) / 2},
+                           {"y", (area.y1 + area.y2) / 2}});
+  }
+  return {
+      {"diagnostic_time", ticks()},
+      {"history_rows", historyRows},
+      {"history_context", historyContextId_},
+      {"title_busy", titleBusy_.load()},
+      {"title_pending", titleJobs_.size()},
+      {"title_limit", titleLimit()},
+      {"title_width", titleWidth()},
+      {"generation", bridge_.generation()},
+      {"pid", getpid()},
+      {"touch", lastTouch_},
+      {"view", view_},
+      {"scanner", scanner_.state()},
+      {"scan_id", scanId_},
+      {"scan_result", scanResult_},
+      {"scan_released", scanner_.released()},
+      {"send_center_x2", send.x1 + send.x2},
+      {"send_center_y2", send.y1 + send.y2},
+      {"capsule_endcap_x2", 2 * capsule.x2 - (capsule.y2 - capsule.y1)},
+      {"capsule_center_y2", capsule.y1 + capsule.y2},
+      {"navigation_open", navigationOpen_},
+      {"navigation_active_x",
+       navigationActive_ ? (active.x1 + active.x2) / 2 : -1},
+      {"navigation_active_y",
+       navigationActive_ ? (active.y1 + active.y2) / 2 : -1},
+      {"navigation_scroll",
+       navigationList_ ? lv_obj_get_scroll_y(navigationList_) : 0},
+      {"navigation_button", view_ == "chat" ? "menu" : "back"},
+      {"pull_indicator_y", pullIndicator_ ? lv_obj_get_y(pullIndicator_) : -1},
+      {"pull_content_y",
+       body_ ? lv_obj_get_style_translate_y(body_, LV_PART_MAIN) : 0},
+      {"following_latest", chatFollowing_},
+      {"attachments", attachments_ != nullptr},
+      {"popup", popupKind_},
+      {"has_conversation_content", hasConversationContent_},
+      {"effort_gauge",
+       sessionPreferences_.value("gauge", !effortMemory_.empty())},
+      {"session_preferences", sessionPreferences_},
+      {"active_model", model.value("id", std::string())},
+      {"effective_effort", model.value("effective_effort", std::string())},
+      {"supported_efforts",
+       model.empty() ? std::vector<std::string>() : supportedEfforts(model)},
+      {"effort_choices",
+       model.empty() ? std::vector<std::string>() : effortChoices(model)},
+      {"reasoning_header_count", reasoningHeaders_.size()},
+      {"reasoning_header_x", reasonHeader.x1 + 120},
+      {"reasoning_header_y", (reasonHeader.y1 + reasonHeader.y2) / 2},
+      {"reasoning_observed",
+       reasoningMetadata_.value("reasoning_observed", false)},
+      {"reasoning_expanded_count", expandedReasoning_.size()},
+      {"to_bottom_x", toBottom_ ? lv_obj_get_x(toBottom_) : -1},
+      {"to_bottom_y", toBottom_ ? lv_obj_get_y(toBottom_) : -1},
+      {"to_bottom_opacity",
+       toBottom_ ? int(lv_obj_get_style_bg_opa(toBottom_, LV_PART_MAIN)) : 0},
+      {"modal", modal_ != nullptr},
+      {"pull_active", pulling_},
+      {"pull_create_allowed", pulling_ && pullCreateAllowed_},
+      {"pull_progress", pullProgress_},
+      {"pull_fill_distance", pullGeometry_.fill},
+      {"pull_start_distance", pullGeometry_.start},
+      {"pull_full_distance", pullGeometry_.start + pullGeometry_.fill},
+      {"pull_reader_height",
+       pullGeometry_.reader.bottom - pullGeometry_.reader.top},
+      {"pull_pause_ms", PullPauseMs},
+      {"pull_guard_remaining_ms",
+       pullNeedsPause_
+           ? std::max<int64_t>(0, PullPauseMs - (ticks() - pullLastActivity_))
+           : 0},
+      {"scroll_y", body_ ? lv_obj_get_scroll_y(body_) : 0},
+      {"scroll_bottom", body_ ? lv_obj_get_scroll_bottom(body_) : 0},
+      {"composer_width", composer_ ? lv_obj_get_width(composer_) : 0},
+      {"toolbar_y", chatControls_ ? lv_obj_get_y(chatControls_) : -1},
+      {"to_bottom_visible", toBottom_ && !lv_obj_is_hidden(toBottom_)},
+      {"session", session_},
+      {"generating", generating_},
+      {"keyboard", keyboard_},
+      {"ocr", ocrActive_},
+      {"visible", visible_},
+      {"width", screen_.width},
+      {"height", screen_.height},
+      {"rotation", screen_.rotation}};
+}
+void App::demo(const std::string &markdown) {
+  db_.append(session_, "assistant", markdown);
+  show("chat");
+}
+} // namespace penchat

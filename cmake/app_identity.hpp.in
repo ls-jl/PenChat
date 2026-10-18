@@ -1,0 +1,4 @@
+#pragma once
+#define PENCHAT_NAME "@APP_name@"
+#define PENCHAT_APP_ID "@APP_appid@"
+#define PENCHAT_VERSION "@APP_version@"

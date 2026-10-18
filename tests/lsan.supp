@@ -1,0 +1,3 @@
+# MicroTeX's startup symbol registry overwrites one duplicate amssymb entry.
+# Keep scanner/application leaks visible; only this upstream allocation is excluded.
+leak:tex::DefaultTeXFont::__push_symbols

@@ -1,0 +1,58 @@
+{
+  "dependencies": [
+    {
+      "name": "lvgl",
+      "revision": "80ca777e37a2b176770726a02e07a6fb79ef0b39",
+      "url": "https://codeload.github.com/lvgl/lvgl/tar.gz/80ca777e37a2b176770726a02e07a6fb79ef0b39",
+      "sha256": "1c10f77b8e5e7776366d56de5645958f3312b3926b71a2a811d819fc0ad0cbaa"
+    },
+    {
+      "name": "md4c",
+      "revision": "60e8065cfccd5d7ac561115f9a9bfbdf811f5cc9",
+      "url": "https://codeload.github.com/mity/md4c/tar.gz/60e8065cfccd5d7ac561115f9a9bfbdf811f5cc9",
+      "sha256": "3d208ad4d176fd05e280e69f75ffa2542b3a0b11a73ae4f497e5eab38ba466b0"
+    },
+    {
+      "name": "microtex",
+      "revision": "0e3707f6dafebb121d98b53c64364d16fefe481d",
+      "url": "https://codeload.github.com/NanoMichael/MicroTeX/tar.gz/0e3707f6dafebb121d98b53c64364d16fefe481d",
+      "sha256": "47476269d29c41df322bce6bdd2daa7017cc50b9eda841b2bec1767dba28daa6"
+    },
+    {
+      "name": "tinyxml2",
+      "revision": "9.0.0",
+      "url": "https://codeload.github.com/leethomason/tinyxml2/tar.gz/refs/tags/9.0.0",
+      "sha256": "cc2f1417c308b1f6acc54f88eb70771a0bf65f76282ce5c40e54cfe52952702c"
+    },
+    {
+      "name": "cairo",
+      "revision": "1.18.4",
+      "url": "https://cairographics.org/releases/cairo-1.18.4.tar.xz",
+      "sha256": "445ed8208a6e4823de1226a74ca319d3600e83f6369f99b14265006599c32ccb"
+    },
+    {
+      "name": "pixman",
+      "revision": "0.44.2",
+      "url": "https://cairographics.org/releases/pixman-0.44.2.tar.gz",
+      "sha256": "6349061ce1a338ab6952b92194d1b0377472244208d47ff25bef86fc71973466"
+    },
+    {
+      "name": "freetype",
+      "revision": "2.13.3",
+      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz",
+      "sha256": "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289"
+    },
+    {
+      "name": "json",
+      "revision": "v3.11.3",
+      "url": "https://codeload.github.com/nlohmann/json/tar.gz/refs/tags/v3.11.3",
+      "sha256": "0d8ef5af7f9794e3263480193c491549b2ba6cc74bb018906202ada498a79406"
+    },
+    {
+      "name": "webp",
+      "revision": "v1.5.0",
+      "url": "https://codeload.github.com/webmproject/libwebp/tar.gz/refs/tags/v1.5.0",
+      "sha256": "668c9aba45565e24c27e17f7aaf7060a399f7f31dba6c97a044e1feacb930f37"
+    }
+  ]
+}

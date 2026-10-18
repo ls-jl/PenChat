@@ -1,0 +1,5 @@
+{
+  "pages": {
+    "index": "launcher/LauncherPage.vue"
+  }
+}

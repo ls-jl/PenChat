@@ -1,0 +1,2 @@
+# Preserve the checksum-locked upstream header exactly.
+native/scanner/engine/include/rknn/rknn_api.h -whitespace
