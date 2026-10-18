@@ -99,4 +99,4 @@ source hashes in the dependency lock and preserve license notices. Runtime nativ
 changes must regenerate/stage their binaries; never hand-edit generated files.
 HaaS UI shell/IME reference: /persistent/home/ls-jl/dictpen/haasui-docs.
 
-PenChat is an independent application. Never read external application databases, Storage or photo directories. Identity comes from package.json. New installs start without providers or messages.
+PenChat is an independent application. Never read external application databases or Storage. The album may read the shared system photo directory /userdisk/Pictures; never modify its originals. Identity comes from package.json. New installs start without providers or messages.

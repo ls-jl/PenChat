@@ -1910,7 +1910,7 @@ void App::albumPage() {
   pageHeader("相册");
   std::vector<std::pair<int64_t, std::string>> files;
   for (auto &dir :
-       std::vector<std::string>{join(dataDir_, "DCIM")}) {
+       std::vector<std::string>{join(dataDir_, "DCIM"), "/userdisk/Pictures"}) {
     DIR *d = opendir(dir.c_str());
     if (!d)
       continue;
