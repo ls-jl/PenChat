@@ -36,7 +36,7 @@ def run():
                 assert finished['summary']['sessions']==0 and not app.read_messages()
                 output=ROOT/'.work/scanner-ui';output.mkdir(parents=True,exist_ok=True)
                 snapshot(app,'result')
-                app.tap(840,210) # discard, without creating a chat row
+                app.tap(840,156) # discard, without creating a chat row
                 wait_for(lambda:app.diag()['view']=='chat')
                 assert app.diag()['session']==original and app.diag()['summary']['sessions']==0
                 scan(app)
@@ -68,7 +68,7 @@ def run():
                 assert app.diag()['scan_result']['usable']
                 snapshot(app,'partial')
                 app.send('scanner.test',command='test.press',pressed=False)
-                app.tap(840,210);wait_for(lambda:app.diag()['view']=='chat')
+                app.tap(840,156);wait_for(lambda:app.diag()['view']=='chat')
                 # Background cancels even a full pending result and never appends it.
                 scan(app,1)
                 app.send('visibility',visible=False)

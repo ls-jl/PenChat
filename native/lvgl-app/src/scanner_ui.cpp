@@ -75,8 +75,7 @@ void App::scanPage() {
   lv_obj_set_clickable(scanUse_, usable && !scanConfirming_);
   lv_obj_set_style_bg_color(
       scanUse_, lv_color_hex(usable ? theme::surface : theme::border), 0);
-  button(body_, "重新扫描", 655, 86, 200, 44, [this] { show("chat"); });
-  button(body_, "丢弃", 655, 140, 200, 44, [this] { show("chat"); });
+  button(body_, "取消", 655, 86, 200, 44, [this] { show("chat"); });
   if (!scanResult_.empty()) {
     auto c = scanResult_.value("counts", Json::object());
     std::string text;

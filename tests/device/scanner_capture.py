@@ -30,7 +30,7 @@ def main():
         (OUT/'capture.json').write_text(json.dumps(results,indent=2)+'\n')
         print(json.dumps({'scan':i+1,'counts':result['counts'],'hwm_kib':rss}),flush=True)
         assert d.adb('cat /sys/class/gpio/gpio43/value')=='0'
-        d.tap(840,210);d.view('chat');ready()
+        d.tap(840,156);d.view('chat');ready()
     assert d.adb('pidof miniapp')==parent
     assert not d.adb('find '+d.DATA+'/.scan-pending -type f 2>/dev/null || true')
     OUT.mkdir(parents=True,exist_ok=True)
