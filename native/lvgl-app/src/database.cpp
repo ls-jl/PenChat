@@ -316,6 +316,83 @@ void Database::removeSession(const std::string &s) {
         });
     }
 }
+bool Database::pendingImage(const std::string &session,
+                            const std::string &message) {
+  return !query("SELECT id FROM chat_messages WHERE id=? AND session_id=? "
+                "AND role='user' AND message_type='image' AND "
+                "coalesce(output_text,'')='' "
+                "AND seq>(SELECT coalesce(max(seq),0) FROM chat_messages WHERE "
+                "session_id=? AND role='assistant')",
+                {message, session, session})
+              .empty();
+}
+bool Database::removePendingImage(const std::string &session,
+                                  const std::string &message) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  execute("BEGIN IMMEDIATE");
+  Json assets;
+  try {
+    if (!pendingImage(session, message)) {
+      execute("ROLLBACK");
+      return false;
+    }
+    assets = query("SELECT stored_path,display_src FROM message_assets WHERE "
+                   "message_id=? AND session_id=?",
+                   {message, session});
+    execute("DELETE FROM message_parts WHERE message_id=? AND session_id=?",
+            {message, session});
+    execute("DELETE FROM message_assets WHERE message_id=? AND session_id=?",
+            {message, session});
+    execute("DELETE FROM chat_messages WHERE id=? AND session_id=?",
+            {message, session});
+    auto latest =
+        query("SELECT output_text,message_type,created_at FROM chat_messages "
+              "WHERE session_id=? ORDER BY seq DESC LIMIT 1",
+              {session});
+    if (latest.empty()) {
+      execute("DELETE FROM chat_sessions WHERE id=?", {session});
+      execute("DELETE FROM app_settings WHERE key='active_session_id' AND "
+              "value_json=?",
+              {Json(session).dump()});
+    } else {
+      std::string preview;
+      if (latest[0]["message_type"] == "image")
+        preview = "[图片]";
+      else {
+        int n = 0;
+        for (auto &c :
+             characters(latest[0].value("output_text", std::string()))) {
+          if (++n > 40)
+            break;
+          preview += c;
+        }
+      }
+      execute("UPDATE chat_sessions SET message_count=(SELECT count(*) FROM "
+              "chat_messages WHERE "
+              "session_id=?),preview_text=?,last_message_at=?,updated_at=? "
+              "WHERE id=?",
+              {session, preview, latest[0]["created_at"], nowMs(), session});
+    }
+    execute("COMMIT");
+  } catch (...) {
+    execute("ROLLBACK");
+    throw;
+  }
+  // Only application-owned copies are removable, never album/camera originals.
+  for (const auto &asset : assets)
+    for (const char *key : {"stored_path", "display_src"}) {
+      const auto path = asset[key].is_string() ? asset[key].get<std::string>()
+                                               : std::string();
+      const auto prefix = assetDirectory_ + "/";
+      if (path.find(prefix) == 0 &&
+          path.find('/', prefix.size()) == std::string::npos)
+        perform([path] {
+          unlink(path.c_str());
+          return Json();
+        });
+    }
+  return true;
+}
 std::string Database::append(const std::string &s, const std::string &role,
                              const std::string &content, const Json &image,
                              const Json &preferences) {

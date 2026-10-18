@@ -36,6 +36,9 @@ public:
   Json messages(const std::string &session, int offset = 0, int limit = 30);
   std::string createSession();
   void removeSession(const std::string &session);
+  bool pendingImage(const std::string &session, const std::string &message);
+  bool removePendingImage(const std::string &session,
+                          const std::string &message);
   std::string append(const std::string &session, const std::string &role,
                      const std::string &text,
                      const Json &image = Json::object(),

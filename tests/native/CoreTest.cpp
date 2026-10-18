@@ -199,6 +199,22 @@ int main(int argc, char **argv) {
       {{"name", "fixture"}, {"provider_metadata", "{\"api\":\"chat\"}"}},
       imageInput, true);
   assert(chatImage["messages"][0]["content"][1]["type"] == "image_url");
+  auto pendingImageId = db.messages(imageSession)[0]["id"].get<std::string>();
+  auto imageCopy =
+      db.messages(imageSession)[0]["stored_path"].get<std::string>();
+  assert(db.pendingImage(imageSession, pendingImageId));
+  assert(db.removePendingImage(imageSession, pendingImageId));
+  assert(db.sessionInfo(imageSession).empty() &&
+         db.responseInput(imageSession, "").empty());
+  assert(access(imagePath.c_str(), R_OK) == 0 &&
+         access(imageCopy.c_str(), F_OK) != 0);
+  auto sentImage = db.append(imageSession, "user", "", {{"path", imagePath}});
+  auto sentReply = db.append(imageSession, "assistant", "reply");
+  assert(!db.pendingImage(imageSession, sentImage));
+  assert(!db.removePendingImage(imageSession, sentImage));
+  auto nextImage = db.append(imageSession, "user", "", {{"path", imagePath}});
+  assert(db.removePendingImage(imageSession, nextImage));
+  assert(db.messages(imageSession).size() == 2);
   db.removeSession(imageSession);
   db.saveProvider({{"name", "test"},
                    {"baseURL", "http://localhost/v1"},
@@ -322,7 +338,8 @@ int main(int argc, char **argv) {
   FT_Face symbolFace;
   assert(FT_Init_FreeType(&fontLibrary) == 0);
   assert(FT_New_Face(fontLibrary, argv[3], 0, &symbolFace) == 0);
-  for (uint32_t cp : {0x2713u, 0x2714u, 0x2717u, 0x2718u, 0x2611u, 0x2610u, 0x2192u, 0x21d2u, 0x221eu})
+  for (uint32_t cp : {0x2713u, 0x2714u, 0x2717u, 0x2718u, 0x2611u, 0x2610u,
+                      0x2192u, 0x21d2u, 0x221eu})
     assert(FT_Get_Char_Index(symbolFace, cp) != 0);
   FT_Done_Face(symbolFace);
   FT_Done_FreeType(fontLibrary);
@@ -332,7 +349,8 @@ int main(int argc, char **argv) {
     auto symbolLayout = renderer.layout(symbolBlock, 100);
     auto bitmap = renderer.paint(symbolBlock, 100, 0, symbolLayout.height);
     bool visible = false;
-    for (size_t i = 3; i < bitmap.pixels.size(); i += 4) visible |= bitmap.pixels[i] != 0;
+    for (size_t i = 3; i < bitmap.pixels.size(); i += 4)
+      visible |= bitmap.pixels[i] != 0;
     assert(visible);
   }
   auto tables = parseMarkdown(
@@ -354,7 +372,8 @@ int main(int argc, char **argv) {
   auto mixedLayout = renderer.layout(mixedCell, 1);
   mixedCell.runs.erase(mixedCell.runs.begin());
   auto mathOnlyLayout = renderer.layout(mixedCell, 1);
-  assert(mixedLayout.height == mathOnlyLayout.height && mixedLayout.width > mathOnlyLayout.width);
+  assert(mixedLayout.height == mathOnlyLayout.height &&
+         mixedLayout.width > mathOnlyLayout.width);
   Block multiline = tables.blocks[1];
   multiline.cells[0] = {{"first\nsecond", "", 0}};
   multiline.cells[1] = {{"next", "target", 0}};

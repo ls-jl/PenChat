@@ -58,7 +58,8 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
     : db_(db), bridge_(bridge), display_(display), input_(input), screen_(s),
       images_(events_), camera_(events_, join(dataDir, "DCIM")),
       scanner_(events_, workspace, dataDir),
-      rich_(fontPath, resources, join(workspace, "assets/fonts/DejaVuSans.ttf")),
+      rich_(fontPath, resources,
+            join(workspace, "assets/fonts/DejaVuSans.ttf")),
       workspace_(std::move(workspace)), dataDir_(std::move(dataDir)) {
   auto config = db_.settings();
   session_ = stringValue(config, "active_session_id");
@@ -161,7 +162,7 @@ lv_obj_t *App::imageWidget(lv_obj_t *parent) {
 }
 void App::image(lv_obj_t *parent, const std::string &path, int x, int y, int w,
                 int h, std::function<void()> click, bool rightAligned,
-                bool chatPhoto) {
+                bool chatPhoto, const std::string &pendingMessage) {
   auto holder =
       box(parent, x, y, chatPhoto ? std::min(w, h) : w, h, theme::surface);
   lv_obj_set_scrollable(holder, false);
@@ -186,6 +187,45 @@ void App::image(lv_obj_t *parent, const std::string &path, int x, int y, int w,
     lv_obj_set_hidden(placeholder, true);
   } else if (images_.failed(key))
     lv_label_set_text(placeholder, "图片读取失败");
+  if (!pendingMessage.empty()) {
+    struct Press {
+      App *app;
+      std::string session, message;
+      lv_point_t start{};
+      int distance = 0;
+    };
+    auto data = new Press{this, session_, pendingMessage};
+    lv_obj_set_clickable(holder, true);
+    lv_obj_add_event_cb(
+        holder,
+        [](lv_event_t *event) {
+          auto p = static_cast<Press *>(lv_event_get_user_data(event));
+          auto code = lv_event_get_code(event);
+          if (code == LV_EVENT_DELETE) {
+            delete p;
+            return;
+          }
+          if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING &&
+              code != LV_EVENT_LONG_PRESSED)
+            return;
+          auto indev = lv_indev_active();
+          if (!indev)
+            return;
+          lv_point_t point;
+          lv_indev_get_point(indev, &point);
+          if (code == LV_EVENT_PRESSED) {
+            p->start = point;
+            p->distance = 0;
+          }
+          int dx = point.x - p->start.x, dy = point.y - p->start.y;
+          p->distance = std::max(p->distance, dx * dx + dy * dy);
+          if (code == LV_EVENT_LONG_PRESSED && p->distance <= 144)
+            p->app->events_.push(
+                "image_delete_request",
+                {{"session", p->session}, {"message", p->message}});
+        },
+        LV_EVENT_ALL, data);
+  }
   if (click)
     onClick(holder, std::move(click));
 }
@@ -1285,6 +1325,11 @@ void App::renderMessages(bool bottom) {
                       0, 86, width, 23, theme::muted);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
   }
+  const auto lastAssistant =
+      db_.query("SELECT coalesce(max(seq),0) AS seq FROM chat_messages WHERE "
+                "session_id=? AND role='assistant'",
+                {session_})[0]["seq"]
+          .get<int>();
   lv_obj_t *photoGroup = nullptr;
   for (const auto &m : messages) {
     bool user = m.value("role", std::string()) == "user";
@@ -1307,7 +1352,9 @@ void App::renderMessages(bool bottom) {
         path = stringValue(m, "stored_path");
       if (path.empty())
         path = stringValue(m, "original_path");
-      image(photoGroup, path, 0, 0, width, 140, {}, false, true);
+      image(photoGroup, path, 0, 0, width, 140, {}, false, true,
+            m["seq"].get<int>() > lastAssistant ? m["id"].get<std::string>()
+                                                : "");
       continue;
     }
     photoGroup = nullptr;
@@ -2388,7 +2435,48 @@ void App::tick() {
       scanEvent(e);
       continue;
     }
-    if (e.type == "reasoning_toggle") {
+    if (e.type == "image_delete_request") {
+      auto id = e.data.value("message", std::string());
+      if (view_ == "chat" && visible_ && !navigationOpen_ && !attachments_ && !modal_ && !keyboard_ &&
+          e.data.value("session", std::string()) == session_ &&
+          db_.pendingImage(session_, id)) {
+        input_.cancel();
+        modal("删除图片", "删除这张待发送图片？系统相册原图不会删除。");
+        imageDeleteId_ = id;
+        lv_obj_add_event_cb(
+            modal_,
+            [](lv_event_t *event) {
+              static_cast<App *>(lv_event_get_user_data(event))
+                  ->imageDeleteId_.clear();
+            },
+            LV_EVENT_DELETE, this);
+        auto close = lv_obj_get_child(modal_, -1);
+        lv_obj_set_height(close, 44);
+        lv_label_set_text(lv_obj_get_child(close, 0), "取消");
+        const auto session = session_;
+        auto remove = button(
+            modal_, "删除", screen_.width - 325, screen_.height - 66, 100, 44,
+            [this, session, id] {
+              events_.push("image_delete_confirm",
+                           {{"session", session}, {"message", id}});
+            },
+            theme::danger);
+        lv_obj_set_style_text_color(lv_obj_get_child(remove, 0), lv_color_hex(theme::background), 0);
+      }
+    } else if (e.type == "image_delete_confirm") {
+      if (view_ == "chat" && visible_ && modal_ &&
+          e.data.value("session", std::string()) == session_ &&
+          e.data.value("message", std::string()) == imageDeleteId_) {
+        input_.cancel();
+        if (db_.removePendingImage(session_,
+                                   e.data.value("message", std::string()))) {
+          messageOffset_ = 0;
+          build();
+        } else {
+          modal("无法删除", "图片已进入发送请求，不能从待发送区删除。");
+        }
+      }
+    } else if (e.type == "reasoning_toggle") {
       if (view_ == "chat" &&
           e.data.value("session", std::string()) == session_) {
         input_.cancel();

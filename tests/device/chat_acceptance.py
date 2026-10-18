@@ -106,6 +106,19 @@ if __name__=='__main__':
         device.open_settings();device.tap(300,134);device.to_chat()
         count=len(requests());device.tap(128,232);device.tap(200,82);device.view('album');device.tap(200,95);device.view('chat');time.sleep(.2)
         assert len(requests())==count and len(messages())==5
+        # Long press removes only the pending attachment after confirmation.
+        photos=device.state()['chat_images'];photo=max(photos,key=lambda p:p['y'])
+        def hold_photo():
+            x=photo['x']+photo['width']//2;y=photo['y']+photo['height']//2
+            device.adb('/tmp/penchat-ui-tap --hold '+str(y+113)+' '+str(959-x)+' 650 2>/dev/null')
+            device.wait(lambda:device.state()['modal'])
+        hold_photo();device.capture('pending-image-delete');device.tap(890,225)
+        assert len(device.state()['chat_images'])==len(photos)
+        hold_photo();device.tap(770,225)
+        device.wait(lambda:len(device.state()['chat_images'])==len(photos)-1)
+        assert len(requests())==count
+        device.tap(128,232);device.tap(200,82);device.view('album');device.tap(200,95);device.view('chat')
+        results.append('pending-image-confirmed-delete')
         device.tap(908,232);wait_reply(6,'complete');assert requests()[-1]['has_image'];results.append('album-manual-send')
         close_app();pull(DATA+'/penchat.db',OUT/'fixture-chat.db')
         with sqlite3.connect(OUT/'fixture-chat.db') as db:

@@ -102,3 +102,5 @@ HaaS UI shell/IME reference: /persistent/home/ls-jl/dictpen/haasui-docs.
 PenChat is an independent application. Never read external application databases or Storage. The album may read the shared system photo directory /userdisk/Pictures; never modify its originals. Identity comes from package.json. New installs start without providers or messages.
 
 Every delivered fix increments the package patch version (0.1.0 → 0.1.1 → 0.1.2). Keep package-lock root metadata in sync; build identity and AMR filename derive from package.json.
+
+Commit every completed change to Git after validation. Each delivered fix also increments the patch version; never claim uncommitted work is committed.
