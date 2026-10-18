@@ -1818,7 +1818,7 @@ void App::toggleNavigation() {
 void App::historyDrawer() {
   // Only the drawer is replaced when paging, keeping the underlying form/draft.
   if (navigationList_)
-    navigationScroll_ = lv_obj_get_scroll_y(navigationList_);
+    navigationScroll_ = std::max(0, int(lv_obj_get_scroll_y(navigationList_)));
   historyRows_.clear();
   auto previous = navigation_;
   navigation_ = navigationList_ = navigationActive_ = nullptr;
@@ -1836,6 +1836,10 @@ void App::historyDrawer() {
   navigationList_ =
       box(panel, 12, 8, listWidth, screen_.height - 70, theme::sidebar);
   lv_obj_set_scroll_dir(navigationList_, LV_DIR_VER);
+  lv_obj_set_scroll_elastic(navigationList_, true);
+  lv_obj_set_scroll_momentum(navigationList_, true);
+  lv_obj_set_scroll_chain_ver(navigationList_, false);
+  lv_obj_set_scroll_chain_hor(navigationList_, false);
   lv_obj_set_scrollbar_mode(navigationList_, LV_SCROLLBAR_MODE_AUTO);
   auto sessions = db_.sessions(historyOffset_);
   if (sessions.empty()) {
@@ -1875,7 +1879,18 @@ void App::historyDrawer() {
   footerAction(panelWidth - 156, 144, "settings", "设置",
                [this] { show("settings"); });
   lv_obj_update_layout(navigation_);
-  lv_obj_scroll_to_y(navigationList_, navigationScroll_, LV_ANIM_OFF);
+  // LVGL needs scrollable extent before it will start an elastic gesture.
+  // A transparent one-pixel tail also enables bounce for short/empty lists.
+  if (lv_obj_get_scroll_bottom(navigationList_) <= 0) {
+    auto tail = box(navigationList_, 0, lv_obj_get_height(navigationList_), 1, 1);
+    lv_obj_set_style_bg_opa(tail, LV_OPA_TRANSP, 0);
+    lv_obj_set_scrollable(tail, false);
+    lv_obj_set_clickable(tail, false);
+    lv_obj_update_layout(navigationList_);
+  }
+  const int end = std::max(0, int(lv_obj_get_scroll_y(navigationList_) +
+                                 lv_obj_get_scroll_bottom(navigationList_)));
+  lv_obj_scroll_to_y(navigationList_, std::min(navigationScroll_, end), LV_ANIM_OFF);
 }
 void App::cameraPage() {
   lv_obj_set_scrollable(body_, false);
