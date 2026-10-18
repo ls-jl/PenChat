@@ -399,8 +399,9 @@ Bitmap RichText::formula(const std::string &source, int size) {
     return *it->second;
   if (source.size() > 8192)
     throw std::runtime_error("Formula too large");
+  const float formulaSize = size * 1.5f;
   std::unique_ptr<tex::TeXRender> r(
-      tex::LaTeX::parse(tex::utf82wide(source), 4096, size, size * .2,
+      tex::LaTeX::parse(tex::utf82wide(source), 4096, formulaSize, formulaSize * .2,
                         (0xff000000u | theme::text)));
   Bitmap b;
   b.width = std::max(1, r->getWidth() + 4);
