@@ -32,12 +32,27 @@ with tempfile.TemporaryDirectory(prefix='penchat-crop-') as directory:
             app.send('touch',x=left+3+50*step//12,y=top+3+40*step//12,pressed=True);time.sleep(.025)
         app.send('touch',x=left+53,y=top+43,pressed=False);time.sleep(.1)
         rect=app.diag()['crop_rect'];assert rect[0]>=45 and rect[1]>=35,rect
+        def drag(x,y,dx,dy):
+            app.send('touch',x=x,y=y,pressed=True);time.sleep(.05)
+            for step in range(1,9):
+                app.send('touch',x=x+dx*step//8,y=y+dy*step//8,pressed=True);time.sleep(.025)
+            app.send('touch',x=x+dx,y=y+dy,pressed=False);time.sleep(.05)
+        # Edge midpoints resize, then the inside translates without changing size.
+        before=rect[:]
+        drag(left+rect[0]+2,top+rect[1]+rect[3]//2,12,0)
+        rect=app.diag()['crop_rect'];assert rect[0]==before[0]+12 and rect[2]==before[2]-12,rect
+        before=rect[:]
+        drag(left+rect[0]+rect[2]//2,top+rect[1]+2,0,10)
+        rect=app.diag()['crop_rect'];assert rect[1]==before[1]+10 and rect[3]==before[3]-10,rect
+        before=rect[:]
+        drag(left+rect[0]+rect[2]//2,top+rect[1]+rect[3]//2,-20,-15)
+        rect=app.diag()['crop_rect'];assert rect==[before[0]-20,before[1]-15,before[2],before[3]],rect
         snapshot(app,'camera-crop')
         app.tap(835,180);wait_for(lambda:app.diag()['view']=='chat')
         assert not app.diag()['generating'] and not list(album.iterdir())
         with sqlite3.connect(p/'penchat.db') as db:
             row=db.execute('select width,height,stored_path,original_path from message_assets').fetchone()
-        assert row[:2]==(800-math.floor(rect[0]/w*800),600-math.floor(rect[1]/h*600)),row
+        assert row[:2]==(math.ceil((rect[0]+rect[2])/w*800)-math.floor(rect[0]/w*800),math.ceil((rect[1]+rect[3])/h*600)-math.floor(rect[1]/h*600)),row
         assert pathlib.Path(row[2]).exists() and row[2]==row[3]
         assert not list((p/'camera-tmp').iterdir())
         app.tap(500,232);request=app.receive('keyboard.open');assert request['text']=='照片说明'

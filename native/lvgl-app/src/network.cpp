@@ -5,6 +5,14 @@
 #include <curl/curl.h>
 #include <stdexcept>
 namespace penchat {
+namespace {
+std::string safeError(const std::string &text) {
+  // Error bodies may be non-UTF-8, or truncated in the middle of a codepoint.
+  return Json::parse(Json(text).dump(-1, ' ', false, Json::error_handler_t::replace))
+      .get<std::string>();
+}
+}
+
 void SseParser::line(std::string value) {
   if (!value.empty() && value.back() == '\r')
     value.pop_back();
@@ -264,11 +272,13 @@ void streamChat(const Json &m, Json input, std::atomic<bool> &cancel,
     if (result.status < 200 || result.status >= 300) {
       out["error"] = "HTTP " + std::to_string(result.status) + ": " +
                      result.body.substr(0, 2000);
+      out["error"] = safeError(out["error"].get<std::string>());
       events.push("network_error", out);
     } else if (!result.error.empty() || !protocolError.empty() || !ended) {
       out["error"] = !protocolError.empty()  ? protocolError
                      : !result.error.empty() ? result.error
                                              : "Stream ended before completion";
+      out["error"] = safeError(out["error"].get<std::string>());
       events.push("network_error", out);
     } else
       events.push("done", out);
@@ -277,7 +287,8 @@ void streamChat(const Json &m, Json input, std::atomic<bool> &cancel,
     publish();
     Json out = tag;
     out["error"] = e.what();
-    events.push("network_error", out);
+    out["error"] = safeError(out["error"].get<std::string>());
+      events.push("network_error", out);
   }
 }
 std::string generateTitle(Json model, const std::string &question,

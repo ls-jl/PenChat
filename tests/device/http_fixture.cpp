@@ -125,8 +125,12 @@ static void request(int fd) {
                .dump()
         << '\n';
   }
-  if (mode == "error") {
+  if (mode == "error" || mode == "unicode") {
     std::string error = "{\"error\":{\"message\":\"fixture unauthorized\"}}";
+    if (mode == "unicode") {
+      error.clear();
+      for (int i=0;i<300;++i) error += "错误说明";
+    }
     sendAll(fd, "HTTP/1.1 401 Unauthorized\r\nContent-Type: "
                 "application/json\r\nContent-Length: " +
                     std::to_string(error.size()) +

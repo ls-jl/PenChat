@@ -196,7 +196,7 @@ class App {
             int maxLength = 4096, const char *inputType = "ZhCNPreferred",
             std::function<void()> cancelled = {});
   bool canSend();
-  void sendMessage();
+  void sendMessage(const std::string &retry = "");
   void attach(const Json &image);
   void newChat();
   void stopNetwork();

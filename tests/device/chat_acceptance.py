@@ -97,6 +97,12 @@ if __name__=='__main__':
         device.wait(lambda:session_info()[2].get('title_state')=='complete')
         assert len(session_info()[0])<=device.state()['title_limit'];results.append('first-answer-auto-title')
         mode('error');send_request();wait_reply(2,'error');assert '401' in messages()[-1][2];results.append('http401')
+        device.wait(lambda:device.state()['modal']);device.capture('http-retry')
+        count=len(requests());mode('unicode');device.tap(770,225)
+        device.wait(lambda:len(requests())==count+1);wait_reply(2,'error')
+        device.wait(lambda:device.state()['modal']);mode('ok');device.tap(770,225)
+        wait_reply(2,'complete');assert len(messages())==2 and not device.state()['modal']
+        results.append('http-unicode-error-and-manual-retry')
         mode('cut');send_request();wait_reply(3,'error');assert messages()[-1][1]==REPLY;results.append('cut')
         mode('cancel');send_request();time.sleep(.4);device.tap(908,232);wait_reply(4,'cancelled');results.append('cancel')
         mode('ok')
@@ -107,11 +113,19 @@ if __name__=='__main__':
         w,h=state['crop_preview'];x=86+12+(630-w)//2+3;y=(266-h)//2+3
         device.adb('/tmp/penchat-ui-tap '+str(y+113)+' '+str(959-x)+' '+str(y+153)+' '+str(909-x)+' 25 2>/dev/null')
         state=device.state();rect=state['crop_rect'];assert rect[0]>=45 and rect[1]>=35,(rect,state['touch'])
+        def crop_drag(px,py,dx,dy):
+            device.adb('/tmp/penchat-ui-tap '+str(py+113)+' '+str(959-px)+' '+str(py+dy+113)+' '+str(959-px-dx)+' 25 2>/dev/null')
+        ox,oy=x-3,y-3;before=rect[:]
+        crop_drag(ox+rect[0]+2,oy+rect[1]+rect[3]//2,12,0)
+        rect=device.state()['crop_rect'];assert rect[0]==before[0]+12 and rect[2]==before[2]-12,rect
+        before=rect[:];crop_drag(ox+rect[0]+rect[2]//2,oy+rect[1]+rect[3]//2,-20,-15)
+        rect=device.state()['crop_rect'];assert rect==[before[0]-20,before[1]-15,before[2],before[3]],rect
         device.capture('camera-crop')
         # Save the confirmed crop to the shared album, but never auto-send it.
         count=len(requests());device.tap(830,120);device.tap(835,180);device.view('chat')
         assert len(requests())==count
-        device.tap(908,232);wait_reply(5,'complete');assert requests()[-1]['has_image'];results.append('camera-crop-pending-and-album')
+        mode('unicode');device.tap(908,232);wait_reply(5,'error');device.wait(lambda:device.state()['modal'])
+        mode('ok');device.tap(770,225);wait_reply(5,'complete');assert requests()[-1]['has_image'];results.append('camera-crop-pending-and-album')
         # Disable auto-send, pick the saved photo through the real album UI, then send manually.
         device.open_settings();device.tap(300,134);device.to_chat()
         count=len(requests());device.tap(128,232);device.tap(200,82);device.view('album');device.tap(200,95);device.view('chat');time.sleep(.2)

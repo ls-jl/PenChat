@@ -96,10 +96,21 @@ void App::cropPage() {
     lv_obj_set_clickable(dot, false);
     lv_obj_set_scrollable(dot, false);
   }
+  for (auto align : {LV_ALIGN_TOP_MID, LV_ALIGN_BOTTOM_MID, LV_ALIGN_LEFT_MID,
+                     LV_ALIGN_RIGHT_MID}) {
+    const bool horizontal =
+        align == LV_ALIGN_TOP_MID || align == LV_ALIGN_BOTTOM_MID;
+    auto handle = box(cropSelection_, 0, 0, horizontal ? 28 : 4,
+                      horizontal ? 4 : 28, theme::text);
+    lv_obj_align(handle, align, 0, 0);
+    lv_obj_set_clickable(handle, false);
+    lv_obj_set_scrollable(handle, false);
+  }
   updateCrop();
   struct Drag {
     App *app;
-    int x = 0, y = 0, left = 0, top = 0, w = 0, h = 0, corner = -1;
+    int x = 0, y = 0, left = 0, top = 0, w = 0, h = 0, edges = 0;
+    bool active = false;
   };
   auto drag = new Drag{this};
   lv_obj_add_event_cb(
@@ -112,11 +123,18 @@ void App::cropPage() {
           delete d;
           return;
         }
+        if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+          d->active = false;
+          return;
+        }
         if (a->cropBusy_ ||
             (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING))
           return;
+        auto input = lv_indev_active();
+        if (!input)
+          return;
         lv_point_t point;
-        lv_indev_get_point(lv_indev_active(), &point);
+        lv_indev_get_point(input, &point);
         lv_area_t bounds;
         lv_obj_get_coords(static_cast<lv_obj_t *>(lv_event_get_target(e)),
                           &bounds);
@@ -128,18 +146,20 @@ void App::cropPage() {
           d->top = a->cropY_;
           d->w = a->cropW_;
           d->h = a->cropH_;
-          d->corner = -1;
-          for (int i = 0; i < 4; ++i) {
-            int cx = d->left + (i % 2 ? d->w : 0),
-                cy = d->top + (i / 2 ? d->h : 0);
-            if (std::abs(x - cx) <= 28 && std::abs(y - cy) <= 28) {
-              d->corner = i;
-              break;
-            }
-          }
-        } else if (code == LV_EVENT_PRESSING) {
+          d->edges = 0;
+          d->active = x >= d->left - 22 && x <= d->left + d->w + 22 &&
+                      y >= d->top - 22 && y <= d->top + d->h + 22;
+          if (std::abs(x - d->left) <= 22)
+            d->edges |= 1;
+          else if (std::abs(x - d->left - d->w) <= 22)
+            d->edges |= 2;
+          if (std::abs(y - d->top) <= 22)
+            d->edges |= 4;
+          else if (std::abs(y - d->top - d->h) <= 22)
+            d->edges |= 8;
+        } else if (code == LV_EVENT_PRESSING && d->active) {
           int dx = x - d->x, dy = y - d->y;
-          if (d->corner < 0) {
+          if (!d->edges) {
             a->cropX_ =
                 std::max(0, std::min(a->cropPreviewW_ - d->w, d->left + dx));
             a->cropY_ =
@@ -147,18 +167,18 @@ void App::cropPage() {
           } else {
             int left = d->left, top = d->top, right = left + d->w,
                 bottom = top + d->h;
-            const int minW = std::min(44, a->cropPreviewW_),
-                      minH = std::min(44, a->cropPreviewH_);
-            if (d->corner % 2)
+            const int minW = std::min(60, a->cropPreviewW_),
+                      minH = std::min(60, a->cropPreviewH_);
+            if (d->edges & 1)
+              left = std::max(0, std::min(right - minW, left + dx));
+            if (d->edges & 2)
               right =
                   std::max(left + minW, std::min(a->cropPreviewW_, right + dx));
-            else
-              left = std::max(0, std::min(right - minW, left + dx));
-            if (d->corner / 2)
+            if (d->edges & 4)
+              top = std::max(0, std::min(bottom - minH, top + dy));
+            if (d->edges & 8)
               bottom =
                   std::max(top + minH, std::min(a->cropPreviewH_, bottom + dy));
-            else
-              top = std::max(0, std::min(bottom - minH, top + dy));
             a->cropX_ = left;
             a->cropY_ = top;
             a->cropW_ = right - left;
@@ -170,7 +190,8 @@ void App::cropPage() {
       LV_EVENT_ALL, drag);
   const int rail = screen_.width - 300;
   label(body_, "裁剪照片", rail, 14, 195, 22);
-  label(body_, "拖动四角裁剪\n拖动选区移动", rail, 48, 195, 17, theme::muted);
+  label(body_, "拖边缘/四角裁剪\n缩小后可移动", rail, 48, 195, 17,
+        theme::muted);
   auto check = lv_checkbox_create(body_);
   lv_checkbox_set_text(check, "加入系统相册");
   lv_obj_set_pos(check, rail, 102);

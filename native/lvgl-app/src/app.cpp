@@ -43,6 +43,9 @@ std::string stringValue(const Json &j, const char *key,
   auto i = j.find(key);
   return i != j.end() && i->is_string() ? i->get<std::string>() : fallback;
 }
+bool retryableStatus(const std::string &status) {
+  return status == "error" || status == "cancelled" || status == "interrupted";
+}
 bool hasText(const std::string &text) {
   return std::any_of(text.begin(), text.end(),
                      [](unsigned char c) { return !std::isspace(c); });
@@ -1463,8 +1466,16 @@ void App::renderMessages(bool bottom) {
         richMessage(contentBox, content, textWidth, false, id);
       }
     }
-    if (stringValue(m, "status") == "error")
-      label(wrap, "生成失败，可重新发送", 0, 0, textWidth, 17, theme::danger);
+    if (retryableStatus(stringValue(m, "status"))) {
+      label(wrap, stringValue(m, "status") == "error" ? "生成失败" :
+            (stringValue(m, "status") == "interrupted" ? "上次生成已中断" : "已停止生成"),
+            0, 0, textWidth, 17, theme::danger);
+      auto latest = db_.messages(session_, 0, 1);
+      if (!generating_ && !latest.empty() && latest[0]["id"] == id)
+        button(wrap, "重试", 0, 0, 140, 44, [this, id] {
+          events_.push("retry_request", {{"id", id}, {"session", session_}});
+        });
+    }
   }
   if (messageOffset_ > 0)
     button(messageContent_, "加载较新消息", 0, 0, width, 35, [this] {
@@ -2208,14 +2219,22 @@ bool App::canSend() {
     return true;
   // Pending user content survives an interruption or image auto-send being off.
   auto latest = db_.messages(session_, 0, 1);
+  if (!latest.empty() && stringValue(latest[0], "role") == "assistant" &&
+      retryableStatus(stringValue(latest[0], "status"))) return true;
   return !latest.empty() && stringValue(latest[0], "role") == "user" &&
          (hasText(stringValue(latest[0], "output_text")) ||
           !stringValue(latest[0], "stored_path").empty() ||
           !stringValue(latest[0], "original_path").empty());
 }
-void App::sendMessage() {
-  if (generating_ || !canSend())
-    return;
+void App::sendMessage(const std::string &retry) {
+  if (generating_) return;
+  auto latest = db_.messages(session_, 0, 1);
+  const bool failed = !latest.empty() && stringValue(latest[0], "role") == "assistant" &&
+      retryableStatus(stringValue(latest[0], "status"));
+  if (!retry.empty() && (!failed || stringValue(latest[0], "id") != retry)) return;
+  const std::string retryId = !retry.empty() ? retry :
+      (!hasText(draft_) && failed ? stringValue(latest[0], "id") : std::string());
+  if (retryId.empty() && !canSend()) return;
   auto model = currentModel();
   if (model.empty()) {
     modal("请选择可用模型",
@@ -2224,20 +2243,27 @@ void App::sendMessage() {
   }
   bindPreferences(model);
   savePreferences();
-  if (hasText(draft_)) {
+  if (retryId.empty() && hasText(draft_)) {
     db_.append(session_, "user", draft_, Json::object(), sessionPreferences_);
     draft_.clear();
   }
-  auto input = db_.responseInput(session_, "", model);
+  auto input = db_.responseInput(session_, retryId, model);
   if (input.empty())
     return;
   if (network_.joinable())
     network_.join();
   messageOffset_ = 0;
   chatFollowing_ = true;
-  assistant_ = db_.append(session_, "assistant", "", Json::object(),
-                          sessionPreferences_);
+  if (retryId.empty())
+    assistant_ = db_.append(session_, "assistant", "", Json::object(), sessionPreferences_);
+  else {
+    assistant_ = retryId;
+    db_.execute("UPDATE chat_messages SET metadata_json='{}' WHERE id=?", {retryId});
+    db_.updateMessage(retryId, "", "", "streaming");
+    reasoningOverrides_.erase(retryId);
+  }
   db_.recordRequest(assistant_, model);
+  notice_.clear();
   reasoningMetadata_ = Json::object();
   output_.clear();
   reasoning_.clear();
@@ -2486,6 +2512,12 @@ void App::tick() {
           modal("无法删除", "图片已进入发送请求，不能从待发送区删除。");
         }
       }
+    } else if (e.type == "retry_request") {
+      if (view_ == "chat" && visible_ && !keyboard_ &&
+          e.data.value("session", std::string()) == session_) {
+        input_.cancel();
+        sendMessage(e.data.value("id", std::string()));
+      }
     } else if (e.type == "reasoning_toggle") {
       if (view_ == "chat" &&
           e.data.value("session", std::string()) == session_) {
@@ -2545,8 +2577,12 @@ void App::tick() {
           notice_ = e.data.value("error", std::string("网络错误"));
         if (view_ == "chat") {
           build();
-          if (!notice_.empty())
+          if (e.type == "network_error") {
             modal("生成失败", notice_);
+            const auto id = assistant_, session = session_;
+            button(modal_, "重试", screen_.width - 325, screen_.height - 66, 100, 44,
+                   [this, id, session] { events_.push("retry_request", {{"id", id}, {"session", session}}); });
+          }
         }
       }
     } else if (e.type == "models") {
