@@ -117,6 +117,8 @@ class App {
            *navigationActive_ = nullptr;
   bool navigationOpen_ = false;
   int navigationScroll_ = 0;
+  bool composerTapAllowed_ = false;
+  int composerTouchX_ = 0, composerTouchY_ = 0;
   bool touchDown_ = false, pullCandidate_ = false, pulling_ = false;
   bool pullNeedsPause_ = false, pullTrackActivity_ = false;
   bool pullCreateAllowed_ = false;

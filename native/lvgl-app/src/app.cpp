@@ -1123,6 +1123,9 @@ void App::chat() {
       chatControls_, draft_.empty() ? "询问 " PENCHAT_NAME : draft_, 50, 2,
       gauge ? 674 : 726, 44,
       [this] {
+        if (!composerTapAllowed_)
+          return;
+        composerTapAllowed_ = false;
         edit(
             draft_, "请输入消息",
             [this](const std::string &s) {
@@ -2432,6 +2435,24 @@ void App::handle(const Json &m) {
       if (m.value("cancelled", false))
         navigationPointerDown_ = false;
     }
+    // Track the entire physical gesture before LVGL dispatches CLICKED.
+    // A swipe that returns to its origin must never become an input tap.
+    if (pressed && !touchDown_) {
+      composerTouchX_ = x;
+      composerTouchY_ = y;
+      composerTapAllowed_ = false;
+      if (view_ == "chat" && composer_ && !modal_ && !navigationOpen_ &&
+          !attachments_ && !lv_obj_has_flag(chatControls_, LV_OBJ_FLAG_HIDDEN)) {
+        lv_area_t bounds;
+        lv_obj_get_coords(composer_, &bounds);
+        composerTapAllowed_ = x >= bounds.x1 && x <= bounds.x2 &&
+                              y >= bounds.y1 && y <= bounds.y2;
+      }
+    }
+    const int composerDx = x - composerTouchX_, composerDy = y - composerTouchY_;
+    if (composerDx * composerDx + composerDy * composerDy > 144 ||
+        m.value("cancelled", false))
+      composerTapAllowed_ = false;
     if (m.value("cancelled", false)) {
       resetPull();
       touchDown_ = false;

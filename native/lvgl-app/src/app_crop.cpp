@@ -107,6 +107,7 @@ void App::cropView(const std::string &action) {
       cropZoom_ = std::max(
           1., std::min(16., .85 * std::min(double(cropViewportW_) / cropW_,
                                            double(cropViewportH_) / cropH_)));
+    cropPanMode_ = cropZoom_ > 1;
     cropPanX_ = cropViewportW_ / 2. - (cropX_ + cropW_ / 2.) * cropZoom_;
     cropPanY_ = cropViewportH_ / 2. - (cropY_ + cropH_ / 2.) * cropZoom_;
     if (action == "fit") {

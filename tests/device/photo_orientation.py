@@ -40,6 +40,15 @@ if __name__=='__main__':
     results=[]
     try:
         push(OUT/'fixture.db',d.DATA+'/penchat.db');start()
+        # Swipes beginning on the composer must not open the system IME.
+        move(500,232,60,0,0)
+        assert not d.state()['keyboard']
+        move(500,232,0,-50,0)
+        assert not d.state()['keyboard']
+        d.tap(500,232)
+        d.wait(lambda:d.state()['keyboard'])
+        d.tap(35,35)
+        d.wait(lambda:not d.state()['keyboard'])
         landscape=None
         for angle in [0,90,180,270]:
             d.tap(128,232);d.tap(200,38);d.view('camera')
@@ -59,6 +68,13 @@ if __name__=='__main__':
             move(vx+pan[0]+3,vy+pan[1]+3,pw-70,ph-65,angle)
             tap(222 if angle%180 else 922,738 if angle%180 else 64,angle)
             d.wait(lambda:d.state()['crop_zoom']>2)
+            before=d.state()
+            assert before['crop_pan_mode']
+            vw,vh=before['crop_viewport']
+            move(vx+vw/2,vy+vh/2,-20,-16,angle)
+            after=d.state()
+            assert after['crop_pan']!=before['crop_pan']
+            assert after['crop_rect']==before['crop_rect']
             d.capture('photo-editor-'+str(angle))
             tap(70 if angle%180 else 794,934 if angle%180 else 230,angle);d.view('chat')
             assert not d.state()['generating']

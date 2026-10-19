@@ -37,11 +37,13 @@ for angle in [0,90,180,270]:
             tap(*select);s=app.diag();assert s['crop_zoom']>2,s
             assert s['crop_rect']==rect
             snapshot(app,'photo-zoom-'+str(angle))
-            tap(*mode);assert app.diag()['crop_pan_mode']
+            assert app.diag()['crop_pan_mode']
+            before_pan=app.diag()['crop_pan']
             drag(vx+vw/2,vy+vh/2,-20,-16)
             assert app.diag()['crop_rect']==rect
+            assert app.diag()['crop_pan'] != before_pan
             tap(*mode);assert not app.diag()['crop_pan_mode']
-            tap(*select);s=app.diag();zoom=s['crop_zoom'];pan=s['crop_pan']
+            tap(*select);tap(*mode);s=app.diag();zoom=s['crop_zoom'];pan=s['crop_pan']
             drag(vx+pan[0]+(rect[0]+rect[2])*zoom-2,vy+pan[1]+(rect[1]+rect[3]/2)*zoom,-22,0)
             final=app.diag()['crop_rect'];assert final[2]<rect[2] and final[0]==rect[0],(angle,final,rect)
             tap(*confirm);wait_for(lambda:app.diag()['view']=='chat')
