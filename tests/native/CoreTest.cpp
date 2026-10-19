@@ -1,3 +1,5 @@
+#include "accelerometer.h"
+#include "photo_orientation.hpp"
 #include "common.hpp"
 #include "database.hpp"
 #include "image_data.h"
@@ -333,6 +335,27 @@ int main(int argc, char **argv) {
       math |= (r.style & Math) != 0;
   }
   assert(math && code && table);
+  camera::Acceleration acceleration;
+  assert(camera::parseAcceleration("x=1024;y=-20;z=120", &acceleration));
+  assert(acceleration.x==1024 && acceleration.y==-20);
+  assert(!camera::parseAcceleration("x=999999;y=0;z=0", &acceleration));
+  assert(!camera::parseAcceleration("x=1;y=2;z=3 trailing", &acceleration));
+  assert(PhotoOrientation::classify(1024,0,0)==0);
+  assert(PhotoOrientation::classify(0,1024,0)==90);
+  assert(PhotoOrientation::classify(-1024,0,0)==180);
+  assert(PhotoOrientation::classify(0,-1024,0)==270);
+  assert(PhotoOrientation::classify(0,0,1024)==-1);
+  assert(PhotoOrientation::classify(3000,0,0)==-1);
+  PhotoOrientation pose;
+  assert(pose.update(0,1024,0,100,0)==0);
+  assert(pose.update(0,1024,0,500,0)==0);
+  assert(pose.update(0,1024,0,700,0)==90);
+  assert(pose.update(0,0,1024,800,90)==90);
+  std::vector<uint8_t> pixels={1,1,1,2,2,2,3,3,3,4,4,4,5,5,5,6,6,6};
+  auto turned=rotatePhoto(pixels,2,3,90);
+  assert(turned[0]==5 && turned[3]==3 && turned[6]==1 && turned[9]==6);
+  assert(rotatePhoto(turned,3,2,270)==pixels);
+  assert(rotatePhoto(rotatePhoto(pixels,2,3,180),2,3,180)==pixels);
   RichText renderer(argv[1], argv[2], argv[3]);
   // Mixed styles within a word must not create new wrap opportunities.
   Block words;

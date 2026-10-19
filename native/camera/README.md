@@ -12,3 +12,13 @@ converted into an LVGL image; the same DRM plane presents the whole application.
 STB headers retain their license notices. `npm run build:native` rebuilds the
 executable; no separate camera JSAPI is packaged. `ImageDataTest.cpp` covers
 bounded, binary-safe image reads for chat attachments.
+
+The 2026-10-20 orientation update reuses Camera's source-only accelerometer lease
+and sensor guard (`accelerometer.cpp/.h`, `sensor_guard.cpp`). Source snapshot
+hashes are recorded in `orientation-source.json`; no prebuilt helper is copied.
+The helper is rebuilt as `penchat-sensor-guard`, shares the original cooperative
+sensor lock, and restores only reporting it enabled. It never changes wake,
+calibration or sampling-frequency settings. The projected-gravity classifier,
+smoothing and 600 ms orientation hysteresis are ported into
+`native/lvgl-app/src/photo_orientation.hpp`. Camera/edit UI rotation is separate
+from the fixed system display rotation; photo RGB pixels rotate once at capture.

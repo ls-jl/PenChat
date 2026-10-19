@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-crop-') as directory:
         drag(left+rect[0]+rect[2]//2,top+rect[1]+rect[3]//2,-20,-15)
         rect=app.diag()['crop_rect'];assert rect==[before[0]-20,before[1]-15,before[2],before[3]],rect
         snapshot(app,'camera-crop')
-        app.tap(835,180);wait_for(lambda:app.diag()['view']=='chat')
+        app.tap(794,230);wait_for(lambda:app.diag()['view']=='chat')
         assert not app.diag()['generating'] and not list(album.iterdir())
         with sqlite3.connect(p/'penchat.db') as db:
             row=db.execute('select width,height,stored_path,original_path from message_assets').fetchone()
@@ -57,8 +57,8 @@ with tempfile.TemporaryDirectory(prefix='penchat-crop-') as directory:
         assert not list((p/'camera-tmp').iterdir())
         app.tap(500,232);request=app.receive('keyboard.open');assert request['text']=='照片说明'
         app.send('keyboard.result',requestId=request['requestId'],confirmed=False,text='');wait_for(lambda:not app.diag()['keyboard'])
-        begin(app);app.tap(830,120);assert app.diag()['crop_save_album']
-        app.tap(835,180);wait_for(lambda:app.diag()['view']=='chat')
+        begin(app);app.tap(830,164);assert app.diag()['crop_save_album']
+        app.tap(794,230);wait_for(lambda:app.diag()['view']=='chat')
         assert len(list(album.glob('*.jpg')))==1
         begin(app);assert app.diag()['crop_save_album'];app.tap(40,32);wait_for(lambda:app.diag()['view']=='chat')
         assert not list((p/'camera-tmp').iterdir()) and len(list(album.iterdir()))==1
@@ -66,7 +66,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-crop-') as directory:
     app=Native(binary,p)
     try:
         begin(app);assert app.diag()['crop_save_album']
-        app.tap(830,120);app.tap(835,180);wait_for(lambda:app.diag()['view']=='chat')
+        app.tap(830,164);app.tap(794,230);wait_for(lambda:app.diag()['view']=='chat')
         assert len(list(album.iterdir()))==1
         begin(app)
     finally:app.close()

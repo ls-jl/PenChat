@@ -67,6 +67,8 @@ def seed(path,api):
     db.execute("insert or replace into app_settings(key,value_json,updated_at) values('auto_title_enabled','true',1)")
     db.execute("insert or replace into app_settings(key,value_json,updated_at) values('title_model_id','\"\"',1)")
     db.execute("insert or replace into app_settings(key,value_json,updated_at) values('reasoning_display','\"collapsed\"',1)")
+    db.execute("insert or replace into app_settings(key,value_json,updated_at) values('camera_auto_orientation','false',1)")
+    db.execute("insert or replace into app_settings(key,value_json,updated_at) values('camera_orientation','0',1)")
     db.commit();db.close()
 
 if __name__=='__main__':
@@ -122,7 +124,7 @@ if __name__=='__main__':
         rect=device.state()['crop_rect'];assert rect==[before[0]-20,before[1]-15,before[2],before[3]],rect
         device.capture('camera-crop')
         # Save the confirmed crop to the shared album, but never auto-send it.
-        count=len(requests());device.tap(830,120);device.tap(835,180);device.view('chat')
+        count=len(requests());device.tap(830,164);device.tap(794,230);device.view('chat')
         assert len(requests())==count
         mode('unicode');device.tap(908,232);wait_reply(5,'error');device.wait(lambda:device.state()['modal'])
         mode('ok');device.tap(770,225);wait_reply(5,'complete');assert requests()[-1]['has_image'];results.append('camera-crop-pending-and-album')

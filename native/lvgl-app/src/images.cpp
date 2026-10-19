@@ -1,4 +1,6 @@
 #include "images.hpp"
+#include "accelerometer.h"
+#include "photo_orientation.hpp"
 #include "camera_logic.h"
 #include "network.hpp"
 #include "overlay.h"
@@ -178,12 +180,37 @@ std::shared_ptr<ImageFrame> Camera::frame() {
 }
 void Camera::work() {
   camera::Capture capture;
+  int sensorSession = 0;
+  PhotoOrientation orientationFilter;
+  int64_t nextSensor = 0;
   try {
+#ifdef __aarch64__
+    if (manualOrientation_ < 0) {
+      const auto sensor = camera::startAccelerometer(workspace_);
+      if (sensor.ok) sensorSession = sensor.session;
+      events_.push("camera_sensor", {{"available",sensor.ok}});
+    }
+#endif
     if (!capture.open("", 960, 720))
       throw std::runtime_error(capture.lastError());
     events_.push("camera_started",
                  {{"width", capture.width()}, {"height", capture.height()}});
     while (!stop_) {
+      if (sensorSession && ticks() >= nextSensor) {
+        nextSensor = ticks()+200;
+        const auto sample = camera::readAccelerometer(sensorSession);
+        if (!sample.ok) {
+          camera::stopAccelerometer(sensorSession);sensorSession=0;
+          events_.push("camera_sensor", {{"available",false}});
+        }
+        if (sample.ok && !save_) {
+          int next = orientationFilter.update(sample.x,sample.y,sample.z,ticks(),orientation_);
+          if (next != orientation_) {
+            orientation_ = next;
+            events_.push("camera_orientation", {{"angle",next}});
+          }
+        }
+      }
       camera::CaptureFrame f;
       if (!capture.grab(&f, 200))
         continue;
@@ -211,11 +238,13 @@ void Camera::work() {
       float scale = std::min(1.f, 240.f / f.height);
       frame->width = int(f.width * scale);
       frame->height = int(f.height * scale);
+      frame->rotation = orientation_;
+      if (frame->rotation % 180) std::swap(frame->width,frame->height);
       frame->pixels.resize(size_t(frame->width) * frame->height * 4);
       camera::nv12ToBgra(bytes.data(),
                          bytes.data() + size_t(f.width) * f.height, f.width,
                          f.height, f.width, f.width, frame->pixels.data(),
-                         frame->width, frame->height, 0);
+                         frame->width, frame->height, frame->rotation);
       {
         std::lock_guard<std::mutex> lock(mutex_);
         frame_ = frame;
@@ -245,15 +274,20 @@ void Camera::work() {
             out[1] = clamp((298 * Y - 100 * U - 208 * V + 128) >> 8);
             out[2] = clamp((298 * Y + 516 * U + 128) >> 8);
           }
-        if (!stbi_write_jpg(part.c_str(), f.width, f.height, 3, rgb.data(),
+        const int angle = captureOrientation_;
+        const int photoW = angle % 180 ? f.height : f.width;
+        const int photoH = angle % 180 ? f.width : f.height;
+        if (angle) rgb = rotatePhoto(rgb,f.width,f.height,angle);
+        if (!stbi_write_jpg(part.c_str(), photoW, photoH, 3, rgb.data(),
                             92) ||
             rename(part.c_str(), final.c_str())) {
           unlink(part.c_str());
           throw std::runtime_error("Cannot save photo");
         }
         events_.push("photo", {{"path", final},
-                               {"width", f.width},
-                               {"height", f.height},
+                               {"width", photoW},
+                               {"height", photoH},
+                               {"orientation",angle},
                                {"source", "camera"}});
       }
     }
@@ -261,5 +295,6 @@ void Camera::work() {
     events_.push("camera_error", {{"error", e.what()}});
   }
   capture.close();
+  if (sensorSession) camera::stopAccelerometer(sensorSession);
 }
 } // namespace penchat

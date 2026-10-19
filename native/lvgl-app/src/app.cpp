@@ -59,13 +59,17 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
          const Screen &s, std::string workspace, std::string dataDir,
          const std::string &fontPath, const std::string &resources)
     : db_(db), bridge_(bridge), display_(display), input_(input), screen_(s),
-      images_(events_), camera_(events_, join(dataDir, "camera-tmp")),
+      images_(events_), camera_(events_, join(dataDir, "camera-tmp"), workspace),
       scanner_(events_, workspace, dataDir),
       rich_(fontPath, resources,
             join(workspace, "assets/fonts/DejaVuSans.ttf")),
       workspace_(std::move(workspace)), dataDir_(std::move(dataDir)) {
   clearCrop();
   auto config = db_.settings();
+  cameraAngle_ = config.value("camera_orientation",0);
+  if (cameraAngle_!=0 && cameraAngle_!=90 && cameraAngle_!=180 && cameraAngle_!=270) cameraAngle_=0;
+  cameraAutomatic_ = config.value("camera_auto_orientation",true);
+  camera_.orientation(cameraAutomatic_,cameraAngle_);
   session_ = stringValue(config, "active_session_id");
   if (session_.empty() ||
       db_.query(
@@ -920,7 +924,16 @@ void App::build() {
     chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
   chatLayout_ = true;
   clear();
-  screenObj_ = box(lv_screen_active(), 0, 0, screen_.width, screen_.height);
+  lv_obj_set_scrollable(lv_screen_active(), false);
+  const bool photo = view_ == "camera" || view_ == "crop";
+  const int canvasW = photo ? photoWidth() : screen_.width;
+  const int canvasH = photo ? photoHeight() : screen_.height;
+  screenObj_ = box(lv_screen_active(), (screen_.width-canvasW)/2, (screen_.height-canvasH)/2, canvasW, canvasH);
+  if (photo && cameraAngle_) {
+    lv_obj_set_style_transform_pivot_x(screenObj_,canvasW/2,0);
+    lv_obj_set_style_transform_pivot_y(screenObj_,canvasH/2,0);
+    lv_obj_set_style_transform_rotation(screenObj_,(360-cameraAngle_)*10,0);
+  }
   lv_obj_set_scrollable(screenObj_, false);
   icon(screenObj_, view_ == "chat" ? "menu" : "back", 16, 8, 48, 48, [this] {
     if (view_ == "chat")
@@ -929,7 +942,8 @@ void App::build() {
       goBack();
   });
   int w = screen_.width - 90;
-  body_ = box(screenObj_, 86, 0, w, screen_.height);
+  body_ = photo && cameraAngle_%180 ? box(screenObj_,0,56,canvasW,canvasH-56)
+                                      : box(screenObj_,86,0,w,screen_.height);
   lv_obj_set_scroll_dir(body_, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(body_, LV_SCROLLBAR_MODE_AUTO);
   if (view_ == "chat")
@@ -1004,7 +1018,7 @@ void App::show(const std::string &view) {
   if (view_ == "camera" && visible_)
     whenScannerReleased([this] {
       if (view_ == "camera" && visible_ && !keyboard_)
-        camera_.start();
+        startCamera();
     });
 }
 void App::error(const std::string &m) {
@@ -1019,8 +1033,10 @@ void App::modal(const std::string &title, const std::string &text) {
   resetPull();
   if (modal_)
     lv_obj_delete(modal_);
-  auto layer = box(screenObj_, 84, 5, screen_.width - 92, screen_.height - 10,
-                   theme::surface);
+  const bool portraitPhoto = (view_=="camera" || view_=="crop") && cameraAngle_%180;
+  const int mw=portraitPhoto?photoWidth():screen_.width,mh=portraitPhoto?photoHeight():screen_.height;
+  const int layerWidth=portraitPhoto?mw-16:mw-92;
+  auto layer = box(screenObj_, portraitPhoto?8:84, 5, layerWidth, mh-10, theme::surface);
   modal_ = layer;
   lv_obj_add_event_cb(
       layer,
@@ -1030,11 +1046,10 @@ void App::modal(const std::string &title, const std::string &text) {
       LV_EVENT_DELETE, this);
   lv_obj_set_style_border_color(layer, lv_color_hex(theme::border), 0);
   lv_obj_set_style_border_width(layer, 1, 0);
-  label(layer, title, 15, 7, screen_.width - 140, 23);
-  auto scroll = box(layer, 10, 42, screen_.width - 120, screen_.height - 115,
-                    theme::surface);
-  label(scroll, text, 5, 0, screen_.width - 145, 20);
-  button(layer, "关闭", screen_.width - 205, screen_.height - 66, 100, 40,
+  label(layer, title, 15, 7, portraitPhoto?layerWidth-30:screen_.width-140, 23);
+  auto scroll = box(layer, 10, 42, portraitPhoto?layerWidth-20:screen_.width-120, mh-115, theme::surface);
+  label(scroll, text, 5, 0, portraitPhoto?layerWidth-30:screen_.width-145, 20);
+  button(layer, "关闭", portraitPhoto?layerWidth-110:screen_.width-205, mh-66, 100, 40,
          [layer] { lv_obj_delete(layer); });
 }
 void App::edit(const std::string &text, const std::string &placeholder,
@@ -1631,6 +1646,7 @@ void App::refreshImages() {
                placeholders_.count(request.first))
       lv_label_set_text(placeholders_[request.first], "图片读取失败");
   }
+  if (view_ == "crop") updateCrop();
   if (resized && view_ == "chat" && body_ && messageContent_) {
     const bool previous = chatLayout_;
     chatLayout_ = true;
@@ -2000,7 +2016,7 @@ void App::closeNavigation(bool resumeCamera) {
   if (object)
     lv_obj_delete(object);
   if (wasOpen && resumeCamera && view_ == "camera" && visible_ && !keyboard_)
-    camera_.start();
+    startCamera();
 }
 void App::toggleNavigation() {
   if (navigationOpen_) {
@@ -2097,33 +2113,49 @@ void App::historyDrawer() {
   lv_obj_scroll_to_y(navigationList_, std::min(navigationScroll_, end),
                      LV_ANIM_OFF);
 }
+lv_point_t App::photoPoint(lv_point_t point) const {
+  // LVGL hit testing follows the rotated container; custom crop geometry needs
+  // the same inverse transform before comparing with untransformed object bounds.
+  const int x=point.x-screen_.width/2,y=point.y-screen_.height/2;
+  if(cameraAngle_==90) return {screen_.width/2-y,screen_.height/2+x};
+  if(cameraAngle_==180) return {screen_.width/2-x,screen_.height/2-y};
+  if(cameraAngle_==270) return {screen_.width/2+y,screen_.height/2-x};
+  return point;
+}
+void App::startCamera() {
+  cameraCapturing_=false;pendingCameraAngle_=-1;cameraError_.clear();
+  camera_.orientation(cameraAutomatic_,cameraAngle_);
+  camera_.start();
+}
+void App::cameraMode(bool automatic,int angle) {
+  camera_.stop();
+  cameraAutomatic_=automatic;cameraAngle_=angle;pendingCameraAngle_=-1;
+  db_.setting("camera_auto_orientation",automatic);
+  db_.setting("camera_orientation",angle);
+  camera_.orientation(automatic,angle);
+  build();
+  if(visible_ && !keyboard_) startCamera();
+}
 void App::cameraPage() {
   lv_obj_set_scrollable(body_, false);
-  // A quiet, borderless viewfinder; the image keeps its original aspect ratio.
-  auto preview = box(body_, 8, 8, screen_.width - 230, screen_.height - 16,
-                     theme::sidebar);
-  lv_obj_set_scrollable(preview, false);
-  cameraImage_ = imageWidget(preview);
-  lv_obj_center(cameraImage_);
-  const int railX = screen_.width - 220;
-  auto title = label(body_, "拍照", railX, 28, 124, 21);
-  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-  auto shutter = box(body_, railX + 26, (screen_.height - 72) / 2, 72, 72,
-                     theme::background);
-  lv_obj_set_scrollable(shutter, false);
-  lv_obj_set_style_radius(shutter, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(shutter, 3, 0);
-  lv_obj_set_style_border_color(shutter, lv_color_hex(theme::text), 0);
-  auto center = box(shutter, 5, 5, 56, 56, theme::text);
-  lv_obj_set_style_radius(center, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_scrollable(center, false);
-  lv_obj_set_clickable(center, false);
-  lv_obj_center(center);
-  onClick(shutter, [this] { camera_.capture(); });
-  auto hint = label(body_, "轻触快门", railX, 185, 124, 17, theme::muted);
-  lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
-  status_ = label(preview, "相机启动中…", 12, 12, screen_.width - 254, 19,
-                  theme::muted);
+  lv_obj_update_layout(body_);
+  const bool portrait=cameraAngle_%180;
+  const int w=lv_obj_get_width(body_),h=lv_obj_get_height(body_);
+  auto preview=box(body_,8,8,portrait?w-16:w-140,portrait?h-204:h-16,theme::sidebar);
+  lv_obj_set_scrollable(preview,false);
+  cameraImage_=imageWidget(preview);lv_obj_center(cameraImage_);
+  const int railX=portrait?12:w-130;
+  button(body_,cameraAutomatic_?"自动方向":"方向已锁定",railX,portrait?h-190:16,portrait?w-24:124,44,
+         [this]{events_.push("camera_mode",{{"auto",!cameraAutomatic_},{"angle",cameraAngle_}});});
+  auto shutter=box(body_,portrait?(w-72)/2:railX+26,portrait?h-126:(h-72)/2,72,72,theme::background);
+  lv_obj_set_scrollable(shutter,false);lv_obj_set_style_radius(shutter,LV_RADIUS_CIRCLE,0);
+  lv_obj_set_style_border_width(shutter,3,0);lv_obj_set_style_border_color(shutter,lv_color_hex(theme::text),0);
+  auto center=box(shutter,5,5,56,56,theme::text);lv_obj_set_style_radius(center,LV_RADIUS_CIRCLE,0);
+  lv_obj_set_scrollable(center,false);lv_obj_set_clickable(center,false);lv_obj_center(center);
+  onClick(shutter,[this]{if(!cameraCapturing_){cameraCapturing_=true;camera_.capture(cameraAngle_);}});
+  button(body_,"转向 90°",railX,portrait?h-48:200,portrait?w-24:124,44,
+         [this]{events_.push("camera_mode",{{"auto",false},{"angle",(cameraAngle_+90)%360}});});
+  status_=label(preview,cameraError_.empty()?"相机启动中…":cameraError_,12,12,lv_obj_get_width(preview)-24,19,theme::muted);
 }
 void App::albumPage() {
   int w = screen_.width - 118;
@@ -2316,7 +2348,7 @@ void App::suspend(bool value) {
       build();
     }
   } else if (view_ == "camera")
-    camera_.start();
+    startCamera();
 }
 void App::shutdown() {
   scanner_.eligible(false, session_);
@@ -2601,8 +2633,19 @@ void App::tick() {
         build();
     } else if (e.type == "image_ready" || e.type == "image_error")
       refreshImages();
-    else if (e.type == "camera_error" && view_ == "camera")
-      error(e.data.value("error", std::string("相机失败")));
+    else if (e.type == "camera_mode" && view_ == "camera" && visible_ && !cameraCapturing_)
+      cameraMode(e.data.value("auto",false),e.data.value("angle",0));
+    else if (e.type == "camera_orientation" && view_ == "camera")
+      pendingCameraAngle_ = e.data.value("angle",0);
+    else if (e.type == "camera_sensor")
+      cameraSensorAvailable_ = e.data.value("available",false);
+    else if (e.type == "crop_view" && view_ == "crop" && !cropBusy_)
+      cropView(e.data.value("action",std::string()));
+    else if (e.type == "camera_error" && view_ == "camera") {
+      cameraCapturing_=false;
+      cameraError_=e.data.value("error", std::string("相机失败"));
+      error(cameraError_);
+    }
     else if (e.type == "camera_started" && view_ == "camera") {
       if (status_)
         lv_label_set_text(status_, "");
@@ -2647,12 +2690,16 @@ void App::tick() {
     if (view_ == "chat")
       renderLiveMessage();
   }
+  if (view_ == "camera" && cameraAutomatic_ && pendingCameraAngle_>=0 && !cameraCapturing_ && !touchDown_ && visible_) {
+    cameraAngle_=pendingCameraAngle_;pendingCameraAngle_=-1;build();
+  }
   if (view_ == "camera" && visible_ && !keyboard_ && !navigationOpen_ &&
       ticks() - lastCameraFrame_ >= 60) {
     lastCameraFrame_ = ticks();
     auto frame = camera_.frame();
-    if (frame && cameraImage_) {
+    if (frame && cameraImage_ && frame->rotation == cameraAngle_) {
       texture(cameraImage_, frame);
+      if(status_ && cameraError_.empty()) lv_label_set_text(status_, "");
       auto holder = lv_obj_get_parent(cameraImage_);
       lv_image_set_scale(
           cameraImage_,
@@ -2766,6 +2813,15 @@ Json App::diagnostics() const {
       {"reasoning_observed",
        reasoningMetadata_.value("reasoning_observed", false)},
       {"reasoning_expanded_count", expandedReasoning_.size()},
+      {"camera_ready",cameraImage_ && textures_.count(cameraImage_) && cameraError_.empty()},
+      {"camera_angle",cameraAngle_},
+      {"camera_auto",cameraAutomatic_},
+      {"camera_sensor",cameraSensorAvailable_},
+      {"crop_source",{cropPhoto_.value("width",0),cropPhoto_.value("height",0)}},
+      {"crop_zoom",cropZoom_},
+      {"crop_pan",{cropPanX_,cropPanY_}},
+      {"crop_viewport",{cropViewportW_,cropViewportH_}},
+      {"crop_pan_mode",cropPanMode_},
       {"crop_rect", {cropX_, cropY_, cropW_, cropH_}},
       {"crop_preview", {cropPreviewW_, cropPreviewH_}},
       {"crop_save_album", cropSaveAlbum_},

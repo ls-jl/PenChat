@@ -5,7 +5,7 @@
 #include <set>
 namespace penchat {
 struct ImageFrame {
-  int width = 0, height = 0;
+  int width = 0, height = 0, rotation = 0;
   std::vector<uint8_t> pixels;
 };
 class Images {
@@ -44,16 +44,18 @@ class Camera {
   std::shared_ptr<ImageFrame> frame_;
   Events &events_;
   std::atomic<bool> save_{false};
-  std::string directory_;
+  std::string directory_, workspace_;
+  std::atomic<int> orientation_{0}, manualOrientation_{-1}, captureOrientation_{0};
   void work();
 
 public:
-  Camera(Events &events, std::string directory)
-      : events_(events), directory_(std::move(directory)) {}
+  Camera(Events &events, std::string directory, std::string workspace)
+      : events_(events), directory_(std::move(directory)), workspace_(std::move(workspace)) {}
   ~Camera() { stop(); }
   void start();
   void stop();
-  void capture() { save_ = true; }
+  void capture(int angle = 0) { captureOrientation_ = angle; save_ = true; }
+  void orientation(bool automatic, int angle) { orientation_ = angle; manualOrientation_ = automatic ? -1 : angle; }
   std::shared_ptr<ImageFrame> frame();
 };
 } // namespace penchat

@@ -16,7 +16,7 @@ with zipfile.ZipFile(path) as archive:
     binary = archive.read('assets/bin/penchat-lvgl')
     assert binary[:5] == b'\x7fELF\x02' and struct.unpack_from('<H', binary, 18)[0] == 183
     assert binary == (ROOT / 'assets/bin/penchat-lvgl').read_bytes()
-    assert sorted(n for n in names if n.startswith('assets/bin/') and not n.endswith('/')) == ['assets/bin/penchat-lvgl','assets/bin/penchat-scanner']
+    assert sorted(n for n in names if n.startswith('assets/bin/') and not n.endswith('/')) == ['assets/bin/penchat-lvgl','assets/bin/penchat-scanner','assets/bin/penchat-sensor-guard']
     scanner = archive.read('assets/bin/penchat-scanner')
     assert scanner[:5] == b'\x7fELF\x02' and struct.unpack_from('<H',scanner,18)[0] == 183
     assert scanner == (ROOT/'assets/bin/penchat-scanner').read_bytes()
@@ -31,6 +31,9 @@ with zipfile.ZipFile(path) as archive:
     for name,entry in scanlock['runtime'].items():
         assert hashlib.sha256(archive.read('assets/scanner/lib/'+name)).hexdigest()==entry['sha256'],name
     assert sorted(n.split('/')[-1] for n in names if n.startswith('assets/scanner/lib/') and not n.endswith('/'))==sorted(scanlock['runtime'])
+    guard = archive.read('assets/bin/penchat-sensor-guard')
+    assert guard[:5] == b'\x7fELF\x02' and struct.unpack_from('<H',guard,18)[0] == 183
+    assert b'--test-report' not in guard
     bridges = [n for n in names if n.endswith('.so') and not n.startswith('assets/scanner/')]
     assert len(bridges) == 2 and all('libjsapi_penchat_launcher' in n for n in bridges)
     bridge = (ROOT / 'native/prebuilt/arm64-orange/libjsapi_penchat_launcher.so').read_bytes()

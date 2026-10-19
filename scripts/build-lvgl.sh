@@ -21,5 +21,7 @@ if [ "$TARGET" = orange ]; then
   "$GCC/bin/aarch64-linux-gnu-strip" --strip-unneeded "$ROOT/assets/bin/penchat-lvgl"
   install -m 0644 "$ROOT/build/orange/libjsapi_penchat_launcher.so" "$ROOT/native/prebuilt/arm64-orange/libjsapi_penchat_launcher.so"
   "$GCC/bin/aarch64-linux-gnu-strip" --strip-unneeded "$ROOT/native/prebuilt/arm64-orange/libjsapi_penchat_launcher.so"
+  install -m 0755 "$ROOT/build/orange/penchat-sensor-guard" "$ROOT/assets/bin/penchat-sensor-guard"
+  "$GCC/bin/aarch64-linux-gnu-strip" --strip-unneeded "$ROOT/assets/bin/penchat-sensor-guard"
   python3 "$ROOT/scripts/stage-lvgl-assets.py"
 fi

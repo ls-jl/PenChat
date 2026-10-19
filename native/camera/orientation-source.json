@@ -1,0 +1,12 @@
+{
+  "origin": "/home/ls-jl/dictpen/miniapp-projects/Camera",
+  "snapshot_date": "2026-10-20",
+  "note": "Local Camera source snapshot; accelerometer/guard adapted and renamed, orientation filtering ported to C++. No original Git commit was available.",
+  "source_sha256": {
+    "jsapi/src/accelerometer.cpp": "1cfd80bde5450e5f3eb1a8cdee8f7d68c423ebbea5d33b949529c1b1249426ac",
+    "jsapi/src/accelerometer.h": "ec5d71a960918f9cee30359c3108d07af2138021799b6e0f4b861774d2faaab2",
+    "jsapi/src/sensor_guard.cpp": "425711d57d53e376d29c78df4fd1b8d563266331dfa22d98c2d9fe6b568e27f2",
+    "src/services/auto-orientation.js": "4234ec74d18038ba98664e8a70bc779575ca7c36ba47e271f909a5e866eb13cf",
+    "src/services/camera-layout.js": "353e1e7658063274dd74d42ca9493820d1e2c9e52c6234a3763254071db1ba31"
+  }
+}

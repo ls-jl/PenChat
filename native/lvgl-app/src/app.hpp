@@ -167,8 +167,23 @@ class App {
   void goBack();
   void closeNavigation(bool resumeCamera = true);
   void cameraPage();
+  int photoWidth() const { return cameraAngle_%180 ? screen_.height : screen_.width; }
+  int photoHeight() const { return cameraAngle_%180 ? screen_.width : screen_.height; }
+  lv_point_t photoPoint(lv_point_t point) const;
+  void cameraMode(bool automatic, int angle);
+  void startCamera();
+  bool cameraCapturing_ = false;
+  std::string cameraError_;
+  int cameraAngle_ = 0, pendingCameraAngle_ = -1;
+  bool cameraAutomatic_ = true, cameraSensorAvailable_ = false;
   void cropPage();
   void updateCrop();
+  void cropView(const std::string &action);
+  double cropZoom_ = 1, cropPanX_ = 0, cropPanY_ = 0;
+  bool cropPanMode_ = false;
+  int cropViewportW_ = 630, cropViewportH_ = 178;
+  lv_obj_t *cropBitmap_ = nullptr;
+  std::string cropImageKey_;
   void beginCrop(const Json &photo);
   void confirmCrop();
   void clearCrop(bool keepAlbum = false);
