@@ -69,6 +69,8 @@ def seed(path,api):
     db.execute("insert or replace into app_settings(key,value_json,updated_at) values('reasoning_display','\"collapsed\"',1)")
     db.execute("insert or replace into app_settings(key,value_json,updated_at) values('camera_auto_orientation','false',1)")
     db.execute("insert or replace into app_settings(key,value_json,updated_at) values('camera_orientation','0',1)")
+    db.execute("insert or replace into app_settings(key,value_json,updated_at) values('chat_presets','[]',1)")
+    db.execute("insert or replace into app_settings(key,value_json,updated_at) values('presets_enabled','false',1)")
     db.commit();db.close()
 
 if __name__=='__main__':

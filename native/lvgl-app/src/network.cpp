@@ -160,6 +160,8 @@ Json requestBody(const Json &m, Json input, bool streaming) {
                {"stream", streaming}};
   if (completions(m)) {
     Json messages = Json::array();
+    auto prompt = m.value("system_prompt", std::string());
+    if (!prompt.empty()) messages.push_back({{"role", "system"}, {"content", prompt}});
     for (auto &item : input) {
       if (!item.contains("role"))
         continue;
@@ -176,8 +178,11 @@ Json requestBody(const Json &m, Json input, bool streaming) {
       messages.push_back({{"role", item["role"]}, {"content", content}});
     }
     body["messages"] = messages;
-  } else
+  } else {
     body["input"] = input;
+    auto prompt = m.value("system_prompt", std::string());
+    if (!prompt.empty()) body["instructions"] = prompt;
+  }
   auto effort = m.value("effort_value", std::string());
   if (!effort.empty()) {
     if (completions(m))

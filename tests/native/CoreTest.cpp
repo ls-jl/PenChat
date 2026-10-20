@@ -7,6 +7,7 @@
 #include "network.hpp"
 #include "pull_geometry.hpp"
 #include "reasoning.hpp"
+#include "presets.hpp"
 #include "reasoning_stream.hpp"
 #include "titles.hpp"
 #include "utils/indexed_arr.h"
@@ -19,6 +20,42 @@
 using namespace penchat;
 int main(int argc, char **argv) {
   assert(argc == 4);
+  {
+    Json a = {{"id", "a"}, {"name", "a"}, {"capabilities_json", {{"reasoning", {{"levels", {{"high", "high"}}}}}}}};
+    Json b = {{"id", "b"}, {"name", "b"}, {"capabilities_json", {{"reasoning", {{"levels", {{"max", "max"}}}}}}}};
+    auto preset = defaultPreset();
+    preset["model_id"] = "b"; preset["effort"] = "max";
+    preset["prompt_mode"] = "custom"; preset["prompt"] = "Be concise";
+    Json prefs = {{"model_id", "a"}, {"effort", "high"}};
+    std::string warning;
+    auto applied = applyPresetSnapshot(prefs, preset, Json::array({a,b}), a, true, warning);
+    assert(applied["model_id"] == "b" && applied["effort"] == "max" && warning.empty());
+    auto old = applyPresetSnapshot(prefs, preset, Json::array({a,b}), a, false, warning);
+    assert(old["model_id"] == "a" && old["effort"] == "high" && old["system_prompt"] == "Be concise");
+    preset["model_when"] = "always"; preset["effort_when"] = "always";
+    assert(applyPresetSnapshot(prefs, preset, Json::array({a,b}), a, false, warning)["effort"] == "max");
+    preset["model_id"] = "missing";
+    auto missing = applyPresetSnapshot(prefs, preset, Json::array({a,b}), a, true, warning);
+    assert(missing["model_id"] == "a" && missing["effort"] == "high" && !warning.empty());
+    preset["model_id"] = ""; preset["effort"] = "api_default";
+    auto api = applyPresetSnapshot(prefs, preset, Json::array({a,b}), a, true, warning);
+    assert(resolveReasoning(a, api, "high")["effort_value"] == "");
+    preset["prompt_mode"] = "inherit";
+    assert(applyPresetSnapshot(applied, preset, Json::array({a,b}), b, true, warning)["system_prompt"] == "Be concise");
+    preset["prompt_mode"] = "clear";
+    assert(!applyPresetSnapshot(applied, preset, Json::array({a,b}), b, true, warning).contains("system_prompt"));
+    assert(presetList(Json::object()).size() == 1);
+    auto requestModel = a;
+    requestModel["system_prompt"] = "Public system instructions";
+    auto responses = requestBody(requestModel, Json::array(), true);
+    assert(responses["instructions"] == "Public system instructions");
+    requestModel["provider_metadata"] = Json({{"api", "chat"}}).dump();
+    auto chat = requestBody(requestModel, Json::array(), true);
+    assert(chat["messages"].size() == 1 && chat["messages"][0]["role"] == "system");
+    requestModel.erase("system_prompt");
+    assert(requestBody(requestModel, Json::array(), true)["messages"].empty());
+  }
+
   const auto pull = pullGeometry({86, 0, 956, 266}, 960, 266, 208);
   assert(pull.start == 12 && pull.fill == 117 && pull.contains(500, 207));
   assert(!pull.contains(500, 208) && !pull.contains(85, 100));

@@ -614,7 +614,8 @@ void Database::recordRequest(const std::string &message, const Json &model) {
       {"model", model.value("name", std::string())},
       {"effort", model.value("effective_effort", std::string())},
       {"effort_value", model.value("effort_value", std::string())},
-      {"summary", model.value("reasoning_summary", false)}};
+      {"summary", model.value("reasoning_summary", false)},
+      {"system_prompt", model.value("system_prompt", std::string())}};
   execute("UPDATE chat_messages SET "
           "provider_id=?,model_config_id=?,request_json=? WHERE id=?",
           {model["provider_id"], model["id"], parameters.dump(), message});

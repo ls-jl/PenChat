@@ -78,7 +78,13 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
           .empty())
     session_ = uid("session");
   sessionPreferences_ = db_.sessionPreferences(session_);
+  std::string presetWarning;
+  if (db_.sessionInfo(session_).empty()) {
+    sessionPreferences_ = applyPresetSnapshot(sessionPreferences_, presetList(config)[0],
+                                              db_.models(), db_.activeModel(), true, presetWarning);
+  }
   build();
+  if (!presetWarning.empty()) modal("默认预设已部分应用", presetWarning);
   for (const auto &job : db_.pendingTitles())
     titleJobs_.push_back(job);
 }
@@ -403,10 +409,16 @@ void App::toggleAttachments() {
   onClick(attachments_, [this] { closeAttachments(); });
   auto menu = box(attachments_, 20, 12, 260, 188, theme::surface);
   lv_obj_set_style_radius(menu, 16, 0);
-  lv_obj_set_scrollable(menu, false);
-  const std::vector<std::string> names{"拍照", "相册", "模型", "推理强度"};
-  const std::vector<std::string> icons{"camera", "album", "settings", "gauge"};
-  for (int i = 0; i < 4; ++i) {
+  lv_obj_set_scroll_dir(menu, LV_DIR_VER);
+  lv_obj_set_scroll_elastic(menu, false);
+  lv_obj_set_scroll_momentum(menu, false);
+  std::vector<std::string> names{"拍照", "相册", "模型", "推理强度"};
+  std::vector<std::string> icons{"camera", "album", "settings", "gauge"};
+  if (db_.settings().value("presets_enabled", false)) {
+    names.push_back("预设");
+    icons.push_back("settings");
+  }
+  for (int i = 0; i < int(names.size()); ++i) {
     auto action = [this, i] {
       if (i == 0)
         show("camera");
@@ -414,6 +426,8 @@ void App::toggleAttachments() {
         show("album");
       else if (i == 2)
         modelPicker();
+      else if (i == 4)
+        presetPicker();
       else {
         bool enabled =
             sessionPreferences_.value("gauge", !effortMemory_.empty());
@@ -445,6 +459,7 @@ Json App::currentModel() {
              : resolveReasoning(model, sessionPreferences_, effortMemory_);
 }
 void App::savePreferences() {
+  if (emptyForPreset()) return;
   db_.saveSessionPreferences(session_, sessionPreferences_);
 }
 void App::bindPreferences(const Json &model) {
@@ -463,11 +478,13 @@ void App::bindPreferences(const Json &model) {
 }
 void App::chooseModel(const std::string &id) {
   sessionPreferences_["model_id"] = id;
+  sessionPreferences_["preset_adjusted"] = true;
   db_.selectModel(id);
   savePreferences();
 }
 void App::chooseEffort(const std::string &key) {
   sessionPreferences_["effort"] = key;
+  sessionPreferences_["preset_adjusted"] = true;
   effortMemory_ = key;
   savePreferences();
 }
@@ -735,6 +752,12 @@ bool App::chatTouch(int x, int y, bool pressed) {
   touchDown_ = pressed;
   const auto now = ticks();
   if (began) {
+    attachmentMenuTouch_ = false;
+    if (attachments_ && popupKind_ == "attachments") {
+      lv_area_t menu;
+      lv_obj_get_coords(lv_obj_get_child(attachments_, 0), &menu);
+      attachmentMenuTouch_ = x >= menu.x1 && x <= menu.x2 && y >= menu.y1 && y <= menu.y2;
+    }
     // Read resting viewport bounds, not its animated pull translation. The
     // launcher has already applied rotation and touch offsets exactly once.
     if (view_ == "chat" && body_ && chatControls_) {
@@ -781,7 +804,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
     pullLastActivity_ = now;
   if (!pressed)
     pullTrackActivity_ = false;
-  if (attachments_ && popupKind_ == "attachments" && pressed && !began &&
+  if (attachments_ && popupKind_ == "attachments" && !attachmentMenuTouch_ && pressed && !began &&
       std::abs(pullStartY_ - y) > 8) {
     closeAttachments();
     input_.cancel();
@@ -877,7 +900,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
       const bool create = pullProgress_ == 100;
       resetPull();
       if (create)
-        newChat();
+        newChat(true);
     }
     return true;
   }
@@ -950,6 +973,10 @@ void App::build() {
     chat();
   else if (view_ == "settings")
     settingsPage();
+  else if (view_ == "presets")
+    presetsPage();
+  else if (view_ == "preset_edit")
+    presetEditor();
   else if (view_ == "provider")
     providerPage();
   else if (view_ == "archives")
@@ -1232,12 +1259,26 @@ void App::jumpToBottom() {
   updateChatControls(true);
   paintVisible();
 }
-void App::newChat() {
+void App::newChat(bool inherit) {
+  auto preferences = sessionPreferences_;
+  if (inherit) {
+    auto model = currentModel();
+    if (!model.empty()) {
+      preferences["model_id"] = model["id"];
+      auto effort = model.value("effective_effort", std::string());
+      preferences["effort"] = effort.empty() ? "api_default" : effort;
+    }
+    preferences.erase("has_sent");
+  }
+  std::string warning;
+  if (!inherit)
+    preferences = applyPresetSnapshot(Json::object(), presetList(db_.settings())[0],
+                                      db_.models(), db_.activeModel(), true, warning);
   pullNeedsPause_ = false;
   pullTrackActivity_ = false;
   stopNetwork();
   session_ = uid("session");
-  sessionPreferences_ = Json::object();
+  sessionPreferences_ = preferences;
   reasoningMetadata_ = Json::object();
   expandedReasoning_.clear();
   reasoningOverrides_.clear();
@@ -1247,6 +1288,7 @@ void App::newChat() {
   chatScroll_ = 0;
   messageOffset_ = 0;
   show("chat");
+  if (!warning.empty()) modal("默认预设已部分应用", warning);
 }
 void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
                       bool subdued, const std::string &context) {
@@ -1733,6 +1775,7 @@ void App::settingsPage() {
                                         : "不展开";
   action("思考过程：" + reasoningName, right, 120,
          [this] { reasoningDisplayPicker(); });
+  action("会话预设", left, 236, [this] { show("presets"); });
   label(body_, PENCHAT_NAME " " PENCHAT_VERSION " · LVGL 9.6.0", right, 192,
         column, 16, theme::muted);
 }
@@ -1990,7 +2033,12 @@ void App::saveProvider() {
   show("provider");
 }
 void App::goBack() {
-  if (view_ == "archives")
+  if (view_ == "presets")
+    show("settings");
+  else if (view_ == "preset_edit") {
+    presetForm_ = Json::object();
+    show("presets");
+  } else if (view_ == "archives")
     show("settings");
   else if (view_ == "model" || view_ == "keyscan")
     show("provider");
@@ -2276,7 +2324,9 @@ void App::sendMessage(const std::string &retry) {
           "当前模型未配置或已停用，请从加号菜单选择模型，或进入设置添加。");
     return;
   }
+  model["system_prompt"] = sessionPreferences_.value("system_prompt", std::string());
   bindPreferences(model);
+  sessionPreferences_["has_sent"] = true;
   savePreferences();
   if (retryId.empty() && hasText(draft_)) {
     db_.append(session_, "user", draft_, Json::object(), sessionPreferences_);

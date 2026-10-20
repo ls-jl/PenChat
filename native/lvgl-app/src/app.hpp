@@ -5,6 +5,7 @@
 #include "platform.hpp"
 #include "pull_geometry.hpp"
 #include "reasoning.hpp"
+#include "presets.hpp"
 #include "scanner.hpp"
 #include "theme.hpp"
 #include <map>
@@ -117,6 +118,7 @@ class App {
            *navigationActive_ = nullptr;
   bool navigationOpen_ = false;
   int navigationScroll_ = 0;
+  bool attachmentMenuTouch_ = false;
   bool composerTapAllowed_ = false;
   int composerTouchX_ = 0, composerTouchY_ = 0;
   bool touchDown_ = false, pullCandidate_ = false, pulling_ = false;
@@ -215,7 +217,16 @@ class App {
   bool canSend();
   void sendMessage(const std::string &retry = "");
   void attach(const Json &image);
-  void newChat();
+  void newChat(bool inherit = false);
+  Json presetForm_ = Json::object();
+  void presetsPage();
+  void presetEditor();
+  void presetPicker();
+  void presetChoices(const std::string &field);
+  void applyPreset(const Json &preset);
+  bool emptyForPreset();
+  std::string presetSummary(const Json &preset);
+
   void stopNetwork();
   void fetchModels();
   void saveProvider();

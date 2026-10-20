@@ -17,7 +17,14 @@ def wait(callback,timeout=5):
         except (subprocess.CalledProcessError,ValueError):pass
         time.sleep(.05)
     raise AssertionError('Device transition timed out')
-def pid():return adb('pidof penchat-lvgl || true')
+def pid():
+    # Background launchers may reap an exited child only when resumed. A zombie
+    # owns no camera/display resources and must not count as a running app.
+    for candidate in adb('pidof penchat-lvgl || true').split():
+        stat=adb('cat /proc/'+candidate+'/stat 2>/dev/null || true')
+        fields=stat.rsplit(')',1)[-1].split() if stat else []
+        if fields and fields[0] not in ('Z','X'):return candidate
+    return ''
 def state(screenshot=False):
     p=pid();assert p
     try:previous=json.loads(adb('cat '+DATA+'/lvgl-diagnostic.json')).get('diagnostic_time',-1)
