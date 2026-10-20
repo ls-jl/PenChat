@@ -65,7 +65,7 @@ void App::scanPage() {
   lv_obj_center(scanImage_);
   bool usable = scanResult_.value("usable", false);
   const bool partial = scanResult_.value("status", 1) != 1;
-  scanUse_ = button(body_, partial ? "仅使用已拼接部分" : "使用图片", 655, 32,
+  scanUse_ = button(body_, !usable ? (scanResult_.empty() ? "等待扫描结果" : "无可用图像") : partial ? "使用部分图像" : "使用图片", 655, 32,
                     200, 44, [this] {
                       if (scanConfirming_ || scanConfirmed_ == scanId_ ||
                           !scanResult_.value("usable", false))
@@ -76,8 +76,11 @@ void App::scanPage() {
                       scanner_.confirm(scanId_);
                     });
   lv_obj_set_clickable(scanUse_, usable && !scanConfirming_);
-  lv_obj_set_style_bg_color(
-      scanUse_, lv_color_hex(usable ? theme::surface : theme::border), 0);
+  if (usable) primary(scanUse_);
+  else {
+    lv_obj_set_style_bg_color(scanUse_, lv_color_hex(theme::surface), 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(scanUse_, 0), lv_color_hex(theme::muted), 0);
+  }
   button(body_, "取消", 655, 86, 200, 44, [this] { show("chat"); });
   if (!scanResult_.empty()) {
     auto c = scanResult_.value("counts", Json::object());

@@ -139,6 +139,11 @@ class App {
                    int w, int h, std::function<void()> click,
                    uint32_t color = theme::surface,
                    lv_text_align_t align = LV_TEXT_ALIGN_CENTER);
+  void primary(lv_obj_t *button);
+  lv_obj_t *fieldButton(lv_obj_t *parent, const std::string &caption,
+                        const std::string &value, int x, int y, int width,
+                        std::function<void()> action);
+  void emptyState(const std::string &title, const std::string &hint);
   lv_obj_t *imageWidget(lv_obj_t *parent);
   void image(lv_obj_t *parent, const std::string &path, int x, int y, int w,
              int h, std::function<void()> click = {}, bool rightAligned = false,

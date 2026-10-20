@@ -39,7 +39,7 @@ if __name__=='__main__':
         assert session_count()==0
         d.open_navigation();d.tap(180,236)
         assert d.state()['session_preferences']['model_id']=='a'
-        d.open_settings();move(300,210,0,-110,0);time.sleep(.5);d.capture('presets-settings-scroll');d.tap(300,230)
+        d.open_settings();d.capture('presets-settings-overview');d.tap(300,230)
         d.view('presets');d.capture('presets-settings')
         d.tap(300,76);d.tap(300,166);d.view('preset_edit');d.capture('presets-editor')
         d.tap(40,32);d.to_chat()

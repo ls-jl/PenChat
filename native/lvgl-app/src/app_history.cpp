@@ -294,7 +294,7 @@ void App::archivesPage() {
   historyRows_.clear();
   auto sessions = db_.sessions(archiveOffset_, true);
   if (sessions.empty())
-    label(body_, "暂无归档会话", 10, 16, 780, 22, theme::muted);
+    emptyState("没有归档会话", "长按历史对话可归档，在这里还原或删除。");
   int y = 6;
   for (const auto &session : sessions) {
     auto id = session["id"].get<std::string>();
@@ -309,8 +309,9 @@ void App::archivesPage() {
         archiveOffset_ = std::max(0, archiveOffset_ - 30);
       build();
     });
-    button(body_, "删除", 710, y, 100, 44,
+    auto remove = button(body_, "删除", 710, y, 100, 44,
            [this, id] { retireSession(id, false); });
+    lv_obj_set_style_text_color(lv_obj_get_child(remove, 0), lv_color_hex(theme::danger), 0);
     y += 52;
   }
   if (archiveOffset_)

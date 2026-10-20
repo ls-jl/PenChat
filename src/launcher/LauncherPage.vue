@@ -5,7 +5,7 @@
     <div v-if="errorText" class="failure-panel">
       <text class="failure-title">{{ appName }}</text>
       <text class="failure-text">{{ errorText }}</text>
-      <div class="retry" @click="retry"><text class="retry-text">重新启动</text></div>
+      <div class="retry" @click="retry"><text class="retry-label">重新启动</text></div>
       <div class="leave" @click="finish"><text class="retry-text">返回</text></div>
     </div>
   </div>
@@ -187,7 +187,8 @@ export default {
 .failure-panel { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #212121; padding-left: 32px; padding-top: 20px; }
 .failure-title { color: #ececec; font-size: 30px; }
 .failure-text { color: #b4b4b4; font-size: 21px; margin-top: 14px; }
-.retry { position: absolute; left: 32px; bottom: 25px; width: 180px; height: 45px; background-color: #424242; border-radius: 12px; justify-content: center; align-items: center; }
+.retry { position: absolute; left: 32px; bottom: 25px; width: 180px; height: 45px; background-color: #ececec; border-radius: 12px; justify-content: center; align-items: center; }
 .leave { position: absolute; left: 235px; bottom: 25px; width: 120px; height: 45px; background-color: #303030; border-radius: 12px; justify-content: center; align-items: center; }
+.retry-label { color: #212121; font-size: 21px; }
 .retry-text { color: #ececec; font-size: 21px; }
 </style>

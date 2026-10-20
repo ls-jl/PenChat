@@ -67,7 +67,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-presets-') as directory:
         assert Server.requests[-1][1]['instructions']=='EXPERT SYSTEM'
         app.open_navigation();app.tap(180,236);send('恢复默认会话')
         picker();snapshot(app,'presets-picker');app.tap(900,232)
-        app.open_settings();drag(app,[210,160,100],x=300);app.tap(300,190)
+        app.open_settings();app.tap(300,230)
         assert app.diag()['view']=='presets',app.diag()['view']
         snapshot(app,'presets-settings')
         app.tap(300,76) # hide entrance, preserve active preferences
@@ -84,9 +84,9 @@ with tempfile.TemporaryDirectory(prefix='penchat-presets-') as directory:
         body=Server.requests[-1][1]
         assert body['messages'][0]=={'role':'system','content':'DEFAULT SYSTEM'}
         assert sum(m['role']=='system' for m in body['messages'])==1 and 'reasoning_effort' not in body
-        app.open_settings();drag(app,[210,160,100],x=300);app.tap(300,190)
+        app.open_settings();app.tap(300,230)
         assert app.diag()['view']=='presets'
-        app.tap(700,76);assert app.diag()['view']=='preset_edit'
+        app.tap(870,24);assert app.diag()['view']=='preset_edit'
         app.tap(300,76);q=app.receive('keyboard.open')
         app.send('keyboard.result',requestId=q['requestId'],confirmed=True,text='测试配置')
         wait_for(lambda:not app.diag()['keyboard'])

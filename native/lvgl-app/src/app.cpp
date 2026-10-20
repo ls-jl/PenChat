@@ -120,6 +120,7 @@ lv_obj_t *App::button(lv_obj_t *parent, const std::string &text, int x, int y,
   auto o = box(parent, x, y, w, h, color);
   lv_obj_set_scrollable(o, false);
   lv_obj_set_style_radius(o, 10, 0);
+  lv_obj_set_style_bg_color(o, lv_color_hex(theme::border), LV_STATE_PRESSED);
   auto l = label(o, text, 0, 0, w - 24, 20);
   // A fixed-height action must never center an arbitrarily tall wrapped label.
   lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
@@ -128,6 +129,33 @@ lv_obj_t *App::button(lv_obj_t *parent, const std::string &text, int x, int y,
   lv_obj_align(l, LV_ALIGN_CENTER, 0, 0);
   onClick(o, std::move(click));
   return o;
+}
+void App::primary(lv_obj_t *object) {
+  lv_obj_set_style_bg_color(object, lv_color_hex(theme::text), 0);
+  lv_obj_set_style_bg_color(object, lv_color_hex(theme::muted), LV_STATE_PRESSED);
+  lv_obj_set_style_opa(object, LV_OPA_50, LV_STATE_DISABLED);
+  lv_obj_set_style_text_color(lv_obj_get_child(object, 0), lv_color_hex(theme::background), 0);
+}
+lv_obj_t *App::fieldButton(lv_obj_t *parent, const std::string &caption,
+                            const std::string &value, int x, int y, int width,
+                            std::function<void()> action) {
+  auto object = button(parent, value, x, y, width, 48, std::move(action), theme::surface, LV_TEXT_ALIGN_LEFT);
+  auto text = lv_obj_get_child(object, 0);
+  lv_obj_set_style_text_font(text, font(19), 0);
+  lv_obj_set_height(text, 23);
+  lv_obj_align(text, LV_ALIGN_TOP_LEFT, 12, 23);
+  auto name = label(object, caption, 12, 3, width - 24, 15, theme::muted);
+  lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
+  lv_obj_set_height(name, 19);
+  lv_obj_set_clickable(name, false);
+  return object;
+}
+void App::emptyState(const std::string &title, const std::string &hint) {
+  const int width = screen_.width - 118;
+  auto heading = label(body_, title, 10, 62, width, 23);
+  lv_obj_set_style_text_align(heading, LV_TEXT_ALIGN_CENTER, 0);
+  auto description = label(body_, hint, 26, 99, width - 32, 17, theme::muted);
+  lv_obj_set_style_text_align(description, LV_TEXT_ALIGN_CENTER, 0);
 }
 void App::texture(lv_obj_t *object, std::shared_ptr<ImageFrame> frame,
                   bool premultiplied) {
@@ -404,7 +432,8 @@ void App::toggleAttachments() {
   resetPull();
   attachments_ = box(screenObj_, 86, 0, screen_.width - 86, screen_.height);
   popupKind_ = "attachments";
-  lv_obj_set_style_bg_opa(attachments_, 0, 0);
+  lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::scrim), 0);
+  lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
   auto menu = box(attachments_, 20, 12, 260, 188, theme::surface);
@@ -493,10 +522,12 @@ void App::modelPicker(bool forTitles) {
   resetPull();
   attachments_ = box(screenObj_, 86, 0, screen_.width - 86, screen_.height);
   popupKind_ = forTitles ? "title_models" : "models";
-  lv_obj_set_style_bg_opa(attachments_, 0, 0);
+  lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::scrim), 0);
+  lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
   auto panel = box(attachments_, 20, 12, 650, 188, theme::surface);
+  lv_obj_set_style_radius(panel, 16, 0);
   lv_obj_set_scroll_dir(panel, LV_DIR_VER);
   auto current = currentModel();
   if (forTitles)
@@ -554,7 +585,8 @@ void App::effortPicker() {
   resetPull();
   attachments_ = box(screenObj_, 86, 0, screen_.width - 86, screen_.height);
   popupKind_ = "effort";
-  lv_obj_set_style_bg_opa(attachments_, 0, 0);
+  lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::scrim), 0);
+  lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
   auto panel = box(attachments_, 20, 12, 830, 188, theme::surface);
@@ -657,19 +689,21 @@ void App::effortPicker() {
 }
 void App::modelPage() {
   pageHeader("模型推理设置");
+  const int width = screen_.width - 118, column = (width - 14) / 2;
   const auto id = modelForm_.value("id", std::string());
   button(screenObj_, "参数映射", 650, 2, 140, 44, [this] {
     modelAdvanced_ = !modelAdvanced_;
     build();
   });
-  button(screenObj_, "保存", 806, 2, 130, 44, [this, id] {
+  auto save = button(screenObj_, "保存", 806, 2, 130, 44, [this, id] {
     db_.saveModelCapabilities(id, modelForm_["reasoning"]);
     show("provider");
   });
-  auto name = label(body_, modelForm_.value("name", std::string()), 10, 0, 800,
+  primary(save);
+  auto name = label(body_, modelForm_.value("name", std::string()), 10, 0, width,
                     19, theme::muted);
   lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(name, 26);
+  lv_obj_set_height(name, 22);
   auto &caps = modelForm_["reasoning"];
   auto &levels = caps["levels"];
   int n = 0;
@@ -678,7 +712,7 @@ void App::modelPage() {
       if (levels.contains(key)) {
         button(
             body_, effortLabel(key) + "：" + levels[key].get<std::string>(), 10,
-            34 + n * 48, 800, 44,
+            26 + n * 48, width, 44,
             [this, key] {
               edit(
                   modelForm_["reasoning"]["levels"][key].get<std::string>(),
@@ -697,7 +731,7 @@ void App::modelPage() {
       button(
           body_,
           std::string(levels.contains(key) ? "● " : "○ ") + effortLabel(key),
-          10 + (n % 2) * 410, 34 + (n / 2) * 48, 395, 44,
+          10 + (n % 2) * (column + 14), 26 + (n / 2) * 48, column, 44,
           [this, key] {
             auto &levels = modelForm_["reasoning"]["levels"];
             if (levels.contains(key))
@@ -713,7 +747,7 @@ void App::modelPage() {
   if (!modelAdvanced_)
     button(
         body_, caps.value("summary", false) ? "公开总结：开" : "公开总结：关",
-        10, 182, 800, 44,
+        10, 172, width, 44,
         [this] {
           auto &caps = modelForm_["reasoning"];
           caps["summary"] = !caps.value("summary", false);
@@ -1063,7 +1097,7 @@ void App::modal(const std::string &title, const std::string &text) {
   const bool portraitPhoto = (view_=="camera" || view_=="crop") && cameraAngle_%180;
   const int mw=portraitPhoto?photoWidth():screen_.width,mh=portraitPhoto?photoHeight():screen_.height;
   const int layerWidth=portraitPhoto?mw-16:mw-92;
-  auto layer = box(screenObj_, portraitPhoto?8:84, 5, layerWidth, mh-10, theme::surface);
+  auto layer = box(screenObj_, portraitPhoto?8:84, 0, layerWidth, mh, theme::surface);
   modal_ = layer;
   lv_obj_add_event_cb(
       layer,
@@ -1071,12 +1105,13 @@ void App::modal(const std::string &title, const std::string &text) {
         static_cast<App *>(lv_event_get_user_data(e))->modal_ = nullptr;
       },
       LV_EVENT_DELETE, this);
+  lv_obj_set_style_radius(layer, 16, 0);
   lv_obj_set_style_border_color(layer, lv_color_hex(theme::border), 0);
   lv_obj_set_style_border_width(layer, 1, 0);
   label(layer, title, 15, 7, portraitPhoto?layerWidth-30:screen_.width-140, 23);
   auto scroll = box(layer, 10, 42, portraitPhoto?layerWidth-20:screen_.width-120, mh-115, theme::surface);
   label(scroll, text, 5, 0, portraitPhoto?layerWidth-30:screen_.width-145, 20);
-  button(layer, "关闭", portraitPhoto?layerWidth-110:screen_.width-205, mh-66, 100, 40,
+  button(layer, "关闭", portraitPhoto?layerWidth-110:screen_.width-205, mh-66, 100, 44,
          [layer] { lv_obj_delete(layer); });
 }
 void App::edit(const std::string &text, const std::string &placeholder,
@@ -1712,6 +1747,9 @@ void App::pageHeader(const std::string &title) {
   lv_obj_set_pos(body_, 86, 48);
   lv_obj_set_height(body_, screen_.height - 48);
   lv_obj_set_style_pad_bottom(body_, 12, 0);
+  lv_obj_set_style_width(body_, 3, LV_PART_SCROLLBAR);
+  lv_obj_set_style_bg_color(body_, lv_color_hex(theme::muted), LV_PART_SCROLLBAR);
+  lv_obj_set_style_radius(body_, 3, LV_PART_SCROLLBAR);
 }
 void App::settingsPage() {
   pageHeader("设置");
@@ -1722,7 +1760,7 @@ void App::settingsPage() {
   const auto settings = config.value("penchat_settings", Json::object());
   auto action = [&](const std::string &text, int x, int y,
                     std::function<void()> callback) {
-    return button(body_, text, x, y, column, 48, std::move(callback),
+    return button(body_, text, x, y, column, 44, std::move(callback),
                   theme::surface, LV_TEXT_ALIGN_LEFT);
   };
   action("模型管理", left, 4, [this] { show("provider"); });
@@ -1732,7 +1770,7 @@ void App::settingsPage() {
   });
   action(settings.value("autoSendCapturedContent", false) ? "图片自动发送：开"
                                                           : "图片自动发送：关",
-         left, 62, [this] {
+         left, 56, [this] {
            auto settings =
                db_.settings().value("penchat_settings", Json::object());
            settings["autoSendCapturedContent"] =
@@ -1741,7 +1779,7 @@ void App::settingsPage() {
            build();
          });
   const bool autoTitle = config.value("auto_title_enabled", true);
-  action(autoTitle ? "自动命名：开" : "自动命名：关", right, 62,
+  action(autoTitle ? "自动命名：开" : "自动命名：关", right, 56,
          [this, autoTitle] {
            db_.setting("auto_title_enabled", !autoTitle);
            if (autoTitle)
@@ -1754,10 +1792,10 @@ void App::settingsPage() {
   for (const auto &m : db_.models())
     if (m["id"] == titleModelId)
       titleModelName = m.value("name", std::string());
-  action("命名模型：" + titleModelName, left, 120,
+  action("命名模型：" + titleModelName, left, 108,
          [this] { modelPicker(true); });
   const auto summary = db_.summary();
-  auto storage = box(body_, left, 178, column, 48, theme::surface);
+  auto storage = box(body_, left, 216, column, 48, theme::background);
   lv_obj_set_scrollable(storage, false);
   lv_obj_set_style_radius(storage, 10, 0);
   auto count = label(storage,
@@ -1773,10 +1811,10 @@ void App::settingsPage() {
                                     : reasoningMode == "during"
                                         ? "思考完毕后收起"
                                         : "不展开";
-  action("思考过程：" + reasoningName, right, 120,
+  action("思考过程：" + reasoningName, right, 108,
          [this] { reasoningDisplayPicker(); });
-  action("会话预设", left, 236, [this] { show("presets"); });
-  label(body_, PENCHAT_NAME " " PENCHAT_VERSION " · LVGL 9.6.0", right, 192,
+  action("会话预设", left, 160, [this] { show("presets"); });
+  label(body_, PENCHAT_NAME " " PENCHAT_VERSION " · LVGL 9.6.0", right, 230,
         column, 16, theme::muted);
 }
 void App::reasoningDisplayPicker() {
@@ -1801,7 +1839,7 @@ void App::providerPage() {
              : providerForm_.contains("id") ? "编辑 Provider"
                                             : "添加 Provider");
   if (providerForm_.empty()) {
-    button(screenObj_, "添加 Provider", screen_.width - 212, 5, 195, 38,
+    button(screenObj_, "添加 Provider", screen_.width - 212, 2, 195, 44,
            [this] {
              providerForm_ = {{"name", "OpenAI"},
                               {"baseURL", "https://api.openai.com/v1"},
@@ -1821,7 +1859,7 @@ void App::providerPage() {
       lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
       lv_obj_set_height(title, font(21)->line_height);
       auto providerId = p["id"].get<std::string>();
-      button(body_, "编辑", w - 105, y, 95, 38,
+      button(body_, "编辑", w - 105, y, 95, 44,
              [this, providerId] { editProvider(providerId); });
       y += 46;
       for (const auto &m : models) {
@@ -1848,17 +1886,18 @@ void App::providerPage() {
       y += 10;
     }
     if (providers.empty())
-      label(body_, "尚未配置模型，请添加 Provider", 10, y, w, 21);
+      emptyState("还没有可用模型", "点击右上角“添加 Provider”，连接你的模型服务。");
     return;
   }
+  auto save = button(screenObj_, "保存", 806, 2, 130, 44, [this] { saveProvider(); });
+  primary(save);
   auto field = [&](const std::string &key, const std::string &name, int x,
                    int y, int width, bool secret = false) {
     std::string value = providerForm_.value(key, std::string());
     if (secret && !value.empty())
       value = "••••••••";
-    button(
-        body_, name + "：" + (value.empty() ? "点击填写" : value), x, y, width,
-        40,
+    fieldButton(
+        body_, name, value.empty() ? "点击填写" : value, x, y, width,
         [this, key, name] {
           edit(
               providerForm_.value(key, std::string()), name,
@@ -1870,48 +1909,34 @@ void App::providerPage() {
               key == "name"     ? "ZhCNPreferred"
               : key == "apiKey" ? "EnUSOnly"
                                 : "EnUSPreferred");
-        },
-        theme::surface, LV_TEXT_ALIGN_LEFT);
+        });
   };
   const int columnWidth = (w - 30) / 2;
   const int right = 20 + columnWidth;
   field("name", "名称", 10, 4, columnWidth);
   field("baseURL", "Base URL", right, 4, columnWidth);
-  field("apiKey", "API Key", 10, 54, columnWidth - 120, true);
+  field("apiKey", "API Key", 10, 58, columnWidth - 120, true);
   button(
-      body_, "扫描 Key", columnWidth - 100, 54, 110, 40,
+      body_, "扫描 Key", columnWidth - 100, 58, 110, 48,
       [this] { startKeyScan(); }, theme::surface);
   button(body_,
          providerForm_.value("api", std::string()) == "chat"
              ? "接口：Chat Completions"
              : "接口：Responses",
-         right, 54, columnWidth, 40, [this] {
+         right, 58, columnWidth, 48, [this] {
            providerForm_["api"] =
                providerForm_.value("api", std::string()) == "chat" ? "responses"
                                                                    : "chat";
            build();
          });
-  field("model", "手动模型（逗号分隔）", 10, 104, w - 20);
-  const int actionGap = 16;
-  const int actionWidth = (w - 20 - 2 * actionGap) / 3;
-  button(body_, "自动拉取模型", 10, 154, actionWidth, 42,
+  field("model", "手动模型（逗号分隔）", 10, 112, w - 20);
+  button(body_, "自动获取模型", 10, 166, columnWidth, 48,
          [this] { fetchModels(); });
-  button(
-      body_, "保存", 10 + actionWidth + actionGap, 154, actionWidth, 42,
-      [this] { saveProvider(); }, theme::surface);
-  button(body_, "取消", 10 + 2 * (actionWidth + actionGap), 154, actionWidth,
-         42, [this] {
-           ++modelGeneration_;
-           modelCancel_ = true;
-           providerForm_ = Json::object();
-           modelNames_.clear();
-           build();
-         });
   button(
       body_,
       "默认推理强度：" +
           effortLabel(providerForm_.value("default_effort", std::string())),
-      10, 204, w - 20, 44,
+      right, 166, columnWidth, 48,
       [this] {
         std::vector<std::string> values{""};
         values.insert(values.end(), effortOrder().begin(), effortOrder().end());
@@ -1924,8 +1949,8 @@ void App::providerPage() {
         build();
       },
       theme::surface, LV_TEXT_ALIGN_LEFT);
-  status_ = label(body_, notice_, 10, 258, w, 19);
-  int y = 294;
+  status_ = label(body_, notice_, 10, 224, w, 17, theme::muted);
+  int y = 250;
   for (auto &name : modelNames_) {
     auto nameLabel = label(body_, name, 15, y, w, 20);
     lv_label_set_long_mode(nameLabel, LV_LABEL_LONG_MODE_DOTS);
@@ -2000,7 +2025,7 @@ void App::saveProvider() {
        key = providerForm_.value("apiKey", std::string());
   if (name.empty() || base.empty() || key.empty() ||
       (base.find("https://") != 0 && base.find("http://") != 0)) {
-    error("请填写名称、Base URL 和 API Key");
+    modal("请检查连接配置", "请填写名称、Base URL 和 API Key；地址需以 http:// 或 https:// 开头。");
     return;
   }
   auto manual = providerForm_.value("model", std::string());
@@ -2023,7 +2048,7 @@ void App::saveProvider() {
   if (names.empty())
     names = modelNames_;
   if (names.empty()) {
-    error("请填写或拉取至少一个模型");
+    modal("还没有选择模型", "请填写模型名称，或点击“自动获取模型”后再保存。");
     return;
   }
   db_.saveProvider(providerForm_, names);
@@ -2261,20 +2286,21 @@ void App::albumPage() {
     auto caption = label(body_, basename(path), x, y + 108, w / 3 - 20, 15);
     lv_label_set_long_mode(caption, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_height(caption, font(15)->line_height);
+    lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
   }
   int y = 4 + ((end - begin + 2) / 3) * 145;
   if (albumPage_)
-    button(body_, "上一页", 10, y, 140, 38, [this] {
+    button(body_, "上一页", 10, y, 140, 44, [this] {
       --albumPage_;
       build();
     });
   if (end < int(files.size()))
-    button(body_, "下一页", 170, y, 140, 38, [this] {
+    button(body_, "下一页", 170, y, 140, 44, [this] {
       ++albumPage_;
       build();
     });
   if (files.empty())
-    label(body_, "暂无图片", 10, 17, w, 23);
+    emptyState("相册还是空的", "拍照时选择“加入系统相册”，照片就会显示在这里。");
 }
 void App::stopNetwork() {
   cancel_ = true;

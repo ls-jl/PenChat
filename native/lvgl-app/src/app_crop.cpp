@@ -295,6 +295,11 @@ void App::cropPage() {
   lv_obj_set_size(check, railW, 44);
   lv_obj_set_style_text_font(check, font(19), 0);
   lv_obj_set_style_text_color(check, lv_color_hex(theme::text), 0);
+  lv_obj_set_style_bg_color(check, lv_color_hex(theme::surface), LV_PART_INDICATOR);
+  lv_obj_set_style_border_color(check, lv_color_hex(theme::muted), LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(check, lv_color_hex(theme::accent), LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_border_color(check, lv_color_hex(theme::accent), LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_radius(check, 5, LV_PART_INDICATOR);
   if (cropSaveAlbum_)
     lv_obj_add_state(check, LV_STATE_CHECKED);
   lv_obj_add_event_cb(
@@ -315,6 +320,7 @@ void App::cropPage() {
              (railW - 8) / 2, 44, [this] { events_.push("crop_confirm"); });
   button(body_, "取消", rail + (railW + 8) / 2, footerY, (railW - 8) / 2, 44,
          [this] { show("camera"); });
+  primary(confirm);
   if (cropBusy_) {
     lv_obj_add_state(check, LV_STATE_DISABLED);
     lv_obj_add_state(confirm, LV_STATE_DISABLED);

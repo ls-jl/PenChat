@@ -29,12 +29,14 @@ void App::presetPicker() {
   resetPull();
   attachments_ = box(screenObj_, 86, 0, screen_.width - 86, screen_.height);
   popupKind_ = "presets";
-  lv_obj_set_style_bg_opa(attachments_, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::scrim), 0);
+  lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   auto backdrop = button(attachments_, "", 0, 0, screen_.width - 86, screen_.height,
                          [this] { closeAttachments(); });
   lv_obj_set_style_bg_opa(backdrop, LV_OPA_TRANSP, 0);
   auto panel = box(attachments_, 20, 12, screen_.width - 130, 188, theme::surface);
+  lv_obj_set_style_radius(panel, 16, 0);
   lv_obj_set_scroll_dir(panel, LV_DIR_VER);
   lv_obj_set_scroll_elastic(panel, false);
   lv_obj_set_scroll_momentum(panel, false);
@@ -63,18 +65,24 @@ void App::presetsPage() {
   bool enabled = db_.settings().value("presets_enabled", false);
   button(body_, enabled ? "启用预设入口：开" : "启用预设入口：关", 10, 4, column, 48,
          [this, enabled] { db_.setting("presets_enabled", !enabled); build(); });
-  button(body_, "新增预设", 24 + column, 4, column, 48, [this] {
+  auto add = button(screenObj_, "新增预设", 806, 2, 130, 44, [this] {
     presetForm_ = defaultPreset();
     presetForm_["id"] = uid("preset");
     presetForm_["name"] = "新预设";
     show("preset_edit");
   });
-  label(body_, "关闭仅隐藏入口，已有配置仍生效。点击下方预设编辑。", 10, 62, width, 17, theme::muted);
-  int y = 94;
+  primary(add);
+  label(body_, "关闭只隐藏入口\n已有会话配置继续生效", 24 + column, 7, column, 17, theme::muted);
+  int y = 64;
   for (const auto &p : presetList(db_.settings())) {
-    button(body_, p.value("name", std::string()) + "  ·  " + presetSummary(p), 10, y, width, 48,
-           [this, p] { presetForm_ = p; show("preset_edit"); }, theme::surface, LV_TEXT_ALIGN_LEFT);
-    y += 56;
+    auto row = button(body_, p.value("name", std::string()), 10, y, width, 64,
+                      [this, p] { presetForm_ = p; show("preset_edit"); }, theme::surface, LV_TEXT_ALIGN_LEFT);
+    lv_obj_align(lv_obj_get_child(row, 0), LV_ALIGN_TOP_LEFT, 12, 6);
+    auto detail = label(row, presetSummary(p), 12, 36, width - 24, 16, theme::muted);
+    lv_label_set_long_mode(detail, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_height(detail, 21);
+    lv_obj_set_clickable(detail, false);
+    y += 72;
   }
 }
 void App::presetChoices(const std::string &field) {
@@ -120,7 +128,7 @@ void App::presetChoices(const std::string &field) {
 void App::presetEditor() {
   pageHeader("编辑预设");
   const int width = screen_.width - 118, column = (width - 14) / 2, right = 24 + column;
-  button(screenObj_, "保存", screen_.width - 114, 2, 100, 44, [this] {
+  auto save = button(screenObj_, "保存", 806, 2, 130, 44, [this] {
     if (!presetHasText(presetForm_.value("name", std::string()))) { modal("请输入预设名称", "名称不能为空。"); return; }
     if (presetForm_.value("prompt_mode", std::string()) == "custom" && !presetHasText(presetForm_.value("prompt", std::string()))) {
       modal("请输入系统提示词", "若需要移除提示词，请选择“清空”。"); return;
@@ -141,8 +149,15 @@ void App::presetEditor() {
     presetForm_ = Json::object();
     show("presets");
   });
+  primary(save);
   auto action = [&](const std::string &text, int x, int y, std::function<void()> callback) {
-    button(body_, text, x, y, column, 48, callback, theme::surface, LV_TEXT_ALIGN_LEFT);
+    auto separator = text.find("：");
+    if (separator != std::string::npos)
+      fieldButton(body_, text.substr(0, separator), text.substr(separator + 3), x, y, column, callback);
+    else {
+      auto object = button(body_, text, x, y, column, 48, callback, theme::surface, LV_TEXT_ALIGN_LEFT);
+      if (text == "删除预设") lv_obj_set_style_text_color(lv_obj_get_child(object, 0), lv_color_hex(theme::danger), 0);
+    }
   };
   action("名称：" + presetForm_.value("name", std::string()), 10, 4, [this] {
     if (presetForm_["id"] == "default") { modal("默认预设", "默认预设始终存在，名称固定；其他配置可以修改。"); return; }
@@ -166,19 +181,25 @@ void App::presetEditor() {
     label(body_, "应用时机", x, 120, column, 16, theme::muted);
     for (int i = 0; i < 2; ++i) {
       const std::string value = i ? "always" : "empty";
-      button(body_, ((always == bool(i)) ? "● " : "○ ") + std::string(i ? "每次切换预设" : "仅空白会话"),
-             x, 144 + i * 50, column, 44, [this, field, value] { presetForm_[field] = value; build(); }, theme::surface, LV_TEXT_ALIGN_LEFT);
+      const int segment = (column - 8) / 2;
+      auto choice = button(body_, ((always == bool(i)) ? "● " : "○ ") + std::string(i ? "每次切换" : "仅空白会话"),
+                           x + i * (segment + 8), 144, segment, 44,
+                           [this, field, value] { presetForm_[field] = value; build(); }, theme::surface);
+      if (always == bool(i)) {
+        lv_obj_set_style_border_width(choice, 1, 0);
+        lv_obj_set_style_border_color(choice, lv_color_hex(theme::muted), 0);
+      }
     }
   };
   if (!id.empty()) timing("model_when", 10);
   if (!effort.empty()) timing("effort_when", right);
   if (mode == "custom") {
-    action("编辑提示词：" + presetForm_.value("prompt", std::string()), 10, 250, [this] {
+    fieldButton(body_, "系统提示词", presetForm_.value("prompt", std::string("点击编辑")), 10, 202, width, [this] {
       edit(presetForm_.value("prompt", std::string()), "系统提示词（可输入多行）", [this](const std::string &v) { presetForm_["prompt"] = v; build(); }, 8192);
     });
-    label(body_, "应用后替换会话提示词；留空不会清除。", right, 262, column, 16, theme::muted);
+    label(body_, "应用后替换会话提示词；需要移除时请选择“清空”。", 10, 260, width, 16, theme::muted);
   }
-  if (presetForm_["id"] != "default") action("删除预设", right, 310, [this] {
+  if (presetForm_["id"] != "default") action("删除预设", right, mode == "custom" ? 294 : 202, [this] {
     modal("删除预设", "已有会话仍保留当前配置。确定删除此预设？");
     button(modal_, "确定删除", 16, screen_.height - 66, 160, 44, [this] {
       auto presets = presetList(db_.settings());

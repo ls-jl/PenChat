@@ -165,14 +165,14 @@ if __name__ == '__main__':
                     assert request['text']==dummy_key
                     app.send('keyboard.result',requestId=request['requestId'],confirmed=False,text='')
                     wait_for(lambda:not app.diag()['keyboard'])
-                    app.tap(785,223)  # discard the unsaved new Provider
+                    app.tap(40,32)  # discard the unsaved new Provider
                     with sqlite3.connect(directory/'penchat.db') as db:
                         original=db.execute('select id,api_key from providers').fetchone()
                         original_model=db.execute('select id from model_configs where is_default=1').fetchone()[0]
                     app.tap(870,70);app.tap(250,120);request=app.receive('keyboard.open')
                     assert request['text']==original[1]
                     app.send('keyboard.result',requestId=request['requestId'],confirmed=True,text=dummy_key)
-                    wait_for(lambda:not app.diag()['keyboard']);app.tap(505,223)
+                    wait_for(lambda:not app.diag()['keyboard']);app.tap(870,24)
                     with sqlite3.connect(directory/'penchat.db') as db:
                         assert db.execute('select id,api_key from providers').fetchall()==[(original[0],dummy_key)]
                         assert db.execute('select id from model_configs where is_default=1').fetchone()[0]==original_model
@@ -185,7 +185,7 @@ if __name__ == '__main__':
                     app.send('keyboard.result',requestId=request['requestId'],confirmed=True,text=request['text'])
                     wait_for(lambda:not app.diag()['keyboard'])
                     with sqlite3.connect(directory/'penchat.db') as db:assert db.execute('select api_key from providers').fetchone()[0]==dummy_key
-                    app.tap(505,223)
+                    app.tap(870,24)
                     with sqlite3.connect(directory/'penchat.db') as db:
                         assert db.execute('select id,api_key from providers').fetchall()==[(original[0],'sk-A0lIxyz')]
                     app.tap(870,70);app.tap(430,120);scan=app.receive('ocr.start');app.tap(40,44)
