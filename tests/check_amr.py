@@ -10,6 +10,9 @@ with zipfile.ZipFile(path) as archive:
     manifest = json.loads(archive.read('manifest.json'))
     assert manifest['appName'] == APP['name']
     assert (manifest['appid'], manifest['version']) == (APP['appid'], APP['version'])
+    icon = (ROOT / APP['icon']).read_bytes()
+    assert APP['icon'] == 'icon-' + hashlib.sha256(icon).hexdigest()[:8] + '.png', 'Changed icon requires a new content-addressed filename'
+    assert manifest['icon'] == APP['icon'] and archive.read(APP['icon']) == icon
     assert [n for n in names if n.endswith('.bin')] == ['app.js.bin']
     assert not any(re.search(r'(?i)(jsapi_(camera|openai)|openh264|features/|scanning/)', n) for n in names)
     assert [n for n in names if n.endswith('.rknn')] == ['assets/scanner/pintu_32.rknn']
