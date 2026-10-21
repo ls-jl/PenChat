@@ -53,8 +53,8 @@ def main():
             d.tap(40,32);d.view('chat');ready()
             d.tap(128,232);d.tap(200,82);d.view('album');released()
             d.tap(40,32);d.view('chat');ready()
-            d.tap(500,232);d.wait(lambda:d.state()['keyboard']);released()
-            d.tap(35,35);d.wait(lambda:not d.state()['keyboard']);ready()
+            d.tap(500,232);d.official_editor();released()
+            d.tap(35,35);d.cancel_native_editor();ready()
         d.home()
         d.wait(lambda:not d.adb('pidof penchat-scanner || true'),timeout=10)
         assert d.adb('cat /sys/class/gpio/gpio43/value')=='0'

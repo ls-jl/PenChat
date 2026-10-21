@@ -37,6 +37,7 @@ export default {
   onShow() { this.resume() },
   onHide() {
     this.stopOcr()
+    this.resetIme()
     this.visible = false
     this.send('touch', { x: 0, y: 0, pressed: false, cancelled: true })
     this.send('visibility', { visible: false })
@@ -91,6 +92,8 @@ export default {
         for (const event of launcher.poll() || []) {
           if (event.generation !== undefined && event.generation !== this._generation && event.type !== 'booted' && event.type !== 'fatal' && event.type !== 'exit') continue
           if (event.type === 'ready') { this._nativeReady = true; clearTimeout(this._readyTimer); this._readyTimer = null }
+          else if (event.type === 'ime.request') this.queryIme(event)
+          else if (event.type === 'ime.reset') this.resetIme()
           else if (event.type === 'keyboard.open') this.openKeyboard(event)
           else if (event.type === 'ocr.start') this.startOcr(event)
           else if (event.type === 'ocr.cancel') this.stopOcr(event.requestId)
@@ -117,7 +120,27 @@ export default {
       if (this._ocr) this._ocr.stop()
       this._ocr = null; this._ocrRequest = null
     },
+    resetIme() {
+      this._imeEpoch = (this._imeEpoch || 0) + 1
+      if (typeof launcher.imeReset === 'function') launcher.imeReset()
+    },
+    async queryIme(event) {
+      const epoch = this._imeEpoch || 0
+      const generation = this._generation
+      let result = { ok: false }
+      try {
+        // Import initializes the firmware-owned decoder. No private word data
+        // is copied and no system keyboard implementation is modified.
+        if (!this._imeModule) this._imeModule = import('im')
+        await this._imeModule
+        if (epoch !== (this._imeEpoch || 0) || generation !== this._generation || !this.visible || this.keyboardOpen || this._disposed) return
+        if (typeof launcher.ime === 'function') result = launcher.ime(event)
+      } catch (_) { result = { ok: false } }
+      if (epoch === (this._imeEpoch || 0) && generation === this._generation && this.visible && !this._disposed)
+        this.send('ime.result', Object.assign({}, result, { session: event.session, sequence: event.sequence, revision: event.revision }))
+    },
     openKeyboard(event) {
+      this.resetIme()
       this.stopOcr()
       if (this.keyboardOpen || !this.visible) { this.send('keyboard.result', { requestId: event.requestId, confirmed: false, text: '' }); return }
       this.keyboardOpen = true
@@ -129,13 +152,13 @@ export default {
             const data = parse(json === undefined ? uuid : json) || {}
             const callbackUuid = json === undefined ? this._keyboardUuid : uuid
             if (!this.keyboardOpen || String(callbackUuid) !== String(this._keyboardUuid)) return
-            this.send('keyboard.result', { requestId: this._keyboardRequest, confirmed: data.editConfirmed === true || data.editConfirmed === 'true', text: String(data.text !== undefined ? data.text : data.content || '') })
+            this.send('keyboard.result', { requestId: this._keyboardRequest, confirmed: data.editConfirmed === true || data.editConfirmed === 'true', text: String(data.text !== undefined ? data.text : data.content || ''), cursorIndex: data.cursorIndex })
             this.keyboardOpen = false
             this._keyboardUuid = ''
           }
           this._global.textEditFinished.on(this._editFinished)
         }
-        this._keyboardUuid = this._global.startTextEdit(JSON.stringify({ text: event.text || '', placeholder: event.placeholder || '请输入', inputType: event.inputType || 'ZhCNPreferred', maxlength: event.maxlength || 4096, autofocus: true, showCursor: true, multiLinesEditVisible: !event.inputType || event.inputType === 'ZhCNPreferred', confirmButtonDisabledOnTextEmpty: false, enterButtonText: '确认' }))
+        this._keyboardUuid = this._global.startTextEdit(JSON.stringify({ text: event.text || '', placeholder: event.placeholder || '请输入', inputType: event.inputType || 'ZhCNPreferred', maxlength: event.maxlength || 4096, autofocus: true, showCursor: true, multiLinesEditVisible: event.multiline === true, cursorIndex: event.cursorIndex || 0, confirmButtonDisabledOnTextEmpty: false, enterButtonText: '确认' }))
       } catch (err) {
         this.send('keyboard.result', { requestId: event.requestId, confirmed: false, text: '' })
         this.keyboardOpen = false
@@ -147,6 +170,14 @@ export default {
     touchCancel(e) { this.forwardTouch(e, false, true) },
     forwardTouch(event, pressed, cancelled = false) {
       if (!this.visible || this.keyboardOpen || this.errorText) return
+      const detail = (event && event.detail) || event || {}
+      const touches = (event && event.touches) || detail.touches
+      if (touches && touches.length > 1) {
+        this._multiTouch = true
+        this.send('touch', { x: 0, y: 0, pressed: false, cancelled: true })
+        return
+      }
+      if (this._multiTouch) { if (!pressed && (!touches || !touches.length)) this._multiTouch = false; return }
       const p = point(event) || (!pressed ? this._lastPoint : null)
       if (!p) return
       this._lastPoint = p
@@ -167,6 +198,7 @@ export default {
       if (this._disposed) return
       this._disposed = true
       this.stopOcr()
+      this.resetIme()
       this.send('exit')
       this.running = false
       clearInterval(this._poll); clearTimeout(this._readyTimer)

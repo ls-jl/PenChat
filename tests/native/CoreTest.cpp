@@ -1,4 +1,5 @@
 #include "accelerometer.h"
+#include "editor.hpp"
 #include "photo_orientation.hpp"
 #include "common.hpp"
 #include "database.hpp"
@@ -20,6 +21,18 @@
 using namespace penchat;
 int main(int argc, char **argv) {
   assert(argc == 4);
+  {
+    EditorState e; e.limit=5;
+    assert(e.insert("中😀a") && e.cursor==3 && editUtf16(e.text,e.cursor)==4);
+    e.cursor=2; e.erase(); assert(e.text=="中a" && e.cursor==1);
+    e.revert(); assert(e.text=="中😀a" && e.cursor==2);
+    assert(!e.insert("abcdef"));
+    e.all=true; assert(e.insert("替换")); assert(e.text=="替换");
+    e.preedit="ni"; assert(e.raw() && e.text=="替换ni"); e.revert();
+    assert(e.text=="替换" && e.preedit=="ni");
+    e.preedit.clear(); e.limit=100; for(int i=0;i<30;++i)e.insert("x"); assert(e.undo.size()==20);
+  }
+
   {
     Json a = {{"id", "a"}, {"name", "a"}, {"capabilities_json", {{"reasoning", {{"levels", {{"high", "high"}}}}}}}};
     Json b = {{"id", "b"}, {"name", "b"}, {"capabilities_json", {{"reasoning", {{"levels", {{"max", "max"}}}}}}}};

@@ -41,6 +41,14 @@ def tap(x,y):
     # Verified from Falcon's real pageX/pageY events for ORANGE tp_direction=270.
     adb('/tmp/penchat-ui-tap '+str(y+113)+' '+str(959-x)+' 2>/dev/null')
     time.sleep(.04)
+def official_editor():
+    wait(lambda:state()['editor']['active'])
+    tap(860,236)
+    wait(lambda:state()['keyboard'])
+def cancel_native_editor():
+    wait(lambda:not state()['keyboard'])
+    if state()['editor']['active']:tap(630,100)
+    wait(lambda:not state()['editor']['active'])
 def view(name):return wait(lambda:state()['view']==name)
 def to_chat():
     for _ in range(8):
@@ -98,9 +106,9 @@ if __name__=='__main__':
     assert 'allocated by = penchat-lvgl' not in adb('cat /sys/kernel/debug/dri/0/state')
     adb('miniapp_cli start '+APP_ID);wait(pid);view('chat')
     result['physical_home']=True
-    tap(500,232);wait(lambda:state()['keyboard'])
+    tap(500,232);official_editor()
     assert 'allocated by = penchat-lvgl' not in adb('cat /sys/kernel/debug/dri/0/state')
-    tap(35,35);wait(lambda:not state()['keyboard'])
+    tap(35,35);cancel_native_editor()
     assert state()['view']=='chat'
     result['ime_cancel']=True
     adb('miniapp_cli start 8080222437664451')

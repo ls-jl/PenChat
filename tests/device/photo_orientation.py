@@ -46,9 +46,9 @@ if __name__=='__main__':
         move(500,232,0,-50,0)
         assert not d.state()['keyboard']
         d.tap(500,232)
-        d.wait(lambda:d.state()['keyboard'])
+        d.official_editor()
         d.tap(35,35)
-        d.wait(lambda:not d.state()['keyboard'])
+        d.cancel_native_editor()
         landscape=None
         for angle in [0,90,180,270]:
             d.tap(128,232);d.tap(200,38);d.view('camera')

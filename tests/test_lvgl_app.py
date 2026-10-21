@@ -45,7 +45,9 @@ def wait_for(callback, timeout=10):
     raise AssertionError('Timed out waiting for native state')
 
 class Native:
-    def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True):
+    def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True):
+        self.pending=[]
+        self.official_adapter=official_adapter
         self.directory=pathlib.Path(directory);self.directory.mkdir(parents=True,exist_ok=True)
         dbpath=self.directory/'penchat.db'
         if not dbpath.exists():
@@ -69,11 +71,21 @@ class Native:
             raise RuntimeError("Native startup failed: "+(self.directory/'runtime.log').read_text(errors='replace')[-12000:])
     def send(self, kind, **kwargs):
         self.parent.send(json.dumps({'v':1,'generation':self.generation,'type':kind,**kwargs}).encode())
+        # Existing business tests use the visible official fallback. Dedicated
+        # editor tests disable this adapter and exercise native composition.
+        if self.official_adapter and kind=='keyboard.result' and not kwargs.get('confirmed',False):
+            time.sleep(.12);self.tap(630,100)
+
     def receive(self, kind):
+        if kind=='keyboard.open' and self.official_adapter:
+            wait_for(lambda:self.diag()['editor']['active']);self.tap(860,236)
+        for i,value in enumerate(self.pending):
+            if value.get("type")==kind:return self.pending.pop(i)
         while True:
             value=json.loads(self.parent.recv(65536))
             if value.get('type')==kind:return value
             assert value.get('type')!='fatal',value
+            self.pending.append(value)
     def tap(self,x,y):
         self.send('touch',x=x,y=y,pressed=True);time.sleep(.06);self.send('touch',x=x,y=y,pressed=False);time.sleep(.08)
     def long_press(self,x,y):

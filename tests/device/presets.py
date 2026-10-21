@@ -43,8 +43,8 @@ if __name__=='__main__':
         d.view('presets');d.capture('presets-settings')
         d.tap(300,76);d.tap(300,166);d.view('preset_edit');d.capture('presets-editor')
         d.tap(40,32);d.to_chat()
-        d.tap(500,232);d.wait(lambda:d.state()['keyboard'])
-        d.tap(35,35);d.wait(lambda:not d.state()['keyboard'])
+        d.tap(500,232);d.official_editor()
+        d.tap(35,35);d.cancel_native_editor()
         assert session_count()==0
     finally:
         close_app();push(out/'before.db',d.DATA+'/penchat.db');start()

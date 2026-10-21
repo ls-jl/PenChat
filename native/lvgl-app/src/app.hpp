@@ -1,5 +1,6 @@
 #pragma once
 #include "database.hpp"
+#include "editor.hpp"
 #include "images.hpp"
 #include "network.hpp"
 #include "platform.hpp"
@@ -215,10 +216,34 @@ class App {
   std::map<std::string, int> tableScrolls_;
   void renderLiveMessage();
   void refreshImages();
+  EditorState editor_;
+  lv_obj_t *editorRoot_ = nullptr, *editorText_ = nullptr;
+  struct EditorKey { int x,y,w,h; std::string value; lv_obj_t *object; };
+  std::vector<EditorKey> editorKeys_;
+  bool editorChoosing_ = false, editorRebuild_ = false;
+  uint64_t editorLatency_ = 0;
+  std::vector<std::string> editorDeferred_;
+  Json editorCandidates_ = Json::array();
+  uint64_t editorRevision_ = 0, editorRequest_ = 0, editorInFlight_ = 0,
+           editorDue_ = 0, editorSent_ = 0, editorShiftTime_ = 0, editorRepeat_ = 0;
+  int editorHeld_ = -1, editorRepeats_ = 0;
+  bool editorPointer_ = false, editorSlid_ = false, editorExpanded_ = false, editorMenu_ = false;
+  int editorStartX_ = 0, editorStartY_ = 0;
+  void editorBuild();
+  void editorAction(const std::string &action);
+  void editorFinish(bool confirmed);
+  void editorOfficial();
+  void editorChanged();
+  void editorQuery(const std::string &operation = "query", int candidate = -1);
+  void editorResult(const Json &message);
+  void editorTick();
+  void editorInterrupt();
+  void editorTouch(int x, int y, bool pressed, bool cancelled);
+  Json editorDiagnostic() const;
   void edit(const std::string &text, const std::string &placeholder,
             std::function<void(const std::string &)> callback,
             int maxLength = 4096, const char *inputType = "ZhCNPreferred",
-            std::function<void()> cancelled = {});
+            std::function<void()> cancelled = {}, bool multiline = false, bool secret = false);
   bool canSend();
   void sendMessage(const std::string &retry = "");
   void attach(const Json &image);

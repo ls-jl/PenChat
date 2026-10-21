@@ -15,10 +15,10 @@ if __name__=='__main__':
         with tempfile.TemporaryDirectory() as folder:
             seed(pathlib.Path(folder),1);push(pathlib.Path(folder)/'penchat.db',d.DATA+'/penchat.db')
         start()
-        d.tap(500,232);d.wait(lambda:d.state()['keyboard'])
+        d.tap(500,232);d.official_editor()
         d.adb('miniapp_cli capture /tmp/penchat-ui-ime.png');time.sleep(.3)
         pull('/tmp/penchat-ui-ime.png',out/'system-ime.png')
-        d.tap(35,35);d.wait(lambda:not d.state()['keyboard'])
+        d.tap(35,35);d.cancel_native_editor()
         d.adb('kill -KILL '+d.pid());d.wait(lambda:not d.pid())
         d.wait(lambda:not d.adb('pidof penchat-scanner || true'))
         time.sleep(.5)

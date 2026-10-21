@@ -1047,6 +1047,7 @@ void App::build() {
   builtView_ = view_;
   chatLayout_ = false;
   syncScanner();
+  if (editorRoot_) lv_obj_move_foreground(editorRoot_);
 }
 void App::show(const std::string &view) {
   if (view_ == "crop" && view != "crop")
@@ -1114,42 +1115,6 @@ void App::modal(const std::string &title, const std::string &text) {
   button(layer, "关闭", portraitPhoto?layerWidth-110:screen_.width-205, mh-66, 100, 44,
          [layer] { lv_obj_delete(layer); });
 }
-void App::edit(const std::string &text, const std::string &placeholder,
-               std::function<void(const std::string &)> callback, int maxLength,
-               const char *inputType, std::function<void()> cancelled) {
-  if (keyboard_)
-    return;
-  closeNavigation(false);
-  closeAttachments();
-  resetPull();
-  keyboard_ = true;
-  editCancellation_ = std::move(cancelled);
-  keyboardId_ = uid("edit");
-  const auto originView = view_;
-  const int originScroll = body_ ? lv_obj_get_scroll_y(body_) : 0;
-  editCompletion_ = [this, callback, originView,
-                     originScroll](const std::string &value) {
-    callback(value);
-    if (view_ == originView && body_) {
-      lv_obj_update_layout(body_);
-      lv_obj_scroll_to_y(body_, originScroll, LV_ANIM_OFF);
-      paintVisible();
-    }
-  };
-  input_.release();
-  const auto id = keyboardId_;
-  const std::string kind = inputType;
-  whenScannerReleased([this, id, text, placeholder, maxLength, kind] {
-    if (keyboard_ && keyboardId_ == id && visible_) {
-      display_.visible(false);
-      bridge_.send("keyboard.open", {{"requestId", id},
-                                     {"text", text},
-                                     {"placeholder", placeholder},
-                                     {"maxlength", maxLength},
-                                     {"inputType", kind}});
-    }
-  });
-}
 void App::chat() {
   int width = screen_.width - 90;
   lv_obj_set_height(body_, screen_.height);
@@ -1194,7 +1159,7 @@ void App::chat() {
               draft_ = s;
               build();
             },
-            8192);
+            8192, "ZhCNPreferred", {}, true);
       },
       theme::surface, LV_TEXT_ALIGN_LEFT);
   if (draft_.empty())
@@ -1908,7 +1873,7 @@ void App::providerPage() {
               4096,
               key == "name"     ? "ZhCNPreferred"
               : key == "apiKey" ? "EnUSOnly"
-                                : "EnUSPreferred");
+                                : "EnUSPreferred", {}, false, key == "apiKey");
         });
   };
   const int columnWidth = (w - 30) / 2;
@@ -2400,6 +2365,8 @@ void App::attach(const Json &image) {
     sendMessage();
 }
 void App::suspend(bool value) {
+  if (value) editorInterrupt();
+  else if (editor_.active && !keyboard_) { editorChanged(); editorBuild(); }
   if (value) {
     visible_ = false;
     scanner_.eligible(false, session_);
@@ -2430,6 +2397,8 @@ void App::suspend(bool value) {
     startCamera();
 }
 void App::shutdown() {
+  editorInterrupt();
+  if (editorRoot_) { lv_obj_delete(editorRoot_); editorRoot_ = editorText_ = nullptr; }
   scanner_.eligible(false, session_);
   afterScanRelease_ = {};
   stopKeyScan();
@@ -2485,6 +2454,7 @@ void App::handle(const Json &m) {
     lastTouch_ = m;
   if (type == "touch" && visible_ && !keyboard_) {
     lastTouch_ = m;
+    if (editor_.active) { editorTouch(m.value("x",0), m.value("y",0), m.value("pressed",false), m.value("cancelled",false)); return; }
     const int x = m.value("x", 0), y = m.value("y", 0);
     const bool pressed = m.value("pressed", false);
     if (navigationOpen_ && !modal_) {
@@ -2538,16 +2508,19 @@ void App::handle(const Json &m) {
       input_.touch(x, y, pressed);
   } else if (type == "visibility")
     suspend(!m.value("visible", false));
-  else if (type == "keyboard.result") {
+  else if (type == "ime.result") {
+    editorResult(m);
+  } else if (type == "keyboard.result") {
     if (!keyboard_ || m.value("requestId", std::string()) != keyboardId_)
       return;
     keyboard_ = false;
-    auto completion = std::move(editCompletion_);
-    auto cancellation = std::move(editCancellation_);
-    if (m.value("confirmed", false) && completion)
-      completion(m.value("text", std::string()));
-    else if (cancellation)
-      cancellation();
+    if (editor_.active) {
+      if (m.value("confirmed", false)) {
+        auto text = m.value("text", std::string());
+        if (editLength(text) <= editor_.limit) { editor_.text = text; editor_.preedit.clear(); editorFinish(true); }
+        else { editor_.notice = "官方输入超过长度上限，请调整"; editorBuild(); }
+      } else { editorChanged(); editorBuild(); }
+    }
     display_.visible(visible_);
   } else if (type == "ocr.status" && ocrActive_ &&
              m.value("requestId", std::string()) == ocrId_) {
@@ -2571,7 +2544,7 @@ void App::handle(const Json &m) {
               providerForm_["apiKey"] = key;
               build();
             },
-            4096, "EnUSOnly");
+            4096, "EnUSOnly", {}, false, true);
       } catch (...) {
         ocrNotice_ = "未识别到可用文字，请重新扫描或手动输入。";
         build();
@@ -2589,6 +2562,7 @@ void App::handle(const Json &m) {
   syncScanner();
 }
 void App::tick() {
+  editorTick();
   if (afterScanRelease_ && scanner_.released()) {
     auto callback = std::move(afterScanRelease_);
     afterScanRelease_ = {};
@@ -2596,6 +2570,7 @@ void App::tick() {
   }
   syncScanner();
   for (auto &e : events_.drain()) {
+    if (e.type == "editor_action") { if (editor_.active && visible_ && !keyboard_ && e.data.value("id",std::string()) == editor_.id) editorAction(e.data.value("action",std::string())); continue; }
     if (e.type.find("scan_") == 0) {
       scanEvent(e);
       continue;
@@ -2861,6 +2836,8 @@ Json App::diagnostics() const {
                            {"y", (area.y1 + area.y2) / 2}});
   }
   return {
+      {"editor", editorDiagnostic()},
+      {"draft_length",editLength(draft_)},
       {"diagnostic_time", ticks()},
       {"history_rows", historyRows},
       {"history_context", historyContextId_},

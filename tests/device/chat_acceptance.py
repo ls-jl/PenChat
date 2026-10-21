@@ -257,7 +257,7 @@ if __name__=='__main__':
         mode('ok');send_request();wait_reply(11,'complete');assert requests()[-1]['effort']==''
         results.append('explicit-api-default')
         history_menu();device.capture('history-context');device.tap(178,112)
-        device.wait(lambda:device.state()['keyboard']);device.tap(35,35)
+        device.official_editor();device.tap(35,35);device.cancel_native_editor()
         device.wait(lambda:device.state()['navigation_open']);assert session_info()[2]['title_state']=='complete'
         history_menu();device.tap(462,112);assert session_info()[2].get('pinned_at',0)>0
         history_menu();device.tap(178,172);assert session_info()[1]=='archived'

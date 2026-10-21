@@ -145,3 +145,36 @@ test('a timeout from a previous startup cannot close a later generation', async 
   assert.equal(f.page.running, true)
   f.page.dispose()
 })
+test('native IME rejects lifecycle-stale queries and propagates candidate revision', async () => {
+  const f = fixture(); await f.page.boot()
+  let resolve
+  f.page._imeModule = new Promise(r => { resolve = r })
+  f.native.ime = () => ({ ok: true, candidates: ['你'] })
+  const request = { session: 's', sequence: 3, revision: 7, text: 'ni' }
+  const pending = f.page.queryIme(request)
+  f.options.onHide.call(f.page); resolve({}); await pending
+  assert(!f.calls.some(c => c[0] === 'send' && c[1].type === 'ime.result'))
+  f.page.visible = true
+  await f.page.queryIme(request)
+  const result = f.calls.find(c => c[0] === 'send' && c[1].type === 'ime.result')[1]
+  assert.equal(result.revision, 7); assert.equal(result.sequence, 3); assert.equal(result.session, 's')
+  f.page.dispose()
+})
+test('multitouch cancels and suppresses all fingers until the last release', async () => {
+  const f = fixture(); await f.page.boot(); f.calls.length = 0
+  const finger = { pageX: 10, pageY: 20 }
+  f.page.touchStart({ touches: [finger, finger] })
+  f.page.touchEnd({ touches: [finger], changedTouches: [finger] })
+  f.page.touchMove({ touches: [finger] })
+  f.page.touchEnd({ touches: [], changedTouches: [finger] })
+  assert.equal(f.calls.length, 1); assert.equal(f.calls[0][1].cancelled, true)
+  f.page.touchStart({ touches: [finger] }); assert.equal(f.calls.length, 2)
+  f.page.dispose()
+})
+test('official fallback receives independent multiline and UTF-16 cursor configuration', async () => {
+  const f = fixture(); await f.page.boot()
+  f.page.openKeyboard({ requestId: 'k', text: '中😀', inputType: 'ZhCNPreferred', multiline: false, cursorIndex: 3 })
+  const config = f.calls.find(c => c[0] === 'startTextEdit')[1]
+  assert.equal(config.multiLinesEditVisible, false); assert.equal(config.cursorIndex, 3)
+  f.page.dispose()
+})

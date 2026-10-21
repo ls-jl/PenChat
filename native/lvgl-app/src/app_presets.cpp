@@ -195,7 +195,7 @@ void App::presetEditor() {
   if (!effort.empty()) timing("effort_when", right);
   if (mode == "custom") {
     fieldButton(body_, "系统提示词", presetForm_.value("prompt", std::string("点击编辑")), 10, 202, width, [this] {
-      edit(presetForm_.value("prompt", std::string()), "系统提示词（可输入多行）", [this](const std::string &v) { presetForm_["prompt"] = v; build(); }, 8192);
+      edit(presetForm_.value("prompt", std::string()), "系统提示词（可输入多行）", [this](const std::string &v) { presetForm_["prompt"] = v; build(); }, 8192, "ZhCNPreferred", {}, true);
     });
     label(body_, "应用后替换会话提示词；需要移除时请选择“清空”。", 10, 260, width, 16, theme::muted);
   }
