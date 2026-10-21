@@ -113,3 +113,18 @@ Scanner ingress uses a lossless, ordered FrameQueue: bounded RAM inbox/prefetch,
 Normalize bounded HTTP error text to valid UTF-8 before saving or displaying it; byte truncation can split a multibyte character. Manual retry reuses the latest failed/cancelled/interrupted assistant row, excludes its partial output and reasoning from input, and resets its reasoning metadata. Never retry automatically or duplicate user/image rows.
 
 Camera/crop surfaces may be quarter-turned without changing the 960×266 bridge/display coordinates. Map custom crop touches through photoPoint exactly once; freeze pose at the shutter and rotate saved RGB pixels once. Crop zoom (1–16×) only changes the view, never the saved pixel geometry; keep preview decoding bounded. The source-built penchat-sensor-guard shares Camera's sensor lock and restores only reporting it enabled, including parent EOF; never modify wake/calibration/frequency settings.
+
+Schema v2 migrations must validate ownership/uniqueness before any data change and
+publish a durable SQLite backup before the migration transaction. Never repair
+conflicts by deleting records. Repository business transactions run on the single
+DB worker; UI streaming uses versioned/coalesced 500ms snapshots and final-save
+acknowledgements. Do not reintroduce UI waits for per-delta writes. Render live
+reasoning from the current UI page snapshot. `models()` is credential-free except
+for the endpoint needed by capability templates; resolve API keys/headers with
+`requestModel()` only when a request starts. Keep both text representations atomic.
+Private asset deletion is queued transactionally, then collected after commit;
+respect shared references and never follow symlinks or delete system album originals.
+Device tests that swap databases must isolate assets/backup files as well and use
+SQLite backup snapshots for online reads. Shared icon geometry lives in icons.cpp;
+use it for keyboard symbols too. History long-press actions occupy one horizontal
+row with 50px touch height. Nonempty chat content has 8px top padding.

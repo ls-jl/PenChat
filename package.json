@@ -1,7 +1,7 @@
 {
   "name": "PenChat",
   "appid": "8001792332371649",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "PenChat LVGL 原生词典笔 AI 助手",
   "icon": "icon-d1b8452c.png",
   "quickjs": {
@@ -14,7 +14,7 @@
   },
   "single-js-bundle": false,
   "scripts": {
-    "test": "node --test tests/js/*.test.cjs && sh scripts/test-camera-native.sh && ctest --test-dir build/host --output-on-failure && python3 tests/test_identity.py && python3 tests/test_lvgl_app.py && python3 tests/test_keyboard.py && python3 tests/test_http_retry.py && python3 tests/test_chat_style.py && python3 tests/test_reasoning_ui.py && python3 tests/test_history_ui.py && python3 tests/test_history_bounce.py && python3 tests/test_chat_layout.py && python3 tests/test_image_delete.py && python3 tests/test_camera_crop.py && python3 tests/test_photo_editor.py && python3 tests/test_composer_touch.py && python3 tests/test_composer_pull.py && python3 tests/test_presets.py && python3 tests/test_sensor_guard.py && python3 tests/test_tables.py && python3 tests/test_render.py && bash scripts/test-scanner.sh",
+    "test": "node --test tests/js/*.test.cjs && sh scripts/test-camera-native.sh && ctest --test-dir build/host --output-on-failure && python3 tests/test_identity.py && python3 tests/test_lvgl_app.py && python3 tests/test_keyboard.py && python3 tests/test_http_retry.py && python3 tests/test_storage_ui.py && python3 tests/test_chat_style.py && python3 tests/test_reasoning_ui.py && python3 tests/test_history_ui.py && python3 tests/test_history_bounce.py && python3 tests/test_chat_layout.py && python3 tests/test_image_delete.py && python3 tests/test_camera_crop.py && python3 tests/test_photo_editor.py && python3 tests/test_composer_touch.py && python3 tests/test_composer_pull.py && python3 tests/test_presets.py && python3 tests/test_sensor_guard.py && python3 tests/test_tables.py && python3 tests/test_render.py && bash scripts/test-scanner.sh",
     "stage:native": "sh scripts/stage-native-libs.sh",
     "start": "npm run stage:native && aiot-cli preview",
     "build": "npm run stage:native && aiot-cli -p",

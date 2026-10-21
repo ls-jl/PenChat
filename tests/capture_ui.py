@@ -9,6 +9,7 @@ out=pathlib.Path(args.output);out.mkdir(parents=True,exist_ok=True)
 transport.port=1
 binary=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ROOT/'build/host/penchat-lvgl'))
 def snap(app,name):
+    time.sleep(.25)
     app.process.send_signal(signal.SIGUSR1);time.sleep(.2)
     (out/(name+'.png')).write_bytes((app.directory/'lvgl-diagnostic.png').read_bytes())
 with tempfile.TemporaryDirectory(prefix='penchat-audit-') as directory:

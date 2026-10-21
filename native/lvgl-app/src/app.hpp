@@ -81,7 +81,7 @@ class App {
   int titleWidth() const;
   int titleLimit() const;
   std::string fitTitle(const std::string &raw) const;
-  void scheduleTitle();
+  void scheduleTitle(const std::string &session, const std::string &assistant);
   void tickTitles();
   void archivesPage();
   void historyContext(const std::string &id);
@@ -106,6 +106,12 @@ class App {
   std::string keyboardId_, ocrId_, ocrNotice_;
   bool ocrActive_ = false;
   int modelGeneration_ = 0;
+  bool persistDirty_ = false, saveInFlight_ = false;
+  uint64_t saveVersion_ = 0;
+  int64_t persistDue_ = 0;
+  std::string reasoningDisplay_ = "collapsed";
+  int lastAssistantSeq_ = 0;
+  void persistReply(const std::string &status, const Json &error = Json());
   int64_t renderDue_ = 0, lastCameraFrame_ = 0;
   bool dirty_ = false;
   bool chatFollowing_ = true, chatLayout_ = false;
@@ -207,7 +213,7 @@ class App {
   lv_obj_t *cropShades_[4] = {};
 
   void albumPage();
-  void renderMessages(bool bottom);
+  void renderMessages(bool bottom, bool cached = false);
   void richMessage(lv_obj_t *parent, const std::string &text, int width,
                    bool subdued = false, const std::string &context = "");
   void paintVisible();
@@ -248,6 +254,10 @@ class App {
   bool canSend();
   void sendMessage(const std::string &retry = "");
   void attach(const Json &image);
+  bool imageStoreBusy_ = false;
+  std::thread imageStoreWorker_;
+  std::function<void(bool)> imageStoreCompletion_;
+  void storeImage(const Json &image, std::function<void(bool)> completion);
   void newChat(bool inherit = false);
   Json presetForm_ = Json::object();
   void presetsPage();

@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "icons.hpp"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include <algorithm>
 #include <cctype>
@@ -277,139 +278,7 @@ lv_obj_t *App::icon(lv_obj_t *parent, const std::string &kind, int x, int y,
   auto object = box(parent, x, y, w, h, background);
   lv_obj_set_scrollable(object, false);
   lv_obj_set_style_radius(object, std::min(w, h) / 2, 0);
-  auto data = new std::pair<std::string, uint32_t>(kind, ink);
-  lv_obj_add_event_cb(
-      object,
-      [](lv_event_t *e) {
-        auto data = static_cast<std::pair<std::string, uint32_t> *>(
-            lv_event_get_user_data(e));
-        auto object = static_cast<lv_obj_t *>(lv_event_get_target(e));
-        lv_area_t area;
-        lv_obj_get_coords(object, &area);
-        auto layer = lv_event_get_layer(e);
-        const int cx = (area.x1 + area.x2) / 2, cy = (area.y1 + area.y2) / 2;
-        auto line = [&](float x1, float y1, float x2, float y2) {
-          lv_draw_line_dsc_t d;
-          lv_draw_line_dsc_init(&d);
-          d.color = lv_color_hex(data->second);
-          d.width = 2;
-          d.round_start = d.round_end = 1;
-          d.p1.x = cx + x1;
-          d.p1.y = cy + y1;
-          d.p2.x = cx + x2;
-          d.p2.y = cy + y2;
-          lv_draw_line(layer, &d);
-        };
-        auto circle = [&](float x, float y, float radius) {
-          for (int i = 0; i < 24; ++i) {
-            float a = i * 6.2831853f / 24, b = (i + 1) * 6.2831853f / 24;
-            line(x + std::cos(a) * radius, y + std::sin(a) * radius,
-                 x + std::cos(b) * radius, y + std::sin(b) * radius);
-          }
-        };
-        const auto &k = data->first;
-        if (k == "chevron-right" || k == "chevron-down") {
-          if (k == "chevron-right") {
-            line(-3, -6, 3, 0);
-            line(3, 0, -3, 6);
-          } else {
-            line(-6, -3, 0, 3);
-            line(0, 3, 6, -3);
-          }
-        } else if (k == "gauge") {
-          for (int i = 0; i < 24; ++i) {
-            float a = (140 + i * 260.0f / 24) * 3.14159265f / 180,
-                  b = (140 + (i + 1) * 260.0f / 24) * 3.14159265f / 180;
-            line(std::cos(a) * 11, std::sin(a) * 11, std::cos(b) * 11,
-                 std::sin(b) * 11);
-          }
-          circle(0, 0, 2);
-          line(-1, -2, -5, -8);
-        } else if (k == "plus") {
-          line(-8, 0, 8, 0);
-          line(0, -8, 0, 8);
-        } else if (k == "back") {
-          line(4, -9, -5, 0);
-          line(-5, 0, 4, 9);
-        } else if (k == "pin") {
-          line(-5, -8, 5, -8);
-          line(-4, -8, -4, 0);
-          line(4, -8, 4, 0);
-          line(-4, 0, -8, 4);
-          line(4, 0, 8, 4);
-          line(-8, 4, 8, 4);
-          line(0, 4, 0, 11);
-        } else if (k == "menu") {
-          line(-10, -4, 10, -4);
-          line(-10, 4, 3, 4);
-        } else if (k == "trash") {
-          line(-8, -6, 8, -6);
-          line(-3, -9, 3, -9);
-          line(-6, -6, -5, 10);
-          line(-5, 10, 5, 10);
-          line(5, 10, 6, -6);
-          line(-2, -2, -2, 6);
-          line(2, -2, 2, 6);
-        } else if (k == "up" || k == "down") {
-          const int sign = k == "up" ? -1 : 1;
-          line(0, -9, 0, 9);
-          line(-7, sign * 2, 0, sign * 9);
-          line(0, sign * 9, 7, sign * 2);
-        } else if (k == "stop") {
-          for (int i = -6; i <= 6; ++i)
-            line(-6, i, 6, i);
-        } else if (k == "history") {
-          circle(0, 0, 10);
-          line(0, -6, 0, 0);
-          line(0, 0, 5, 3);
-        } else if (k == "settings") {
-          circle(0, 0, 7);
-          circle(0, 0, 2);
-          for (int i = 0; i < 8; ++i) {
-            float a = i * 6.2831853f / 8;
-            line(std::cos(a) * 8, std::sin(a) * 8, std::cos(a) * 11,
-                 std::sin(a) * 11);
-          }
-        } else if (k == "camera") {
-          line(-11, -6, -5, -6);
-          line(-5, -6, -3, -9);
-          line(-3, -9, 3, -9);
-          line(3, -9, 5, -6);
-          line(5, -6, 11, -6);
-          line(11, -6, 11, 9);
-          line(11, 9, -11, 9);
-          line(-11, 9, -11, -6);
-          circle(0, 1, 5);
-        } else if (k == "newchat") {
-          line(-8, -8, 0, -8);
-          line(-8, -8, -8, 9);
-          line(-8, 9, 9, 9);
-          line(9, 9, 9, 2);
-          line(-2, 4, 1, 3);
-          line(1, 3, 10, -6);
-          line(10, -6, 6, -10);
-          line(6, -10, -3, -1);
-          line(-3, -1, -2, 4);
-        } else if (k == "album") {
-          line(-10, -10, 10, -10);
-          line(10, -10, 10, 10);
-          line(10, 10, -10, 10);
-          line(-10, 10, -10, -10);
-          circle(4, -4, 2);
-          line(-9, 6, -3, -1);
-          line(-3, -1, 2, 5);
-          line(2, 5, 5, 2);
-          line(5, 2, 9, 7);
-        }
-      },
-      LV_EVENT_DRAW_MAIN, data);
-  lv_obj_add_event_cb(
-      object,
-      [](lv_event_t *e) {
-        delete static_cast<std::pair<std::string, uint32_t> *>(
-            lv_event_get_user_data(e));
-      },
-      LV_EVENT_DELETE, data);
+  attachIcon(object, kind, ink);
   if (action)
     onClick(object, std::move(action));
   else
@@ -1362,7 +1231,7 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
       appendText(b);
   }
 }
-void App::renderMessages(bool bottom) {
+void App::renderMessages(bool bottom, bool cached) {
   if (!messageContent_)
     return;
   const int scroll = chatScroll_;
@@ -1373,17 +1242,21 @@ void App::renderMessages(bool bottom) {
   liveContent_ = nullptr;
   reasoningHeaders_.clear();
   lv_obj_clean(messageContent_);
-  auto messages = db_.messages(session_, messageOffset_, 30);
-  const auto reasoningMode =
-      db_.settings().value("reasoning_display", std::string("collapsed"));
+  auto messages = cached ? rows_ : db_.messages(session_, messageOffset_, 30);
+  lv_obj_set_style_pad_top(messageContent_, messages.empty() ? 0 : 8, 0);
+  if (!cached)
+    reasoningDisplay_ =
+        db_.settings().value("reasoning_display", std::string("collapsed"));
+  const auto reasoningMode = reasoningDisplay_;
   expandedReasoning_.clear();
   rows_ = messages;
-  hasConversationContent_ =
-      !db_.query("SELECT id FROM chat_messages WHERE session_id=? AND "
-                 "(length(trim(coalesce(output_text,'')))>0 OR "
-                 "message_type='image') LIMIT 1",
-                 {session_})
-           .empty();
+  if (!cached)
+    hasConversationContent_ =
+        !db_.query("SELECT id FROM chat_messages WHERE session_id=? AND "
+                   "(length(trim(coalesce(output_text,'')))>0 OR "
+                   "message_type='image') LIMIT 1",
+                   {session_})
+             .empty();
   int width = screen_.width - 112;
   bool more = int(messages.size()) >= 30;
   if (more)
@@ -1402,11 +1275,13 @@ void App::renderMessages(bool bottom) {
                       0, 86, width, 23, theme::muted);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
   }
-  const auto lastAssistant =
-      db_.query("SELECT coalesce(max(seq),0) AS seq FROM chat_messages WHERE "
-                "session_id=? AND role='assistant'",
-                {session_})[0]["seq"]
-          .get<int>();
+  if (!cached)
+    lastAssistantSeq_ =
+        db_.query("SELECT coalesce(max(seq),0) AS seq FROM chat_messages WHERE "
+                  "session_id=? AND role='assistant'",
+                  {session_})[0]["seq"]
+            .get<int>();
+  const auto lastAssistant = lastAssistantSeq_;
   lv_obj_t *photoGroup = nullptr;
   for (const auto &m : messages) {
     bool user = m.value("role", std::string()) == "user";
@@ -1539,7 +1414,7 @@ void App::renderMessages(bool bottom) {
       label(wrap, stringValue(m, "status") == "error" ? "生成失败" :
             (stringValue(m, "status") == "interrupted" ? "上次生成已中断" : "已停止生成"),
             0, 0, textWidth, 17, theme::danger);
-      auto latest = db_.messages(session_, 0, 1);
+      auto latest = cached ? Json::array() : db_.messages(session_, 0, 1);
       if (!generating_ && !latest.empty() && latest[0]["id"] == id)
         button(wrap, "重试", 0, 0, 140, 44, [this, id] {
           events_.push("retry_request", {{"id", id}, {"session", session_}});
@@ -1568,7 +1443,7 @@ void App::renderMessages(bool bottom) {
 void App::renderLiveMessage() {
   if (reasoningMetadata_.value("reasoning_observed", false) ||
       !reasoning_.empty()) {
-    renderMessages(false);
+    renderMessages(false, true);
     return;
   }
   if (!liveContent_ || !messageContent_)
@@ -2276,6 +2151,14 @@ void App::albumPage() {
   if (files.empty())
     emptyState("相册还是空的", "拍照时选择“加入系统相册”，照片就会显示在这里。");
 }
+void App::persistReply(const std::string &status, const Json &error) {
+  if (assistant_.empty())
+    return;
+  db_.queueMessage(session_, assistant_, networkGeneration_, ++saveVersion_, output_,
+                   reasoning_, status, error, reasoningMetadata_);
+  persistDirty_ = false;
+  persistDue_ = ticks() + 500;
+}
 void App::stopNetwork() {
   cancel_ = true;
   if (network_.joinable())
@@ -2290,9 +2173,10 @@ void App::stopNetwork() {
                event.type != "network_error")
       events_.push(event.type, event.data);
   }
-  if (generating_ && !assistant_.empty())
-    db_.updateMessage(assistant_, output_, reasoning_, "cancelled", Json(),
-                      reasoningMetadata_);
+  if (generating_ && !assistant_.empty() && !saveInFlight_)
+    persistReply("cancelled");
+  persistDirty_ = false;
+  saveInFlight_ = false;
   generating_ = false;
   assistant_.clear();
   ++networkGeneration_;
@@ -2355,25 +2239,60 @@ void App::sendMessage(const std::string &retry) {
   generating_ = true;
   cancel_ = false;
   int generation = ++networkGeneration_;
+  persistDue_ = ticks() + 500;
+  persistDirty_ = false;
+  saveInFlight_ = false;
+  saveVersion_ = 0;
   network_ = std::thread([this, model, input, generation] {
-    streamChat(model, input, cancel_, events_, generation);
+    try {
+      streamChat(db_.requestModel(model), input, cancel_, events_, generation);
+    } catch (...) {
+      events_.push("network_error",
+                   {{"generation", generation}, {"error", "无法读取请求配置，请重试"}});
+    }
   });
   build();
+}
+void App::storeImage(const Json &image, std::function<void(bool)> completion) {
+  if (imageStoreBusy_)
+    return;
+  if (imageStoreWorker_.joinable())
+    imageStoreWorker_.join();
+  imageStoreBusy_ = true;
+  imageStoreCompletion_ = std::move(completion);
+  const auto session = session_;
+  const auto preferences = sessionPreferences_;
+  modal("正在保存图片", "图片准备完成后会自动返回，请稍候…");
+  imageStoreWorker_ = std::thread([this, image, session, preferences] {
+    bool ok = true;
+    try {
+      db_.append(session, "user", "", image, preferences);
+    } catch (...) {
+      ok = false;
+    }
+    events_.push("image_stored", {{"ok", ok}, {"session", session}});
+  });
 }
 void App::attach(const Json &image) {
   chatFollowing_ = true;
   messageOffset_ = 0;
   auto model = currentModel();
   bindPreferences(model);
-  db_.append(session_, "user", "", image, sessionPreferences_);
-  show("chat");
-  if (db_.settings()
-          .value("penchat_settings", Json::object())
-          .value("autoSendCapturedContent", false) &&
-      !generating_)
-    sendMessage();
+  const auto session = session_;
+  storeImage(image, [this, session](bool ok) {
+    if (!ok || session != session_)
+      return;
+    show("chat");
+    if (db_.settings()
+            .value("penchat_settings", Json::object())
+            .value("autoSendCapturedContent", false) &&
+        !generating_)
+      sendMessage();
+  });
 }
 void App::suspend(bool value) {
+  if (value && imageStoreWorker_.joinable())
+    imageStoreWorker_.join();
   if (value) editorInterrupt();
   else if (editor_.active && !keyboard_) { editorChanged(); editorBuild(); }
   if (value) {
@@ -2406,6 +2325,8 @@ void App::suspend(bool value) {
     startCamera();
 }
 void App::shutdown() {
+  if (imageStoreWorker_.joinable())
+    imageStoreWorker_.join();
   editorInterrupt();
   if (editorRoot_) { lv_obj_delete(editorRoot_); editorRoot_ = editorText_ = nullptr; }
   scanner_.eligible(false, session_);
@@ -2424,10 +2345,33 @@ void App::shutdown() {
     titleWorker_.join();
   if (generating_ && !assistant_.empty())
     stopNetwork();
+  db_.flush();
 }
 void App::handle(const Json &m) {
   auto type = m.value("type", std::string());
 #ifndef __aarch64__
+  if (type == "icons.test") {
+    clear();
+    view_ = "icons";
+    screenObj_ = box(lv_screen_active(), 0, 0, 960, 266);
+    const std::vector<std::string> names = {
+        "menu",         "back",     "up",         "down",   "plus",
+        "stop",         "settings", "history",    "camera", "album",
+        "newchat",      "trash",    "pin",        "gauge",  "chevron-right",
+        "chevron-down", "shift",    "shift-lock", "delete", "enter",
+        "left",         "right"};
+    for (size_t i = 0; i < names.size(); ++i) {
+      const int x = 8 + int(i % 11) * 86, y = 8 + int(i / 11) * 126;
+      auto object = icon(screenObj_, names[i], x + 19, y, 48, 48, {}, theme::surface);
+      label(screenObj_, names[i], x, y + 53, 84, 12, theme::muted);
+      auto small =
+          icon(screenObj_, names[i], x + 29, y + 76, 28, 28, {}, theme::surface);
+      if (i % 3 == 0)
+        lv_obj_set_style_opa(small, LV_OPA_50, 0);
+      (void)object;
+    }
+    return;
+  }
   if (type == "camera.test") {
     beginCrop(m.at("photo"));
     return;
@@ -2462,6 +2406,8 @@ void App::handle(const Json &m) {
   if (type == "touch.debug")
     lastTouch_ = m;
   if (type == "touch" && visible_ && !keyboard_) {
+    if (imageStoreBusy_)
+      return;
     lastTouch_ = m;
     if (editor_.active) { editorTouch(m.value("x",0), m.value("y",0), m.value("pressed",false), m.value("cancelled",false)); return; }
     const int x = m.value("x", 0), y = m.value("y", 0);
@@ -2571,6 +2517,39 @@ void App::handle(const Json &m) {
   syncScanner();
 }
 void App::tick() {
+  for (const auto &saved : db_.saveEvents()) {
+    if (saved.type == "message_saved") {
+      const auto session = saved.data.value("session", std::string());
+      const auto message = saved.data.value("message", std::string());
+      if (saved.data.value("status", std::string()) == "complete")
+        scheduleTitle(session, message);
+      if (message == assistant_ &&
+          saved.data.value("generation", -1) == networkGeneration_) {
+        saveInFlight_ = false;
+        generating_ = false;
+        if (view_ == "chat") {
+          build();
+          if (saved.data.value("status", std::string()) == "error") {
+            modal("生成失败", notice_);
+            button(modal_, "重试", screen_.width - 325, screen_.height - 66, 100, 44,
+                   [this, message, session] {
+                     events_.push("retry_request",
+                                  {{"id", message}, {"session", session}});
+                   });
+          }
+        }
+      }
+    } else if (saved.type == "save_error") {
+      notice_ = saved.data.value("error", std::string("保存失败"));
+      modal("内容尚未保存", notice_);
+      button(modal_, "重试保存", screen_.width - 335, screen_.height - 66, 120, 44,
+             [this] {
+               db_.retrySaves();
+               if (modal_)
+                 lv_obj_delete(modal_);
+             });
+    }
+  }
   editorTick();
   if (afterScanRelease_ && scanner_.released()) {
     auto callback = std::move(afterScanRelease_);
@@ -2579,6 +2558,21 @@ void App::tick() {
   }
   syncScanner();
   for (auto &e : events_.drain()) {
+    if (e.type == "image_stored") {
+      if (imageStoreWorker_.joinable())
+        imageStoreWorker_.join();
+      imageStoreBusy_ = false;
+      if (modal_)
+        lv_obj_delete(modal_);
+      auto callback = std::move(imageStoreCompletion_);
+      imageStoreCompletion_ = {};
+      const bool ok = e.data.value("ok", false);
+      if (callback)
+        callback(ok);
+      if (!ok)
+        error("图片保存失败，请检查存储空间后重试");
+      continue;
+    }
     if (e.type == "editor_action") { if (editor_.active && visible_ && !keyboard_ && e.data.value("id",std::string()) == editor_.id) editorAction(e.data.value("action",std::string())); continue; }
     if (e.type.find("scan_") == 0) {
       scanEvent(e);
@@ -2674,29 +2668,18 @@ void App::tick() {
       if (e.type == "reasoning")
         reasoning_ += e.data.value("text", std::string());
       dirty_ = true;
+      persistDirty_ = true;
       if (e.type == "done" || e.type == "cancelled" ||
           e.type == "network_error") {
         dirty_ = false;
-        generating_ = false;
+        saveInFlight_ = true;
         auto status = e.type == "done"        ? "complete"
                       : e.type == "cancelled" ? "cancelled"
                                               : "error";
         Json err = e.type == "network_error" ? e.data["error"] : Json();
-        db_.updateMessage(assistant_, output_, reasoning_, status, err,
-                          reasoningMetadata_);
-        if (e.type == "done")
-          scheduleTitle();
+        persistReply(status, err);
         if (e.type == "network_error")
           notice_ = e.data.value("error", std::string("网络错误"));
-        if (view_ == "chat") {
-          build();
-          if (e.type == "network_error") {
-            modal("生成失败", notice_);
-            const auto id = assistant_, session = session_;
-            button(modal_, "重试", screen_.width - 325, screen_.height - 66, 100, 44,
-                   [this, id, session] { events_.push("retry_request", {{"id", id}, {"session", session}}); });
-          }
-        }
       }
     } else if (e.type == "models") {
       if (e.data.value("generation", -1) != modelGeneration_)
@@ -2748,11 +2731,15 @@ void App::tick() {
         try {
           auto model = currentModel();
           bindPreferences(model);
-          db_.append(session_, "user", "", cropResult_, sessionPreferences_);
-          clearCrop(true);
-          chatFollowing_ = true;
-          messageOffset_ = 0;
-          show("chat");
+          const auto session = session_;
+          storeImage(cropResult_, [this, session](bool ok) {
+            if (!ok || session != session_)
+              return;
+            clearCrop(true);
+            chatFollowing_ = true;
+            messageOffset_ = 0;
+            show("chat");
+          });
         } catch (const std::exception &failure) {
           build();
           error(failure.what());
@@ -2761,13 +2748,11 @@ void App::tick() {
     }
   }
   tickTitles();
+  if (persistDirty_ && !saveInFlight_ && ticks() >= persistDue_)
+    persistReply("streaming");
   if (dirty_ && ticks() >= renderDue_) {
     renderDue_ = ticks() + 100;
     dirty_ = false;
-    if (!assistant_.empty())
-      db_.updateMessage(assistant_, output_, reasoning_,
-                        generating_ ? "streaming" : "complete", Json(),
-                        reasoningMetadata_);
     if (view_ == "chat")
       renderLiveMessage();
   }
@@ -2847,6 +2832,7 @@ Json App::diagnostics() const {
   return {
       {"editor", editorDiagnostic()},
       {"draft_length",editLength(draft_)},
+      {"storage", db_.storageStats()},
       {"diagnostic_time", ticks()},
       {"history_rows", historyRows},
       {"history_context", historyContextId_},

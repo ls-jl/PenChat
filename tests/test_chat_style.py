@@ -98,7 +98,7 @@ def run():
             app.open_navigation();active=app.diag()
             app.long_press(active['navigation_active_x'],active['navigation_active_y'])
             assert app.diag()['history_context']==active['session']
-            app.tap(462,172)
+            app.tap(530,147)
             deleted=app.diag()
             assert deleted['navigation_open'] and deleted['session']!=active['session']
             assert deleted['summary']['sessions']==active['summary']['sessions']-1

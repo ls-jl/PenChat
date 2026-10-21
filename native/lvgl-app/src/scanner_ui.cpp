@@ -24,9 +24,10 @@ std::string scanReason(const std::string &reason) {
 } // namespace
 void App::syncScanner() {
   bool active = view_ == "scan" && scanId_ && scanSession_ == session_;
-  bool eligible = bridge_.generation() > 0 && visible_ && !keyboard_ && !editor_.active &&
-                  !ocrActive_ && !navigationOpen_ && !modal_ && !attachments_ &&
-                  !pulling_ && (view_ == "chat" || active);
+  bool eligible = bridge_.generation() > 0 && visible_ && !keyboard_ &&
+                  !editor_.active && !imageStoreBusy_ && !ocrActive_ &&
+                  !navigationOpen_ && !modal_ && !attachments_ && !pulling_ &&
+                  (view_ == "chat" || active);
   scanner_.eligible(eligible, session_);
   if (scanHint_) {
     auto state = scanner_.state().value("type", std::string());
@@ -167,19 +168,26 @@ void App::scanEvent(const Event &event) {
       auto image = j.at("image");
       auto model = currentModel();
       bindPreferences(model);
-      db_.append(session_, "user", "", image, sessionPreferences_);
-      scanConfirmed_ = scanId_;
-      scanConfirming_ = false;
-      scanner_.discard(scanId_);
-      show("chat");
-      chatFollowing_ = true;
-      messageOffset_ = 0;
-      build();
-      if (db_.settings()
-              .value("penchat_settings", Json::object())
-              .value("autoSendCapturedContent", false) &&
-          !generating_)
-        sendMessage();
+      const auto scan = scanId_;
+      const auto session = session_;
+      storeImage(image, [this, scan, session](bool ok) {
+        scanConfirming_ = false;
+        if (!ok)
+          return;
+        scanConfirmed_ = scan;
+        scanner_.discard(scan);
+        if (session != session_)
+          return;
+        show("chat");
+        chatFollowing_ = true;
+        messageOffset_ = 0;
+        build();
+        if (db_.settings()
+                .value("penchat_settings", Json::object())
+                .value("autoSendCapturedContent", false) &&
+            !generating_)
+          sendMessage();
+      });
     } catch (const std::exception &e) {
       scanConfirming_ = false;
       scanResult_["error"] = e.what();

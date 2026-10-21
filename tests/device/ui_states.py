@@ -2,7 +2,7 @@
 """Capture host-owned launcher/IME screens using a disposable app database."""
 import pathlib,sys,tempfile,time
 import acceptance as d
-from chat_acceptance import close_app,start,pull,push
+from chat_acceptance import close_app,start,pull,push,isolate_fixture_assets,restore_fixture_assets
 sys.path.insert(0,str(d.ROOT/'tests'))
 from test_reasoning_ui import seed
 if __name__=='__main__':
@@ -12,6 +12,7 @@ if __name__=='__main__':
     host=d.adb('pidof miniapp')
     close_app();pull(d.DATA+'/penchat.db',out/'before.db')
     try:
+        isolate_fixture_assets()
         with tempfile.TemporaryDirectory() as folder:
             seed(pathlib.Path(folder),1);push(pathlib.Path(folder)/'penchat.db',d.DATA+'/penchat.db')
         start()
@@ -27,7 +28,7 @@ if __name__=='__main__':
         d.tap(122,218);d.wait(d.pid);d.view('chat')
         assert d.adb('pidof miniapp')==host
     finally:
-        close_app();push(out/'before.db',d.DATA+'/penchat.db');start()
+        close_app();push(out/'before.db',d.DATA+'/penchat.db');restore_fixture_assets();start()
         pull(d.DATA+'/penchat.db',out/'restored.db')
         assert (out/'before.db').read_bytes()==(out/'restored.db').read_bytes()
         for name in ['before.db','restored.db']:(out/name).unlink()

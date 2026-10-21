@@ -32,9 +32,9 @@ with tempfile.TemporaryDirectory(prefix='penchat-delete-image-') as directory:
         hold(photos[0]);assert app.diag()['modal'];snapshot(app,'delete-image-confirm')
         app.tap(890,225);assert not app.diag()['modal'] and len(app.read_messages())==2
         hold(photos[0]);app.tap(770,225);wait_for(lambda:len(app.read_messages())==1)
-        assert not copies[0].exists() and copies[1].exists() and original.exists()
+        wait_for(lambda:not copies[0].exists());assert copies[1].exists() and original.exists()
         hold(app.diag()['chat_images'][0]);app.tap(770,225);wait_for(lambda:len(app.read_messages())==0)
-        assert app.diag()['summary']['sessions']==0 and original.exists() and not copies[1].exists()
+        wait_for(lambda:not copies[1].exists());assert app.diag()['summary']['sessions']==0 and original.exists()
         app.tap(500,232);request=app.receive('keyboard.open');assert request['text']=='保留文字草稿'
         app.send('keyboard.result',requestId=request['requestId'],confirmed=False,text='')
         wait_for(lambda:not app.diag()['keyboard'])

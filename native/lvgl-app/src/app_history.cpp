@@ -27,18 +27,18 @@ std::string App::fitTitle(const std::string &raw) const {
   }
   return title;
 }
-void App::scheduleTitle() {
+void App::scheduleTitle(const std::string &session, const std::string &assistant) {
   auto settings = db_.settings();
   if (!settings.value("auto_title_enabled", true))
     return;
-  auto rows = db_.query("SELECT model_config_id FROM chat_messages WHERE id=?",
-                        {assistant_});
+  auto rows =
+      db_.query("SELECT model_config_id FROM chat_messages WHERE id=?", {assistant});
   if (rows.empty())
     return;
   auto modelId = settings.value("title_model_id", std::string());
   if (modelId.empty() && rows[0]["model_config_id"].is_string())
     modelId = rows[0]["model_config_id"];
-  auto job = db_.prepareTitle(session_, assistant_, modelId);
+  auto job = db_.prepareTitle(session, assistant, modelId);
   if (!job.empty())
     titleJobs_.push_back(job);
 }
@@ -103,7 +103,8 @@ void App::tickTitles() {
   titleWorker_ = std::thread([this, job, model, question, answer, limit] {
     std::string title;
     try {
-      title = generateTitle(model, question, answer, limit, titleCancel_);
+      title =
+          generateTitle(db_.requestModel(model), question, answer, limit, titleCancel_);
     } catch (...) {
     }
     events_.push("title_result", {{"session", job["session"]},
@@ -214,14 +215,14 @@ void App::historyContext(const std::string &id) {
           app->closeHistoryContext();
       },
       LV_EVENT_CLICKED, this);
-  auto panel = box(modal_, 32, 36, 576, 190, theme::surface);
+  auto panel = box(modal_, 32, 72, 576, 112, theme::surface);
   lv_obj_set_scrollable(panel, false);
   lv_obj_set_style_radius(panel, 16, 0);
   auto title =
       label(panel, session.value("title", std::string()), 16, 10, 544, 21);
   lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(title, 28);
-  button(panel, "重命名", 12, 50, 268, 52, [this, id, session] {
+  button(panel, "重命名", 12, 50, 132, 50, [this, id, session] {
     closeHistoryContext();
     edit(
         session.value("title", std::string()), "重命名会话",
@@ -238,7 +239,7 @@ void App::historyContext(const std::string &id) {
   });
   bool pinned =
       objectField(session, "metadata_json").value("pinned_at", int64_t(0)) > 0;
-  button(panel, pinned ? "取消置顶" : "置顶", 296, 50, 268, 52,
+  button(panel, pinned ? "取消置顶" : "置顶", 152, 50, 132, 50,
          [this, id, pinned] {
            closeHistoryContext();
            db_.pinSession(id, !pinned);
@@ -248,11 +249,11 @@ void App::historyContext(const std::string &id) {
              lv_obj_scroll_to_y(navigationList_, 0, LV_ANIM_OFF);
            historyDrawer();
          });
-  button(panel, "归档", 12, 110, 268, 52, [this, id] {
+  button(panel, "归档", 292, 50, 132, 50, [this, id] {
     closeHistoryContext();
     retireSession(id, true);
   });
-  auto remove = button(panel, "删除", 296, 110, 268, 52, [this, id] {
+  auto remove = button(panel, "删除", 432, 50, 132, 50, [this, id] {
     closeHistoryContext();
     retireSession(id, false);
   });

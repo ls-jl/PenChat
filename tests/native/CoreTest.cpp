@@ -296,7 +296,8 @@ int main(int argc, char **argv) {
   assert(db.providerForm(providerId)["default_effort"] == "high");
   assert(db.activeModel()["id"] == selectedId &&
          db.activeModel()["name"] == "two");
-  assert(db.activeModel()["api_key"] == form["apiKey"]);
+  assert(!db.activeModel().contains("api_key") && !db.activeModel().contains("headers_json"));
+  assert(db.requestModel(db.activeModel())["api_key"] == form["apiKey"]);
   auto edited =
       db.query("SELECT created_at,is_default,metadata_json,headers_json FROM "
                "providers WHERE id=?",

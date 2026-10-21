@@ -9,7 +9,13 @@ SERIAL=device.SERIAL;DATA=device.DATA
 def mode(value):device.adb("echo "+value+" > /tmp/penchat-http-mode")
 def requests():return [json.loads(line) for line in device.adb('cat /tmp/penchat-http-requests.jsonl 2>/dev/null || true').splitlines() if line]
 
-def pull(remote,local):subprocess.run(['adb','-s',SERIAL,'pull',remote,str(local)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+def pull(remote,local):
+    if remote==DATA+'/penchat.db' and device.pid() and device.adb('test -x /tmp/penchat-db-probe && echo ready')=='ready':
+        result=device.adb('/tmp/penchat-db-probe --backup '+remote+' /tmp/penchat-db-snapshot.db && echo snapshot-ready')
+        assert result.endswith('snapshot-ready'), 'Consistent DB snapshot failed'
+        remote='/tmp/penchat-db-snapshot.db'
+    subprocess.run(['adb','-s',SERIAL,'pull',remote,str(local)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    if str(local).endswith('.db'):pathlib.Path(local).chmod(0o600)
 def push(local,remote):subprocess.run(['adb','-s',SERIAL,'push',str(local),remote],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 def close_app():
     device.adb('miniapp_cli start 8080222437664451');time.sleep(.15)
@@ -19,7 +25,29 @@ def close_app():
         device.adb('kill -TERM '+p)
     device.wait(lambda:not device.pid())
     time.sleep(.1)
-def start():device.adb('miniapp_cli start '+device.APP_ID);device.wait(device.pid);time.sleep(.25);device.view('chat')
+def isolate_fixture_assets():
+    # A disposable database must never make the user's real photos look orphaned.
+    assert not device.pid()
+    saved=DATA+'/assets.acceptance-saved'
+    backup=DATA+'/penchat.db.backup-v1'
+    result=device.adb('set -e; test ! -e '+saved+'; test ! -e '+backup+'.acceptance-saved; mkdir -p '+DATA+'/assets; mv '+DATA+'/assets '+saved+'; mkdir '+DATA+'/assets; if test -f '+backup+'; then mv '+backup+' '+backup+'.acceptance-saved; fi; echo isolated')
+    assert result.endswith('isolated')
+def restore_fixture_assets():
+    assert not device.pid()
+    saved=DATA+'/assets.acceptance-saved'
+    backup=DATA+'/penchat.db.backup-v1'
+    assert device.adb('test -d '+saved+' && echo present')=='present'
+    result=device.adb('set -e; rm -rf '+DATA+'/assets; mv '+saved+' '+DATA+'/assets; rm -f '+backup+' '+backup+'.tmp; if test -f '+backup+'.acceptance-saved; then mv '+backup+'.acceptance-saved '+backup+'; fi; echo restored')
+    assert result.endswith('restored')
+def start():
+    device.adb('miniapp_cli start '+device.APP_ID);device.wait(device.pid);device.view('chat')
+    device.wait(lambda:device.state()['visible'])
+    time.sleep(.3)
+    current=device.state()
+    if current['to_bottom_visible']:
+        device.tap(current['to_bottom_x']+22,current['to_bottom_y']+22)
+    device.wait(lambda:device.state()['toolbar_y']==208)
+    time.sleep(.15)
 def send_request(send=True,api=None):
     # Seed an unsent fake user message while native is stopped; an empty draft
     # with no pending user content is deliberately disabled by the new composer.
@@ -76,6 +104,7 @@ def seed(path,api):
 if __name__=='__main__':
     assert 'ORANGE' in device.adb('cat /proc/device-tree/model')
     close_app();pull(DATA+'/penchat.db',OUT/'before.db')
+    push(ROOT/'build/orange/penchat-db-probe','/tmp/penchat-db-probe');device.adb('chmod 755 /tmp/penchat-db-probe')
     before_files=set(device.adb('find '+DATA+'/DCIM '+DATA+'/assets -type f 2>/dev/null || true').splitlines())
     before_album=set(device.adb('find /userdisk/Pictures -maxdepth 1 -name \"PenChat*.jpg\" -type f 2>/dev/null || true').splitlines())
     parent=device.adb('pidof miniapp')
@@ -96,6 +125,7 @@ if __name__=='__main__':
     assert fixture_pid.isdigit(),'Fixture did not stay running'
     results=[];gesture_processes=[]
     try:
+        isolate_fixture_assets()
         shutil.copy2(OUT/'before.db',OUT/'fixture.db');seed(OUT/'fixture.db','responses');push(OUT/'fixture.db',DATA+'/penchat.db');start()
         device.tap(908,232);wait_reply(1,'complete');assert messages()[-1][1]==REPLY;device.capture('stream-responses');results.append('responses')
         device.wait(lambda:session_info()[2].get('title_state')=='complete')
@@ -194,7 +224,7 @@ if __name__=='__main__':
             '/tmp/penchat-ui-tap 287 438 2>/dev/null && '
             '/tmp/penchat-ui-tap 303 459 151 459 2>/dev/null && '
             '/tmp/penchat-ui-tap 303 459 233 459 80 2>/dev/null && '
-            '/tmp/penchat-ui-tap 303 459 174 459 2>/dev/null'],stdout=subprocess.DEVNULL)
+            '/tmp/penchat-ui-tap 303 459 161 459 2>/dev/null'],stdout=subprocess.DEVNULL)
         gesture_processes.append(swipe)
         samples=[]
         while swipe.poll() is None:
@@ -256,17 +286,24 @@ if __name__=='__main__':
         device.tap(146,110);device.tap(800,230);assert device.state()['effective_effort']=='api_default'
         mode('ok');send_request();wait_reply(11,'complete');assert requests()[-1]['effort']==''
         results.append('explicit-api-default')
-        history_menu();device.capture('history-context');device.tap(178,112)
+        history_menu();device.capture('history-context');device.tap(110,147)
         device.official_editor();device.tap(35,35);device.cancel_native_editor()
         device.wait(lambda:device.state()['navigation_open']);assert session_info()[2]['title_state']=='complete'
-        history_menu();device.tap(462,112);assert session_info()[2].get('pinned_at',0)>0
-        history_menu();device.tap(178,172);assert session_info()[1]=='archived'
+        history_menu();device.tap(250,147);assert session_info()[2].get('pinned_at',0)>0
+        history_menu();device.tap(390,147);assert session_info()[1]=='archived'
         device.tap(500,236);device.tap(740,80);device.view('archives');device.capture('archived-chat')
         device.tap(726,76);assert session_info()[1]=='active'
-        device.to_chat();history_menu();device.tap(178,172)
+        device.to_chat();history_menu();device.tap(390,147)
         device.tap(500,236);device.tap(740,80);device.tap(846,76);assert session_info() is None
         results.append('history-long-press-rename-cancel-pin-archive-restore-delete')
         assert device.adb('pidof miniapp')==parent
+    except BaseException:
+        if device.pid():
+            state=device.state()
+            if state['session']=='lvgl_acceptance_session':
+                device.capture('chat-acceptance-failure')
+                (OUT/'failure-state.json').write_text(json.dumps({k:state.get(k) for k in ['view','generating','modal','keyboard','toolbar_y','touch','following_latest','session']},indent=2))
+        raise
     finally:
         # Finish bounded injected touches before restoring the user's database.
         for gesture in gesture_processes:gesture.wait(timeout=5)
@@ -278,6 +315,7 @@ if __name__=='__main__':
         fixture_requests=requests()
         device.adb('kill -TERM '+fixture_pid)
         fixture_process.wait(timeout=5)
+        restore_fixture_assets()
         start()
         (OUT/'results.json').write_text(json.dumps({'passed':results,'requests':fixture_requests,'restored_database':True},indent=2)+'\n')
     print('ORANGE native chat: '+', '.join(results)+'; original DB restored.')

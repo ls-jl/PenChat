@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "icons.hpp"
 #include <cctype>
 namespace penchat {
 void App::edit(const std::string &text, const std::string &placeholder,
@@ -44,6 +45,11 @@ void App::editorBuild() {
     if (value=="shift" && editor_.shift) { lv_obj_set_style_bg_color(b,lv_color_hex(theme::text),0); lv_obj_set_style_text_color(l,lv_color_hex(theme::background),0); }
     if (editorPointer_ && editorHeld_>=0 && !editorSlid_ && x==editorPress_.x && y==editorPress_.y && value==editorPress_.value)
       lv_obj_set_style_bg_color(b,lv_color_hex(theme::border),0);
+    if (value == "shift" || value == "delete" || value == "enter") {
+      lv_label_set_text(l, "");
+      attachIcon(b, value == "shift" && editor_.shift == 2 ? "shift-lock" : value,
+                 value == "shift" && editor_.shift ? theme::background : theme::text);
+    }
     editorKeys_.push_back({x,y,w,h,value,b});
   };
   std::vector<std::string> rows = editor_.mode==0 ? std::vector<std::string>{"qwertyuiop","asdfghjkl","zxcvbnm"} :
@@ -105,7 +111,8 @@ void App::editorBuild() {
   }
   if (editorCandidates_.empty()) label(choices,editor_.preedit.empty()?"候选词":"正在查询 · 可用官方键盘",4,10,302,16,theme::muted);
   control(editorExpanded_?"收起":"展开",908,6,44,"expand");
-  control("←",592,214,44,"left"); control("→",642,214,44,"right");
+  attachIcon(control("", 592, 214, 44, "left"), "left", theme::text);
+  attachIcon(control("", 642, 214, 44, "right"), "right", theme::text);
   control("编辑",692,214,80,"tools"); control("官方键盘",778,214,174,"official");
   if (editor_.all) label(editorRoot_,"已全选 · 下次输入替换",600,180,330,16,theme::muted);
   if (editorMenu_) {

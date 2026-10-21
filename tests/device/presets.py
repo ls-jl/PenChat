@@ -2,7 +2,7 @@
 """ORANGE preset UI in an isolated database; restore user bytes afterwards."""
 import json,os,pathlib,sqlite3,subprocess,sys,tempfile,time
 import acceptance as d
-from chat_acceptance import close_app,start,pull,push
+from chat_acceptance import close_app,start,pull,push,isolate_fixture_assets,restore_fixture_assets
 from photo_orientation import move
 sys.path.insert(0,str(d.ROOT/'tests'))
 from test_reasoning_ui import seed
@@ -22,6 +22,7 @@ if __name__=='__main__':
         with sqlite3.connect(out/'count.db') as db:return db.execute('select count(*) from chat_sessions').fetchone()[0]
     close_app();pull(d.DATA+'/penchat.db',out/'before.db')
     try:
+        isolate_fixture_assets()
         with tempfile.TemporaryDirectory() as folder:
             p=pathlib.Path(folder);seed(p,1)
             with sqlite3.connect(p/'penchat.db') as db:
@@ -47,7 +48,7 @@ if __name__=='__main__':
         d.tap(35,35);d.cancel_native_editor()
         assert session_count()==0
     finally:
-        close_app();push(out/'before.db',d.DATA+'/penchat.db');start()
+        close_app();push(out/'before.db',d.DATA+'/penchat.db');restore_fixture_assets();start()
         pull(d.DATA+'/penchat.db',out/'restored.db')
         assert (out/'before.db').read_bytes()==(out/'restored.db').read_bytes()
         assert d.adb('pidof miniapp')==host

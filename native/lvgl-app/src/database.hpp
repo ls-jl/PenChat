@@ -1,12 +1,33 @@
 #pragma once
 #include "common.hpp"
 #include <future>
+#include <map>
+#include <set>
 struct sqlite3;
+struct sqlite3_stmt;
 namespace penchat {
 class Database {
   sqlite3 *db_ = nullptr;
   std::string assetDirectory_;
-  std::recursive_mutex mutex_;
+  std::map<std::string, sqlite3_stmt *> statements_;
+  Json settingsCache_, modelsCache_;
+  bool onWorker() const { return std::this_thread::get_id() == worker_.get_id(); }
+  void migrate(const std::string &path);
+  void collectAssets(bool discover = false);
+  void deferAssetCollection();
+  void *gcDirectory_ = nullptr;
+  std::string gcCursor_;
+  bool gcScheduled_ = false;
+  void enqueueAssets(const Json &assets);
+  void detachSharedAssets(const std::string &column, const std::string &id);
+  void savePending(const std::string &id);
+  std::map<std::string, Json> pendingSaves_, failedSaves_, saveVersions_;
+  std::set<std::string> scheduledSaves_;
+  int latestSaveGeneration_ = -1;
+  Events saveEvents_;
+  std::map<std::string, std::map<int, Json>> sessionCursors_;
+  std::map<std::string, std::map<int, int64_t>> messageCursors_;
+  uint64_t queryCount_ = 0, transactionCount_ = 0;
   std::mutex jobsMutex_;
   std::condition_variable jobsReady_;
   std::deque<std::function<void()>> jobs_;
@@ -23,6 +44,8 @@ public:
   Json settings();
   void setting(const std::string &key, const Json &value);
   Json sessions(int offset = 0, bool archived = false);
+  Json sessionsAfter(const Json &cursor, bool archived = false);
+  Json messagesBefore(const std::string &session, int64_t before, int limit = 30);
   Json sessionInfo(const std::string &session);
   void renameSession(const std::string &session, const std::string &title);
   void pinSession(const std::string &session, bool pinned);
@@ -37,29 +60,33 @@ public:
   std::string createSession();
   void removeSession(const std::string &session);
   bool pendingImage(const std::string &session, const std::string &message);
-  bool removePendingImage(const std::string &session,
-                          const std::string &message);
+  bool removePendingImage(const std::string &session, const std::string &message);
   std::string append(const std::string &session, const std::string &role,
-                     const std::string &text,
-                     const Json &image = Json::object(),
+                     const std::string &text, const Json &image = Json::object(),
                      const Json &preferences = Json::object());
   void updateMessage(const std::string &id, const std::string &text,
                      const std::string &reasoning, const std::string &status,
-                     const Json &error = Json(),
-                     const Json &metadata = Json::object());
+                     const Json &error = Json(), const Json &metadata = Json::object());
+  void queueMessage(const std::string &session, const std::string &id, int generation,
+                    uint64_t version, const std::string &text,
+                    const std::string &reasoning, const std::string &status,
+                    const Json &error, const Json &metadata);
+  std::deque<Event> saveEvents() { return saveEvents_.drain(); }
+  void retrySaves();
+  void flush();
+  Json storageStats();
+  Json requestModel(const Json &model);
   Json providers();
   Json providerForm(const std::string &id);
   Json models();
   Json activeModel();
   Json sessionPreferences(const std::string &session);
-  void saveSessionPreferences(const std::string &session,
-                              const Json &preferences);
+  void saveSessionPreferences(const std::string &session, const Json &preferences);
   void saveModelCapabilities(const std::string &id, const Json &reasoning);
   void recordRequest(const std::string &message, const Json &model);
   void saveProvider(const Json &form, const std::vector<std::string> &names);
   void selectModel(const std::string &id);
-  Json responseInput(const std::string &session,
-                     const std::string &beforeMessage,
+  Json responseInput(const std::string &session, const std::string &beforeMessage,
                      const Json &model = Json::object());
   Json summary();
 };
