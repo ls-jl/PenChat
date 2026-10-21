@@ -220,6 +220,7 @@ class App {
   lv_obj_t *editorRoot_ = nullptr, *editorText_ = nullptr;
   struct EditorKey { int x,y,w,h; std::string value; lv_obj_t *object; };
   std::vector<EditorKey> editorKeys_;
+  EditorKey editorPress_{};
   bool editorChoosing_ = false, editorRebuild_ = false;
   uint64_t editorLatency_ = 0;
   std::vector<std::string> editorDeferred_;

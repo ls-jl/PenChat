@@ -42,6 +42,8 @@ void App::editorBuild() {
     lv_obj_set_style_radius(b,9,0);
     auto l=label(b,title,0,0,w,23); lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0); lv_obj_align(l,LV_ALIGN_CENTER,0,0);
     if (value=="shift" && editor_.shift) { lv_obj_set_style_bg_color(b,lv_color_hex(theme::text),0); lv_obj_set_style_text_color(l,lv_color_hex(theme::background),0); }
+    if (editorPointer_ && editorHeld_>=0 && !editorSlid_ && x==editorPress_.x && y==editorPress_.y && value==editorPress_.value)
+      lv_obj_set_style_bg_color(b,lv_color_hex(theme::border),0);
     editorKeys_.push_back({x,y,w,h,value,b});
   };
   std::vector<std::string> rows = editor_.mode==0 ? std::vector<std::string>{"qwertyuiop","asdfghjkl","zxcvbnm"} :
@@ -217,11 +219,20 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
   if (cancelled) { editorPointer_=false; editorHeld_=-1; editorRepeat_=0; input_.cancel(); editorBuild(); return; }
   if (pressed && !editorPointer_) {
     editorPointer_=true; editorSlid_=false; editorStartX_=x; editorStartY_=y; editorHeld_=-1; editorRepeats_=0;
-    for(size_t i=0;i<editorKeys_.size();++i) { const auto &k=editorKeys_[i]; if(x>=k.x && x<k.x+k.w && y>=k.y && y<k.y+k.h) { editorHeld_=int(i); lv_obj_set_style_bg_color(k.object,lv_color_hex(theme::border),0); editorRepeat_=ticks()+450; break; } }
+    // Fill only the narrow inter-key gutters. The staggered row margins stay
+    // inert; a press never transfers to another key after pointer-down.
+    for(size_t i=0;i<editorKeys_.size();++i) {
+      const auto &k=editorKeys_[i];
+      if(x>=k.x-4 && x<k.x+k.w+4 && y>=k.y-3 && y<k.y+k.h+3) {
+        editorHeld_=int(i); editorPress_=k;
+        lv_obj_set_style_bg_color(k.object,lv_color_hex(theme::border),0);
+        editorRepeat_=ticks()+450; break;
+      }
+    }
   }
   if (editorHeld_>=0) {
-    const auto k=editorKeys_[editorHeld_];
-    if(x<k.x || x>=k.x+k.w || y<k.y || y>=k.y+k.h) { editorSlid_=true; editorRepeat_=0; }
+    const auto &k=editorPress_;
+    if(x<k.x-12 || x>=k.x+k.w+12 || y<k.y-12 || y>=k.y+k.h+12) { editorSlid_=true; editorRepeat_=0; }
     if(!pressed) {
       editorPointer_=false; editorHeld_=-1; editorRepeat_=0;
       if(!editorSlid_ && !editorRepeats_) events_.push("editor_action",{{"id",editor_.id},{"action",k.value}});
@@ -244,7 +255,7 @@ void App::editorTick() {
   if(editorRebuild_ && !editorPointer_) editorBuild();
   if (!editorChoosing_ && !editorDeferred_.empty()) { auto pending=std::move(editorDeferred_); editorDeferred_.clear(); for(const auto &a:pending) { if(!editor_.active) break; editorAction(a); } }
   if (!editor_.active || keyboard_) return;
-  if(editorHeld_>=0 && editorRepeat_ && ticks()>=editorRepeat_ && editorKeys_[editorHeld_].value=="delete") {
+  if(editorHeld_>=0 && editorRepeat_ && ticks()>=editorRepeat_ && editorPress_.value=="delete") {
     const int held=editorHeld_; ++editorRepeats_; editorAction("delete"); editorHeld_=held;
     editorRepeat_=ticks()+std::max(60,180-editorRepeats_*20);
   }

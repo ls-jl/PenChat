@@ -1,7 +1,7 @@
 {
   "name": "PenChat",
   "appid": "8001792332371649",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "PenChat LVGL 原生词典笔 AI 助手",
   "icon": "icon-d1b8452c.png",
   "quickjs": {

@@ -43,6 +43,20 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   key(a,'shift');key(a,'shift');assert state(a)['shift']==2
   key(a,'B');assert state(a)['shift']==2
   key(a,'shift');key(a,'c')
+  # Narrow key gutters and small edge jitter must still deliver exactly once.
+  before=state(a)['length']
+  a.tap(59,38)  # the former dead gap between q and w
+  assert state(a)['length']==before+1
+  a.send('touch',x=55,y=38,pressed=True);time.sleep(.03)
+  a.send('touch',x=62,y=38,pressed=True);time.sleep(.03)
+  a.send('touch',x=62,y=38,pressed=False);time.sleep(.1)
+  assert state(a)['length']==before+2
+  # Back-to-back events in one bridge batch must not lose or duplicate taps.
+  before=state(a)['length']
+  for _ in range(10):
+    a.send('touch',x=31,y=38,pressed=True)
+    a.send('touch',x=31,y=38,pressed=False)
+  t.wait_for(lambda:state(a)['length']==before+10)
   # Slide away and return must not type a key.
   k=next(k for k in state(a)['keys'] if k['key']=='q');before=state(a)['length']
   a.send('touch',x=k['x'],y=k['y'],pressed=True);time.sleep(.06)
