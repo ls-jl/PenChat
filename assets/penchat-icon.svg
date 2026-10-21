@@ -1,1 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240"><rect width="240" height="240" rx="52" fill="#212121"/><path d="M52 48H188Q204 48 204 64V160Q204 176 188 176H104L64 204V176H52Q36 176 36 160V64Q36 48 52 48Z" fill="#4478ed"/><path d="M79 153L92 110L151 61L179 89L120 139Z" fill="#ececec"/><path d="M79 153L108 124M142 70L170 98" fill="none" stroke="#212121" stroke-width="7" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
+  <rect width="240" height="240" rx="52" fill="#212121"/>
+  <path d="M52 48H188Q204 48 204 64V160Q204 176 188 176H104L64 204V176H52Q36 176 36 160V64Q36 48 52 48Z" fill="#4478ed"/>
+  <!-- Short, paper-wrapped wax crayon: a colored point, without a nib or graphite. -->
+  <g transform="rotate(45 120 110)">
+    <path d="M107 60H133Q138 60 138 65V132L122 159Q120 162 118 159L102 132V65Q102 60 107 60Z" fill="#d5dff6"/>
+    <path d="M102 79H138V125H102Z" fill="#ececec"/>
+    <path d="M120 132H138L122 159Q120 162 118 159Z" fill="#b3c6ed"/>
+    <path d="M105 79H135M105 125H135" fill="none" stroke="#212121" stroke-width="5" stroke-linecap="round"/>
+  </g>
+</svg>
