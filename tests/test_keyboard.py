@@ -23,11 +23,18 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
  a=t.Native(pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl')),temp,official_adapter=False)
  try:
   a.tap(500,232);assert state(a)['active'] and state(a)['multiline']
+  # Enter commits the original letters, even before a candidate reply arrives.
+  key(a,'n');raw_request=a.receive('ime.request');key(a,'i');key(a,'enter')
+  assert state(a)['active'] and state(a)['length']==2 and state(a)['preedit_length']==0
+  reply(a,raw_request,candidates=['你']);assert state(a)['candidate_count']==0
+  a.tap(860,236);official=a.receive('keyboard.open');assert official['text']=='ni'
+  a.send('keyboard.result',requestId=official['requestId'],confirmed=False,text='');time.sleep(.1)
+  a.tap(630,100);a.tap(500,232)
   key(a,'n');r=a.receive('ime.request');key(a,'i')
   reply(a,r,candidates=['旧']);assert state(a)['candidate_count']==0
   r=latest(a,'ni');reply(a,r,candidates=['你','呢','泥','拟','逆','倪','妮','腻'])
   shot(a,'composition');a.tap(930,28);shot(a,'candidates');a.tap(930,28)
-  a.tap(870,100);r=a.receive('ime.request');assert r['operation']=='choose'
+  key(a,'space');r=a.receive('ime.request');assert r['operation']=='choose'
   reply(a,r,committed='你',remaining='');assert state(a)['active'] and state(a)['length']==1
   a.tap(870,100);assert not state(a)['active'];assert a.diag()['draft_length']==1
   a.tap(500,232);a.tap(730,100);shot(a,'english')

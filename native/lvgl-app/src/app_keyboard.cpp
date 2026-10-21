@@ -165,6 +165,11 @@ void App::editorAction(const std::string &a) {
   if (a=="official") { editorOfficial(); return; }
   if (a=="done" || a=="enter" || a=="space") {
     if (!editor_.preedit.empty()) {
+      if (a=="enter") {
+        if (editor_.raw()) editorChanged();
+        editorBuild();
+        return;
+      }
       if (!editorCandidates_.empty() && !editorInFlight_) editorQuery("choose",0);
       else { editor_.notice="请等待有效候选，或切换英文保留拼音"; editorBuild(); }
       return;
