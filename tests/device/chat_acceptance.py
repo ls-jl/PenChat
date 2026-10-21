@@ -158,7 +158,7 @@ if __name__=='__main__':
         assert device.state()['session']==original
         device.adb('/tmp/penchat-ui-tap 303 459 175 459 2>/dev/null');time.sleep(.2)
         boundary=device.state()
-        assert boundary['session']==original and boundary['pull_full_distance']==129
+        assert boundary['session']==original and boundary['pull_full_distance']==142
         assert boundary['pull_reader_height']==208
         results.append('128px-pull-does-not-create')
         # Returning from older messages requires a quiet 500ms; repeated
@@ -213,7 +213,7 @@ if __name__=='__main__':
         results.append('stable-pull-and-concentric-send')
         time.sleep(.25)
         assert device.state()['session']!=original and session_count()==saved_sessions
-        device.capture('pull-created-chat');results.append('pull-new-chat-129px')
+        device.capture('pull-created-chat');results.append('pull-new-chat-142px')
         fresh_session=device.state()['session']
         assert device.state()['pull_guard_remaining_ms']==0
         device.adb('/tmp/penchat-ui-tap 303 459 151 459 2>/dev/null')

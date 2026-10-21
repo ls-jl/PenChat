@@ -51,7 +51,8 @@ retract the viewport, with smooth handoff into a 160ms return. Disable LVGL elas
 overscroll so it cannot compete with that controlled visual movement.
 Freshly entered conversations with content bypass this guard. Empty conversations
 and unsent drafts never enter pull-to-create. The ORANGE pull uses 12px slop plus
-117px fill distance (129px total, 85% of the former 152px). Scale spatial
+130px fill distance (142px total). Pulls may start in the composer text entry,
+but never its attachment or send controls. Scale spatial
 thresholds, slow-motion speed and stretch by the unobstructed logical reader
 height relative to 208px. Freeze geometry at pointer-down, excluding resting
 composer space, clipping and viewport translations. Falcon already maps rotation

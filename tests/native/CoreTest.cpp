@@ -70,16 +70,16 @@ int main(int argc, char **argv) {
   }
 
   const auto pull = pullGeometry({86, 0, 956, 266}, 960, 266, 208);
-  assert(pull.start == 12 && pull.fill == 117 && pull.contains(500, 207));
+  assert(pull.start == 12 && pull.fill == 130 && pull.contains(500, 207));
   assert(!pull.contains(500, 208) && !pull.contains(85, 100));
   const auto doubled = pullGeometry({172, 0, 1912, 532}, 1920, 532, 416);
-  assert(doubled.start + doubled.fill == 258 && doubled.sideways == 36);
+  assert(doubled.start + doubled.fill == 284 && doubled.sideways == 36);
   assert(doubled.slowSpeed == 520 && doubled.stretch == 220);
   // Same display, different usable layout: half the reading span.
   const auto half = pullGeometry({86, 104, 956, 266}, 960, 266, 208);
-  assert(half.start + half.fill == 65 && half.slowDistance == 20);
+  assert(half.start + half.fill == 71 && half.slowDistance == 20);
   const auto clipped = pullGeometry({-10, -20, 1000, 300}, 960, 266, 208);
-  assert(clipped.start + clipped.fill == 129 && clipped.reader.left == 0);
+  assert(clipped.start + clipped.fill == 142 && clipped.reader.left == 0);
   const auto invalid = pullGeometry({86, 220, 956, 266}, 960, 266, 208);
   assert(!invalid.contains(500, 230));
   // All raw rotations map to this same logical region; no physical pixels/DPI

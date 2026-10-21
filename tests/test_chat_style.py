@@ -114,12 +114,12 @@ def run():
             first=app.diag()['session']
             # The old 92px stroke is below the raised threshold.
             drag(app,[190,170,140,110,98]);assert app.diag()['session']==first
-            # 85% of 152px rounds to 129px; 128px stays partial.
-            drag(app,[190,170,140,110,80,62],False)
+            # The 142px stroke requires a release at full progress; 141px stays partial.
+            drag(app,[190,170,140,110,80,49],False)
             assert app.diag()['pull_progress']==99
-            assert app.diag()['pull_full_distance']==129
+            assert app.diag()['pull_full_distance']==142
             assert app.diag()['pull_reader_height']==208
-            drag(app,[61],False)
+            drag(app,[48],False)
             assert app.diag()['pull_progress']==100
             assert app.diag()['pull_indicator_y']==168 and app.diag()['pull_content_y']==-110
             snapshot(app,'pull-full')

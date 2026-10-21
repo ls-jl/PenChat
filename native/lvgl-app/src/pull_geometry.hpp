@@ -8,7 +8,7 @@ struct PullRect {
 };
 struct PullGeometry {
   PullRect reader{0, 0, 0, 0};
-  int start = 12, fill = 117, sideways = 18, slowDistance = 40, slowSpeed = 260,
+  int start = 12, fill = 130, sideways = 18, slowDistance = 40, slowSpeed = 260,
       stretch = 110;
   bool contains(int x, int y) const {
     return x >= reader.left && x < reader.right && y >= reader.top &&
@@ -26,7 +26,7 @@ inline PullGeometry pullGeometry(PullRect body, int width, int height,
     return std::max(1, int(std::lround(v * scale)));
   };
   g.start = scaled(12);
-  g.fill = std::max(1, scaled(152 * .85) - g.start);
+  g.fill = std::max(1, scaled(142) - g.start);
   g.sideways = scaled(18);
   g.slowDistance = scaled(40);
   g.slowSpeed = scaled(260);

@@ -807,15 +807,24 @@ bool App::chatTouch(int x, int y, bool pressed) {
                        screen_.height - lv_obj_get_height(chatControls_) - 10);
     }
     const bool inReader = pullGeometry_.contains(x, y);
+    bool inComposer = false;
+    if (view_ == "chat" && composer_ && chatControls_ && !lv_obj_is_hidden(chatControls_)) {
+      lv_area_t area;
+      lv_obj_get_coords(composer_, &area);
+      inComposer = x >= area.x1 && x <= area.x2 && y >= area.y1 && y <= area.y2;
+    }
+    // The text entry shares the pull gesture, but attachment/send controls do
+    // not. Keep threshold scaling tied to the unobstructed reading viewport.
+    const bool inPullArea = inReader || inComposer;
     pullTrackActivity_ = view_ == "chat" && !navigationOpen_ && !modal_ &&
-                         !attachments_ && inReader;
+                         !attachments_ && inPullArea;
     pullCreateAllowed_ =
         !pullNeedsPause_ || now - pullLastActivity_ >= PullPauseMs;
     pullCandidate_ = view_ == "chat" && !navigationOpen_ && !modal_ &&
                      !attachments_ && hasConversationContent_ &&
                      messageOffset_ == 0 && chatFollowing_ && body_ &&
-                     lv_obj_get_scroll_bottom(body_) <= 10 && inReader;
-    if (pullCandidate_) {
+                     lv_obj_get_scroll_bottom(body_) <= 10 && inPullArea;
+    if (pullCandidate_ && inReader) {
       for (const auto &r : rasters_) {
         lv_area_t a;
         lv_obj_get_coords(r.holder, &a);
