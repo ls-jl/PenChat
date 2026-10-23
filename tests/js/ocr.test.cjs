@@ -75,3 +75,25 @@ test('empty stroke reports promptly and leaves continuous OCR armed for the next
   f.manager.ocrStartChanged.fire();f.manager.scanWordResultChanged.fire(0,{text:'再次扫描'});f.flush()
   assert.equal(f.events.at(-1).text,'再次扫描');f.session.stop()
 })
+
+test('opening the keyboard only arms OCR; idle completion/error signals stay silent', () => {
+  const f=fixture()
+  f.manager.startScan=()=>{throw new Error('Keyboard must not initiate a capture')}
+  f.session.start('idle',{continuous:true,session:'input'})
+  for(let i=0;i<5;++i) {
+    f.manager.ocrCompleteChanged.fire('')
+    f.manager.ocrStopChanged.fire('')
+    f.manager.scanErrorChanged.fire()
+    f.manager.scanWordResultChanged.fire(0,'')
+    f.flush()
+  }
+  assert(f.session.active);assert.equal(f.timers.size,0)
+  assert(!f.events.some(e=>e.type==='ocr.result'||e.started===true))
+  f.manager.ocrStartChanged.fire();f.manager.scanWordResultChanged.fire(0,'正常划扫');f.flush()
+  assert.equal(f.events.at(-1).text,'正常划扫')
+  f.manager.scanErrorChanged.fire();f.flush()
+  assert.equal(f.events.filter(e=>e.type==='ocr.result').length,1)
+  f.manager.ocrStartChanged.fire();f.manager.scanErrorChanged.fire();f.flush()
+  assert.equal(f.events.at(-1).confirmed,false);assert(f.session.active)
+  f.session.stop();assert.equal(f.timers.size,0)
+})

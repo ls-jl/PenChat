@@ -76,6 +76,7 @@ export class OcrSession {
       } catch (_) { finish({ confirmed: false, error: '扫描内容过长，请分段扫描。' }) }
     }
     const final = value => {
+      if (!current.started) return
       remember(value)
       clearTimeout(current.fallback)
       current.fallback = setTimeout(() => {
@@ -83,8 +84,9 @@ export class OcrSession {
       }, 900)
     }
     try {
-      for (const name of ['addUseOcrAppId', 'deleteUseOcrAppId', 'setIsOpenScan', 'startScan'])
+      for (const name of ['addUseOcrAppId', 'deleteUseOcrAppId', 'setIsOpenScan'])
         if (typeof this.manager[name] !== 'function') throw new Error('System OCR unavailable')
+      if (!current.continuous && typeof this.manager.startScan !== 'function') throw new Error('System OCR unavailable')
       const startSignal = bind('ocrStartChanged', () => {
         if (current.started) return
         current.started = true; ++current.capture; current.candidate = ''; clearTimeout(current.fallback)
@@ -105,7 +107,9 @@ export class OcrSession {
       }
       for (const name of ['ocrCompleteChanged', 'ocrStopChanged']) if (bind(name, final)) ++outputs
       bind('ocrResultChanged', remember)
-      bind('scanErrorChanged', () => finish({ confirmed: false, error: '系统 OCR 识别失败，请重新扫描。' }))
+      bind('scanErrorChanged', () => {
+        if (current.started) finish({ confirmed: false, error: '系统 OCR 识别失败，请重新扫描。' })
+      })
       if (!outputs) throw new Error('System OCR result signals unavailable')
       current.previousOpen = typeof this.manager.isOpenScan === 'boolean' ? this.manager.isOpenScan : false
       current.previousImage = typeof this.manager.showImgScanMode === 'boolean' ? this.manager.showImgScanMode : false
@@ -118,7 +122,9 @@ export class OcrSession {
       if (typeof this.manager.startAlmondMultiScan === 'function') this.manager.startAlmondMultiScan(current.mode === 'multi' ? 1 : 0)
       this.emit('ocr.status', Object.assign(metadata(), { started: false }))
       if (!current.continuous) current.timeout = setTimeout(() => finish({ confirmed: false, error: '扫描超时，请重新扫描或手动输入。' }), 45000)
-      if (this.manager.startScan() === false) throw new Error('System OCR failed to start')
+      // Continuous keyboard OCR waits for the pen tip. startScan actively starts
+      // a capture, so calling it here would turn opening the editor into a scan.
+      if (!current.continuous && this.manager.startScan() === false) throw new Error('System OCR failed to start')
     } catch (err) {
       finish({ confirmed: false, terminal: true, error: '系统 OCR 启动失败，请重试或手动输入。' })
     }
