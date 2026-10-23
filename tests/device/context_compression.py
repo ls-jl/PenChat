@@ -47,11 +47,11 @@ def checkpoint():
 def type_draft(text):
     d.to_chat();d.wait(lambda:d.state()['toolbar_y']==208)
     d.tap(500,232);d.wait(lambda:len(d.state()['editor'].get('keys',[]))>=26,timeout=20)
-    if d.state()['editor']['chinese']:d.tap(730,100)
+    if d.state()['editor']['chinese']:d.tap(149,238)
     for char in text:
         key=next(k for k in d.state()['editor']['keys'] if k['key']==char)
         d.tap(key['x'],key['y'])
-    d.tap(870,100);d.wait(lambda:not d.state()['editor']['active'])
+    d.tap(880,236);d.wait(lambda:not d.state()['editor']['active'])
     assert d.state()['draft_length']==len(text)
 def manual():
     d.to_chat();d.tap(128,232);swipe(250,190,35);d.tap(240,86)

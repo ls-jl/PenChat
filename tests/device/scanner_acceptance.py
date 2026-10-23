@@ -66,8 +66,9 @@ def main():
         result['cycles'].append(entry);print(json.dumps(entry),flush=True)
     # System OCR retains its own bridge and releases the custom capture lease.
     d.open_settings();d.tap(180,80);d.view('provider')
-    d.tap(790,30);d.tap(470,122);d.view('keyscan');released()
-    d.tap(40,32);d.view('provider');d.to_chat();ready()
+    d.tap(790,30);d.tap(250,122);d.wait(lambda:d.state()['editor']['active']);released()
+    assert d.state()['editor']['ocr_active']
+    d.tap(630,236);d.tap(40,32);d.to_chat();ready()
     result['system_ocr_release']=True
     # Kill only the scanner child: parent fallback restores the guardian/light.
     worker=d.adb('pidof penchat-scanner');d.adb('kill -KILL '+worker)

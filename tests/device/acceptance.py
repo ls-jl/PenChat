@@ -43,11 +43,11 @@ def tap(x,y):
     time.sleep(.04)
 def official_editor():
     wait(lambda:state()['editor']['active'])
-    tap(860,236)
+    tap(820,236)
     wait(lambda:state()['keyboard'])
 def cancel_native_editor():
     wait(lambda:not state()['keyboard'])
-    if state()['editor']['active']:tap(630,100)
+    if state()['editor']['active']:tap(630,236)
     wait(lambda:not state()['editor']['active'])
 def view(name):return wait(lambda:state()['view']==name)
 def to_chat():
@@ -60,7 +60,7 @@ def to_chat():
 def open_navigation():
     to_chat();tap(40,32);wait(lambda:state()['navigation_open'])
 def open_settings():
-    open_navigation();tap(500,236);view('settings')
+    open_navigation();tap(570,236);view('settings')
 def home():
     adb('/tmp/penchat-key /dev/input/by-path/adc-keys 102 1 100 300')
     wait(lambda:not pid())

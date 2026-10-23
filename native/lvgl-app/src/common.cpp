@@ -5,43 +5,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 namespace penchat {
-std::string ocrKeyCandidate(const std::string &text) {
-  if (text.size() > 16384)
-    throw std::runtime_error("OCR result is too long");
-  std::string candidate;
-  for (const auto &ch : characters(text)) {
-    if (ch == " " || ch == "\t" || ch == "\r" || ch == "\n" || ch == "\v" ||
-        ch == "\f" || ch == "\xc2\xa0" || ch == "\xe3\x80\x80")
-      continue;
-    candidate += ch;
-  }
-  // Remove an explicit field label, never guess or rewrite characters in a
-  // secret.
-  auto label = candidate;
-  for (auto &c : label)
-    if (c >= 'A' && c <= 'Z')
-      c += 'a' - 'A';
-  for (const std::string prefix :
-       {"apikey:", "api_key:", "apikey=", "api_key=", "apikey：", "api_key：",
-        "密钥:", "密钥："}) {
-    if (label.compare(0, prefix.size(), prefix) == 0) {
-      candidate.erase(0, prefix.size());
-      break;
-    }
-  }
-  while (!candidate.empty() &&
-         (candidate.front() == '"' || candidate.front() == '\'' ||
-          candidate.front() == '`'))
-    candidate.erase(0, 1);
-  while (!candidate.empty() &&
-         (candidate.back() == '"' || candidate.back() == '\'' ||
-          candidate.back() == '`'))
-    candidate.pop_back();
-  if (candidate.empty() || candidate.size() > 4096)
-    throw std::runtime_error("No usable OCR text");
-  return candidate;
-}
-
 std::string uid(const std::string &prefix) {
   static std::atomic<unsigned> seed{0};
   return prefix + "_" + std::to_string(nowMs()) + "_" + std::to_string(++seed);

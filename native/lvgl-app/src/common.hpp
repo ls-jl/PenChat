@@ -32,7 +32,6 @@ void ensureDirectory(const std::string &path);
 std::string fileText(const std::string &path, size_t limit = 32 * 1024 * 1024);
 void atomicText(const std::string &path, const std::string &content);
 std::string utf8(uint32_t cp);
-std::string ocrKeyCandidate(const std::string &text);
 std::vector<std::string> characters(const std::string &value);
 struct Event {
   std::string type;

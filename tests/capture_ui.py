@@ -17,8 +17,8 @@ with tempfile.TemporaryDirectory(prefix='penchat-audit-') as directory:
     try:
         app.open_settings();app.tap(300,192);snap(app,'title-model-picker');app.tap(900,232)
         app.tap(180,80);app.tap(870,70);snap(app,'provider-edit')
-        app.tap(430,120);app.receive('ocr.start');snap(app,'keyscan')
-        app.tap(40,32);app.tap(40,32);app.tap(790,24);snap(app,'provider-new')
+        app.tap(250,120);app.receive('ocr.start');snap(app,'key-editor')
+        app.tap(630,236);app.tap(40,32);app.tap(790,24);snap(app,'provider-new')
         app.tap(*( (505,223) if args.legacy else (870,24)));time.sleep(.2);snap(app,'validation-dialog')
         app.tap(890,225);app.to_chat()
         app.open_settings();app.tap(740,80);snap(app,'archives-empty');app.to_chat()

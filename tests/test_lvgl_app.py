@@ -74,11 +74,11 @@ class Native:
         # Existing business tests use the visible official fallback. Dedicated
         # editor tests disable this adapter and exercise native composition.
         if self.official_adapter and kind=='keyboard.result' and not kwargs.get('confirmed',False):
-            time.sleep(.12);self.tap(630,100)
+            time.sleep(.12);self.tap(630,236)
 
     def receive(self, kind):
         if kind=='keyboard.open' and self.official_adapter:
-            wait_for(lambda:self.diag()['editor']['active']);self.tap(860,236)
+            wait_for(lambda:self.diag()['editor']['active']);self.tap(820,236)
         for i,value in enumerate(self.pending):
             if value.get("type")==kind:return self.pending.pop(i)
         while True:
@@ -188,25 +188,26 @@ if __name__ == '__main__':
                     with sqlite3.connect(directory/'penchat.db') as db:
                         assert db.execute('select id,api_key from providers').fetchall()==[(original[0],dummy_key)]
                         assert db.execute('select id from model_configs where is_default=1').fetchone()[0]==original_model
-                    app.tap(870,70);app.tap(430,120);scan=app.receive('ocr.start')
-                    assert app.diag()['ocr']
-                    app.send('ocr.result',requestId='stale',confirmed=True,text='must-not-arrive')
-                    assert app.diag()['ocr'] and not app.diag()['keyboard']
-                    app.send('ocr.result',requestId=scan['requestId'],confirmed=True,text='API Key: sk-A0 lI\nxyz')
-                    request=app.receive('keyboard.open');assert request['text']=='sk-A0lIxyz' and request['inputType']=='EnUSOnly'
-                    app.send('keyboard.result',requestId=request['requestId'],confirmed=True,text=request['text'])
-                    wait_for(lambda:not app.diag()['keyboard'])
+                    # Key OCR is part of the common native editor and still requires Provider Save.
+                    app.official_adapter=False
+                    app.tap(870,70);app.tap(250,120)
+                    scan=app.receive('ocr.start')
+                    while scan['requestId']!=app.diag()['editor']['ocr_request']:scan=app.receive('ocr.start')
+                    app.send('ocr.result',requestId='stale',session=scan['session'],mode='single',capture=1,confirmed=True,text='must-not-arrive')
+                    before=app.diag()['editor']['length']
+                    app.send('ocr.result',requestId=scan['requestId'],session=scan['session'],mode='single',capture=1,confirmed=True,text='-ocr-fixture')
+                    wait_for(lambda:app.diag()['editor']['length']==before+12)
+                    with sqlite3.connect(directory/'penchat.db') as db:assert db.execute('select api_key from providers').fetchone()[0]==dummy_key
+                    app.tap(880,236)
                     with sqlite3.connect(directory/'penchat.db') as db:assert db.execute('select api_key from providers').fetchone()[0]==dummy_key
                     app.tap(870,24)
-                    with sqlite3.connect(directory/'penchat.db') as db:
-                        assert db.execute('select id,api_key from providers').fetchall()==[(original[0],'sk-A0lIxyz')]
-                    app.tap(870,70);app.tap(430,120);scan=app.receive('ocr.start');app.tap(40,44)
-                    assert app.receive('ocr.cancel')['requestId']==scan['requestId']
-                    app.send('ocr.result',requestId=scan['requestId'],confirmed=True,text='late')
-                    assert not app.diag()['keyboard'] and not app.diag()['ocr'] and app.diag()['view']=='provider'
-                    app.tap(430,120);scan=app.receive('ocr.start');app.send('visibility',visible=False)
-                    assert app.receive('ocr.cancel')['requestId']==scan['requestId']
-                    app.send('visibility',visible=True);assert not app.diag()['ocr']
+                    with sqlite3.connect(directory/'penchat.db') as db:assert db.execute('select id,api_key from providers').fetchall()==[(original[0],dummy_key+'-ocr-fixture')]
+                    app.tap(870,70);app.tap(250,120)
+                    scan=app.receive('ocr.start')
+                    while scan['requestId']!=app.diag()['editor']['ocr_request']:scan=app.receive('ocr.start')
+                    app.tap(630,236)
+                    app.send('ocr.result',requestId=scan['requestId'],session=scan['session'],mode='single',capture=2,confirmed=True,text='late')
+                    assert not app.diag()['editor']['active'] and not app.diag()['ocr']
                 results.append({'model':model,'api':api,'status':assistant[1]})
             finally:app.close()
         with tempfile.TemporaryDirectory(prefix='penchat-scroll-') as directory:

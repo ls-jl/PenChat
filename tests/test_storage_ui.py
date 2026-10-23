@@ -15,19 +15,19 @@ try:
     db.execute("INSERT OR REPLACE INTO app_settings VALUES('auto_title_enabled','false',1)")
    a=t.Native(pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl')),folder,model='scroll',official_adapter=False)
    # Use the visible official fallback solely to seed the draft.
-   a.tap(500,232);a.tap(860,236);request=a.receive('keyboard.open')
+   a.tap(500,232);a.tap(820,236);request=a.receive('keyboard.open')
    a.send('keyboard.result',requestId=request['requestId'],confirmed=True,text='数据库忙时仍能输入')
    time.sleep(.1);before=a.diag()['storage']['transactions'];a.tap(908,232)
    t.wait_for(lambda:len(a.read_messages())==2)
    lock=sqlite3.connect(a.directory/'penchat.db');lock.execute('BEGIN IMMEDIATE')
    time.sleep(.65) # first 500ms checkpoint is now waiting for the write lock
    started=time.monotonic()
-   a.tap(500,232);a.tap(860,236);request=a.receive('keyboard.open')
+   a.tap(500,232);a.tap(820,236);request=a.receive('keyboard.open')
    latency=time.monotonic()-started
    assert latency<1.5,latency  # SQLite busy timeout is 3s; UI must not await it.
    lock.rollback();lock.close();lock=None
    a.send('keyboard.result',requestId=request['requestId'],confirmed=False,text='')
-   time.sleep(.1);a.tap(630,100)
+   time.sleep(.1);a.tap(630,236)
    t.wait_for(lambda:a.read_messages()[-1][1]=='complete',timeout=12)
    t.wait_for(lambda:not a.diag()['generating'])
    after=a.diag()['storage']['transactions']

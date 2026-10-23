@@ -32,4 +32,5 @@
 #define LV_USE_LINUX_DRM 0
 #define LV_USE_LINUX_FBDEV 0
 #define LV_USE_SDL 0
+#define LV_LABEL_TEXT_SELECTION 1
 #endif

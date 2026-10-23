@@ -949,8 +949,6 @@ void App::build() {
     archivesPage();
   else if (view_ == "model")
     modelPage();
-  else if (view_ == "keyscan")
-    keyScanPage();
   else if (view_ == "scan")
     scanPage();
   else if (view_ == "camera")
@@ -1006,16 +1004,11 @@ void App::show(const std::string &view) {
   closeNavigation(false);
   closeAttachments();
   resetPull();
-  if (view_ == "provider" && view != "provider" && view != "keyscan") {
+  if (view_ == "provider" && view != "provider") {
     providerForm_ = Json::object();
     modelNames_.clear();
     ++modelGeneration_;
     modelCancel_ = true;
-  }
-  if (view_ == "keyscan" && view != "keyscan") {
-    stopKeyScan();
-    if (view != "provider")
-      providerForm_ = Json::object();
   }
   if (view_ == "camera" && view != "camera")
     camera_.stop();
@@ -1857,10 +1850,7 @@ void App::providerPage() {
   const int right = 20 + columnWidth;
   field("name", "名称", 10, 4, columnWidth);
   field("baseURL", "Base URL", right, 4, columnWidth);
-  field("apiKey", "API Key", 10, 58, columnWidth - 120, true);
-  button(
-      body_, "扫描 Key", columnWidth - 100, 58, 110, 48,
-      [this] { startKeyScan(); }, theme::surface);
+  field("apiKey", "API Key", 10, 58, columnWidth, true);
   button(body_,
          providerForm_.value("api", std::string()) == "chat"
              ? "接口：Chat Completions"
@@ -1907,34 +1897,6 @@ void App::editProvider(const std::string &id) {
   modelNames_.clear();
   notice_.clear();
   build();
-}
-void App::startKeyScan() {
-  stopKeyScan();
-  ocrId_ = uid("ocr");
-  ocrActive_ = true;
-  ocrNotice_ = "请按压笔头，单行划过完整 API Key";
-  show("keyscan");
-  const auto id = ocrId_;
-  whenScannerReleased([this, id] {
-    if (ocrActive_ && ocrId_ == id && view_ == "keyscan" && visible_)
-      bridge_.send("ocr.start", {{"requestId", id}});
-  });
-}
-void App::stopKeyScan() {
-  if (ocrActive_)
-    bridge_.send("ocr.cancel", {{"requestId", ocrId_}});
-  ocrActive_ = false;
-  ocrId_.clear();
-}
-void App::keyScanPage() {
-  pageHeader("扫描 API Key");
-  label(body_, ocrNotice_, 10, 5, screen_.width - 135, 23);
-  label(body_, "识别后请核对字母、数字及连字符；不会自动保存。", 10, 52,
-        screen_.width - 135, 19, theme::muted);
-  button(
-      body_, ocrActive_ ? "重新开始" : "重新扫描", 10, 114, 220, 46,
-      [this] { startKeyScan(); }, theme::surface);
-  button(body_, "取消", 250, 114, 220, 46, [this] { show("provider"); });
 }
 void App::fetchModels() {
   if (modelsBusy_.exchange(true))
@@ -2011,7 +1973,7 @@ void App::goBack() {
     show("presets");
   } else if (view_ == "archives")
     show("settings");
-  else if (view_ == "model" || view_ == "keyscan")
+  else if (view_ == "model")
     show("provider");
   else if (view_ == "provider") {
     if (!providerForm_.empty()) {
@@ -2047,8 +2009,6 @@ void App::toggleNavigation() {
   }
   closeAttachments();
   resetPull();
-  if (view_ == "keyscan")
-    show("provider");
   if (view_ == "camera")
     camera_.stop();
   historyOffset_ = 0;
@@ -2393,7 +2353,6 @@ void App::suspend(bool value) {
   if (value && imageStoreWorker_.joinable())
     imageStoreWorker_.join();
   if (value) editorInterrupt();
-  else if (editor_.active && !keyboard_) { editorChanged(); editorBuild(); }
   if (value) {
     visible_ = false;
     scanner_.eligible(false, session_);
@@ -2415,12 +2374,8 @@ void App::suspend(bool value) {
   display_.visible(!value && !keyboard_);
   if (value) {
     camera_.stop();
-    if (view_ == "keyscan") {
-      stopKeyScan();
-      view_ = "provider";
-      build();
-    }
-  } else if (view_ == "camera")
+  } else if (editor_.active && !keyboard_) {editorPolicy(true);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
+  else if (view_ == "camera")
     startCamera();
 }
 void App::shutdown() {
@@ -2435,7 +2390,6 @@ void App::shutdown() {
   if (editorRoot_) { lv_obj_delete(editorRoot_); editorRoot_ = editorText_ = nullptr; }
   scanner_.eligible(false, session_);
   afterScanRelease_ = {};
-  stopKeyScan();
   cancel_ = true;
   modelCancel_ = true;
   titleCancel_ = true;
@@ -2579,41 +2533,21 @@ void App::handle(const Json &m) {
       if (m.value("confirmed", false)) {
         auto text = m.value("text", std::string());
         if (editLength(text) <= editor_.limit) { editor_.text = text; editor_.preedit.clear(); editorFinish(true); }
-        else { editor_.notice = "官方输入超过长度上限，请调整"; editorBuild(); }
-      } else { editorChanged(); editorBuild(); }
+        else { editor_.notice = "官方输入超过长度上限，请调整";editorPolicy(true);editorBuild();editorOcrStart(); }
+      } else {editorPolicy(true);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
     }
     display_.visible(visible_);
-  } else if (type == "ocr.status" && ocrActive_ &&
-             m.value("requestId", std::string()) == ocrId_) {
-    ocrNotice_ = m.value("started", false) ? "正在识别，请完成本次划扫…"
-                                           : "请按压笔头，单行划过完整 API Key";
-    if (view_ == "keyscan")
-      build();
-  } else if (type == "ocr.result") {
-    if (!ocrActive_ || view_ != "keyscan" ||
-        m.value("requestId", std::string()) != ocrId_)
-      return;
-    ocrActive_ = false;
-    ocrId_.clear();
-    if (m.value("confirmed", false)) {
-      try {
-        const auto text = ocrKeyCandidate(m.value("text", std::string()));
-        show("provider");
-        edit(
-            text, "核对 OCR 识别的 API Key",
-            [this](const std::string &key) {
-              providerForm_["apiKey"] = key;
-              build();
-            },
-            4096, "EnUSOnly", {}, false, true);
-      } catch (...) {
-        ocrNotice_ = "未识别到可用文字，请重新扫描或手动输入。";
-        build();
-      }
-    } else {
-      ocrNotice_ = m.value("error", std::string("扫描已取消，可重新扫描。"));
-      build();
+  } else if(type=="editor.policy") {
+    if(editor_.active && m.value("session",std::string())==editor_.id && m.value("sequence",uint64_t(0))==editorPolicySequence_) {
+      editorTopBlocked_=m.value("blocked",false);
+      if(!m.value("ok",false)){editor_.notice="当前固件无法禁用下拉面板";editorBuild();}
     }
+  } else if(type=="ocr.status") {
+    if(editor_.active&&editorOcrActive_&&m.value("requestId",std::string())==editorOcrId_&&m.value("session",std::string())==editor_.id) {
+      editorOcrBusy_=m.value("started",false);if(editorOcrBusy_){editorOcrShown_=true;editor_.notice.clear();}editorBuild();
+    }
+  } else if(type=="ocr.result") {
+    editorOcrResult(m);
   } else if (type == "diagnostic") {
     auto state = diagnostics();
     state["summary"] = db_.summary();
@@ -3053,7 +2987,7 @@ Json App::diagnostics() const {
       {"generating", generating_},
       {"compressing", contextBusy_},
       {"keyboard", keyboard_},
-      {"ocr", ocrActive_},
+      {"ocr", editorOcrActive_},
       {"visible", visible_},
       {"width", screen_.width},
       {"height", screen_.height},

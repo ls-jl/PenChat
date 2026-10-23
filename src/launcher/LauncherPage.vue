@@ -36,6 +36,7 @@ export default {
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
   onHide() {
+    this.setNativeEditorPolicy(false)
     this.stopOcr()
     this.resetIme()
     this.visible = false
@@ -49,6 +50,7 @@ export default {
     resume() {
       this._disposed = false
       this.visible = true
+      if (this._nativeEditor && !this.keyboardOpen) this.setNativeEditorPolicy(true)
       if (this.running && (typeof launcher.status !== 'function' || !launcher.status().alive)) {
         this.running = false
         this.errorText = ''
@@ -67,6 +69,8 @@ export default {
       this._starting = true
       this._generation = ++generationSeed
       const generation = this._generation
+      this.setNativeEditorPolicy(false)
+      this._nativeEditor = null; this._editorPolicySequence = 0
       this._nativeReady = false
       this._requestSequence = 0
       this.errorText = ''
@@ -94,6 +98,7 @@ export default {
           if (event.type === 'ready') { this._nativeReady = true; clearTimeout(this._readyTimer); this._readyTimer = null }
           else if (event.type === 'ime.request') this.queryIme(event)
           else if (event.type === 'ime.reset') this.resetIme()
+          else if (event.type === 'editor.state') this.editorState(event)
           else if (event.type === 'keyboard.open') this.openKeyboard(event)
           else if (event.type === 'ocr.start') this.startOcr(event)
           else if (event.type === 'ocr.cancel') this.stopOcr(event.requestId)
@@ -102,6 +107,23 @@ export default {
           else if (event.type === 'exit') this.fail(event.status < 0 ? '原生程序意外退出，请重试' : `原生程序已退出（${event.status}）`)
         }
       } catch (err) { this.fail('原生页面通信失败') }
+    },
+    setNativeEditorPolicy(active) {
+      try {
+        const page = this.$page && this.$page.$npage
+        if (!page || typeof page.setSupportTopPanel !== 'function') return false
+        page.setSupportTopPanel(!active)
+        this._topPanelBlocked = active
+        return true
+      } catch (_) { return false }
+    },
+    editorState(event) {
+      if (event.sequence <= (this._editorPolicySequence || 0)) return
+      this._editorPolicySequence = event.sequence
+      this._nativeEditor = event.active ? event.session : null
+      const active = !!event.active && this.visible && !this.keyboardOpen
+      const ok = this.setNativeEditorPolicy(active)
+      this.send('editor.policy', { session: event.session, sequence: event.sequence, ok, blocked: ok && active })
     },
     startOcr(event) {
       if (!this.visible || this.keyboardOpen) { this.send('ocr.result', { requestId: event.requestId, confirmed: false, error: '当前无法启动扫描。' }); return }
@@ -113,7 +135,7 @@ export default {
         if (this._disposed || generation !== this._generation || data.requestId !== this._ocrRequest) return
         this.send(type, data)
       })
-      this._ocr.start(event.requestId)
+      this._ocr.start(event.requestId, { session: event.session, mode: event.mode, continuous: event.continuous })
     },
     stopOcr(requestId) {
       if (requestId && requestId !== this._ocrRequest) return
@@ -140,6 +162,7 @@ export default {
         this.send('ime.result', Object.assign({}, result, { session: event.session, sequence: event.sequence, revision: event.revision }))
     },
     openKeyboard(event) {
+      this.setNativeEditorPolicy(false)
       this.resetIme()
       this.stopOcr()
       if (this.keyboardOpen || !this.visible) { this.send('keyboard.result', { requestId: event.requestId, confirmed: false, text: '' }); return }
@@ -184,6 +207,7 @@ export default {
       this.send('touch', { x: Math.round(p.x), y: Math.round(p.y), pressed, cancelled })
     },
     fail(message) {
+      this.setNativeEditorPolicy(false)
       this.stopOcr()
       if (this._disposed) return
       this.errorText = message
@@ -196,6 +220,8 @@ export default {
     finish() { this.dispose(); this.$page.finish() },
     dispose() {
       if (this._disposed) return
+      this.setNativeEditorPolicy(false)
+      this._nativeEditor = null
       this._disposed = true
       this.stopOcr()
       this.resetIme()

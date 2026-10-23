@@ -63,7 +63,14 @@ void paint(lv_event_t *event) {
     lv_draw_arc(layer, &d);
   };
   const auto &k = icon->name;
-  if (k == "menu") {
+  if(k=="globe") {
+    circle(0,0,10);line(-10,0,10,0);line(-8,-5,8,-5);line(-8,5,8,5);
+    rect(-4,-10,8,20,LV_RADIUS_CIRCLE);
+  } else if(k=="clipboard") {
+    rect(-8,-8,16,18,2);rect(-4,-11,8,5,2);line(-4,0,4,0);line(-4,5,2,5);
+  } else if(k=="selection-handle") {line(0,-10,0,0);circle(0,4,4);}
+  else if(k=="eye"||k=="eye-off") {rect(-10,-6,20,12,LV_RADIUS_CIRCLE);circle(0,0,3);if(k=="eye-off")line(-10,10,10,-10);}
+  else if (k == "menu") {
     line(-9, -4, 9, -4);
     line(-9, 4, 3, 4);
   } else if (k == "plus") {

@@ -24,13 +24,29 @@ int main(int argc, char **argv) {
   {
     EditorState e; e.limit=5;
     assert(e.insert("中😀a") && e.cursor==3 && editUtf16(e.text,e.cursor)==4);
-    e.cursor=2; e.erase(); assert(e.text=="中a" && e.cursor==1);
+    e.position(2); e.erase(); assert(e.text=="中a" && e.cursor==1);
     e.revert(); assert(e.text=="中😀a" && e.cursor==2);
     assert(!e.insert("abcdef"));
     e.all=true; assert(e.insert("替换")); assert(e.text=="替换");
     e.preedit="ni"; assert(e.raw() && e.text=="替换ni"); e.revert();
     assert(e.text=="替换" && e.preedit=="ni");
     e.preedit.clear(); e.limit=100; for(int i=0;i<30;++i)e.insert("x"); assert(e.undo.size()==20);
+  }
+
+  {
+    EditorState e;e.text="alpha 中文 👩‍💻 🇨🇳 é omega";e.position(0);
+    e.word(2);assert(e.selection()=="alpha");assert(e.insert("A"));e.revert();assert(e.selection()=="alpha");
+    e.position(editLength(e.text));e.word(9);assert(e.selection()=="👩‍💻");
+    e.insert("X");e.revert();e.position(12);assert(e.cursor==12); // flag starts after the intervening space
+    e.word(13);assert(e.selection()=="🇨🇳");e.erase();assert(e.text.find("🇨🇳")==std::string::npos);e.revert();
+    e.word(16);assert(e.selection()=="é");
+    e.limit=editLength(e.text);e.select(0,5);assert(e.insert("12345"));assert(!e.insert("x"));
+    EditorClipboard c;for(int i=0;i<30;++i)c.copy(std::to_string(i));assert(c.records.size()==20);
+    c.copy("29");assert(c.records.size()==20&&c.records.front()=="29");
+    c.copy("sensitive-fixture",true);assert(c.records.size()==20&&c.sensitiveCurrent);
+    assert(std::find(c.records.begin(),c.records.end(),"sensitive-fixture")==c.records.end());
+    c.copy(std::string(400000,'a'));assert(c.records.size()<=20);c.copy(std::string(400000,'b'));assert(c.records.size()==1);
+    c.clear();assert(c.records.empty()&&c.current.empty());
   }
 
   {
@@ -348,18 +364,6 @@ int main(int argc, char **argv) {
                   {reply})[0]["request_json"]
              .get<std::string>()
              .find("api_key") == std::string::npos);
-  assert(ocrKeyCandidate(" API Key: sk-Ab0 I1\nxyz ") == "sk-Ab0I1xyz");
-  assert(ocrKeyCandidate("  token_a\tb-c  ") == "token_ab-c");
-  assert(ocrKeyCandidate("sk-O0lI") == "sk-O0lI");
-  assert(ocrKeyCandidate("API_KEY: gsk_x/y+=.0") == "gsk_x/y+=.0");
-  assert(ocrKeyCandidate("vendor-sk-0/+/=") == "vendor-sk-0/+/=");
-  bool emptyOcr = false;
-  try {
-    ocrKeyCandidate(" \n\t");
-  } catch (...) {
-    emptyOcr = true;
-  }
-  assert(emptyOcr);
   db.setting("penchat_settings", {{"autoSendCapturedContent", true}});
   assert(db.settings()["penchat_settings"]["autoSendCapturedContent"] == true);
   std::vector<std::string> events;

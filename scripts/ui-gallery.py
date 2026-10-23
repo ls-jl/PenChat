@@ -13,7 +13,7 @@ cases=[
 ('Provider 与模型列表','chatgpt-style/providers.png'),('Provider：新建','extra/provider-new.png'),
 ('Provider：编辑','extra/provider-edit.png'),('Provider：校验反馈','extra/validation-dialog.png'),
 ('模型：推理能力','reasoning-ui/model-capabilities.png'),('模型：参数映射','reasoning-ui/model-mapping.png'),
-('API Key：扫描','extra/keyscan.png'),('加号菜单','chatgpt-style/attachments.png'),
+('API Key：键盘 OCR','extra/key-editor.png'),('加号菜单','chatgpt-style/attachments.png'),
 ('模型选择','reasoning-ui/models.png'),('标题模型选择','extra/title-model-picker.png'),
 ('推理强度：两档','reasoning-ui/two-levels.png'),('推理强度：多档','reasoning-ui/four-levels.png'),
 ('思考展示选项','chatgpt-style/thought-display-options.png'),('预设列表与开关','chatgpt-style/presets-settings.png'),

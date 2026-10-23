@@ -18,7 +18,7 @@ function fixture() {
     .replace(/^import .*$/gm, '').replace('export default', 'module.exports =')
   vm.runInContext(script, context)
   const options = context.module.exports
-  const page = Object.assign(options.data(), options.methods, { $page: { finish: () => calls.push(['finish']) } })
+  const page = Object.assign(options.data(), options.methods, { $page: { finish: () => calls.push(['finish']), $npage: {setSupportTopPanel: value => calls.push(['topPanel',value])} } })
   return { page, options, calls, native, context, timers, edit: (...args) => editCallback(...args) }
 }
 test('Falcon pageX/pageY touches retain logical coordinates through the full-screen hole', () => {
@@ -177,4 +177,14 @@ test('official fallback receives independent multiline and UTF-16 cursor configu
   const config = f.calls.find(c => c[0] === 'startTextEdit')[1]
   assert.equal(config.multiLinesEditVisible, false); assert.equal(config.cursorIndex, 3)
   f.page.dispose()
+})
+
+test('native editor locks only its page top panel, rejects old policies and releases on hide/failure', async () => {
+  const f=fixture();await f.page.boot()
+  f.page.editorState({session:'one',sequence:1,active:true});assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],false)
+  f.page.editorState({session:'two',sequence:3,active:true});const count=f.calls.length
+  f.page.editorState({session:'one',sequence:2,active:false});assert.equal(f.calls.length,count)
+  f.options.onHide.call(f.page);assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],true)
+  f.options.onShow.call(f.page);f.page.editorState({session:'two',sequence:4,active:true})
+  f.page.fail('fixture');assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],true)
 })
