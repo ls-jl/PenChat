@@ -43,6 +43,7 @@ with zipfile.ZipFile(path) as archive:
     assert all(archive.read(n) == bridge for n in bridges)
     for name, digest in json.loads((ROOT / 'native/lvgl-app/math-resources.sha256.json').read_text()).items():
         assert hashlib.sha256(archive.read('assets/' + name)).hexdigest() == digest, name
+    assert archive.read('assets/licenses/miniz.txt') == (ROOT/'.deps/miniz/LICENSE').read_bytes()
     assert archive.read('assets/licenses/dependencies.lock.json') == (ROOT / 'native/lvgl-app/dependencies.lock.json').read_bytes()
 print(f'AMR: launcher-only JS, AArch64 native payload, bridges, dependency lock and all math resource hashes passed; {path.stat().st_size} bytes; SHA256 {hashlib.sha256(path.read_bytes()).hexdigest()}')
 

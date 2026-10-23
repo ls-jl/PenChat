@@ -223,6 +223,7 @@ void Database::deferAssetCollection() {
   jobsReady_.notify_one();
 }
 void Database::collectAssets(bool discover) {
+  if (assetLeases_) return;
   // Only immediate, generated children of the private assets directory qualify.
   const std::regex owned("asset_[0-9]+_[0-9]+\\.[A-Za-z0-9.]+(\\.part)?");
   const auto prefix = assetDirectory_ + "/";
@@ -420,7 +421,8 @@ Json Database::storageStats() {
   return perform([this] {
     return Json{{"queries", queryCount_},
                 {"transactions", transactionCount_},
-                {"statements", statements_.size()}};
+                {"statements", statements_.size()},
+                {"unsaved", pendingSaves_.size() + failedSaves_.size()}};
   });
 }
 Json Database::requestModel(const Json &model) {

@@ -53,6 +53,12 @@
       "revision": "v1.5.0",
       "url": "https://codeload.github.com/webmproject/libwebp/tar.gz/refs/tags/v1.5.0",
       "sha256": "668c9aba45565e24c27e17f7aaf7060a399f7f31dba6c97a044e1feacb930f37"
+    },
+    {
+      "name": "miniz",
+      "revision": "293d4db1b7d0ffee9756d035b9ac6f7431ef8492",
+      "url": "https://codeload.github.com/richgel999/miniz/tar.gz/293d4db1b7d0ffee9756d035b9ac6f7431ef8492",
+      "sha256": "27d99216e9127d1678085639f3059f6907a02c044e8a38392a39f96163ddbbf0"
     }
   ]
 }

@@ -9,6 +9,7 @@ namespace penchat {
 class Database {
   sqlite3 *db_ = nullptr;
   std::string assetDirectory_;
+  unsigned assetLeases_ = 0;
   std::map<std::string, sqlite3_stmt *> statements_;
   Json settingsCache_, modelsCache_;
   bool onWorker() const { return std::this_thread::get_id() == worker_.get_id(); }
@@ -88,6 +89,9 @@ public:
   void selectModel(const std::string &id);
   Json responseInput(const std::string &session, const std::string &beforeMessage,
                      const Json &model = Json::object());
+  void transferSnapshot(const std::string &path);
+  void releaseTransferSnapshot();
+  Json importTransfer(const Json &bundle);
   Json summary();
 };
 } // namespace penchat

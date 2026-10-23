@@ -128,3 +128,17 @@ Device tests that swap databases must isolate assets/backup files as well and us
 SQLite backup snapshots for online reads. Shared icon geometry lives in icons.cpp;
 use it for keyboard symbols too. History long-press actions occupy one horizontal
 row with 50px touch height. Nonempty chat content has 8px top padding.
+
+Transfer jobs run outside LVGL. Production transfer root is /userdisk/Favorite/PenChat;
+host tests use a private data directory (PENCHAT_TRANSFER_ROOT is host-only).
+Never export the SQLite snapshot, provider credentials/headers or opaque reasoning.
+Pin assets for the lifetime of an export snapshot. Prepare imports before the single
+DB-worker transaction; regenerate IDs and preserve user/global preferences. Validate
+archive paths, actual size/CRC, duplicates and symlinks before preview/commit. Default
+preset replacement requires a separate confirmation, both in UI and service. Device
+transfer tests must isolate/restore the public transfer folder as well as DB/assets.
+
+Export persistence defaults to enabled. When disabled, normal native shutdown
+retires only the public 导出 subtree into private transfer staging before removal;
+keep 导入 and instructions. Background/IME transitions never trigger cleanup. Do not
+restart or access the device while the user says it is unavailable.

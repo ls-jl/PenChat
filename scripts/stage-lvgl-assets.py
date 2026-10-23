@@ -2,7 +2,7 @@
 import hashlib,json,pathlib,shutil
 root=pathlib.Path(__file__).resolve().parents[1]
 licenses=root/'assets/licenses';licenses.mkdir(parents=True,exist_ok=True)
-for name,path in {'lvgl':'LICENCE.txt','md4c':'LICENSE.md','microtex':'LICENSE','tinyxml2':'LICENSE.txt','json':'LICENSE.MIT','cairo':'COPYING','pixman':'COPYING','freetype':'docs/FTL.TXT','webp':'COPYING'}.items():
+for name,path in {'miniz':'LICENSE','lvgl':'LICENCE.txt','md4c':'LICENSE.md','microtex':'LICENSE','tinyxml2':'LICENSE.txt','json':'LICENSE.MIT','cairo':'COPYING','pixman':'COPYING','freetype':'docs/FTL.TXT','webp':'COPYING'}.items():
     source=root/'.deps'/name/path
     if not source.exists():raise RuntimeError('Missing license '+str(source))
     shutil.copy2(source,licenses/(name+'.txt'))

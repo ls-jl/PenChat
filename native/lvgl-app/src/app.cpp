@@ -65,6 +65,8 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
       rich_(fontPath, resources,
             join(workspace, "assets/fonts/DejaVuSans.ttf")),
       workspace_(std::move(workspace)), dataDir_(std::move(dataDir)) {
+  transfer_.reset(new Transfer(db_, events_, dataDir_));
+  transfer_->start("init");
   clearCrop();
   auto config = db_.settings();
   cameraAngle_ = config.value("camera_orientation",0);
@@ -823,6 +825,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  transferProgress_ = nullptr;
   scanImage_ = scanLabel_ = scanUse_ = scanHint_ = nullptr;
   historyRows_.clear();
   historyContextId_.clear();
@@ -855,6 +858,13 @@ void App::clear() {
       nullptr;
 }
 void App::build() {
+  const int settingsY = body_ && builtView_ == "settings" && view_ == "settings"
+                            ? std::max(0, int(lv_obj_get_scroll_y(body_))) : 0;
+  const int transferY = body_ && builtView_ == "transfer" &&
+                                transferBuiltScreen_ == transferScreen_ &&
+                                !transfer_->busy()
+                            ? std::max(0, int(lv_obj_get_scroll_y(body_)))
+                            : 0;
   if (body_ && builtView_ == "chat" && !chatLayout_)
     chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
   chatLayout_ = true;
@@ -885,6 +895,8 @@ void App::build() {
     chat();
   else if (view_ == "settings")
     settingsPage();
+  else if (view_ == "transfer")
+    transferPage();
   else if (view_ == "presets")
     presetsPage();
   else if (view_ == "preset_edit")
@@ -922,6 +934,11 @@ void App::build() {
   if (navigationOpen_)
     historyDrawer();
   lv_obj_update_layout(screenObj_);
+  if (view_ == "transfer") {
+    lv_obj_scroll_to_y(body_, transferY, LV_ANIM_OFF);
+    transferBuiltScreen_ = transfer_->busy() ? "" : transferScreen_;
+  }
+  if (view_ == "settings") lv_obj_scroll_to_y(body_, settingsY, LV_ANIM_OFF);
   builtView_ = view_;
   chatLayout_ = false;
   syncScanner();
@@ -1340,6 +1357,8 @@ void App::renderMessages(bool bottom, bool cached) {
         id == assistant_ ? reasoning_ : stringValue(m, "reasoning_text");
     auto metadata =
         id == assistant_ ? reasoningMetadata_ : objectField(m, "metadata_json");
+    if (metadata.value("imported_reference", false))
+      label(wrap, "导入的参考内容", 0, 0, textWidth, 17, theme::muted);
     if (!user &&
         (!reason.empty() || metadata.value("reasoning_observed", false))) {
       std::string title = "思考过程";
@@ -1663,7 +1682,15 @@ void App::settingsPage() {
   action("思考过程：" + reasoningName, right, 108,
          [this] { reasoningDisplayPicker(); });
   action("会话预设", left, 160, [this] { show("presets"); });
-  label(body_, PENCHAT_NAME " " PENCHAT_VERSION " · LVGL 9.6.0", right, 230,
+  action("导入与导出", right, 160, [this] { openTransfer(); });
+  const bool persistentExports = config.value("persistent_export_directory", true);
+  action(persistentExports ? "持久化导出目录：开" : "持久化导出目录：关",
+         right, 216, [this, persistentExports] {
+           db_.setting("persistent_export_directory", !persistentExports);
+           build();
+         });
+  label(body_, "关闭后退出清理导出文件，导入文件保留", left, 280, column, 16, theme::muted);
+  label(body_, PENCHAT_NAME " " PENCHAT_VERSION " · LVGL 9.6.0", right, 286,
         column, 16, theme::muted);
 }
 void App::reasoningDisplayPicker() {
@@ -1907,6 +1934,10 @@ void App::saveProvider() {
   show("provider");
 }
 void App::goBack() {
+  if (view_ == "transfer") {
+    transferBack();
+    return;
+  }
   if (view_ == "presets")
     show("settings");
   else if (view_ == "preset_edit") {
@@ -2325,6 +2356,10 @@ void App::suspend(bool value) {
     startCamera();
 }
 void App::shutdown() {
+  if (shutdownComplete_) return;
+  shutdownComplete_ = true;
+  if (transfer_)
+    transfer_->stop();
   if (imageStoreWorker_.joinable())
     imageStoreWorker_.join();
   editorInterrupt();
@@ -2346,6 +2381,8 @@ void App::shutdown() {
   if (generating_ && !assistant_.empty())
     stopNetwork();
   db_.flush();
+  if (transfer_ && !transfer_->finish(db_.settings().value("persistent_export_directory", true)))
+    db_.setting("export_cleanup_failed", true);
 }
 void App::handle(const Json &m) {
   auto type = m.value("type", std::string());
@@ -2558,6 +2595,10 @@ void App::tick() {
   }
   syncScanner();
   for (auto &e : events_.drain()) {
+    if (e.type.compare(0, 9, "transfer_") == 0) {
+      transferEvent(e);
+      continue;
+    }
     if (e.type == "image_stored") {
       if (imageStoreWorker_.joinable())
         imageStoreWorker_.join();
@@ -2776,6 +2817,22 @@ void App::tick() {
   }
 }
 Json App::diagnostics() const {
+  Json transferDiagnostic = Json::object();
+  if (view_ == "transfer") {
+    for (auto key : {"path", "added", "skipped", "count"})
+      if (transferData_.contains(key))
+        transferDiagnostic[key] = transferData_[key];
+    if (transferData_.contains("items") && transferData_["items"].is_array()) {
+      transferDiagnostic["items"] = Json::array();
+      for (const auto &item : transferData_["items"]) {
+        Json row = Json::object();
+        for (auto key : {"id", "name", "title", "bytes"})
+          if (item.contains(key))
+            row[key] = item[key];
+        transferDiagnostic["items"].push_back(row);
+      }
+    }
+  }
   Json tableRows = Json::array();
   for (const auto &r : rasters_)
     if (r.tableId) {
@@ -2844,6 +2901,10 @@ Json App::diagnostics() const {
       {"pid", getpid()},
       {"touch", lastTouch_},
       {"view", view_},
+      {"transfer_screen", transferScreen_},
+      {"transfer_busy", transfer_ && transfer_->busy()},
+      {"transfer_error", transferError_},
+      {"transfer_data", transferDiagnostic},
       {"scanner", scanner_.state()},
       {"scan_id", scanId_},
       {"scan_result", scanResult_},

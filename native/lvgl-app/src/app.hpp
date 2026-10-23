@@ -1,5 +1,6 @@
 #pragma once
 #include "database.hpp"
+#include "transfer.hpp"
 #include "editor.hpp"
 #include "images.hpp"
 #include "network.hpp"
@@ -33,6 +34,20 @@ class App {
   Input &input_;
   Screen screen_;
   Events events_;
+  std::unique_ptr<Transfer> transfer_;
+  lv_obj_t *transferProgress_ = nullptr;
+  std::string transferBuiltScreen_, transferScreen_ = "home", transferKind_ = "chats", transferOp_, transferError_, transferMapKey_;
+  Json transferData_ = Json::object(), transferPreview_ = Json::object(), transferMapping_ = Json::object(), transferExportArgs_;
+  std::set<std::string> transferSelected_;
+  std::set<size_t> transferIndices_;
+  int transferOffset_ = 0;
+  bool transferArchived_ = false, transferCopy_ = false, transferMissing_ = false, transferDefaultConfirmed_ = false;
+  std::string transferDefaultAction_ = "replace";
+  void transferPage();
+  void transferRequest(const std::string &, Json args = Json::object());
+  void transferEvent(const Event &);
+  void openTransfer(const std::string &screen = "home", const std::string &session = "");
+  void transferBack();
   Images images_;
   Camera camera_;
   ScanService scanner_;
@@ -89,6 +104,7 @@ class App {
   void retireSession(const std::string &id, bool archive);
   lv_obj_t *historyRow(lv_obj_t *parent, const Json &session, int y, int width);
   int messageOffset_ = 0, historyOffset_ = 0, networkGeneration_ = 0;
+  bool shutdownComplete_ = false;
   bool generating_ = false, visible_ = true, keyboard_ = false;
   std::atomic<bool> cancel_{false};
   std::thread network_;

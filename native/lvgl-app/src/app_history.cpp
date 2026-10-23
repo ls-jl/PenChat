@@ -215,11 +215,11 @@ void App::historyContext(const std::string &id) {
           app->closeHistoryContext();
       },
       LV_EVENT_CLICKED, this);
-  auto panel = box(modal_, 32, 72, 576, 112, theme::surface);
+  auto panel = box(modal_, 32, 72, 720, 112, theme::surface);
   lv_obj_set_scrollable(panel, false);
   lv_obj_set_style_radius(panel, 16, 0);
   auto title =
-      label(panel, session.value("title", std::string()), 16, 10, 544, 21);
+      label(panel, session.value("title", std::string()), 16, 10, 688, 21);
   lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(title, 28);
   button(panel, "重命名", 12, 50, 132, 50, [this, id, session] {
@@ -259,6 +259,9 @@ void App::historyContext(const std::string &id) {
   });
   lv_obj_set_style_text_color(lv_obj_get_child(remove, 0),
                               lv_color_hex(theme::danger), 0);
+  button(panel, "导出", 572, 50, 132, 50, [this, id] {
+    events_.push("transfer_open_session", {{"id", id}});
+  });
 }
 void App::retireSession(const std::string &id, bool archive) {
   if (id == session_)
