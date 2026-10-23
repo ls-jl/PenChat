@@ -92,6 +92,7 @@ class App {
   std::string titleSession_, historyContextId_, longPressedSession_;
   bool historyDirty_ = false;
   int archiveOffset_ = 0;
+  std::string archiveHighlight_;
   std::vector<std::pair<std::string, lv_obj_t *>> historyRows_;
   int titleWidth() const;
   int titleLimit() const;
@@ -284,6 +285,17 @@ class App {
   bool emptyForPreset();
   std::string presetSummary(const Json &preset);
 
+  bool contextBusy_ = false;
+  int contextGeneration_ = 0;
+  std::thread contextWorker_;
+  std::atomic<bool> contextCancel_{false};
+  void startContext(bool manual, const std::string &retry = "");
+  void cancelContext();
+  void contextProgress(const std::string &text);
+  void contextEvent(Event &event);
+  void contextDetails();
+  void sendPrepared(Json model, Json input, const std::string &retryId,
+                    const std::string &draft);
   void stopNetwork();
   void fetchModels();
   void saveProvider();

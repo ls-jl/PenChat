@@ -44,7 +44,8 @@ void App::transferRequest(const std::string &op, Json args) {
       if (id == session_)
         includes = true;
     if (args.value("kind", std::string()) == "chats" && includes &&
-        (generating_ || persistDirty_ || saveInFlight_ || imageStoreBusy_)) {
+        (contextBusy_ || generating_ || persistDirty_ || saveInFlight_ ||
+         imageStoreBusy_)) {
       modal("会话尚未就绪", "请等待回复和图片保存完成，或停止生成后再导出。");
       return;
     }

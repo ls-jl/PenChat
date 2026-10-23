@@ -86,7 +86,7 @@ void App::presetsPage() {
   }
 }
 void App::presetChoices(const std::string &field) {
-  const bool modelField = field == "model_id";
+  const bool modelField = field == "model_id" || field == "compression_model_id";
   modal(modelField ? "预设模型" : field == "effort" ? "预设推理强度" : "系统提示词", "");
   auto panel = lv_obj_get_child(modal_, 1);
   lv_obj_clean(panel);
@@ -106,7 +106,7 @@ void App::presetChoices(const std::string &field) {
   if (field == "prompt_mode") {
     option("inherit", "沿用会话"); option("custom", "自定义"); option("clear", "清空");
   } else if (modelField) {
-    option("", "沿用会话");
+    option("", field == "compression_model_id" ? "跟随聊天模型" : "沿用会话");
     for (const auto &provider : db_.providers()) {
       label(panel, provider.value("name", std::string()), 12, y, screen_.width - 160, 17, theme::muted);
       y += 26;
@@ -140,6 +140,12 @@ void App::presetEditor() {
       if (model.is_null() || !presetSupports(model, presetForm_.value("effort", std::string()))) {
         modal("请检查模型与强度", "模型已不可用或不支持所选强度，请重新选择。"); return;
       }
+    }
+    auto compressionId = presetForm_.value("compression_model_id", std::string());
+    if (!compressionId.empty()) {
+      bool available = false;
+      for (const auto &m : db_.models()) if (m["id"] == compressionId) available = true;
+      if (!available) { modal("压缩模型不可用", "请选择已有模型，或恢复“跟随聊天模型”。"); return; }
     }
     auto presets = presetList(db_.settings());
     bool replaced = false;
@@ -193,22 +199,45 @@ void App::presetEditor() {
   };
   if (!id.empty()) timing("model_when", 10);
   if (!effort.empty()) timing("effort_when", right);
+  auto compressionId = presetForm_.value("compression_model_id", std::string());
+  std::string compressionName =
+      compressionId.empty() ? "跟随聊天模型" : "指定模型不可用";
+  for (const auto &m : db_.models())
+    if (m["id"] == compressionId)
+      compressionName = m.value("name", std::string());
+  const int compressionY = (!id.empty() || !effort.empty()) ? 202 : 120;
+  action("上下文压缩模型：" + compressionName, 10, compressionY,
+         [this] { presetChoices("compression_model_id"); });
+  label(body_, "仅影响下一次压缩；不改变聊天模型和已有摘要", right, compressionY + 8, column, 16,
+        theme::muted);
   if (mode == "custom") {
-    fieldButton(body_, "系统提示词", presetForm_.value("prompt", std::string("点击编辑")), 10, 202, width, [this] {
-      edit(presetForm_.value("prompt", std::string()), "系统提示词（可输入多行）", [this](const std::string &v) { presetForm_["prompt"] = v; build(); }, 8192, "ZhCNPreferred", {}, true);
-    });
-    label(body_, "应用后替换会话提示词；需要移除时请选择“清空”。", 10, 260, width, 16, theme::muted);
+    fieldButton(
+        body_, "系统提示词", presetForm_.value("prompt", std::string("点击编辑")), 10,
+        compressionY + 64, width, [this] {
+          edit(
+              presetForm_.value("prompt", std::string()), "系统提示词（可输入多行）",
+              [this](const std::string &v) {
+                presetForm_["prompt"] = v;
+                build();
+              },
+              8192, "ZhCNPreferred", {}, true);
+        });
+    label(body_, "应用后替换会话提示词；需要移除时请选择“清空”。", 10, compressionY + 122, width, 16,
+          theme::muted);
   }
-  if (presetForm_["id"] != "default") action("删除预设", right, mode == "custom" ? 294 : 202, [this] {
-    modal("删除预设", "已有会话仍保留当前配置。确定删除此预设？");
-    button(modal_, "确定删除", 16, screen_.height - 66, 160, 44, [this] {
-      auto presets = presetList(db_.settings());
-      Json kept = Json::array();
-      for (const auto &p : presets) if (p["id"] != presetForm_["id"]) kept.push_back(p);
-      db_.setting("chat_presets", kept);
-      presetForm_ = Json::object();
-      show("presets");
+  if (presetForm_["id"] != "default")
+    action("删除预设", right, compressionY + (mode == "custom" ? 156 : 64), [this] {
+      modal("删除预设", "已有会话仍保留当前配置。确定删除此预设？");
+      button(modal_, "确定删除", 16, screen_.height - 66, 160, 44, [this] {
+        auto presets = presetList(db_.settings());
+        Json kept = Json::array();
+        for (const auto &p : presets)
+          if (p["id"] != presetForm_["id"])
+            kept.push_back(p);
+        db_.setting("chat_presets", kept);
+        presetForm_ = Json::object();
+        show("presets");
+      });
     });
-  });
 }
 } // namespace penchat

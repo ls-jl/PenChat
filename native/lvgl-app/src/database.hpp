@@ -83,7 +83,8 @@ public:
   Json activeModel();
   Json sessionPreferences(const std::string &session);
   void saveSessionPreferences(const std::string &session, const Json &preferences);
-  void saveModelCapabilities(const std::string &id, const Json &reasoning);
+  void saveModelCapabilities(const std::string &id, const Json &reasoning,
+                             int budget = 0);
   void recordRequest(const std::string &message, const Json &model);
   void saveProvider(const Json &form, const std::vector<std::string> &names);
   void selectModel(const std::string &id);
@@ -92,6 +93,9 @@ public:
   void transferSnapshot(const std::string &path);
   void releaseTransferSnapshot();
   Json importTransfer(const Json &bundle);
+  Json contextSnapshot(const std::string &session, bool lease = false);
+  Json commitCompression(const Json &snapshot, Json checkpoint,
+                         std::atomic<bool> &cancel);
   Json summary();
 };
 } // namespace penchat

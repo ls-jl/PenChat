@@ -306,6 +306,8 @@ void App::archivesPage() {
                        10, y + 10, 570, 20);
     lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_height(title, 26);
+    if (id == archiveHighlight_)
+      lv_obj_set_style_text_color(title, lv_color_hex(theme::link), 0);
     historyRows_.push_back({id, title});
     button(body_, "还原", 590, y, 100, 44, [this, id] {
       db_.archiveSession(id, false);

@@ -2,9 +2,9 @@
 #include "reasoning.hpp"
 namespace penchat {
 inline Json defaultPreset() {
-  return {{"id", "default"}, {"name", "默认预设"}, {"prompt_mode", "inherit"},
-          {"prompt", ""}, {"model_id", ""}, {"model_when", "empty"},
-          {"effort", ""}, {"effort_when", "empty"}};
+  return {{"id", "default"}, {"name", "默认预设"},     {"prompt_mode", "inherit"},
+          {"prompt", ""},    {"model_id", ""},         {"model_when", "empty"},
+          {"effort", ""},    {"effort_when", "empty"}, {"compression_model_id", ""}};
 }
 inline Json presetList(const Json &settings) {
   Json out = Json::array({defaultPreset()});
@@ -44,6 +44,8 @@ inline Json applyPresetSnapshot(Json preferences, const Json &preset,
   auto mode = preset.value("prompt_mode", std::string("inherit"));
   if (mode == "custom") preferences["system_prompt"] = preset.value("prompt", std::string());
   else if (mode == "clear") preferences.erase("system_prompt");
+  preferences["compression_model_id"] =
+      preset.value("compression_model_id", std::string());
   preferences["preset_id"] = preset.value("id", std::string("default"));
   preferences["preset_name"] = preset.value("name", std::string("默认预设"));
   preferences["preset_adjusted"] = false;

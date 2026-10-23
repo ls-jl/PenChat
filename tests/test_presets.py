@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-presets-') as directory:
     app=Native(binary,p)
     def picker():
         app.tap(128,232)
-        drag(app,[182,150,110],x=250)
+        drag(app,[190,150,110,70,20],x=250)
         snapshot(app,'preset-menu-scroll')
         app.tap(220,174)
         assert app.diag()['popup']=='presets',app.diag()['popup']

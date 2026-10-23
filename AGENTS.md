@@ -142,3 +142,11 @@ Export persistence defaults to enabled. When disabled, normal native shutdown
 retires only the public 导出 subtree into private transfer staging before removal;
 keep 导入 and instructions. Background/IME transitions never trigger cleanup. Do not
 restart or access the device while the user says it is unavailable.
+
+Context compression is an auxiliary background job. Freeze both model configurations and pending
+input; never truncate history silently. Use ordinary historical reference summaries, never promote
+them to system instructions or replay covered opaque reasoning. Commit a full pre-compression
+archive and checkpoint atomically on the DB worker after all batches succeed; retain shared image
+references and cancel stale jobs on session replacement/deletion/shutdown. Preset compression model
+empty means follow the chat model, not inherit a previous preset override. New chats never inherit
+summary coverage or archive links. Device access remains forbidden while unavailable.

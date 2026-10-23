@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "context.hpp"
 #include "icons.hpp"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include <algorithm>
@@ -296,6 +297,10 @@ void App::closeAttachments() {
   lv_obj_delete(object);
 }
 void App::toggleAttachments() {
+  if (contextBusy_) {
+    contextProgress("正在整理历史，请稍候…");
+    return;
+  }
   if (attachments_) {
     closeAttachments();
     return;
@@ -314,6 +319,10 @@ void App::toggleAttachments() {
   lv_obj_set_scroll_momentum(menu, false);
   std::vector<std::string> names{"拍照", "相册", "模型", "推理强度"};
   std::vector<std::string> icons{"camera", "album", "settings", "gauge"};
+  names.push_back("压缩上下文");
+  icons.push_back("history");
+  names.push_back("查看上下文摘要");
+  icons.push_back("history");
   if (db_.settings().value("presets_enabled", false)) {
     names.push_back("预设");
     icons.push_back("settings");
@@ -327,6 +336,10 @@ void App::toggleAttachments() {
       else if (i == 2)
         modelPicker();
       else if (i == 4)
+        startContext(true);
+      else if (i == 5)
+        contextDetails();
+      else if (i == 6)
         presetPicker();
       else {
         bool enabled =
@@ -559,7 +572,7 @@ void App::effortPicker() {
   }
 }
 void App::modelPage() {
-  pageHeader("模型推理设置");
+  pageHeader("模型设置");
   const int width = screen_.width - 118, column = (width - 14) / 2;
   const auto id = modelForm_.value("id", std::string());
   button(screenObj_, "参数映射", 650, 2, 140, 44, [this] {
@@ -567,7 +580,9 @@ void App::modelPage() {
     build();
   });
   auto save = button(screenObj_, "保存", 806, 2, 130, 44, [this, id] {
-    db_.saveModelCapabilities(id, modelForm_["reasoning"]);
+    db_.saveModelCapabilities(
+        id, modelForm_["reasoning"],
+        modelForm_.value("context_budget", contextBudget(modelForm_)));
     show("provider");
   });
   primary(save);
@@ -625,6 +640,32 @@ void App::modelPage() {
           build();
         },
         theme::surface, LV_TEXT_ALIGN_LEFT);
+  const int budgetY = modelAdvanced_ ? 32 + n * 48 : 224;
+  fieldButton(
+      body_, "上下文预算（本地估算 token）",
+      std::to_string(modelForm_.value("context_budget", contextBudget(modelForm_))), 10,
+      budgetY, width, [this] {
+        edit(
+            std::to_string(
+                modelForm_.value("context_budget", contextBudget(modelForm_))),
+            "上下文预算：1024～2097152",
+            [this](const std::string &value) {
+              try {
+                size_t end;
+                int n = std::stoi(value, &end);
+                if (end != value.size() || n < 1024 || n > 2097152)
+                  throw std::runtime_error("budget");
+                modelForm_["context_budget"] = n;
+                build();
+              } catch (...) {
+                modal("预算无效", "请输入 1024～2097152 "
+                                  "的整数。这是本地估算预算，不是接口精确计费数据。");
+              }
+            },
+            7, "EnUSOnly");
+      });
+  label(body_, "达到 75% 自动压缩，尽量降至 50%；不代表接口精确计费。", 10,
+        budgetY + 60, width, 16, theme::muted);
 }
 void App::resetPull() {
   const bool wasPulling = pulling_;
@@ -917,6 +958,14 @@ void App::build() {
     albumPage();
   else if (view_ == "crop")
     cropPage();
+  if (view_ == "chat") {
+    auto state = db_.sessionInfo(session_);
+    if (!state.empty() &&
+        objectField(state, "metadata_json").contains("context_compression"))
+      icon(
+          screenObj_, "history", 16, 144, 48, 48, [this] { contextDetails(); },
+          theme::background, theme::muted);
+  }
   if (view_ == "chat" && scanner_.available()) {
     auto hint = box(screenObj_, 12, 60, 64, 64);
     lv_obj_set_scrollable(hint, false);
@@ -1045,7 +1094,7 @@ void App::chat() {
       chatControls_, draft_.empty() ? "询问 " PENCHAT_NAME : draft_, 50, 2,
       gauge ? 674 : 726, 44,
       [this] {
-        if (!composerTapAllowed_)
+        if (contextBusy_ || !composerTapAllowed_)
           return;
         composerTapAllowed_ = false;
         edit(
@@ -1060,11 +1109,14 @@ void App::chat() {
   if (draft_.empty())
     lv_obj_set_style_text_color(lv_obj_get_child(composer_, 0),
                                 lv_color_hex(theme::muted), 0);
-  const bool sendEnabled = generating_ || canSend();
+  const bool sendEnabled = contextBusy_ || generating_ || canSend();
   auto send = icon(
-      chatControls_, generating_ ? "stop" : "up", 780, 2, 44, 44,
+      chatControls_, (generating_ || contextBusy_) ? "stop" : "up", 780, 2, 44, 44,
       [this] {
-        if (generating_)
+        if (contextBusy_) {
+          cancelContext();
+          build();
+        } else if (generating_)
           cancel_ = true;
         else if (canSend())
           sendMessage();
@@ -1689,7 +1741,13 @@ void App::settingsPage() {
            db_.setting("persistent_export_directory", !persistentExports);
            build();
          });
-  label(body_, "关闭后退出清理导出文件，导入文件保留", left, 280, column, 16, theme::muted);
+  const bool autoContext = config.value("auto_context_compression", true);
+  action(autoContext ? "自动上下文压缩：开" : "自动上下文压缩：关", left, 276,
+         [this, autoContext] {
+           db_.setting("auto_context_compression", !autoContext);
+           build();
+         });
+  label(body_, "压缩前自动归档，原消息和图片保留", left, 328, column, 16, theme::muted);
   label(body_, PENCHAT_NAME " " PENCHAT_VERSION " · LVGL 9.6.0", right, 286,
         column, 16, theme::muted);
 }
@@ -2191,6 +2249,7 @@ void App::persistReply(const std::string &status, const Json &error) {
   persistDue_ = ticks() + 500;
 }
 void App::stopNetwork() {
+  cancelContext();
   cancel_ = true;
   if (network_.joinable())
     network_.join();
@@ -2225,7 +2284,8 @@ bool App::canSend() {
           !stringValue(latest[0], "original_path").empty());
 }
 void App::sendMessage(const std::string &retry) {
-  if (generating_) return;
+  if (generating_ || contextBusy_)
+    return;
   auto latest = db_.messages(session_, 0, 1);
   const bool failed = !latest.empty() && stringValue(latest[0], "role") == "assistant" &&
       retryableStatus(stringValue(latest[0], "status"));
@@ -2233,23 +2293,22 @@ void App::sendMessage(const std::string &retry) {
   const std::string retryId = !retry.empty() ? retry :
       (!hasText(draft_) && failed ? stringValue(latest[0], "id") : std::string());
   if (retryId.empty() && !canSend()) return;
-  auto model = currentModel();
-  if (model.empty()) {
-    modal("请选择可用模型",
-          "当前模型未配置或已停用，请从加号菜单选择模型，或进入设置添加。");
+  startContext(false, retryId);
+}
+void App::sendPrepared(Json model, Json input, const std::string &retryId,
+                       const std::string &draft) {
+  if (input.empty()) {
+    build();
     return;
   }
-  model["system_prompt"] = sessionPreferences_.value("system_prompt", std::string());
   bindPreferences(model);
   sessionPreferences_["has_sent"] = true;
   savePreferences();
-  if (retryId.empty() && hasText(draft_)) {
-    db_.append(session_, "user", draft_, Json::object(), sessionPreferences_);
-    draft_.clear();
+  if (retryId.empty() && hasText(draft)) {
+    db_.append(session_, "user", draft, Json::object(), sessionPreferences_);
+    if (draft_ == draft)
+      draft_.clear();
   }
-  auto input = db_.responseInput(session_, retryId, model);
-  if (input.empty())
-    return;
   if (network_.joinable())
     network_.join();
   messageOffset_ = 0;
@@ -2274,9 +2333,10 @@ void App::sendMessage(const std::string &retry) {
   persistDirty_ = false;
   saveInFlight_ = false;
   saveVersion_ = 0;
-  network_ = std::thread([this, model, input, generation] {
+  network_ = std::thread([this, model = std::move(model), input = std::move(input), generation] {
     try {
-      streamChat(db_.requestModel(model), input, cancel_, events_, generation);
+      streamChat(model.contains("api_key") ? model : db_.requestModel(model), input,
+                 cancel_, events_, generation);
     } catch (...) {
       events_.push("network_error",
                    {{"generation", generation}, {"error", "无法读取请求配置，请重试"}});
@@ -2358,6 +2418,7 @@ void App::suspend(bool value) {
 void App::shutdown() {
   if (shutdownComplete_) return;
   shutdownComplete_ = true;
+  cancelContext();
   if (transfer_)
     transfer_->stop();
   if (imageStoreWorker_.joinable())
@@ -2595,6 +2656,10 @@ void App::tick() {
   }
   syncScanner();
   for (auto &e : events_.drain()) {
+    if (e.type.compare(0, 8, "context_") == 0) {
+      contextEvent(e);
+      continue;
+    }
     if (e.type.compare(0, 9, "transfer_") == 0) {
       transferEvent(e);
       continue;
@@ -2621,7 +2686,8 @@ void App::tick() {
     }
     if (e.type == "image_delete_request") {
       auto id = e.data.value("message", std::string());
-      if (view_ == "chat" && visible_ && !navigationOpen_ && !attachments_ && !modal_ && !keyboard_ &&
+      if (view_ == "chat" && visible_ && !contextBusy_ && !navigationOpen_ &&
+          !attachments_ && !modal_ && !keyboard_ &&
           e.data.value("session", std::string()) == session_ &&
           db_.pendingImage(session_, id)) {
         input_.cancel();
@@ -2888,7 +2954,7 @@ Json App::diagnostics() const {
   }
   return {
       {"editor", editorDiagnostic()},
-      {"draft_length",editLength(draft_)},
+      {"draft_length", editLength(draft_)},
       {"storage", db_.storageStats()},
       {"diagnostic_time", ticks()},
       {"history_rows", historyRows},
@@ -2914,22 +2980,17 @@ Json App::diagnostics() const {
       {"capsule_endcap_x2", 2 * capsule.x2 - (capsule.y2 - capsule.y1)},
       {"capsule_center_y2", capsule.y1 + capsule.y2},
       {"navigation_open", navigationOpen_},
-      {"navigation_active_x",
-       navigationActive_ ? (active.x1 + active.x2) / 2 : -1},
-      {"navigation_active_y",
-       navigationActive_ ? (active.y1 + active.y2) / 2 : -1},
-      {"navigation_scroll",
-       navigationList_ ? lv_obj_get_scroll_y(navigationList_) : 0},
+      {"navigation_active_x", navigationActive_ ? (active.x1 + active.x2) / 2 : -1},
+      {"navigation_active_y", navigationActive_ ? (active.y1 + active.y2) / 2 : -1},
+      {"navigation_scroll", navigationList_ ? lv_obj_get_scroll_y(navigationList_) : 0},
       {"navigation_button", view_ == "chat" ? "menu" : "back"},
       {"pull_indicator_y", pullIndicator_ ? lv_obj_get_y(pullIndicator_) : -1},
-      {"pull_content_y",
-       body_ ? lv_obj_get_style_translate_y(body_, LV_PART_MAIN) : 0},
+      {"pull_content_y", body_ ? lv_obj_get_style_translate_y(body_, LV_PART_MAIN) : 0},
       {"following_latest", chatFollowing_},
       {"attachments", attachments_ != nullptr},
       {"popup", popupKind_},
       {"has_conversation_content", hasConversationContent_},
-      {"effort_gauge",
-       sessionPreferences_.value("gauge", !effortMemory_.empty())},
+      {"effort_gauge", sessionPreferences_.value("gauge", !effortMemory_.empty())},
       {"session_preferences", sessionPreferences_},
       {"active_model", model.value("id", std::string())},
       {"effective_effort", model.value("effective_effort", std::string())},
@@ -2940,18 +3001,18 @@ Json App::diagnostics() const {
       {"reasoning_header_count", reasoningHeaders_.size()},
       {"reasoning_header_x", reasonHeader.x1 + 120},
       {"reasoning_header_y", (reasonHeader.y1 + reasonHeader.y2) / 2},
-      {"reasoning_observed",
-       reasoningMetadata_.value("reasoning_observed", false)},
+      {"reasoning_observed", reasoningMetadata_.value("reasoning_observed", false)},
       {"reasoning_expanded_count", expandedReasoning_.size()},
-      {"camera_ready",cameraImage_ && textures_.count(cameraImage_) && cameraError_.empty()},
-      {"camera_angle",cameraAngle_},
-      {"camera_auto",cameraAutomatic_},
-      {"camera_sensor",cameraSensorAvailable_},
-      {"crop_source",{cropPhoto_.value("width",0),cropPhoto_.value("height",0)}},
-      {"crop_zoom",cropZoom_},
-      {"crop_pan",{cropPanX_,cropPanY_}},
-      {"crop_viewport",{cropViewportW_,cropViewportH_}},
-      {"crop_pan_mode",cropPanMode_},
+      {"camera_ready",
+       cameraImage_ && textures_.count(cameraImage_) && cameraError_.empty()},
+      {"camera_angle", cameraAngle_},
+      {"camera_auto", cameraAutomatic_},
+      {"camera_sensor", cameraSensorAvailable_},
+      {"crop_source", {cropPhoto_.value("width", 0), cropPhoto_.value("height", 0)}},
+      {"crop_zoom", cropZoom_},
+      {"crop_pan", {cropPanX_, cropPanY_}},
+      {"crop_viewport", {cropViewportW_, cropViewportH_}},
+      {"crop_pan_mode", cropPanMode_},
       {"crop_rect", {cropX_, cropY_, cropW_, cropH_}},
       {"crop_preview", {cropPreviewW_, cropPreviewH_}},
       {"crop_save_album", cropSaveAlbum_},
@@ -2969,8 +3030,7 @@ Json App::diagnostics() const {
       {"pull_fill_distance", pullGeometry_.fill},
       {"pull_start_distance", pullGeometry_.start},
       {"pull_full_distance", pullGeometry_.start + pullGeometry_.fill},
-      {"pull_reader_height",
-       pullGeometry_.reader.bottom - pullGeometry_.reader.top},
+      {"pull_reader_height", pullGeometry_.reader.bottom - pullGeometry_.reader.top},
       {"pull_pause_ms", PullPauseMs},
       {"pull_guard_remaining_ms",
        pullNeedsPause_
@@ -2983,6 +3043,7 @@ Json App::diagnostics() const {
       {"to_bottom_visible", toBottom_ && !lv_obj_is_hidden(toBottom_)},
       {"session", session_},
       {"generating", generating_},
+      {"compressing", contextBusy_},
       {"keyboard", keyboard_},
       {"ocr", ocrActive_},
       {"visible", visible_},

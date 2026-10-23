@@ -1,3 +1,4 @@
+#include "context.hpp"
 #include "database.hpp"
 #include "presets.hpp"
 #include "reasoning.hpp"
@@ -172,6 +173,22 @@ Json Database::importTransfer(const Json &bundle) {
                         "WHERE id=?",
                         {id, a->second});
             }
+          }
+          if (meta.contains("context_compression")) {
+            auto &cp = meta["context_compression"];
+            bool accepted = cp.value("import_validated", false);
+            cp.erase("import_validated");
+            cp.erase("archive_id");
+            if (accepted) {
+              auto restored = contextSnapshot(sid);
+              cp["checksum"] =
+                  contextChecksum(restored["rows"], cp.value("through", int64_t(0)));
+              if (!validContext(cp, restored["rows"]))
+                cp["enabled"] = false;
+            } else
+              cp["enabled"] = false;
+            execute("UPDATE chat_sessions SET metadata_json=? WHERE id=?",
+                    {meta.dump(), sid});
           }
           ++added;
         }

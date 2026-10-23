@@ -1,4 +1,5 @@
 #include "transfer.hpp"
+#include "context.hpp"
 #include "presets.hpp"
 #include <cstdio>
 #include <cstring>
@@ -271,6 +272,20 @@ Json kept(const Json &o, std::initializer_list<const char *> keys) {
     if (o.contains(k))
       r[k] = o[k];
   return r;
+}
+Json portableContextRows(const Json &conversation) {
+  auto rows = conversation.at("messages");
+  std::map<std::string, std::string> signatures;
+  for (const auto &a : conversation.at("assets"))
+    signatures[a.at("id").get<std::string>()] =
+        Json::array({a.value("width", Json()), a.value("height", Json()),
+                     a.value("size_bytes", Json())})
+            .dump();
+  for (auto &m : rows)
+    for (auto &p : m["parts"])
+      if (p.at("type") == "image")
+        p["signature"] = signatures[p.at("asset").get<std::string>()];
+  return rows;
 }
 Json publicMetadata(const Json &o) {
   return kept(o, {"reasoning_observed", "reasoning_duration_ms", "reasoning_complete",
@@ -622,6 +637,14 @@ Json Transfer::exportData(const Json &a) {
         for (const auto &old : presetList(settings))
           if (old["id"] == id)
             p["model"] = old.value("transfer_model", Json::object());
+      for (const auto &original : presetList(settings))
+        if (original["id"] == id) {
+          p["compression_model"] =
+              describe(original.value("compression_model_id", std::string()));
+          if (p["compression_model"].empty())
+            p["compression_model"] =
+                original.value("transfer_compression_model", Json::object());
+        }
       p["origin"] = {{"source", id}, {"checksum", digestText(p.dump())}};
       bundle["items"].push_back(p);
     }
@@ -679,6 +702,15 @@ Json Transfer::exportData(const Json &a) {
                                 : "");
       if (c["model"].empty())
         c["model"] = meta.value("transfer_model", Json::object());
+      auto compressionId = meta.value("chat_preferences", Json::object())
+                               .value("compression_model_id", std::string());
+      c["compression_model"] = describe(compressionId);
+      if (c["compression_model"].empty())
+        c["compression_model"] =
+            meta.value("transfer_compression_model", Json::object());
+      if (meta.contains("compression_archive"))
+        c["metadata"]["compression_archive"] =
+            kept(meta["compression_archive"], {"label", "created_at"});
       c["messages"] = Json::array();
       c["assets"] = Json::array();
       std::set<std::string> seen;
@@ -821,6 +853,20 @@ Json Transfer::exportData(const Json &a) {
             for (const auto &asset : c["assets"])
               if (asset["id"] == part["asset"])
                 md += "![图片](../" + asset.at("file").get<std::string>() + ")\n\n";
+      }
+      if (meta.contains("context_compression")) {
+        auto cp = publicContext(meta["context_compression"]);
+        auto portable = portableContextRows(c), original = portable;
+        for (auto &m : original)
+          for (const auto &raw : rows)
+            if (m["seq"] == raw["seq"])
+              m["text"] =
+                  raw["output_text"].is_string() ? raw["output_text"] : Json("");
+        if (validContext(cp, original))
+          cp["checksum"] = contextChecksum(portable, cp.at("through").get<int64_t>());
+        else
+          cp["enabled"] = false;
+        c["metadata"]["context_compression"] = cp;
       }
       c["origin"] = {{"source", id}, {"checksum", digestText(c.dump())}};
       auto cid = "conversations/" + digestText(id) + "-" +
@@ -1152,6 +1198,9 @@ Json Transfer::previewFile(const Json &a) {
     check();
     auto &item = bundle["items"][i];
     item["model"] = cleanDescriptor(item.value("model", Json::object()));
+    item["compression_model"] =
+        cleanDescriptor(item.value("compression_model", Json::object()));
+    noteModel(item["compression_model"]);
     if (kind == "chats")
       for (auto &message : item["messages"])
         message["model"] = cleanDescriptor(message.value("model", Json::object()));
@@ -1233,6 +1282,26 @@ Json Transfer::previewFile(const Json &a) {
     bytes += item.dump().size();
     item["duplicate"] = duplicate;
     std::string warning;
+    if (!item["compression_model"].empty() &&
+        match(item["compression_model"], models).empty())
+      warning = "压缩模型待配置；";
+    if (kind == "chats") {
+      auto cp = item.value("metadata", Json::object())
+                    .value("context_compression", Json::object());
+      if (!cp.empty()) {
+        bool valid = false;
+        try {
+          valid = validContext(cp, portableContextRows(item));
+        } catch (...) {
+        }
+        if (!valid || !missing.empty()) {
+          cp = publicContext(cp);
+          cp["enabled"] = false;
+          warning += "摘要覆盖范围不匹配或附件缺失，保留历史并停用摘要，请重新压缩";
+        }
+        item["metadata"]["context_compression"] = cp;
+      }
+    }
     if (kind == "presets" && !item.value("model", Json::object()).empty()) {
       auto modelId = match(item["model"], models);
       if (modelId.empty())
@@ -1336,6 +1405,10 @@ Json Transfer::importData(const Json &a) {
                              "effort", "effort_when", "origin"});
         p["model_id"] = resolve(item.value("model", Json::object()));
         p["transfer_model"] = item.value("model", Json::object());
+        p["compression_model_id"] =
+            resolve(item.value("compression_model", Json::object()));
+        p["transfer_compression_model"] =
+            item.value("compression_model", Json::object());
         p["replace_default"] = def && action == "replace";
         bundle["items"].push_back(p);
       } else {
@@ -1349,8 +1422,19 @@ Json Transfer::importData(const Json &a) {
                                     .value("chat_preferences", Json::object()));
         pref["model_id"] = c["model_id"];
         pref["preset_adjusted"] = true;
+        pref["compression_model_id"] =
+            resolve(item.value("compression_model", Json::object()));
         c["metadata"] = {{"chat_preferences", pref},
-                         {"transfer_model", item.value("model", Json::object())}};
+                         {"transfer_model", item.value("model", Json::object())},
+                         {"transfer_compression_model",
+                          item.value("compression_model", Json::object())}};
+        auto importedMeta = item.value("metadata", Json::object());
+        if (importedMeta.contains("context_compression"))
+          c["metadata"]["context_compression"] =
+              publicContext(importedMeta["context_compression"]);
+        if (importedMeta.contains("compression_archive"))
+          c["metadata"]["compression_archive"] =
+              kept(importedMeta["compression_archive"], {"label", "created_at"});
         c["assets"] = Json::array();
         std::map<std::string, std::string> paths;
         for (const auto &asset : item["assets"]) {
@@ -1425,6 +1509,13 @@ Json Transfer::importData(const Json &a) {
           if (characters(c["preview_text"]).size() >= 40)
             break;
           c["preview_text"] = c["preview_text"].get<std::string>() + cp;
+        }
+        if (c["metadata"].contains("context_compression")) {
+          auto &cp = c["metadata"]["context_compression"];
+          cp["import_validated"] = validContext(cp, portableContextRows(item)) &&
+                                   preview_["missing"].empty();
+          if (!cp["import_validated"].get<bool>())
+            cp["enabled"] = false;
         }
         bundle["items"].push_back(c);
       }

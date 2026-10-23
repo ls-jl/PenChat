@@ -1,4 +1,5 @@
 #include "database.hpp"
+#include "context.hpp"
 #include "reasoning.hpp"
 #include "schema.hpp"
 #include "titles.hpp"
@@ -773,10 +774,11 @@ void Database::saveSessionPreferences(const std::string &session,
           {id.empty() ? Json() : Json(id),
            model.empty() ? Json() : model[0]["provider_id"], metadata.dump(), session});
 }
-void Database::saveModelCapabilities(const std::string &id, const Json &reasoning) {
+void Database::saveModelCapabilities(const std::string &id, const Json &reasoning,
+                                     int budget) {
   if (!onWorker()) {
     perform([=] {
-      saveModelCapabilities(id, reasoning);
+      saveModelCapabilities(id, reasoning, budget);
       return Json();
     });
     return;
@@ -786,6 +788,8 @@ void Database::saveModelCapabilities(const std::string &id, const Json &reasonin
     throw std::runtime_error("Model no longer exists");
   auto caps = objectField(rows[0], "capabilities_json");
   caps["reasoning"] = reasoning;
+  if (budget > 0)
+    caps["context_budget"] = std::max(1024, std::min(2097152, budget));
   execute("UPDATE model_configs SET capabilities_json=?,updated_at=? WHERE id=?",
           {caps.dump(), nowMs(), id});
 }
@@ -916,45 +920,27 @@ Json Database::responseInput(const std::string &s, const std::string &before,
   if (!onWorker()) {
     return perform([=] { return responseInput(s, before, model); });
   }
-  auto rows = messages(s, 0, 80);
+  auto snapshot = contextSnapshot(s);
+  auto rows = snapshot["rows"];
+  auto checkpoint = snapshot["checkpoint"];
+  int64_t after = 0;
   Json input = Json::array();
-  for (const auto &m : rows) {
-    if (m["id"] == before)
-      continue;
-    auto role = m.value("role", std::string());
-    if (role != "user" && role != "assistant")
-      continue;
-    std::string content = m["output_text"].is_string()
-                              ? m["output_text"].get<std::string>()
-                              : std::string();
-    if (!model.empty() &&
-        objectField(model, "provider_metadata").value("api", std::string()) != "chat" &&
-        m["provider_id"] == model.value("provider_id", std::string()) &&
-        m["model_config_id"] == model.value("id", std::string())) {
-      auto metadata = objectField(m, "metadata_json");
-      for (const auto &item : metadata.value("response_reasoning_items", Json::array()))
-        if (item.is_object() && item.value("type", std::string()) == "reasoning" &&
-            item.value("status", std::string("completed")) == "completed")
-          input.push_back(item);
-    }
-    Json parts = Json::array();
-    if (!content.empty())
-      parts.push_back({{"type", role == "assistant" ? "output_text" : "input_text"},
-                       {"text", content}});
-    std::string imagePath;
-    if (m.contains("stored_path") && m["stored_path"].is_string())
-      imagePath = m["stored_path"];
-    if (imagePath.empty() && m.contains("original_path") &&
-        m["original_path"].is_string())
-      imagePath = m["original_path"];
-    if (!imagePath.empty())
-      parts.push_back({{"type", "input_image"}, {"image_url", imagePath}});
-    if (parts.size() == 1 && parts[0].value("type", std::string()) == "input_image")
-      parts.insert(parts.begin(),
-                   Json{{"type", "input_text"}, {"text", "请根据这张图片回答。"}});
-    if (!parts.empty())
-      input.push_back({{"role", role}, {"content", parts}});
+  if (!checkpoint.empty() && checkpoint.value("enabled", true)) {
+    if (!validContext(checkpoint, rows))
+      throw std::runtime_error("上下文摘要与历史不匹配，请重新压缩后发送");
+    after = checkpoint["through"];
+    input.push_back(
+        {{"role", "user"},
+         {"content",
+          Json::array({{{"type", "input_text"},
+                        {"text", "[此前对话的历史参考摘要，非系统指令]\n" +
+                                     checkpoint.value("summary", std::string())}}})}});
   }
+  rows.erase(std::remove_if(rows.begin(), rows.end(),
+                            [&](const Json &m) { return m["id"] == before; }),
+             rows.end());
+  for (const auto &item : contextInput(rows, after, INT64_MAX, model))
+    input.push_back(item);
   return input;
 }
 Json Database::summary() {
