@@ -88,6 +88,7 @@ void App::editorBuild() {
   lv_obj_set_style_text_color(editorText_,lv_color_hex(theme::text),0);
   lv_obj_set_style_bg_color(editorText_,lv_color_hex(theme::surface),0);
   lv_obj_set_style_border_width(editorText_,0,0); lv_obj_set_style_radius(editorText_,8,0);
+  lv_obj_set_style_border_color(editorText_,lv_color_hex(theme::caret),LV_PART_CURSOR | LV_STATE_FOCUSED);
   lv_obj_set_style_pad_all(editorText_,6,0);
   lv_obj_set_style_bg_color(editorText_,lv_color_hex(theme::border),LV_PART_SELECTED);
   lv_textarea_set_max_length(editorText_,editor_.limit);
@@ -117,7 +118,7 @@ void App::editorBuild() {
     auto b=button(choices,text,cx,cy,w,44,[action,i,revision=editorRevision_] { action("choose:"+std::to_string(revision)+":"+std::to_string(i)); },theme::surface);
     lv_obj_set_width(lv_obj_get_child(b,0),w-8); cx+=w+5;
   }
-  if (editorCandidates_.empty()) label(choices,editor_.preedit.empty()?"候选词":"正在查询 · 可用官方键盘",4,10,302,16,theme::muted);
+  if (editorCandidates_.empty()&&!editor_.preedit.empty()) label(choices,"正在查询 · 可用官方键盘",4,10,302,16,theme::muted);
   control(editorExpanded_?"收起":"展开",908,6,44,"expand");
   if(editor_.secret) attachIcon(control("", 850,6,44,"reveal"),editor_.reveal?"eye-off":"eye",theme::muted);
   if(editorOcrShown_) {
