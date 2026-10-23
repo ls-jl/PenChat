@@ -2,6 +2,17 @@
 #include "icons.hpp"
 #include <cctype>
 namespace penchat {
+namespace {
+std::string keyboardPunctuation(const std::string &key,bool chinese) {
+  if(!chinese)return key;
+  static const std::map<std::string,std::string> punctuation={
+    {",","，"},{".","。"},{"?","？"},{"!","！"},{":","："},{";","；"},
+    {"(","（"},{")","）"},{"[","【"},{"]","】"}
+  };
+  auto found=punctuation.find(key);
+  return found==punctuation.end()?key:found->second;
+}
+}
 void App::edit(const std::string &text, const std::string &placeholder,
                std::function<void(const std::string &)> callback, int maxLength,
                const char *inputType, std::function<void()> cancelled,
@@ -65,16 +76,16 @@ void App::editorBuild() {
     for (size_t i=0;i<rows[r].size();++i) {
       std::string v(1,rows[r][i]);
       if (!editor_.mode && editor_.shift) v[0]=std::toupper(v[0]);
-      key(v,v,start+int(i)*58,6+r*70,54);
+      key(keyboardPunctuation(v,editor_.chinese&&!editor_.secret),v,start+int(i)*58,6+r*70,54);
     }
   }
   key(editor_.mode ? (editor_.mode==1?"#+=":"123") : (editor_.shift==2?"⇧锁":"⇧"),editor_.mode?"symbols":"shift",4,146,56);
   key("⌫","delete",474,146,106);
   key(editor_.mode==0?"123":"ABC","mode",4,216,68,44);
-  key(",",",",76,216,46,44);key("","language",126,216,46,44);
+  key(keyboardPunctuation(",",editor_.chinese&&!editor_.secret),",",76,216,64,44);key("","language",144,216,64,44);
   attachIcon(editorKeys_.back().object,"globe",theme::text);
-  key(editor_.chinese?"拼音":"English","space",176,216,230,44);
-  key(".",".",410,216,46,44); key("↵","enter",460,216,120,44);
+  key(editor_.chinese?"拼音":"English","space",212,216,192,44);
+  key(keyboardPunctuation(".",editor_.chinese&&!editor_.secret),".",408,216,64,44); key("↵","enter",476,216,104,44);
   auto right=box(editorRoot_,584,0,376,266,0x111111); lv_obj_set_scrollable(right,false);
   // Controls share a fixed baseline; composition/candidates never resize the keys.
   lv_obj_move_background(right);
@@ -280,7 +291,7 @@ void App::editorAction(const std::string &a) {
       editorMenu_=false; editorChanged();
     }
   } else if (a.size()==1) {
-    std::string letter=a;
+    std::string letter=keyboardPunctuation(a,editor_.chinese&&!editor_.secret);
     if(editor_.mode==0 && std::isalpha(static_cast<unsigned char>(letter[0])))
       letter[0]=editor_.shift?std::toupper(letter[0]):std::tolower(letter[0]);
     if(editor_.chinese && editor_.mode==0 && letter[0]>='a' && letter[0]<='z' && !editor_.secret) {

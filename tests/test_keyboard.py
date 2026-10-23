@@ -61,6 +61,13 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   assert state(a)['length']==before
   key(a,'mode');assert state(a)['mode']==1;shot(a,'numbers');key(a,'1');key(a,'symbols');assert state(a)['mode']==2;shot(a,'symbols');key(a,'[')
   key(a,'mode');assert state(a)['mode']==0;key(a,'mode');assert state(a)['mode']==1;key(a,'symbols');key(a,'symbols');assert state(a)['mode']==1;key(a,'mode')
+  seed(a,'');key(a,',');key(a,'.');assert export_text(a)==',.'
+  key(a,'language');key(a,',');key(a,'.');shot(a,'chinese-punctuation')
+  key(a,'mode')
+  for c in '?!;:()':key(a,c)
+  key(a,'symbols');key(a,'[');key(a,']')
+  assert export_text(a)==',.，。？！；：（）【】'
+  key(a,'mode')
   seed(a,'alpha beta')
   a.send('touch',x=640,y=96,pressed=True);time.sleep(.5)
   a.send('touch',x=700,y=96,pressed=True)
