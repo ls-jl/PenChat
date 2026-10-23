@@ -1,7 +1,7 @@
 {
   "name": "PenChat",
   "appid": "8001792332371649",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "description": "PenChat LVGL 原生词典笔 AI 助手",
   "icon": "icon-d1b8452c.png",
   "quickjs": {
@@ -36,7 +36,8 @@
     "build:scanner:host": "bash scripts/build-scanner.sh host",
     "test:scanner": "bash scripts/test-scanner.sh",
     "test:sanitize": "bash scripts/test-sanitizers.sh",
-    "test:device:scanner": "python3 tests/device/scanner_acceptance.py && python3 tests/device/scanner_capture.py"
+    "test:device:scanner": "python3 tests/device/scanner_acceptance.py && python3 tests/device/scanner_capture.py",
+    "test:device:context": "python3 tests/device/context_compression.py"
   },
   "keywords": [
     "iot",

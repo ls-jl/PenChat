@@ -56,9 +56,8 @@ static void request(int fd) {
   auto lengthAt = headers.find("Content-Length:");
   if (lengthAt == std::string::npos)
     lengthAt = headers.find("content-length:");
-  size_t size = lengthAt == std::string::npos
-                    ? 0
-                    : std::stoul(headers.substr(lengthAt + 15));
+  size_t size =
+      lengthAt == std::string::npos ? 0 : std::stoul(headers.substr(lengthAt + 15));
   if (size > 32 * 1024 * 1024) {
     close(fd);
     return;
@@ -86,24 +85,38 @@ static void request(int fd) {
     {
       std::lock_guard<std::mutex> lock(logMutex);
       std::ofstream log("/tmp/penchat-title-requests.jsonl", std::ios::app);
-      log << Json({{"model", parsed.value("model", std::string())}}).dump()
-          << '\n';
+      log << Json({{"model", parsed.value("model", std::string())}}).dump() << '\n';
     }
     bool chat = path.find("/chat/completions") != std::string::npos;
     sendAll(fd, "HTTP/1.1 200 OK\r\nContent-Type: "
                 "text/event-stream\r\nConnection: close\r\n\r\n");
     Json payload =
-        chat ? Json{{"choices",
-                     Json::array(
-                         {{{"delta", {{"content", "图片与公式验证"}}}}})}}
-             : Json{{"type", "response.output_text.delta"},
-                    {"delta", "图片与公式验证"}};
+        chat
+            ? Json{{"choices",
+                    Json::array({{{"delta", {{"content", "图片与公式验证"}}}}})}}
+            : Json{{"type", "response.output_text.delta"}, {"delta", "图片与公式验证"}};
     sendAll(fd, "data: " + payload.dump() + "\n\ndata: " +
                     (chat ? std::string("[DONE]")
                           : std::string("{\"type\":\"response.completed\"}")) +
                     "\n\n");
     close(fd);
     return;
+  }
+  const bool compression =
+      body.find("PenChat_CONTEXT_COMPRESSION_V1") != std::string::npos;
+  int systemCount = parsed.value("instructions", std::string()).empty() ? 0 : 1;
+  int images = 0;
+  for (const auto &item :
+       parsed.value("messages", parsed.value("input", Json::array()))) {
+    if (item.value("role", std::string()) == "system")
+      ++systemCount;
+    auto content = item.value("content", Json());
+    if (content.is_array())
+      for (const auto &part : content) {
+        const auto type = part.value("type", std::string());
+        if (type == "input_image" || type == "image_url")
+          ++images;
+      }
   }
   auto reasoning = parsed.value("reasoning", Json::object());
   size_t replayCount = 0;
@@ -117,10 +130,16 @@ static void request(int fd) {
     log << Json({{"path", path},
                  {"mode", mode},
                  {"model", parsed.value("model", std::string())},
-                 {"effort",
-                  parsed.value("reasoning_effort",
-                               reasoning.value("effort", std::string()))},
+                 {"effort", parsed.value("reasoning_effort",
+                                         reasoning.value("effort", std::string()))},
                  {"reasoning_items", replayCount},
+                 {"compression", compression},
+                 {"images", images},
+                 {"system_count", systemCount},
+                 {"has_reference",
+                  body.find("此前对话的历史参考摘要") != std::string::npos},
+                 {"has_old0", body.find("fact-0:") != std::string::npos},
+                 {"has_pending", body.find("DEVICE_PENDING") != std::string::npos},
                  {"has_image", body.find("data:image/") != std::string::npos}})
                .dump()
         << '\n';
@@ -129,17 +148,42 @@ static void request(int fd) {
     std::string error = "{\"error\":{\"message\":\"fixture unauthorized\"}}";
     if (mode == "unicode") {
       error.clear();
-      for (int i=0;i<300;++i) error += "错误说明";
+      for (int i = 0; i < 300; ++i)
+        error += "错误说明";
     }
     sendAll(fd, "HTTP/1.1 401 Unauthorized\r\nContent-Type: "
                 "application/json\r\nContent-Length: " +
-                    std::to_string(error.size()) +
-                    "\r\nConnection: close\r\n\r\n" + error);
+                    std::to_string(error.size()) + "\r\nConnection: close\r\n\r\n" +
+                    error);
     close(fd);
     return;
   }
   sendAll(fd, "HTTP/1.1 200 OK\r\nContent-Type: "
               "text/event-stream\r\nConnection: close\r\n\r\n");
+  if (compression) {
+    usleep(mode == "context-delay" ? 2500000 : 350000);
+    const bool chat = path.find("/chat/completions") != std::string::npos;
+    Json event =
+        chat ? Json{{"choices",
+                     Json::array(
+                         {{{"delta",
+                            {{"content",
+                              "设备摘要：保留事实、约束、决定和图片信息。"}}}}})}}
+             : Json{{"type", "response.output_text.delta"},
+                    {"delta", "设备摘要：保留事实、约束、决定和图片信息。"}};
+    auto wire = "data: " + event.dump() + "\n\n";
+    for (size_t i = 0; i < wire.size(); i += 7)
+      if (!sendAll(fd, wire.substr(i, 7))) {
+        close(fd);
+        return;
+      }
+    sendAll(fd, "data: " +
+                    (chat ? std::string("[DONE]")
+                          : std::string("{\"type\":\"response.completed\"}")) +
+                    "\n\n");
+    close(fd);
+    return;
+  }
   auto reply = read("/tmp/penchat-http-reply.md");
   bool chat = path.find("/chat/completions") != std::string::npos;
   const bool thinking = mode == "reasoning" || mode == "encrypted";
@@ -160,8 +204,8 @@ static void request(int fd) {
       emit({{"type", "response.reasoning_summary_text.delta"},
             {"output_index", 0},
             {"delta", "这是公开的思考总结。"}});
-      reasonItem["summary"] = Json::array(
-          {{{"type", "summary_text"}, {"text", "这是公开的思考总结。"}}});
+      reasonItem["summary"] =
+          Json::array({{{"type", "summary_text"}, {"text", "这是公开的思考总结。"}}});
     }
     usleep(1100000);
     emit({{"type", "response.output_item.done"},
@@ -180,8 +224,7 @@ static void request(int fd) {
   } else {
     size_t split = 0;
     for (int i = 0; i < 3; ++i) {
-      size_t end =
-          i == 2 ? reply.size() : reply.find('\n', split + reply.size() / 4);
+      size_t end = i == 2 ? reply.size() : reply.find('\n', split + reply.size() / 4);
       if (end == std::string::npos)
         end = reply.size();
       parts.push_back(reply.substr(split, end - split));
@@ -190,11 +233,10 @@ static void request(int fd) {
   }
   for (auto &part : parts) {
     Json payload =
-        chat
-            ? Json{{"choices", Json::array({{{"delta", {{"content", part}}}}})}}
-            : Json{{"type", "response.output_text.delta"},
-                   {"output_index", thinking ? 1 : 0},
-                   {"delta", part}};
+        chat ? Json{{"choices", Json::array({{{"delta", {{"content", part}}}}})}}
+             : Json{{"type", "response.output_text.delta"},
+                    {"output_index", thinking ? 1 : 0},
+                    {"delta", part}};
     auto event = "data: " + payload.dump() + "\r\n\r\n";
     for (size_t i = 0; i < event.size(); i += 7)
       if (!sendAll(fd, event.substr(i, 7))) {
@@ -207,13 +249,11 @@ static void request(int fd) {
     Json completed = {{"type", "response.completed"}};
     if (thinking)
       completed["response"] = {
-          {"output",
-           Json::array({reasonItem,
-                        {{"type", "message"},
-                         {"content", Json::array({{{"type", "output_text"},
-                                                   {"text", reply}}})}}})}};
-    sendAll(fd, "data: " + (chat ? std::string("[DONE]") : completed.dump()) +
-                    "\n\n");
+          {"output", Json::array({reasonItem,
+                                  {{"type", "message"},
+                                   {"content", Json::array({{{"type", "output_text"},
+                                                             {"text", reply}}})}}})}};
+    sendAll(fd, "data: " + (chat ? std::string("[DONE]") : completed.dump()) + "\n\n");
   }
   close(fd);
 }

@@ -378,9 +378,10 @@ void App::savePreferences() {
 void App::bindPreferences(const Json &model) {
   if (model.empty())
     return;
-  // Once content is committed, remember the defaults that this conversation
-  // actually used, including an inherited process-only effort and gauge.
-  sessionPreferences_["model_id"] = model["id"];
+  // Bind an inherited default when content is committed. A later explicit
+  // selection made while context preparation runs belongs to the next request.
+  if (sessionPreferences_.value("model_id", std::string()).empty())
+    sessionPreferences_["model_id"] = model["id"];
   if (!sessionPreferences_.contains("effort")) {
     const auto effort = model.value("effective_effort", std::string());
     if (!effort.empty())

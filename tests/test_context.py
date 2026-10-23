@@ -181,6 +181,22 @@ def run():
                     snapshot(app,'context-preset-model-'+api)
                 finally:app.close()
                 transfer_roundtrip(p)
+        # A selection made while compaction is running must survive the queued send.
+        for api in ['responses','chat']:
+            with tempfile.TemporaryDirectory(prefix='penchat-context-selection-') as d:
+                p=pathlib.Path(d);fixture(p,server.server_port,rounds=40,budget=16384,api=api,image=True)
+                app=Native(binary,p)
+                try:
+                    Server.requests=[];Server.delay=1
+                    app.edit('selection');app.tap(908,232);wait_for(lambda:app.diag()['compressing'])
+                    app.tap(890,222);app.open_settings();app.tap(180,80);app.tap(300,175)
+                    assert app.diag()['active_model']=='b'
+                    wait_idle(app)
+                    assert app.diag()['active_model']=='b', 'Queued send replaced the next-request selection'
+                    assert Server.requests[-1][1]['model']=='a'
+                    app.to_chat();Server.delay=0;app.edit('next');app.tap(908,232);wait_idle(app)
+                    assert Server.requests[-1][1]['model']=='b'
+                finally:app.close();Server.delay=0
         # Disabled automatic mode sends every one of 102 historical rows, no silent 80 limit.
         with tempfile.TemporaryDirectory(prefix='penchat-context-all-') as d:
             p=pathlib.Path(d);fixture(p,server.server_port,rounds=51,budget=200000,auto=False)
