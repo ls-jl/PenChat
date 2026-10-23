@@ -20,11 +20,12 @@ static bool event(int fd, unsigned short type, unsigned short code, int value)
 int main(int argc, char** argv)
 {
     const bool hold = argc == 5 && !strcmp(argv[1], "--hold");
+    const bool dragHold = argc == 8 && !strcmp(argv[1], "--drag-hold");
     const bool pinch = argc == 10 && !strcmp(argv[1], "--pinch");
-    if (argc != 3 && argc != 5 && argc != 6 && !pinch) return 2;
-    const int x = std::atoi(argv[(pinch || hold) ? 2 : 1]), y = std::atoi(argv[(pinch || hold) ? 3 : 2]);
-    const int endX = hold ? x : pinch ? std::atoi(argv[6]) : (argc == 5 || argc == 6) ? std::atoi(argv[3]) : x;
-    const int endY = hold ? y : pinch ? std::atoi(argv[7]) : (argc == 5 || argc == 6) ? std::atoi(argv[4]) : y;
+    if (argc != 3 && argc != 5 && argc != 6 && !pinch && !dragHold) return 2;
+    const int x = std::atoi(argv[(pinch || hold || dragHold) ? 2 : 1]), y = std::atoi(argv[(pinch || hold || dragHold) ? 3 : 2]);
+    const int endX = hold ? x : dragHold ? std::atoi(argv[4]) : pinch ? std::atoi(argv[6]) : (argc == 5 || argc == 6) ? std::atoi(argv[3]) : x;
+    const int endY = hold ? y : dragHold ? std::atoi(argv[5]) : pinch ? std::atoi(argv[7]) : (argc == 5 || argc == 6) ? std::atoi(argv[4]) : y;
     int fd = -1;
     input_absinfo ax = {}, ay = {};
     for (int i = 0; i < 32; ++i) {
@@ -87,8 +88,8 @@ int main(int argc, char** argv)
         event(fd, EV_ABS, ABS_MT_WIDTH_MAJOR, 10) &&
         event(fd, EV_KEY, BTN_TOOL_FINGER, 1) &&
         event(fd, EV_KEY, BTN_TOUCH, 1) && event(fd, EV_SYN, SYN_REPORT, 0);
-    usleep(hold ? std::max(400, std::min(2500, std::atoi(argv[4]))) * 1000 : 150000);
-    if (!hold && (argc == 5 || argc == 6)) {
+    usleep(dragHold ? std::max(450, std::min(2500, std::atoi(argv[6]))) * 1000 : hold ? std::max(400, std::min(2500, std::atoi(argv[4]))) * 1000 : 150000);
+    if (!hold && (argc == 5 || argc == 6 || dragHold)) {
         const int stepDelay = argc == 6 ? std::max(1, std::min(200, std::atoi(argv[5]))) : 20;
         for (int step = 1; step <= 12; ++step) {
             ok = event(fd, EV_ABS, ABS_MT_POSITION_X, x + (endX - x) * step / 12) &&
@@ -97,6 +98,7 @@ int main(int argc, char** argv)
             usleep(stepDelay * 1000);
         }
     }
+    if (dragHold) usleep(std::max(0, std::min(2500, std::atoi(argv[7]))) * 1000);
     const bool released = event(fd, EV_ABS, ABS_MT_SLOT, 0) &&
         event(fd, EV_ABS, ABS_MT_TRACKING_ID, -1) &&
         event(fd, EV_KEY, BTN_TOUCH, 0) &&

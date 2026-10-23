@@ -32,6 +32,7 @@ void App::editorBuild() {
   if (!editor_.active || keyboard_) return;
   if (editorPointer_ && editorHeld_ < 0) { editorRebuild_=true; return; }
   editorRebuild_=false;
+  editorMagnify(false);
   if(editorText_) editorTextScroll_=lv_obj_get_scroll_y(editorText_);
   auto previousRoot = editorRoot_;
   editorKeys_.clear(); editorText_ = nullptr;
@@ -89,6 +90,8 @@ void App::editorBuild() {
   lv_obj_set_style_bg_color(editorText_,lv_color_hex(theme::surface),0);
   lv_obj_set_style_border_width(editorText_,0,0); lv_obj_set_style_radius(editorText_,8,0);
   lv_obj_set_style_border_color(editorText_,lv_color_hex(theme::caret),LV_PART_CURSOR | LV_STATE_FOCUSED);
+  lv_obj_set_scroll_elastic(editorText_,false);
+  lv_obj_set_scroll_momentum(editorText_,false);
   lv_obj_set_style_pad_all(editorText_,6,0);
   lv_obj_set_style_bg_color(editorText_,lv_color_hex(theme::border),LV_PART_SELECTED);
   lv_textarea_set_max_length(editorText_,editor_.limit);
@@ -299,22 +302,75 @@ lv_point_t App::editorPoint(size_t index) const {
 size_t App::editorPositionAt(int x,int y) const {
   if(!editorText_)return editor_.cursor;
   auto text=lv_textarea_get_label(editorText_);lv_area_t a;lv_obj_get_coords(text,&a);
-  lv_point_t point{x-a.x1,y-a.y1};
+  lv_area_t bounds;lv_obj_get_content_coords(editorText_,&bounds);
+  // Captured drags may cross the keyboard; hit-test only inside the editor and
+  // the actual last text line, never the empty area below it.
+  x=std::max(int(bounds.x1),std::min(int(bounds.x2),x));
+  y=std::max(int(bounds.y1),std::min(int(bounds.y2),y));
+  lv_point_t end{};lv_label_get_letter_pos(text,editLength(editor_.text),&end);
+  lv_point_t point{x-a.x1,std::max(0,std::min(y-a.y1,int(end.y)+font(20)->line_height-1))};
   return editBoundary(editor_.text,std::min(size_t(lv_label_get_letter_on(text,&point,true)),editLength(editor_.text)));
+}
+void App::editorScroll(int y) {
+  if(!editorText_)return;
+  lv_obj_update_layout(editorText_);
+  auto text=lv_textarea_get_label(editorText_);
+  const int limit=std::max(0,int(lv_obj_get_height(text)-lv_obj_get_content_height(editorText_)));
+  lv_obj_scroll_to_y(editorText_,std::max(0,std::min(limit,y)),LV_ANIM_OFF);
+}
+void App::editorMagnify(bool show) {
+  if(!show || !editorText_ || !editorRoot_) {
+    if(editorMagnifier_)lv_obj_delete(editorMagnifier_);
+    editorMagnifier_=editorMagnifierImage_=editorMagnifierCaret_=nullptr;
+    editorMagnifierBuffer_=nullptr;
+    return;
+  }
+  if(!editorMagnifier_) {
+    auto buffer=lv_snapshot_create_draw_buf(editorText_,LV_COLOR_FORMAT_ARGB8888);
+    if(!buffer)return;
+    editorMagnifierBuffer_=buffer;
+    editorMagnifier_=box(editorRoot_,0,0,180,58,theme::surface);
+    lv_obj_set_scrollable(editorMagnifier_,false);lv_obj_set_clickable(editorMagnifier_,false);
+    lv_obj_set_style_radius(editorMagnifier_,12,0);lv_obj_set_style_clip_corner(editorMagnifier_,true,0);
+    lv_obj_set_style_border_width(editorMagnifier_,1,0);lv_obj_set_style_border_color(editorMagnifier_,lv_color_hex(theme::border),0);
+    editorMagnifierImage_=lv_image_create(editorMagnifier_);
+    // Detach the image source before freeing its bounded snapshot on deletion.
+    lv_obj_add_event_cb(editorMagnifierImage_,[](lv_event_t *e) {
+      lv_image_set_src(lv_event_get_target_obj(e),nullptr);
+      lv_draw_buf_destroy(static_cast<lv_draw_buf_t *>(lv_event_get_user_data(e)));
+    },LV_EVENT_DELETE,buffer);
+    lv_image_set_pivot(editorMagnifierImage_,0,0);lv_image_set_scale(editorMagnifierImage_,448);
+    editorMagnifierCaret_=box(editorMagnifier_,89,0,2,font(20)->line_height*7/4,theme::caret);
+    lv_obj_set_scrollable(editorMagnifierCaret_,false);lv_obj_set_clickable(editorMagnifierCaret_,false);
+  }
+  if(lv_snapshot_take_to_draw_buf(editorText_,LV_COLOR_FORMAT_ARGB8888,editorMagnifierBuffer_)!=LV_RESULT_OK) {
+    editorMagnify(false);return;
+  }
+  lv_image_set_src(editorMagnifierImage_,editorMagnifierBuffer_);
+  auto point=editorPoint(editor_.cursor);point.y-=font(20)->line_height+8-font(20)->line_height/2;
+  lv_area_t a;lv_obj_get_coords(editorText_,&a);
+  const int ext=(int(editorMagnifierBuffer_->header.w)-lv_obj_get_width(editorText_))/2;
+  lv_obj_set_pos(editorMagnifierImage_,90-(point.x-a.x1+ext)*7/4,29-(point.y-a.y1+ext)*7/4);
+  lv_obj_set_pos(editorMagnifierCaret_,89,(58-lv_obj_get_height(editorMagnifierCaret_))/2);
+  lv_obj_set_pos(editorMagnifier_,std::max(592,std::min(772,int(point.x)-90)),std::max(4,int(point.y)-80));
+  lv_obj_move_foreground(editorMagnifier_);
 }
 void App::editorSyncText(bool text) {
   if(!editorText_)return;
+  const int scroll=lv_obj_get_scroll_y(editorText_);
   if(text)lv_textarea_set_text(editorText_,editor_.text.c_str());
   if(text||lv_textarea_get_cursor_pos(editorText_)!=editor_.cursor)lv_textarea_set_cursor_pos(editorText_,editor_.cursor);
   auto label=lv_textarea_get_label(editorText_);auto r=editor_.range();
   lv_label_set_text_selection_start(label,editor_.selected()?r.first:LV_LABEL_TEXT_SELECTION_OFF);
   lv_label_set_text_selection_end(label,editor_.selected()?r.second:LV_LABEL_TEXT_SELECTION_OFF);
   lv_obj_update_layout(editorText_);
+  if(editorCursorDrag_||editorHandle_>=0)editorScroll(scroll);
   for(int i=0;i<2;++i)if(editorHandles_[i]) {
     auto point=editorPoint(i?r.second:r.first);
     lv_obj_set_hidden(editorHandles_[i],!editor_.selected()||editorClipboardOpen_||editorExpanded_||editorMenu_||editorUndoMenu_||point.y<90||point.y>220);
     lv_obj_set_pos(editorHandles_[i],std::max(584,std::min(916,int(point.x)-22)),std::min(164,int(point.y)-22));
   }
+  editorMagnify(editorPointer_&&(editorCursorDrag_||editorHandle_>=0));
 }
 void App::editorPolicy(bool active) {
   editorTopBlocked_=false;
@@ -396,7 +452,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
     if(pressed&&moved) {
       if(editorHandle_>=0) {editor_.select(editorDragAnchor_,editorPositionAt(x,y-16));editorSyncText();}
       else if(editorCursorDrag_||(!editorTextMoved_&&held)) {editorCursorDrag_=true;editor_.position(editorPositionAt(x,y));editorSyncText();}
-      else lv_obj_scroll_to_y(editorText_,editorTextScroll_+editorStartY_-y,LV_ANIM_OFF);
+      else editorScroll(editorTextScroll_+editorStartY_-y);
       editorTextMoved_=true;
     }
     if(!pressed) {
@@ -431,6 +487,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
   input_.touch(x,y,pressed);
 }
 void App::editorInterrupt() {
+  editorMagnify(false);
   editorPolicy(false);editorOcrStop();editorTextTouch_=editorCursorDrag_=false;editorHandle_=-1;
   editorPointer_=false; editorHeld_=-1; editorRepeat_=0; editorInFlight_=editorDue_=0; editorChoosing_=false; ++editorRevision_;
   input_.cancel();
@@ -441,9 +498,12 @@ void App::editorTick() {
   if(!editorPointer_&&!editorOcrPending_.empty()) {auto pending=std::move(editorOcrPending_);editorOcrPending_.clear();for(const auto &m:pending)editorOcrResult(m);}
   if(editorRebuild_ && !editorPointer_) editorBuild();
   if(editorTextTouch_&&(editorCursorDrag_||editorHandle_>=0)&&(editorTouchY_<92||editorTouchY_>194)) {
-    lv_obj_scroll_by(editorText_,0,editorTouchY_<92?4:-4,LV_ANIM_OFF);
-    if(editorHandle_>=0)editor_.select(editorDragAnchor_,editorPositionAt(editorTouchX_,editorTouchY_-16));else editor_.position(editorPositionAt(editorTouchX_,editorTouchY_));
-    editorSyncText();
+    const int before=lv_obj_get_scroll_y(editorText_);
+    editorScroll(before+(editorTouchY_<92?-4:4));
+    if(lv_obj_get_scroll_y(editorText_)!=before) {
+      if(editorHandle_>=0)editor_.select(editorDragAnchor_,editorPositionAt(editorTouchX_,editorTouchY_-16));else editor_.position(editorPositionAt(editorTouchX_,editorTouchY_));
+      editorSyncText();
+    }
   }
   if (!editorChoosing_ && !editorDeferred_.empty()) { auto pending=std::move(editorDeferred_); editorDeferred_.clear(); for(const auto &a:pending) { if(!editor_.active) break; editorAction(a); } }
   if (!editor_.active || keyboard_) return;
@@ -468,7 +528,7 @@ Json App::editorDiagnostic() const {
   Json handles=Json::array();
   for(int i=0;i<2;++i)if(editorHandles_[i]&&!lv_obj_is_hidden(editorHandles_[i])) {lv_area_t a;lv_obj_get_coords(editorHandles_[i],&a);handles.push_back({{"endpoint",i},{"x",(a.x1+a.x2)/2},{"y",(a.y1+a.y2)/2}});}
   auto caret=editorPoint(editor_.cursor);
-  return {{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
+  return {{"magnifier",editorMagnifier_!=nullptr},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
     {"chinese",editor_.chinese},{"shift",editor_.shift},{"multiline",editor_.multiline},{"secret",editor_.secret},
     {"length",editLength(editor_.text)},{"cursor",editor_.cursor},{"preedit_length",editor_.preedit.size()},
     {"selection_start",editor_.range().first},{"selection_end",editor_.range().second},{"selected",editor_.selected()},

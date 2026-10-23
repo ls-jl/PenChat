@@ -238,6 +238,8 @@ class App {
   EditorState editor_;
   EditorClipboard editorClipboard_;
   lv_obj_t *editorHandles_[2] = {nullptr,nullptr};
+  lv_obj_t *editorMagnifier_ = nullptr, *editorMagnifierImage_ = nullptr, *editorMagnifierCaret_ = nullptr;
+  lv_draw_buf_t *editorMagnifierBuffer_ = nullptr;
   bool editorClipboardOpen_=false, editorClipboardConfirm_=false, editorUndoMenu_=false;
   bool editorOcrMulti_=false, editorOcrActive_=false, editorOcrBusy_=false, editorOcrShown_=false;
   bool editorTopBlocked_=false;
@@ -249,6 +251,8 @@ class App {
   uint64_t editorPressTime_=0, editorLastTap_=0;
   std::vector<Json> editorOcrPending_;
   void editorSyncText(bool text=false);
+  void editorMagnify(bool show);
+  void editorScroll(int y);
   size_t editorPositionAt(int x,int y) const;
   lv_point_t editorPoint(size_t index) const;
   void editorOcrStart();

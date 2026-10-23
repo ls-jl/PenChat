@@ -61,6 +61,20 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   assert state(a)['length']==before
   key(a,'mode');assert state(a)['mode']==1;shot(a,'numbers');key(a,'1');key(a,'symbols');assert state(a)['mode']==2;shot(a,'symbols');key(a,'[')
   key(a,'mode');assert state(a)['mode']==0;key(a,'mode');assert state(a)['mode']==1;key(a,'symbols');key(a,'symbols');assert state(a)['mode']==1;key(a,'mode')
+  seed(a,'alpha beta')
+  a.send('touch',x=640,y=96,pressed=True);time.sleep(.5)
+  a.send('touch',x=700,y=96,pressed=True)
+  t.wait_for(lambda:state(a)['magnifier']);shot(a,'caret-magnifier')
+  a.send('touch',x=300,y=96,pressed=True);time.sleep(.12)
+  assert state(a)['cursor_drag'] and state(a)['magnifier'] and state(a)['cursor']==0
+  a.send('touch',x=300,y=260,pressed=True);time.sleep(.3)
+  assert state(a)['text_scroll']==0 and state(a)['length']==10
+  a.send('touch',x=300,y=260,pressed=False);time.sleep(.1)
+  assert not state(a)['magnifier'] and state(a)['length']==10
+  a.send('touch',x=640,y=96,pressed=True);time.sleep(.5);a.send('touch',x=720,y=96,pressed=True)
+  t.wait_for(lambda:state(a)['magnifier'])
+  a.send('touch',x=720,y=96,pressed=False,cancelled=True);time.sleep(.1)
+  assert not state(a)['magnifier'] and not state(a)['cursor_drag']
   seed(a,'alpha beta 中文 👩‍💻')
   double(a,624,93);assert state(a)['selected'] and state(a)['selection_end']==5;shot(a,'selection')
   handles=state(a)['selection_handles'];assert len(handles)==2
@@ -93,6 +107,15 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   assert not state(a)['active'] and a.diag()['draft_length']==len(long)
   a.send('keyboard.result',requestId=r['requestId'],confirmed=True,text='duplicate');assert a.diag()['draft_length']==len(long)
   a.tap(500,232);shot(a,'long-text')
+  a.send('touch',x=640,y=96,pressed=True);time.sleep(.5);a.send('touch',x=700,y=0,pressed=True)
+  t.wait_for(lambda:state(a)['magnifier'] and state(a)['text_scroll']==0)
+  a.send('touch',x=300,y=265,pressed=True)
+  t.wait_for(lambda:state(a)['cursor']==state(a)['length'])
+  end_scroll=state(a)['text_scroll'];time.sleep(.25);assert state(a)['text_scroll']==end_scroll
+  shot(a,'caret-magnifier-long')
+  a.send('visibility',visible=False);time.sleep(.1)
+  assert not state(a)['magnifier'] and not state(a)['cursor_drag']
+  a.send('visibility',visible=True);time.sleep(.1)
   # A scroll between two nearby taps must break the double-tap sequence.
   for x,y,pressed in [(624,93,True),(624,93,False),(624,93,True),(624,155,True),(624,155,False),(624,93,True),(624,93,False)]:
    a.send('touch',x=x,y=y,pressed=pressed);time.sleep(.015)

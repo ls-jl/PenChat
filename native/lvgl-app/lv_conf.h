@@ -22,6 +22,7 @@
 #define LV_USE_BUTTON 1
 #define LV_USE_IMAGE 1
 #define LV_USE_TEXTAREA 1
+#define LV_USE_SNAPSHOT 1
 #define LV_USE_SPAN 1
 #define LV_USE_LODEPNG 0
 #define LV_USE_LIBPNG 0

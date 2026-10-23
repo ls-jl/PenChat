@@ -12,6 +12,15 @@ def hold(x,y):
 def double(x,y):
     command='/tmp/penchat-ui-tap '+str(y+113)+' '+str(959-x)+' 2>/dev/null'
     d.adb(command+' && '+command);time.sleep(.08)
+def drag_caret(x,y,ex,ey,screenshot=None):
+    command='/tmp/penchat-ui-tap --drag-hold '+str(y+113)+' '+str(959-x)+' '+str(ey+113)+' '+str(959-ex)+' 550 1500'
+    process=subprocess.Popen(['adb','-s',d.SERIAL,'shell',command],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    try:
+        d.wait(lambda:state()['magnifier'] and abs(d.state()['touch']['x']-ex)<4)
+        assert state()['cursor_drag']
+        if screenshot:d.capture(screenshot)
+    finally:assert process.wait(timeout=5)==0
+    d.wait(lambda:not state()['magnifier'])
 def select_all():
     if state()['preedit_length']:key('enter')
     if not state()['length']:return
@@ -34,6 +43,11 @@ def exercise():
         clear()
         if state()['chinese']:key('language')
         key('shift');key('A');key('b');key('c');assert state()['length']==3;d.capture('editor-english')
+        drag_caret(624,93,300,96,'editor-caret-magnifier')
+        assert state()['cursor']==0 and state()['length']==3 and state()['text_scroll']==0
+        drag_caret(624,93,930,260)
+        assert state()['length']==3 and state()['text_scroll']==0
+        results['caret_cross_keyboard_and_empty_bottom']=True
         key('mode');key('1');d.capture('editor-numbers');key('symbols');key('[');d.capture('editor-symbols')
         key('mode');key('mode');assert state()['mode']==1;key('mode');clear()
         for c in 'alpha':key(c)

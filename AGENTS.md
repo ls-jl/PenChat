@@ -106,6 +106,8 @@ Every delivered fix increments the package patch version (0.1.0 → 0.1.1 → 0.
 
 Commit every completed change to Git after validation. Each delivered fix also increments the patch version; never claim uncommitted work is committed.
 
+The user authorizes future ORANGE package installation and device testing without asking again. Preserve user data and pending input where possible; never restart the system MiniApp host.
+
 Camera captures stay in camera-tmp until crop confirmation. Confirm attaches without auto-send. Persist saveCameraToAlbum; only explicit opt-in creates a new PenChat photo in /userdisk/Pictures. Never alter existing system photos; cancellation and exit discard temporary captures.
 
 Scanner ingress uses a lossless, ordered FrameQueue: bounded RAM inbox/prefetch, at most 640 pending frames and an unlinked disk ring below 110 MiB. Only its worker performs disk I/O. Feed the engine below 128 resident frames; seal only after queued input drains. Only an isolated one-frame forward gap within 35ms and after 16 continuous frames may recover, with visible loss accounting. Keep larger/repeated hardware discontinuity, memory and storage-error guards explicit; never silently drop queued frames.
