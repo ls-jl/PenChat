@@ -2,6 +2,14 @@
 
 独立的 ORANGE 原生 LVGL 聊天应用，版本与 AppID 以 `package.json` 为准。
 
+## 许可证
+
+PenChat 自有代码采用 [Apache-2.0](LICENSE)，第三方材料保留原许可，详见
+[许可范围与第三方声明](THIRD_PARTY_NOTICES.md) 和 [NOTICE](NOTICE)。
+**RKNN SDK/运行库及扫描模型、校准资源未获授权，不属于 Apache-2.0 授权范围**；
+部分 Falcon/JQ SDK 文件授权也尚未确认。含这些材料的本地构建不代表可公开再分发，
+二进制发布前还需处理清单中列明的授权和对应源码事项。
+
 ## 功能
 
 聊天、Markdown/公式、模型与推理强度、历史重命名/置顶/归档、聊天与预设导入导出、自动标题、拍照和相册、正向纸面扫描、系统中文输入法及 API Key OCR。

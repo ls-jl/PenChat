@@ -1,0 +1,176 @@
+{
+  "format": 1,
+  "description": "Exact upstream license/notice copies; source revisions are in native dependency locks. License inventory is in THIRD_PARTY_NOTICES.md. No grant is inferred for unresolved components.",
+  "files": [
+    {
+      "file": "lvgl.txt",
+      "source": ".deps/lvgl/LICENCE.txt",
+      "sha256": "27a80bd36832ab42d35ad60c08b2b230a807a9bc0d58e94ec1531543dc49cbe8"
+    },
+    {
+      "file": "lvgl-COPYRIGHTS.md",
+      "source": ".deps/lvgl/COPYRIGHTS.md",
+      "sha256": "8f561950f28b44408829e3edd89ada7b6a2dcf790590c4fa4070f5748dabb39b"
+    },
+    {
+      "file": "md4c.txt",
+      "source": ".deps/md4c/LICENSE.md",
+      "sha256": "e547c9a66c120b19f9838a1f7c2f51137f5c71ba27b70c3611b673f2cdb4e02e"
+    },
+    {
+      "file": "microtex.txt",
+      "source": ".deps/microtex/LICENSE",
+      "sha256": "bc05c564a978284269047da23db39cdc1db811a88670989dc48cacfd54f203d9"
+    },
+    {
+      "file": "tinyxml2.txt",
+      "source": ".deps/tinyxml2/LICENSE.txt",
+      "sha256": "9332252e9b9e46db8285d4a3f0bf25f139bf1dca6781b956d57f2302efca6432"
+    },
+    {
+      "file": "json.txt",
+      "source": ".deps/json/LICENSE.MIT",
+      "sha256": "86b998c792894ccb911a1cb7994f7a9652894e7a094c0b5e45be2f553f45cf14"
+    },
+    {
+      "file": "cairo.txt",
+      "source": ".deps/cairo/COPYING",
+      "sha256": "67228a9f7c5f9b67c58f556f1be178f62da4d9e2e6285318d8c74d567255abdf"
+    },
+    {
+      "file": "cairo-MPL-1.1.txt",
+      "source": ".deps/cairo/COPYING-MPL-1.1",
+      "sha256": "53692a2ed6c6a2c6ec9b32dd0b820dfae91e0a1fcdf625ca9ed0bdf8705fcc4f"
+    },
+    {
+      "file": "cairo-LGPL-2.1.txt",
+      "source": ".deps/cairo/COPYING-LGPL-2.1",
+      "sha256": "9e9e8608c4cdda51a78cc3a385f4ec9a2e4c96d5ecad74ac8bca5fca3e563b7d"
+    },
+    {
+      "file": "pixman.txt",
+      "source": ".deps/pixman/COPYING",
+      "sha256": "fac9270f0987b96ff4533fca3548c633e02083cbba4a0172a3b149b2e4019793"
+    },
+    {
+      "file": "freetype.txt",
+      "source": ".deps/freetype/docs/FTL.TXT",
+      "sha256": "08c135755dd589039470f1fdbb400daaabaaa50d0b366d19cebff4d22986baa1"
+    },
+    {
+      "file": "freetype-LICENSE.txt",
+      "source": ".deps/freetype/LICENSE.TXT",
+      "sha256": "2e3bbb7d7c5c396368dd0853a790ec29ce5b8647163dde42a0493fb0d6556b2b"
+    },
+    {
+      "file": "webp.txt",
+      "source": ".deps/webp/COPYING",
+      "sha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf"
+    },
+    {
+      "file": "webp-PATENTS.txt",
+      "source": ".deps/webp/PATENTS",
+      "sha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c"
+    },
+    {
+      "file": "miniz.txt",
+      "source": ".deps/miniz/LICENSE",
+      "sha256": "0115478d567121238cf6cc1c0c361926cf07a49d9e4c9e66da97fac6a01646b3"
+    },
+    {
+      "file": "math-OFL.txt",
+      "source": ".deps/microtex/res/fonts/licences/OFL.txt",
+      "sha256": "c5f826ca32b56a30e0f22467be9f51068b747a6e461314b7650238c3b90ee819"
+    },
+    {
+      "file": "math-Knuth.txt",
+      "source": ".deps/microtex/res/fonts/licences/Knuth_License.txt",
+      "sha256": "8dfa2050f50d341636748e7ab0ed175dde130e33d722678cfa99351c6aded331"
+    },
+    {
+      "file": "math-dsrom.txt",
+      "source": ".deps/microtex/res/fonts/licences/License_for_dsrom.txt",
+      "sha256": "6c4321c24c91ce63ce7f77286207eddf59066b1daa9e393f3e697d578ce4789e"
+    },
+    {
+      "file": "math-greek-GPL-3.0.txt",
+      "source": ".deps/microtex/res/greek/LICENSE",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    {
+      "file": "math-cyrillic-GPL-3.0.txt",
+      "source": ".deps/microtex/res/cyrillic/LICENSE",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    {
+      "file": "DejaVu.txt",
+      "source": "native/fonts/LICENSE.txt",
+      "sha256": "63d3ba759d12804c5b31a9d5940d855c1820d1f5999e6b0872eb1c7ff045fbc9"
+    },
+    {
+      "file": "scanner-NOTICE.txt",
+      "source": "native/scanner/NOTICE",
+      "sha256": "02276003fd159ef44464eb11cbd4cf7c8683fa826c40544bf9818f9fad7ca44e"
+    },
+    {
+      "file": "libpng.txt",
+      "source": "RK SDK external/libpng/LICENSE (local build prerequisite)",
+      "sha256": "bf5e22b9dce8464064ae17a48ea1133c3369ac9e1d80ef9e320e5219aa14ea9b"
+    },
+    {
+      "file": "zlib.txt",
+      "source": "RK SDK external/zlib/LICENSE (local build prerequisite)",
+      "sha256": "942755efa272dbfbcd7afea7a38556801e36c16dcad002d572378367094a2593"
+    },
+    {
+      "file": "libdrm.txt",
+      "source": "RK SDK external/libdrm/LICENSE (local build prerequisite)",
+      "sha256": "fbbcddffe97266ce2282a39cb6ad0528c5c47e5eba0c9b0106c00425ad6d2adc"
+    },
+    {
+      "file": "stb-image.txt",
+      "source": "native/camera/third_party/stb/stb_image.h (embedded license block)",
+      "sha256": "7587efcca32db8f95bf5860dea6dfa4be410ee723e1964db3689c8ddf2a2e4a9"
+    },
+    {
+      "file": "stb-image-write.txt",
+      "source": "native/camera/third_party/stb/stb_image_write.h (embedded license block)",
+      "sha256": "7587efcca32db8f95bf5860dea6dfa4be410ee723e1964db3689c8ddf2a2e4a9"
+    },
+    {
+      "file": "quickjs.txt",
+      "source": "native/vendor/iot-miniapp-sdk/include/quickjs/quickjs.h (embedded license block)",
+      "sha256": "314442b5687f62018e94454a911b3ff4557c351886f806c92aeadde71994cde0"
+    },
+    {
+      "file": "json11.txt",
+      "source": "native/vendor/iot-miniapp-sdk/src/jqutil_v2/jqbson.cpp (embedded license block)",
+      "sha256": "58b531e2b9868431df48a7cf47415dfbed4b903235b829491b2ea2eb86342174"
+    },
+    {
+      "file": "sdk-Apache-NOTICES.txt",
+      "source": "native/vendor/iot-miniapp-sdk: explicitly Apache-licensed file headers only",
+      "sha256": "5270c2363f735e966ab003a2ccc3f466e824f73e761695e7adb1cb2cd8fe1fc9"
+    },
+    {
+      "file": "opencv-3.4.3.txt",
+      "source": "https://raw.githubusercontent.com/opencv/opencv/3.4.3/LICENSE",
+      "sha256": "fea311907cb6271b05ff5843b238e0f2edb6f204a3432975211030d20704b321"
+    },
+    {
+      "file": "GCC-Runtime-Library-Exception-3.1.txt",
+      "source": "https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-11.2.0/COPYING.RUNTIME",
+      "sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74"
+    },
+    {
+      "file": "GPL-3.0.txt",
+      "source": "https://www.gnu.org/licenses/gpl-3.0.txt",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    {
+      "file": "LGPL-2.1.txt",
+      "source": "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt",
+      "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+    }
+  ]
+}

@@ -1,2 +1,5 @@
 # Preserve the checksum-locked upstream header exactly.
 native/scanner/engine/include/rknn/rknn_api.h -whitespace
+
+# Preserve upstream license bytes (including CRLF/trailing spaces) for SHA-256 checks.
+licenses/* -text -whitespace

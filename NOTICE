@@ -1,0 +1,28 @@
+PenChat
+Copyright 2026 ls-jl and PenChat contributors
+
+PenChat-authored code, documentation, tests and original artwork are licensed
+under the Apache License, Version 2.0. See LICENSE.
+
+This grant does not relicense third-party materials. In particular, it excludes
+native/vendor/, native/camera/third_party/, native/fonts/DejaVuSans.ttf,
+native/scanner/engine/include/rknn/, downloaded dependencies, model weights,
+calibration resources and platform/toolchain libraries. Third-party-derived
+portions retain their original notices, including native/scanner/NOTICE.
+
+RKNN: this project has NOT obtained authorization for the Rockchip RKNN SDK
+header, runtime, or the scanning model/calibration resources. No permission to
+use or redistribute those materials is granted by PenChat's Apache-2.0 license.
+The RKNN header's original restrictive notice remains in force. Locally having
+these resources or producing a working package is not redistribution permission.
+
+Falcon/JQ SDK: some files carry explicit MIT or Apache-2.0 notices; permission
+for the remaining SDK files has not been established. PenChat grants no license
+to those files. See THIRD_PARTY_NOTICES.md for the scope and remaining issues.
+
+This product uses the FreeType font rendering library, Copyright 1996-2024
+The FreeType Project (www.freetype.org). All rights reserved.
+
+Third-party license texts and notices are preserved in licenses/ and embedded
+in generated packages under assets/licenses/. Source locations, licensing
+choices and binary redistribution prerequisites are in THIRD_PARTY_NOTICES.md.

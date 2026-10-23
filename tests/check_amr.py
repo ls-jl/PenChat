@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Check the production AMR against staged, locked native resources."""
-import hashlib, json, pathlib, re, struct, zipfile
+import hashlib, json, pathlib, re, struct, zipfile, subprocess, sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 APP=json.loads((ROOT/'package.json').read_text())
 path = ROOT / ('dist/'+APP['appid']+'.'+APP['version'].replace('.', '_')+'.amr')
+subprocess.run([sys.executable,str(ROOT/'tests/check_licenses.py'),'--amr',str(path)],check=True)
 with zipfile.ZipFile(path) as archive:
     names = archive.namelist()
     assert len(names) == len(set(names)), 'Duplicate package entries'

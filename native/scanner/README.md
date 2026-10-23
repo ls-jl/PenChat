@@ -127,3 +127,10 @@ tests/device/scanner_replay.py（主机需Pillow和NumPy），传入资源包内
 系统OCR及扫描子进程异常恢复；`tests/device/scanner_capture.py` 使用配对笔头事件检查
 20次真实传感器采集、计数、亮灯请求时间和丢弃。二者只面向指定ORANGE，不创建消息。
 这些硬件检查与纸面质量验收分开；不能把全部帧入画当作文字质量通过。
+
+## 许可边界
+
+扫描自有代码采用根目录 Apache-2.0；Carotene 派生部分保留 NOTICE 中的 BSD 声明。
+RKNN SDK 头文件、RKNN 运行库、模型及校准资源均未取得本项目使用/再分发授权，
+不在 Apache-2.0 范围内。保留头文件的原始限制声明，不将本地构建视为公开发布授权。
+完整范围及运行库来源限制见 [第三方声明](../../THIRD_PARTY_NOTICES.md)。
