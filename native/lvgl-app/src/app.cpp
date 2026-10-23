@@ -1749,7 +1749,14 @@ void App::settingsPage() {
            build();
          });
   label(body_, "压缩前自动归档，原消息和图片保留", left, 328, column, 16, theme::muted);
-  label(body_, PENCHAT_NAME " " PENCHAT_VERSION " · LVGL 9.6.0", right, 286,
+  action("关于 " PENCHAT_NAME, right, 276, [this] {
+    modal("关于 " PENCHAT_NAME,
+          "版本：" PENCHAT_VERSION "\n"
+          "作者：" PENCHAT_AUTHOR "\n"
+          "AI 协作：" PENCHAT_AI_CONTRIBUTOR "\n"
+          "项目地址：" PENCHAT_PROJECT_URL);
+  });
+  label(body_, PENCHAT_NAME " " PENCHAT_VERSION " · LVGL 9.6.0", right, 328,
         column, 16, theme::muted);
 }
 void App::reasoningDisplayPicker() {

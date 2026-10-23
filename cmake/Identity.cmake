@@ -1,5 +1,5 @@
 file(READ "${ROOT}/package.json" APP_PACKAGE)
-foreach(KEY name appid version)
+foreach(KEY name appid version author aiContributor homepage)
   string(REGEX MATCH "\"${KEY}\"[ \t\r\n]*:[ \t\r\n]*\"([^\"]+)\"" MATCHED "${APP_PACKAGE}")
   set(APP_${KEY} "${CMAKE_MATCH_1}")
 endforeach()

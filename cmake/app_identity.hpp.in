@@ -2,3 +2,6 @@
 #define PENCHAT_NAME "@APP_name@"
 #define PENCHAT_APP_ID "@APP_appid@"
 #define PENCHAT_VERSION "@APP_version@"
+#define PENCHAT_AUTHOR "@APP_author@"
+#define PENCHAT_AI_CONTRIBUTOR "@APP_aiContributor@"
+#define PENCHAT_PROJECT_URL "@APP_homepage@"

@@ -20,6 +20,8 @@ with zipfile.ZipFile(path) as archive:
     binary = archive.read('assets/bin/penchat-lvgl')
     assert binary[:5] == b'\x7fELF\x02' and struct.unpack_from('<H', binary, 18)[0] == 183
     assert binary == (ROOT / 'assets/bin/penchat-lvgl').read_bytes()
+    for field in ['author', 'aiContributor', 'homepage']:
+        assert APP[field].encode('utf-8') in binary, 'Missing About metadata: ' + field
     assert sorted(n for n in names if n.startswith('assets/bin/') and not n.endswith('/')) == ['assets/bin/penchat-lvgl','assets/bin/penchat-scanner','assets/bin/penchat-sensor-guard']
     scanner = archive.read('assets/bin/penchat-scanner')
     assert scanner[:5] == b'\x7fELF\x02' and struct.unpack_from('<H',scanner,18)[0] == 183
