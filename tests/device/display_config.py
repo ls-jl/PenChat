@@ -76,6 +76,13 @@ helper=OUT/'tap'
 subprocess.run([compiler,'-std=c++11','-Os',str(ROOT/'tests/device/tap.cpp'),'-o',str(helper)],check=True)
 subprocess.run(['adb','-s',SERIAL,'push',str(helper),'/tmp/penchat-display-tap'],check=True,capture_output=True)
 shell('chmod 755 /tmp/penchat-display-tap')
+# Wake only when the known Y02 idle state is active; CLI navigation alone does
+# not wake its touchscreen. Use ordinary paired power events, never brightness
+# settings or a host restart. Do this after the app transition, before touches.
+key_helper=OUT/'key'
+subprocess.run([compiler,'-std=c++11','-Os',str(ROOT/'tests/device/key.cpp'),'-o',str(key_helper)],check=True)
+subprocess.run(['adb','-s',SERIAL,'push',str(key_helper),'/tmp/penchat-display-key'],check=True,capture_output=True)
+shell('chmod 755 /tmp/penchat-display-key')
 saved=DATA+'.display-acceptance-saved';public='/userdisk/Favorite/PenChat';publicSaved=public+'.display-acceptance-saved'
 assert shell('test ! -e '+saved+' && test ! -e '+publicSaved+' && echo safe')=='safe'
 hasData=shell('test -d '+DATA+' && echo yes')=='yes';original=hashes(DATA) if hasData else []
@@ -88,6 +95,9 @@ try:
     if hasPublic:shell('mv '+public+' '+publicSaved)
     publicIsolated=True
     shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);time.sleep(2.2) # Let Falcon's app transition finish before corner mapping.
+    if SERIAL=='MEA2300009007113' and shell('cat /sys/class/backlight/backlight/actual_brightness')=='5':
+        shell('/tmp/penchat-display-key /dev/input/by-path/rk805-pwrkey 116 1 100 300')
+        shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);time.sleep(.6)
     s=state();assert (s['width'],s['height'],s['rotation'])==(W,H,screen.get('direction',0));capture('chat')
     for x,y in [(2,2),(W-3,2),(2,H-3),(W-3,H-3)]:
         tap(x,y)
@@ -147,7 +157,7 @@ finally:
     if hasData:assert hashes(DATA)==original
     if hasPublic:assert hashes(public)==originalPublic
     assert shell('pidof miniapp')==host
-    shell('rm -f /tmp/penchat-display-tap /tmp/penchat-display-official.png')
+    shell('rm -f /tmp/penchat-display-tap /tmp/penchat-display-key /tmp/penchat-display-official.png')
 result['user_data_restored']=True
 (OUT/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
 shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);capture('final')

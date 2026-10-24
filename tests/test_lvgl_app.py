@@ -117,6 +117,16 @@ class Native:
     def setting(self, name, indicator=False):
         from settings_ui import activate
         return activate(self.diag,self.tap,self.settings_swipe,name,indicator)
+    def page_action(self, title):
+        """Reveal an action in the scrolling page header before tapping it."""
+        for _ in range(30):
+            page=self.diag()['page'];assert page and title in page['actions'],title
+            if page['scrolling']:time.sleep(.1);continue
+            x1,y1,x2,y2=page['actions'][title];viewport=page['viewport']
+            if y1>=viewport[1] and y2<=viewport[3]:
+                self.tap((x1+x2)//2,(y1+y2)//2);return
+            self.settings_swipe(120 if y1<viewport[1] else -120);time.sleep(.2)
+        raise AssertionError('Page action is not reachable: '+title)
     def read_messages(self):
         with sqlite3.connect(self.directory/'penchat.db') as db:
             return db.execute('select role,status,output_text,error_json from chat_messages order by created_at,seq').fetchall()

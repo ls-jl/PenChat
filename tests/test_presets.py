@@ -86,11 +86,11 @@ with tempfile.TemporaryDirectory(prefix='penchat-presets-') as directory:
         assert sum(m['role']=='system' for m in body['messages'])==1 and 'reasoning_effort' not in body
         app.open_settings();app.setting("presets")
         assert app.diag()['view']=='presets'
-        app.tap(870,24);assert app.diag()['view']=='preset_edit'
+        app.page_action('新增预设');assert app.diag()['view']=='preset_edit'
         app.tap(300,76);q=app.receive('keyboard.open')
         app.send('keyboard.result',requestId=q['requestId'],confirmed=True,text='测试配置')
         wait_for(lambda:not app.diag()['keyboard'])
-        app.tap(900,24);assert app.diag()['view']=='presets'
+        app.page_action('保存');assert app.diag()['view']=='presets'
         with sqlite3.connect(p/'penchat.db') as db:
             saved=json.loads(db.execute("select value_json from app_settings where key='chat_presets'").fetchone()[0])
         created=saved[-1]['id'];assert saved[-1]['name']=='测试配置' and created!='default'

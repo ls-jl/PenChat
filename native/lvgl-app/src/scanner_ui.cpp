@@ -48,20 +48,19 @@ void App::whenScannerReleased(std::function<void()> callback) {
     afterScanRelease_ = std::move(callback);
 }
 void App::scanPage() {
-  pageHeader("笔头扫描");
   lv_obj_set_scrollable(body_, false);
   scanLabel_ = label(body_, "请从左向右扫描，松开笔头后完成拼接", 10, 0, screen_.width - 120, 19,
                      theme::muted);
   lv_label_set_long_mode(scanLabel_, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(scanLabel_, font(19)->line_height);
-  auto holder = box(body_, 10, 32, screen_.width - 330, screen_.height - 136, theme::surface);
+  auto holder = box(body_, 10, 32, screen_.width - 330, screen_.height - 88, theme::surface);
   lv_obj_set_scrollable(holder, false);
   scanImage_ = imageWidget(holder);
   if (auto frame = scanner_.preview(scanId_)) {
     texture(scanImage_, frame);
     lv_image_set_scale(scanImage_,
                        std::min(256, std::min((screen_.width - 340) * 256 / frame->width,
-                                              (screen_.height - 140) * 256 / frame->height)));
+                                              (screen_.height - 92) * 256 / frame->height)));
   }
   lv_obj_center(scanImage_);
   bool usable = scanResult_.value("usable", false);
@@ -147,7 +146,7 @@ void App::scanEvent(const Event &event) {
       texture(scanImage_, frame);
       lv_image_set_scale(scanImage_,
                          std::min(256, std::min((screen_.width - 340) * 256 / frame->width,
-                                                (screen_.height - 140) * 256 / frame->height)));
+                                                (screen_.height - 92) * 256 / frame->height)));
       lv_obj_center(scanImage_);
     }
   } else if (event.type == "scan_progress" && scanLabel_) {

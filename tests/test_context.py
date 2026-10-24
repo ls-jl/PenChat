@@ -174,7 +174,7 @@ def run():
                     assert app.diag()['view']=='model'
                     drag(app,[230,190,150,100,60],x=450)
                     snapshot(app,'context-model-budget-'+api)
-                    app.tap(870,24);app.to_chat()
+                    app.page_action("保存");app.to_chat()
                     app.open_settings();app.setting("presets");app.tap(300,166)
                     assert app.diag()['view']=='preset_edit'
                     drag(app,[230,190,150,100,60],x=450)

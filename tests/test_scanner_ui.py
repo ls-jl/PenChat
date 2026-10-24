@@ -36,11 +36,11 @@ def run():
                 assert finished['summary']['sessions']==0 and not app.read_messages()
                 output=ROOT/'.work/scanner-ui';output.mkdir(parents=True,exist_ok=True)
                 snapshot(app,'result')
-                app.tap(840,156) # discard, without creating a chat row
+                app.tap(840,108) # discard, without creating a chat row
                 wait_for(lambda:app.diag()['view']=='chat')
                 assert app.diag()['session']==original and app.diag()['summary']['sessions']==0
                 scan(app)
-                app.tap(840,102);app.tap(840,102)
+                app.tap(840,54);app.tap(840,54)
                 wait_for(lambda:app.diag()['view']=='chat')
                 rows=app.read_messages();assert len(rows)==1 and rows[0][0]=='user',rows
                 with sqlite3.connect(pathlib.Path(directory)/'penchat.db') as db:
@@ -56,7 +56,7 @@ def run():
                 app.tap(800,80)
                 scan(app,0);assert not app.diag()['scan_result']['usable']
                 snapshot(app,'empty')
-                app.tap(840,102);assert app.diag()['view']=='scan' # empty cannot confirm
+                app.tap(840,54);assert app.diag()['view']=='scan' # empty cannot confirm
                 app.tap(40,32);wait_for(lambda:app.diag()['view']=='chat')
                 wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
                 app.send('scanner.test',command='test.press',pressed=True)
@@ -68,7 +68,7 @@ def run():
                 assert app.diag()['scan_result']['usable']
                 snapshot(app,'partial')
                 app.send('scanner.test',command='test.press',pressed=False)
-                app.tap(840,156);wait_for(lambda:app.diag()['view']=='chat')
+                app.tap(840,108);wait_for(lambda:app.diag()['view']=='chat')
                 # Background cancels even a full pending result and never appends it.
                 scan(app,1)
                 app.send('visibility',visible=False)
@@ -97,7 +97,7 @@ def run():
                             app.edit('已有回复继续生成');app.tap(908,232)
                             wait_for(lambda:len(transport.Server.requests)==1 and app.diag()['generating'])
                         scan(app)
-                        app.tap(840,102)
+                        app.tap(840,54)
                         wait_for(lambda:app.diag()['view']=='chat')
                         if generating:
                             # Confirmation attaches without replacing/cancelling the ongoing reply.

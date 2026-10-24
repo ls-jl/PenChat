@@ -302,31 +302,31 @@ void App::archivesPage() {
   int y = 6;
   for (const auto &session : sessions) {
     auto id = session["id"].get<std::string>();
-    auto title = label(body_, fitTitle(session.value("title", std::string())),
+    auto title = label(pageContent_, fitTitle(session.value("title", std::string())),
                        10, y + 10, 570, 20);
     lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_height(title, 26);
     if (id == archiveHighlight_)
       lv_obj_set_style_text_color(title, lv_color_hex(theme::link), 0);
     historyRows_.push_back({id, title});
-    button(body_, "还原", 590, y, 100, 44, [this, id] {
+    button(pageContent_, "还原", 590, y, 100, 44, [this, id] {
       db_.archiveSession(id, false);
       if (archiveOffset_ && db_.sessions(archiveOffset_, true).empty())
         archiveOffset_ = std::max(0, archiveOffset_ - 30);
       build();
     });
-    auto remove = button(body_, "删除", 710, y, 100, 44,
+    auto remove = button(pageContent_, "删除", 710, y, 100, 44,
            [this, id] { retireSession(id, false); });
     lv_obj_set_style_text_color(lv_obj_get_child(remove, 0), lv_color_hex(theme::danger), 0);
     y += 52;
   }
   if (archiveOffset_)
-    button(body_, "上一页", 10, y, 180, 44, [this] {
+    button(pageContent_, "上一页", 10, y, 180, 44, [this] {
       archiveOffset_ = std::max(0, archiveOffset_ - 30);
       build();
     });
   if (sessions.size() == 30)
-    button(body_, "下一页", 220, y, 180, 44, [this] {
+    button(pageContent_, "下一页", 220, y, 180, 44, [this] {
       archiveOffset_ += 30;
       build();
     });

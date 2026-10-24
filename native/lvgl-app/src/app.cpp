@@ -156,9 +156,10 @@ lv_obj_t *App::fieldButton(lv_obj_t *parent, const std::string &caption,
 }
 void App::emptyState(const std::string &title, const std::string &hint) {
   const int width = screen_.width - 118;
-  auto heading = label(body_, title, 10, 62, width, 23);
+  auto parent = pageContent_ ? pageContent_ : body_;
+  auto heading = label(parent, title, 10, 62, width, 23);
   lv_obj_set_style_text_align(heading, LV_TEXT_ALIGN_CENTER, 0);
-  auto description = label(body_, hint, 26, 99, width - 32, 17, theme::muted);
+  auto description = label(parent, hint, 26, 99, width - 32, 17, theme::muted);
   lv_obj_set_style_text_align(description, LV_TEXT_ALIGN_CENTER, 0);
 }
 void App::texture(lv_obj_t *object, std::shared_ptr<ImageFrame> frame,
@@ -596,18 +597,18 @@ void App::modelPage() {
   pageHeader("模型设置");
   const int width = screen_.width - 118, column = (width - 14) / 2;
   const auto id = modelForm_.value("id", std::string());
-  button(screenObj_, "参数映射", screen_.width - 310, 2, 140, 44, [this] {
+  pageAction("参数映射", 170, 140, [this] {
     modelAdvanced_ = !modelAdvanced_;
     build();
   });
-  auto save = button(screenObj_, "保存", screen_.width - 154, 2, 130, 44, [this, id] {
+  auto save = pageAction("保存", 24, 130, [this, id] {
     db_.saveModelCapabilities(
         id, modelForm_["reasoning"],
         modelForm_.value("context_budget", contextBudget(modelForm_)));
     show("provider");
   });
   primary(save);
-  auto name = label(body_, modelForm_.value("name", std::string()), 10, 0, width,
+  auto name = label(pageContent_, modelForm_.value("name", std::string()), 10, 0, width,
                     19, theme::muted);
   lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(name, 22);
@@ -618,7 +619,7 @@ void App::modelPage() {
     if (modelAdvanced_) {
       if (levels.contains(key)) {
         button(
-            body_, effortLabel(key) + "：" + levels[key].get<std::string>(), 10,
+            pageContent_, effortLabel(key) + "：" + levels[key].get<std::string>(), 10,
             26 + n * 48, width, 44,
             [this, key] {
               edit(
@@ -636,7 +637,7 @@ void App::modelPage() {
       }
     } else {
       button(
-          body_,
+          pageContent_,
           std::string(levels.contains(key) ? "● " : "○ ") + effortLabel(key),
           10 + (n % 2) * (column + 14), 26 + (n / 2) * 48, column, 44,
           [this, key] {
@@ -653,7 +654,7 @@ void App::modelPage() {
   }
   if (!modelAdvanced_)
     button(
-        body_, caps.value("summary", false) ? "公开总结：开" : "公开总结：关",
+        pageContent_, caps.value("summary", false) ? "公开总结：开" : "公开总结：关",
         10, 172, width, 44,
         [this] {
           auto &caps = modelForm_["reasoning"];
@@ -663,7 +664,7 @@ void App::modelPage() {
         theme::surface, LV_TEXT_ALIGN_LEFT);
   const int budgetY = modelAdvanced_ ? 32 + n * 48 : 224;
   fieldButton(
-      body_, "上下文预算（本地估算 token）",
+      pageContent_, "上下文预算（本地估算 token）",
       std::to_string(modelForm_.value("context_budget", contextBudget(modelForm_))), 10,
       budgetY, width, [this] {
         edit(
@@ -685,7 +686,7 @@ void App::modelPage() {
             },
             7, "EnUSOnly");
       });
-  label(body_, "达到 75% 自动压缩，尽量降至 50%；不代表接口精确计费。", 10,
+  label(pageContent_, "达到 75% 自动压缩，尽量降至 50%；不代表接口精确计费。", 10,
         budgetY + 60, width, 16, theme::muted);
 }
 void App::resetPull() {
@@ -889,6 +890,8 @@ bool App::chatTouch(int x, int y, bool pressed) {
 void App::clear() {
   settingsControls_.clear();
   settingsHeading_ = nullptr;
+  pageHeading_ = pageHeader_ = pageContent_ = nullptr;
+  pageActions_.clear();
   transferProgress_ = nullptr;
   scanImage_ = scanLabel_ = scanUse_ = scanHint_ = nullptr;
   historyRows_.clear();
@@ -922,6 +925,8 @@ void App::clear() {
       nullptr;
 }
 void App::build() {
+  const int pageY = pageHeader_ && body_ && builtView_ == view_ && builtPageKey_ == pageKey()
+                      ? std::max(0, int(lv_obj_get_scroll_y(body_))) : 0;
   const int settingsY = body_ && builtView_ == "settings" && view_ == "settings"
                             ? std::max(0, int(lv_obj_get_scroll_y(body_))) : settingsScroll_;
   const int transferY = body_ && builtView_ == "transfer" &&
@@ -1004,6 +1009,10 @@ void App::build() {
   if (navigationOpen_)
     historyDrawer();
   lv_obj_update_layout(screenObj_);
+  if (pageHeader_) {
+    lv_obj_scroll_to_y(body_, pageY, LV_ANIM_OFF);
+    builtPageKey_ = pageKey();
+  }
   if (view_ == "transfer") {
     lv_obj_scroll_to_y(body_, transferY, LV_ANIM_OFF);
     transferBuiltScreen_ = transfer_->busy() ? "" : transferScreen_;
@@ -1685,19 +1694,51 @@ void App::refreshImages() {
     paintVisible();
   }
 }
+std::string App::pageKey() const {
+  if (view_ == "provider") return view_ + ":" + (providerForm_.empty() ? "list" : providerForm_.value("id",std::string("new")));
+  if (view_ == "model") return view_ + ":" + modelForm_.value("id",std::string());
+  if (view_ == "preset_edit") return view_ + ":" + presetForm_.value("id",std::string());
+  if (view_ == "album") return view_ + ":" + std::to_string(albumPage_);
+  if (view_ == "archives") return view_ + ":" + std::to_string(archiveOffset_);
+  return view_;
+}
 void App::pageHeader(const std::string &title) {
-  label(screenObj_, title, 96, 7, screen_.width - 130, 26);
-  lv_obj_set_pos(body_, 86, 48);
-  lv_obj_set_height(body_, screen_.height - 48);
+  // Header and business content share one full-height reader. No overlay may
+  // cover the space released when the title scrolls out.
+  const int width = screen_.width - 90;
+  pageHeader_ = box(body_, 0, 0, width, 48);
+  lv_obj_set_scrollable(pageHeader_, false);
+  pageHeading_ = label(pageHeader_, title, 10, 7, width - 20, 26);
+  lv_label_set_long_mode(pageHeading_, LV_LABEL_LONG_MODE_DOTS);
+  lv_obj_set_height(pageHeading_,font(26)->line_height);
+  pageContent_ = box(body_, 0, 48, width, LV_SIZE_CONTENT);
+  lv_obj_set_scrollable(pageContent_, false);
+  lv_obj_set_style_min_height(pageContent_, screen_.height - 60, 0);
   lv_obj_set_style_pad_bottom(body_, 12, 0);
   lv_obj_set_style_width(body_, 3, LV_PART_SCROLLBAR);
   lv_obj_set_style_bg_color(body_, lv_color_hex(theme::muted), LV_PART_SCROLLBAR);
   lv_obj_set_style_radius(body_, 3, LV_PART_SCROLLBAR);
 }
+lv_obj_t *App::pageAction(const std::string &title, int right, int width, std::function<void()> action) {
+  const int x = screen_.width - 86 - right - width;
+  auto result = button(pageHeader_, title, x, 2, width, 44, std::move(action));
+  pageActions_[title] = result;
+  const int titleWidth = lv_obj_get_style_width(pageHeading_,LV_PART_MAIN);
+  lv_obj_set_width(pageHeading_, std::min(titleWidth,x-24));
+  return result;
+}
+Json App::pageDiagnostic() const {
+  if (!pageHeader_ || !body_) return Json();
+  auto bounds=[](lv_obj_t *o) {lv_area_t a;lv_obj_get_coords(o,&a);return Json::array({a.x1,a.y1,a.x2,a.y2});};
+  Json actions=Json::object();
+  for(const auto &entry:pageActions_) actions[entry.first]=bounds(entry.second);
+  return {{"viewport",bounds(body_)},{"heading",bounds(pageHeading_)},{"actions",actions},
+          {"scrolling",lv_obj_is_scrolling(body_)}};
+}
 void App::settingsRow(const std::string &id, const std::string &title,
                       const std::string &detail, int x, int y, int width,
                       std::function<void()> action, int checked, bool unavailable) {
-  auto row = box(body_, x, y, width, 56, theme::surface);
+  auto row = box(pageContent_, x, y, width, 56, theme::surface);
   lv_obj_set_scrollable(row, false);
   lv_obj_set_style_radius(row, 12, 0);
   lv_obj_set_style_bg_color(row, lv_color_hex(theme::border), LV_STATE_PRESSED);
@@ -1751,30 +1792,24 @@ Json App::settingsDiagnostic() const {
           {"heading", active && settingsHeading_ ? bounds(settingsHeading_) : Json()}};
 }
 void App::settingsPage() {
-  // Unlike forms, Settings has no pinned title bar: its full-height reader
-  // scrolls the heading away and makes the released space usable by controls.
-  const int headingHeight = 48;
-  settingsHeading_ = label(body_, "设置", 10, 7, screen_.width - 130, 26);
-  lv_obj_set_style_pad_bottom(body_, 12, 0);
-  lv_obj_set_style_width(body_, 3, LV_PART_SCROLLBAR);
-  lv_obj_set_style_bg_color(body_, lv_color_hex(theme::muted), LV_PART_SCROLLBAR);
-  lv_obj_set_style_radius(body_, 3, LV_PART_SCROLLBAR);
+  pageHeader("设置");
+  settingsHeading_ = pageHeading_;
   const int width = screen_.width - 118;
   const int gap = 16, column = (width - gap) / 2;
   const int left = 10, right = left + column + gap;
   const auto config = db_.settings();
   const auto settings = config.value("penchat_settings", Json::object());
-  label(body_, "聊天与会话", left, headingHeight + 4, width, 16, theme::muted);
-  settingsRow("models", "模型管理", "Provider 与模型", left, headingHeight + 28, column,
+  label(pageContent_, "聊天与会话", left, 4, width, 16, theme::muted);
+  settingsRow("models", "模型管理", "Provider 与模型", left, 28, column,
               [this] { show("provider"); });
-  settingsRow("presets", "会话预设", "管理会话配置", right, headingHeight + 28, column,
+  settingsRow("presets", "会话预设", "管理会话配置", right, 28, column,
               [this] { show("presets"); });
   const auto reasoningMode = config.value("reasoning_display", std::string("collapsed"));
   const std::string reasoningName = reasoningMode == "always" ? "始终展开"
                                     : reasoningMode == "during" ? "思考完毕后收起" : "不展开";
-  settingsRow("reasoning", "思考过程", reasoningName, left, headingHeight + 92, column,
+  settingsRow("reasoning", "思考过程", reasoningName, left, 92, column,
               [this] { reasoningDisplayPicker(); });
-  settingsRow("image_auto_send", "图片自动发送", "开启后自动发送图片消息", right, headingHeight + 92, column,
+  settingsRow("image_auto_send", "图片自动发送", "开启后自动发送图片消息", right, 92, column,
               [this] {
                 auto value = db_.settings().value("penchat_settings", Json::object());
                 // Read first: C++14 allows [] to insert null before the RHS
@@ -1785,7 +1820,7 @@ void App::settingsPage() {
                 build();
               }, settings.value("autoSendCapturedContent", false));
   const bool autoTitle = config.value("auto_title_enabled", true);
-  settingsRow("auto_title", "自动命名", "首条回复完成后生成标题", left, headingHeight + 156, column,
+  settingsRow("auto_title", "自动命名", "首条回复完成后生成标题", left, 156, column,
               [this, autoTitle] {
                 db_.setting("auto_title_enabled", !autoTitle);
                 if (autoTitle) titleCancel_ = true;
@@ -1800,27 +1835,27 @@ void App::settingsPage() {
       titleModelMissing = false;
     }
   }
-  settingsRow("title_model", "命名模型", titleModelName, right, headingHeight + 156, column,
+  settingsRow("title_model", "命名模型", titleModelName, right, 156, column,
               [this] { modelPicker(true); }, -1, titleModelMissing);
   const bool autoContext = config.value("auto_context_compression", true);
-  settingsRow("auto_context", "自动上下文压缩", "压缩前归档，保留消息和图片", left, headingHeight + 220, column,
+  settingsRow("auto_context", "自动上下文压缩", "压缩前归档，保留消息和图片", left, 220, column,
               [this, autoContext] {
                 db_.setting("auto_context_compression", !autoContext);
                 build();
               }, autoContext);
-  settingsRow("archives", "归档会话", "查看、还原或删除归档", right, headingHeight + 220, column,
+  settingsRow("archives", "归档会话", "查看、还原或删除归档", right, 220, column,
               [this] { archiveOffset_ = 0; show("archives"); });
-  label(body_, "数据与应用", left, headingHeight + 292, width, 16, theme::muted);
-  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, headingHeight + 316, column,
+  label(pageContent_, "数据与应用", left, 292, width, 16, theme::muted);
+  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 316, column,
               [this] { openTransfer(); });
   const bool persistentExports = config.value("persistent_export_directory", true);
   settingsRow("persistent_exports", "持久化导出目录",
               persistentExports ? "关闭应用后保留导出文件" : "关闭应用时清理导出文件",
-              right, headingHeight + 316, column, [this, persistentExports] {
+              right, 316, column, [this, persistentExports] {
                 db_.setting("persistent_export_directory", !persistentExports);
                 build();
               }, persistentExports);
-  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", left, headingHeight + 380, width,
+  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", left, 380, width,
               [this] {
                 const auto summary = db_.summary();
                 modal("关于 " PENCHAT_NAME,
@@ -1855,7 +1890,7 @@ void App::providerPage() {
              : providerForm_.contains("id") ? "编辑 Provider"
                                             : "添加 Provider");
   if (providerForm_.empty()) {
-    button(screenObj_, "添加 Provider", screen_.width - 212, 2, 195, 44,
+    pageAction("添加 Provider", 17, 195,
            [this] {
              providerForm_ = {{"name", "OpenAI"},
                               {"baseURL", "https://api.openai.com/v1"},
@@ -1870,12 +1905,12 @@ void App::providerPage() {
     auto models = db_.models();
     auto providers = db_.providers();
     for (const auto &p : providers) {
-      auto title = label(body_, p.value("name", std::string("Provider")), 10,
+      auto title = label(pageContent_, p.value("name", std::string("Provider")), 10,
                          y + 5, w - 130, 21);
       lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
       lv_obj_set_height(title, font(21)->line_height);
       auto providerId = p["id"].get<std::string>();
-      button(body_, "编辑", w - 105, y, 95, 44,
+      button(pageContent_, "编辑", w - 105, y, 95, 44,
              [this, providerId] { editProvider(providerId); });
       y += 46;
       for (const auto &m : models) {
@@ -1885,13 +1920,13 @@ void App::providerPage() {
         title += m["name"].get<std::string>();
         auto id = m["id"].get<std::string>();
         button(
-            body_, title, 10, y, w - 125, 44,
+            pageContent_, title, 10, y, w - 125, 44,
             [this, id] {
               chooseModel(id);
               build();
             },
             theme::surface, LV_TEXT_ALIGN_LEFT);
-        button(body_, "编辑", w - 105, y, 95, 44, [this, m] {
+        button(pageContent_, "编辑", w - 105, y, 95, 44, [this, m] {
           modelForm_ = m;
           modelForm_["reasoning"] = reasoningCapabilities(m);
           modelAdvanced_ = false;
@@ -1905,7 +1940,7 @@ void App::providerPage() {
       emptyState("还没有可用模型", "点击右上角“添加 Provider”，连接你的模型服务。");
     return;
   }
-  auto save = button(screenObj_, "保存", screen_.width - 154, 2, 130, 44, [this] { saveProvider(); });
+  auto save = pageAction("保存", 24, 130, [this] { saveProvider(); });
   primary(save);
   auto field = [&](const std::string &key, const std::string &name, int x,
                    int y, int width, bool secret = false) {
@@ -1913,7 +1948,7 @@ void App::providerPage() {
     if (secret && !value.empty())
       value = "••••••••";
     fieldButton(
-        body_, name, value.empty() ? "点击填写" : value, x, y, width,
+        pageContent_, name, value.empty() ? "点击填写" : value, x, y, width,
         [this, key, name] {
           edit(
               providerForm_.value(key, std::string()), name,
@@ -1932,7 +1967,7 @@ void App::providerPage() {
   field("name", "名称", 10, 4, columnWidth);
   field("baseURL", "Base URL", right, 4, columnWidth);
   field("apiKey", "API Key", 10, 58, columnWidth, true);
-  button(body_,
+  button(pageContent_,
          providerForm_.value("api", std::string()) == "chat"
              ? "接口：Chat Completions"
              : "接口：Responses",
@@ -1943,10 +1978,10 @@ void App::providerPage() {
            build();
          });
   field("model", "手动模型（逗号分隔）", 10, 112, w - 20);
-  button(body_, "自动获取模型", 10, 166, columnWidth, 48,
+  button(pageContent_, "自动获取模型", 10, 166, columnWidth, 48,
          [this] { fetchModels(); });
   button(
-      body_,
+      pageContent_,
       "默认推理强度：" +
           effortLabel(providerForm_.value("default_effort", std::string())),
       right, 166, columnWidth, 48,
@@ -1962,10 +1997,10 @@ void App::providerPage() {
         build();
       },
       theme::surface, LV_TEXT_ALIGN_LEFT);
-  status_ = label(body_, notice_, 10, 224, w, 17, theme::muted);
+  status_ = label(pageContent_, notice_, 10, 224, w, 17, theme::muted);
   int y = 250;
   for (auto &name : modelNames_) {
-    auto nameLabel = label(body_, name, 15, y, w, 20);
+    auto nameLabel = label(pageContent_, name, 15, y, w, 20);
     lv_label_set_long_mode(nameLabel, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_height(nameLabel, font(20)->line_height);
     y += 30;
@@ -2263,26 +2298,26 @@ void App::albumPage() {
     int pos = i - begin, x = 10 + (pos % 3) * (w / 3), y = 4 + (pos / 3) * 145;
     auto preview =
         scanPreviews.count(path) ? scanPreviews[path] : std::string();
-    image(body_, preview.empty() ? path : preview, x, y, w / 3 - 15, 105,
+    image(pageContent_, preview.empty() ? path : preview, x, y, w / 3 - 15, 105,
           [this, path, preview] {
             Json image = {{"path", path}, {"source", "album"}};
             if (!preview.empty())
               image["previewPath"] = preview;
             attach(image);
           });
-    auto caption = label(body_, basename(path), x, y + 108, w / 3 - 20, 15);
+    auto caption = label(pageContent_, basename(path), x, y + 108, w / 3 - 20, 15);
     lv_label_set_long_mode(caption, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_height(caption, font(15)->line_height);
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
   }
   int y = 4 + ((end - begin + 2) / 3) * 145;
   if (albumPage_)
-    button(body_, "上一页", 10, y, 140, 44, [this] {
+    button(pageContent_, "上一页", 10, y, 140, 44, [this] {
       --albumPage_;
       build();
     });
   if (end < int(files.size()))
-    button(body_, "下一页", 170, y, 140, 44, [this] {
+    button(pageContent_, "下一页", 170, y, 140, 44, [this] {
       ++albumPage_;
       build();
     });
@@ -3071,6 +3106,7 @@ Json App::diagnostics() const {
            : 0},
       {"scroll_y", body_ ? lv_obj_get_scroll_y(body_) : 0},
       {"settings", settingsDiagnostic()},
+      {"page", pageDiagnostic()},
       {"scroll_bottom", body_ ? lv_obj_get_scroll_bottom(body_) : 0},
       {"composer_width", composer_ ? lv_obj_get_width(composer_) : 0},
       {"toolbar_y", chatControls_ ? lv_obj_get_y(chatControls_) : -1},

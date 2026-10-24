@@ -69,6 +69,15 @@ def setting(name,indicator=False):
     if str(ROOT/'tests') not in sys.path:sys.path.insert(0,str(ROOT/'tests'))
     from settings_ui import activate
     return activate(state,tap,settings_swipe,name,indicator)
+def page_action(title):
+    for _ in range(30):
+        page=state()['page'];assert page and title in page['actions'],title
+        if page['scrolling']:time.sleep(.1);continue
+        x1,y1,x2,y2=page['actions'][title];viewport=page['viewport']
+        if y1>=viewport[1] and y2<=viewport[3]:
+            tap((x1+x2)//2,(y1+y2)//2);return
+        settings_swipe(120 if y1<viewport[1] else -120)
+    raise AssertionError('Page action is not reachable: '+title)
 def home():
     adb('/tmp/penchat-key /dev/input/by-path/adc-keys 102 1 100 300')
     wait(lambda:not pid())

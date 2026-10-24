@@ -29,9 +29,10 @@ and `[]` may insert null before the read.
 Release child processes, camera, pointers and the display
 plane on lifecycle transitions. Never dereference freed LVGL object pointers;
 register image cleanup on LV_EVENT_DELETE (9.6's old is_valid alias is unsafe).
-Section forms use a fixed 48px header and a separate scrolling body. Settings is
-the exception: its title belongs to the full-height scrolling body and scrolls
-away; never leave an empty pinned header strip after it disappears. Fixed-height
+Section page titles and their actions belong to the full-height scrolling reader,
+using pageHeader/pageContent/pageAction. Never pin a title/action strip over menu
+content. Camera/crop remain full workspaces; scan omits its redundant page title.
+Fixed-height
 buttons and list captions must bound labels to one line with ellipsis; never center
 a wrapped label that can grow beyond its control.
 Use the shared `theme.hpp` palette for all pages and native rich-text rendering.

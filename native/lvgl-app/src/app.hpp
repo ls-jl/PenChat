@@ -135,6 +135,9 @@ class App {
   std::string builtView_;
   int settingsScroll_ = 0;
   lv_obj_t *settingsHeading_ = nullptr;
+  lv_obj_t *pageHeading_ = nullptr, *pageHeader_ = nullptr, *pageContent_ = nullptr;
+  std::string builtPageKey_;
+  std::map<std::string, lv_obj_t *> pageActions_;
   struct SettingsControl {
     lv_obj_t *row, *title, *detail, *indicator;
     bool toggle;
@@ -195,6 +198,9 @@ class App {
   void updateChatControls(bool animate);
   void jumpToBottom();
   void pageHeader(const std::string &title);
+  lv_obj_t *pageAction(const std::string &title, int right, int width, std::function<void()> action);
+  std::string pageKey() const;
+  Json pageDiagnostic() const;
   void settingsPage();
   void settingsRow(const std::string &id, const std::string &title,
                    const std::string &detail, int x, int y, int width,

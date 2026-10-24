@@ -164,23 +164,23 @@ void App::transferPage() {
                                                    : "选择导入文件");
   auto action = [&](const std::string &name, int x, int y, std::function<void()> fn,
                     int w = 0) {
-    return button(body_, name, x, y, w ? w : column, 48, std::move(fn), theme::surface,
+    return button(pageContent_, name, x, y, w ? w : column, 48, std::move(fn), theme::surface,
                   LV_TEXT_ALIGN_LEFT);
   };
   if (transfer_->busy()) {
-    transferProgress_ = label(body_,
+    transferProgress_ = label(pageContent_,
                               transferOp_ == "preview" ? "正在验证文件与附件…"
                               : transferOp_ == "import" ? "正在保存导入内容…"
                               : transferOp_ == "export" ? "正在导出…"
                                                         : "正在读取…",
                               12, 12, width, 23);
-    label(body_, "正在处理文件，请稍候。", 12, 58, width, 19, theme::muted);
+    label(pageContent_, "正在处理文件，请稍候。", 12, 58, width, 19, theme::muted);
     action("取消", 10, 114, [this] { transfer_->cancel(); });
     return;
   }
   int top = 0;
   if (!transferError_.empty()) {
-    auto hint = label(body_, transferError_, 12, 4, column, 19, theme::muted);
+    auto hint = label(pageContent_, transferError_, 12, 4, column, 19, theme::muted);
     lv_obj_set_height(hint, 44);
     lv_label_set_long_mode(hint, LV_LABEL_LONG_MODE_DOTS);
     action("查看原因 / 关闭提示", right, 0, [this] {
@@ -192,7 +192,7 @@ void App::transferPage() {
     top = 60;
   }
   if (transferScreen_ == "home") {
-    label(body_, transfer_->root(), 12, top + 4, width, 18, theme::muted);
+    label(pageContent_, transfer_->root(), 12, top + 4, width, 18, theme::muted);
     auto choose = [this](const std::string &screen, const std::string &kind,
                          const std::string &op) {
       transferScreen_ = screen;
@@ -211,18 +211,18 @@ void App::transferPage() {
            [choose] { choose("export_presets", "presets", "choices"); });
     action("预设导入", right, top + 96,
            [choose] { choose("import_presets", "presets", "list"); });
-    label(body_, "将文件放入对应的导入目录，刷新后选择。", 12, top + 158, width, 18,
+    label(pageContent_, "将文件放入对应的导入目录，刷新后选择。", 12, top + 158, width, 18,
           theme::muted);
     return;
   }
   if (transferScreen_ == "done") {
-    label(body_,
+    label(pageContent_,
           transferData_.contains("path")
               ? "导出文件已保存"
               : "导入完成：新增 " + std::to_string(transferData_.value("added", 0)) +
                     " 项",
           12, top + 4, width, 24);
-    label(body_,
+    label(pageContent_,
           transferData_.value("path", std::string("现有会话和全局默认配置已保留。")),
           12, top + 44, width, 19, theme::muted);
     action("返回导入与导出", 10, top + 140, [this] {
@@ -260,11 +260,11 @@ void App::transferPage() {
   if (transferScreen_ == "preview") {
     auto &p = transferPreview_;
     auto filename = button(
-        body_, p.value("file", std::string()), 10, top, width, 44,
+        pageContent_, p.value("file", std::string()), 10, top, width, 44,
         [this] { modal("完整文件名", transferPreview_.value("file", std::string())); },
         theme::background, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_style_text_font(lv_obj_get_child(filename, 0), font(18), 0);
-    label(body_,
+    label(pageContent_,
           std::to_string(p.at("items").size()) + " 项 / " +
               std::to_string(p.value("pictures", 0)) + " 张图片 / 约 " +
               std::to_string((p.value("bytes", uint64_t(0)) + 1023) / 1024) + " KiB",
@@ -423,7 +423,7 @@ void App::transferPage() {
     y += 56;
   }
   if (rows.empty()) {
-    label(body_, "暂无可选内容", 12, y + 8, width, 22, theme::muted);
+    label(pageContent_, "暂无可选内容", 12, y + 8, width, 22, theme::muted);
     y += 48;
   }
   for (const auto &row : rows) {

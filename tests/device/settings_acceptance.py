@@ -63,7 +63,7 @@ def exercise():
     d.to_chat();d.open_settings();assert d.state()['scroll_y']==0
     d.to_chat()
 
-def main():
+def main(result=None):
     assert 'ORANGE' in d.adb('cat /proc/device-tree/model')
     if d.pid():
         s=d.state()
@@ -97,6 +97,6 @@ def main():
         if has_public:assert hashes(public)==original_public,'Public user files changed'
         assert d.adb('pidof miniapp')==host
     d.adb('miniapp_cli start '+d.APP_ID);d.wait(d.pid);d.wait(lambda:d.state()['visible'])
-    print(json.dumps({'version':d.APP['version'],'controls':11,'switches':4,'child_scroll_restored':True,'private_files_restored':True,'public_files_restored':True,'host_unchanged':True}))
+    print(json.dumps(dict(version=d.APP['version'],**(result or {'controls':11,'switches':4,'child_scroll_restored':True,'private_files_restored':True,'public_files_restored':True,'host_unchanged':True}))))
 
 if __name__=='__main__':main()

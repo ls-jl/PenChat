@@ -185,12 +185,12 @@ def run():
         assert d.state()['draft_length']==4;d.tap(890,222);RESULTS.append('short-manual-follows-chat-model')
         d.open_settings();swipe(350,230,60);capture('settings')
         # Native model and preset forms, plus real system IME handoff.
-        d.to_chat();d.open_settings();d.setting("models");d.tap(870,175);d.view('model');swipe(450,230,60);capture('model-budget');d.tap(870,24)
+        d.to_chat();d.open_settings();d.setting("models");d.tap(870,175);d.view('model');swipe(450,230,60);capture('model-budget');d.page_action("保存")
         d.to_chat();d.open_settings();d.setting("presets");d.view('presets');d.tap(300,166);d.view('preset_edit');capture('preset-compression-model')
         # Save a concrete compression model, then explicitly restore following.
         d.tap(300,192);d.wait(lambda:d.state()['modal']);capture('compression-model-options')
-        d.tap(300,186);d.tap(870,24);d.view('presets')
-        d.tap(300,166);d.tap(300,192);d.tap(300,64);d.tap(870,24);d.view('presets')
+        d.tap(300,186);d.page_action("保存");d.view('presets')
+        d.tap(300,166);d.tap(300,192);d.tap(300,64);d.page_action("保存");d.view('presets')
         d.to_chat()
         for y,expected in [(138,'b'),(66,'')]:
             d.tap(128,232);swipe(250,190,35);d.tap(240,174);d.wait(lambda:d.state()['popup']=='presets')

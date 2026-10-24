@@ -63,19 +63,19 @@ void App::presetsPage() {
   pageHeader("会话预设");
   const int width = screen_.width - 118, column = (width - 14) / 2;
   bool enabled = db_.settings().value("presets_enabled", false);
-  button(body_, enabled ? "启用预设入口：开" : "启用预设入口：关", 10, 4, column, 48,
+  button(pageContent_, enabled ? "启用预设入口：开" : "启用预设入口：关", 10, 4, column, 48,
          [this, enabled] { db_.setting("presets_enabled", !enabled); build(); });
-  auto add = button(screenObj_, "新增预设", screen_.width - 154, 2, 130, 44, [this] {
+  auto add = pageAction("新增预设", 24, 130, [this] {
     presetForm_ = defaultPreset();
     presetForm_["id"] = uid("preset");
     presetForm_["name"] = "新预设";
     show("preset_edit");
   });
   primary(add);
-  label(body_, "关闭只隐藏入口\n已有会话配置继续生效", 24 + column, 7, column, 17, theme::muted);
+  label(pageContent_, "关闭只隐藏入口\n已有会话配置继续生效", 24 + column, 7, column, 17, theme::muted);
   int y = 64;
   for (const auto &p : presetList(db_.settings())) {
-    auto row = button(body_, p.value("name", std::string()), 10, y, width, 64,
+    auto row = button(pageContent_, p.value("name", std::string()), 10, y, width, 64,
                       [this, p] { presetForm_ = p; show("preset_edit"); }, theme::surface, LV_TEXT_ALIGN_LEFT);
     lv_obj_align(lv_obj_get_child(row, 0), LV_ALIGN_TOP_LEFT, 12, 6);
     auto detail = label(row, presetSummary(p), 12, 36, width - 24, 16, theme::muted);
@@ -128,7 +128,7 @@ void App::presetChoices(const std::string &field) {
 void App::presetEditor() {
   pageHeader("编辑预设");
   const int width = screen_.width - 118, column = (width - 14) / 2, right = 24 + column;
-  auto save = button(screenObj_, "保存", screen_.width - 154, 2, 130, 44, [this] {
+  auto save = pageAction("保存", 24, 130, [this] {
     if (!presetHasText(presetForm_.value("name", std::string()))) { modal("请输入预设名称", "名称不能为空。"); return; }
     if (presetForm_.value("prompt_mode", std::string()) == "custom" && !presetHasText(presetForm_.value("prompt", std::string()))) {
       modal("请输入系统提示词", "若需要移除提示词，请选择“清空”。"); return;
@@ -159,9 +159,9 @@ void App::presetEditor() {
   auto action = [&](const std::string &text, int x, int y, std::function<void()> callback) {
     auto separator = text.find("：");
     if (separator != std::string::npos)
-      fieldButton(body_, text.substr(0, separator), text.substr(separator + 3), x, y, column, callback);
+      fieldButton(pageContent_, text.substr(0, separator), text.substr(separator + 3), x, y, column, callback);
     else {
-      auto object = button(body_, text, x, y, column, 48, callback, theme::surface, LV_TEXT_ALIGN_LEFT);
+      auto object = button(pageContent_, text, x, y, column, 48, callback, theme::surface, LV_TEXT_ALIGN_LEFT);
       if (text == "删除预设") lv_obj_set_style_text_color(lv_obj_get_child(object, 0), lv_color_hex(theme::danger), 0);
     }
   };
@@ -184,11 +184,11 @@ void App::presetEditor() {
          [this] { presetChoices("effort"); });
   auto timing = [&](const std::string &field, int x) {
     bool always = presetForm_.value(field, std::string("empty")) == "always";
-    label(body_, "应用时机", x, 120, column, 16, theme::muted);
+    label(pageContent_, "应用时机", x, 120, column, 16, theme::muted);
     for (int i = 0; i < 2; ++i) {
       const std::string value = i ? "always" : "empty";
       const int segment = (column - 8) / 2;
-      auto choice = button(body_, ((always == bool(i)) ? "● " : "○ ") + std::string(i ? "每次切换" : "仅空白会话"),
+      auto choice = button(pageContent_, ((always == bool(i)) ? "● " : "○ ") + std::string(i ? "每次切换" : "仅空白会话"),
                            x + i * (segment + 8), 144, segment, 44,
                            [this, field, value] { presetForm_[field] = value; build(); }, theme::surface);
       if (always == bool(i)) {
@@ -208,11 +208,11 @@ void App::presetEditor() {
   const int compressionY = (!id.empty() || !effort.empty()) ? 202 : 120;
   action("上下文压缩模型：" + compressionName, 10, compressionY,
          [this] { presetChoices("compression_model_id"); });
-  label(body_, "仅影响下一次压缩；不改变聊天模型和已有摘要", right, compressionY + 8, column, 16,
+  label(pageContent_, "仅影响下一次压缩；不改变聊天模型和已有摘要", right, compressionY + 8, column, 16,
         theme::muted);
   if (mode == "custom") {
     fieldButton(
-        body_, "系统提示词", presetForm_.value("prompt", std::string("点击编辑")), 10,
+        pageContent_, "系统提示词", presetForm_.value("prompt", std::string("点击编辑")), 10,
         compressionY + 64, width, [this] {
           edit(
               presetForm_.value("prompt", std::string()), "系统提示词（可输入多行）",
@@ -222,7 +222,7 @@ void App::presetEditor() {
               },
               8192, "ZhCNPreferred", {}, true);
         });
-    label(body_, "应用后替换会话提示词；需要移除时请选择“清空”。", 10, compressionY + 122, width, 16,
+    label(pageContent_, "应用后替换会话提示词；需要移除时请选择“清空”。", 10, compressionY + 122, width, 16,
           theme::muted);
   }
   if (presetForm_["id"] != "default")
