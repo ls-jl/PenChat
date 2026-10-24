@@ -112,6 +112,15 @@ class App {
   std::atomic<bool> titleCancel_{false}, titleBusy_{false};
   std::string titleSession_, historyContextId_, longPressedSession_;
   bool historyDirty_ = false;
+  int historyDayKey_ = -1;
+  int64_t sendActionAt_ = 0;
+  Json messageTimeline_ = Json::object();
+  void historyTimePicker();
+  void historyCaption(lv_obj_t *,const Json &,int,int,int);
+  struct HistoryCaption {lv_obj_t *title,*time;};
+  std::map<std::string,HistoryCaption> historyCaptions_;
+  lv_obj_t *historyFullTitle_=nullptr,*historyFullTime_=nullptr;
+  std::map<std::string,lv_obj_t *> historyActions_;
   int archiveOffset_ = 0;
   std::string archiveHighlight_;
   std::vector<std::pair<std::string, lv_obj_t *>> historyRows_;

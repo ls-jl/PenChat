@@ -24,7 +24,7 @@ def fixture():
 
 def exercise():
     d.open_settings();assert d.state()['scroll_y']==0
-    rows=d.state()['settings']['rows'];assert len(rows)==11
+    rows=d.state()['settings']['rows'];assert len(rows)==12
     for name in ('models','presets','reasoning','image_auto_send','auto_title','title_model'):
         a=rows[name]['bounds'];assert 48<=a[1] and a[3]<266
     capture('first-screen')
@@ -97,6 +97,6 @@ def main(result=None):
         if has_public:assert hashes(public)==original_public,'Public user files changed'
         assert d.adb('pidof miniapp')==host
     d.adb('miniapp_cli start '+d.APP_ID);d.wait(d.pid);d.wait(lambda:d.state()['visible'])
-    print(json.dumps(dict(version=d.APP['version'],**(result or {'controls':11,'switches':4,'child_scroll_restored':True,'private_files_restored':True,'public_files_restored':True,'host_unchanged':True}))))
+    print(json.dumps(dict(version=d.APP['version'],**(result or {'controls':12,'switches':4,'child_scroll_restored':True,'private_files_restored':True,'public_files_restored':True,'host_unchanged':True}))))
 
 if __name__=='__main__':main()

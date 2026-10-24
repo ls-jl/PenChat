@@ -5,7 +5,9 @@ ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text())
 parser=argparse.ArgumentParser();parser.add_argument('--serial',required=True)
 parser.add_argument('--back-navigation',action='store_true')
+parser.add_argument('--history-time',action='store_true')
 args=parser.parse_args();SERIAL=args.serial
+assert not (args.back_navigation and args.history_time),'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 def shell(command):return subprocess.check_output(['adb','-s',SERIAL,'shell',command],text=True).replace('\r','').strip()
@@ -110,17 +112,22 @@ try:
     shell('mkdir -p '+DATA);privateIsolated=True
     if hasPublic:shell('mv '+public+' '+publicSaved)
     publicIsolated=True
-    if args.back_navigation:
+    if args.back_navigation or args.history_time:
         sys.path.insert(0,str(ROOT/'tests'))
         from test_image_viewer import fixture
+        from test_history_time import seed_history
         import shutil
         sample=OUT/'fixture'
         if sample.exists():shutil.rmtree(sample)
-        sample.mkdir();fixture(sample)
-        with sqlite3.connect(sample/'penchat.db') as db:
-            db.execute('update message_assets set stored_path=?,original_path=?',(DATA+'/assets/original.png',)*2)
-        shell('mkdir -p '+DATA+'/assets')
-        for source,target in [(sample/'penchat.db',DATA+'/penchat.db'),(sample/'assets/original.png',DATA+'/assets/original.png')]:
+        sample.mkdir()
+        if args.history_time:seed_history(sample,1)
+        else:fixture(sample)
+        files=[(sample/'penchat.db',DATA+'/penchat.db')]
+        if args.back_navigation:
+            with sqlite3.connect(sample/'penchat.db') as db:
+                db.execute('update message_assets set stored_path=?,original_path=?',(DATA+'/assets/original.png',)*2)
+            shell('mkdir -p '+DATA+'/assets');files.append((sample/'assets/original.png',DATA+'/assets/original.png'))
+        for source,target in files:
             subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
     wake()
     shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);time.sleep(2.2) # Let Falcon's app transition finish before corner mapping.
@@ -144,6 +151,22 @@ try:
     shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --drag-hold '+str(sx)+' '+str(sy)+' '+str(ex)+' '+str(ey)+' 450 200 2>/dev/null')
     wait(lambda:not state()['settings']['scrolling'])
     assert state()['settings']['heading'][3]<0;capture('settings-scrolled')
+    if args.history_time:
+        from settings_ui import activate
+        for index,mode in enumerate(('time','title','off')):
+            activate(state,tap,settings_swipe,'history_time');wait(lambda:state()['modal']);capture('history-time-picker')
+            width=(W-162)//3;tap(100+index*(width+12)+width//2,90);wait(lambda:not state()['modal'])
+            tap(40,32);wait(lambda:state()['navigation_open']);s=state()
+            assert s['history_captions']['missing']['time']==''
+            assert bool(s['history_captions']['today']['time'])==(mode=='time')
+            capture('history-'+mode)
+            if mode=='time':
+                row=next(r for r in s['history_rows'] if r['id']=='today');rx,ry=raw(row['x'],row['y'])
+                shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 650 2>/dev/null')
+                wait(lambda:state()['history_context']=='today');assert state()['history_details']['title_length']>100
+                capture('history-full-title');tap(W-10,H-10)
+            tap(W*2//3-70,H-30);wait(lambda:state()['view']=='settings')
+        result['history_time_modes']=3;result['history_static_title']=True;result['missing_history_time_hidden']=True
     if args.back_navigation:
         native=pid();blocked(True)
         from settings_ui import activate

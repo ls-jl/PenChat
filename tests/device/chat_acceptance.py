@@ -286,14 +286,14 @@ if __name__=='__main__':
         device.tap(146,110);device.tap(800,230);assert device.state()['effective_effort']=='api_default'
         mode('ok');send_request();wait_reply(11,'complete');assert requests()[-1]['effort']==''
         results.append('explicit-api-default')
-        history_menu();device.capture('history-context');device.tap(110,147)
+        history_menu();device.capture('history-context');device.history_action("rename")
         device.official_editor();device.tap(35,35);device.cancel_native_editor()
         device.wait(lambda:device.state()['navigation_open']);assert session_info()[2]['title_state']=='complete'
-        history_menu();device.tap(250,147);assert session_info()[2].get('pinned_at',0)>0
-        history_menu();device.tap(390,147);assert session_info()[1]=='archived'
+        history_menu();device.history_action("pin");assert session_info()[2].get('pinned_at',0)>0
+        history_menu();device.history_action("archive");assert session_info()[1]=='archived'
         device.tap(500,236);device.setting("archives");device.view('archives');device.capture('archived-chat')
         device.tap(726,76);assert session_info()[1]=='active'
-        device.to_chat();history_menu();device.tap(390,147)
+        device.to_chat();history_menu();device.history_action("archive")
         device.tap(500,236);device.setting("archives");device.tap(846,76);assert session_info() is None
         results.append('history-long-press-rename-cancel-pin-archive-restore-delete')
         assert device.adb('pidof miniapp')==parent

@@ -85,7 +85,9 @@ public:
   void saveSessionPreferences(const std::string &session, const Json &preferences);
   void saveModelCapabilities(const std::string &id, const Json &reasoning,
                              int budget = 0);
-  void recordRequest(const std::string &message, const Json &model);
+  void recordRequest(const std::string &message, const Json &model,
+                     int64_t sentAt=0,int64_t startedAt=0);
+  void recordActivity(const std::string &session,int64_t stamp);
   void saveProvider(const Json &form, const std::vector<std::string> &names);
   void selectModel(const std::string &id);
   Json responseInput(const std::string &session, const std::string &beforeMessage,

@@ -1,4 +1,5 @@
 #include "database.hpp"
+#include "chat_time.hpp"
 #include "context.hpp"
 #include "reasoning.hpp"
 #include "schema.hpp"
@@ -424,7 +425,7 @@ std::string Database::createSession() {
   execute("INSERT INTO "
           "chat_sessions(id,title,status,created_at,updated_at,last_message_at) "
           "VALUES(?,?,'active',?,?,?)",
-          {id, "新对话", nowMs(), nowMs(), nowMs()});
+          {id, "新对话", nowMs(), nowMs(), 0});
   setting("active_session_id", id);
   return id;
 }
@@ -515,9 +516,9 @@ bool Database::removePendingImage(const std::string &session,
       }
       execute("UPDATE chat_sessions SET message_count=(SELECT count(*) FROM "
               "chat_messages WHERE "
-              "session_id=?),preview_text=?,last_message_at=?,updated_at=? "
+              "session_id=?),preview_text=?,updated_at=? "
               "WHERE id=?",
-              {session, preview, latest[0]["created_at"], nowMs(), session});
+              {session, preview, nowMs(), session});
     }
     execute("COMMIT");
   } catch (...) {
@@ -580,7 +581,7 @@ std::string Database::append(const std::string &s, const std::string &role,
     execute("INSERT OR IGNORE INTO chat_sessions"
             "(id,title,status,created_at,updated_at,last_message_at) "
             "VALUES(?,'新对话','active',?,?,?)",
-            {s, nowMs(), nowMs(), nowMs()});
+            {s, nowMs(), nowMs(), 0});
     if (!preferences.empty())
       saveSessionPreferences(s, preferences);
     auto q = query("SELECT COALESCE(MAX(seq),0)+1 AS n FROM chat_messages "
@@ -589,9 +590,10 @@ std::string Database::append(const std::string &s, const std::string &role,
     execute("INSERT INTO "
             "chat_messages(id,session_id,seq,role,status,message_type,created_"
             "at,updated_at,output_"
-            "text) VALUES(?,?,?,?,?,?,?,?,?)",
+            "text,metadata_json) VALUES(?,?,?,?,?,?,?,?,?,?)",
             {id, s, q[0]["n"], role, role == "assistant" ? "streaming" : "complete",
-             hasImage ? "image" : "text", nowMs(), nowMs(), content});
+             hasImage ? "image" : "text", nowMs(), nowMs(), content,
+             Json{{"timeline",{{"version",1}}}}.dump()});
     if (hasImage) {
       execute("INSERT INTO "
               "message_assets(id,session_id,message_id,kind,source_type,"
@@ -627,11 +629,11 @@ std::string Database::append(const std::string &s, const std::string &role,
       }
     }
     execute("UPDATE chat_sessions SET "
-            "updated_at=?,last_message_at=?,message_count=message_count+1,"
+            "updated_at=?,message_count=message_count+1,"
             "preview_text=?,title="
             "CASE WHEN title='新对话' AND ?='user' THEN ? ELSE title END WHERE "
             "id=?",
-            {nowMs(), nowMs(), preview,
+            {nowMs(), preview,
              objectField(sessionInfo(s), "metadata_json").contains("title_state")
                  ? std::string()
                  : role,
@@ -661,14 +663,19 @@ void Database::updateMessage(const std::string &id, const std::string &t,
   }
   execute("BEGIN IMMEDIATE");
   try {
-    if (!metadata.empty()) {
-      auto rows = query("SELECT metadata_json FROM chat_messages WHERE id=?", {id});
-      if (!rows.empty()) {
+    auto rows = query("SELECT session_id,role,metadata_json FROM chat_messages WHERE id=?", {id});
+    if (!rows.empty()) {
         auto merged = objectField(rows[0], "metadata_json");
-        merged.update(metadata);
+        if(metadata.is_object())merged.update(metadata);
+        auto timeline=merged.value("timeline",Json::object());
+        if(status=="complete" && rows[0]["role"]=="assistant" && timeline.is_object() && timeline.value("version",0)==1) {
+          auto completed=chatTimestamp(timeline,"completed_at");
+          if(!completed)completed=nowMs();
+          timeline["completed_at"]=completed;merged["timeline"]=timeline;
+          recordActivity(rows[0]["session_id"],completed);
+        }
         execute("UPDATE chat_messages SET metadata_json=? WHERE id=?",
                 {merged.dump(), id});
-      }
     }
     execute("UPDATE chat_messages SET "
             "output_text=?,reasoning_text=?,status=?,error_json=?,updated_at=? "
@@ -793,10 +800,18 @@ void Database::saveModelCapabilities(const std::string &id, const Json &reasonin
   execute("UPDATE model_configs SET capabilities_json=?,updated_at=? WHERE id=?",
           {caps.dump(), nowMs(), id});
 }
-void Database::recordRequest(const std::string &message, const Json &model) {
+void Database::recordActivity(const std::string &session,int64_t stamp) {
+  auto row=sessionInfo(session);if(row.empty())return;
+  auto meta=objectField(row,"metadata_json");
+  meta["timeline"]={{"version",1},{"last_activity_at",stamp}};
+  execute("UPDATE chat_sessions SET last_message_at=?,metadata_json=? WHERE id=?",{stamp,meta.dump(),session});
+}
+void Database::recordRequest(const std::string &message, const Json &model,int64_t sentAt,int64_t startedAt) {
+  if(!sentAt)sentAt=nowMs();
+  if(!startedAt)startedAt=nowMs();
   if (!onWorker()) {
     perform([=] {
-      recordRequest(message, model);
+      recordRequest(message, model,sentAt,startedAt);
       return Json();
     });
     return;
@@ -806,9 +821,28 @@ void Database::recordRequest(const std::string &message, const Json &model) {
                      {"effort_value", model.value("effort_value", std::string())},
                      {"summary", model.value("reasoning_summary", false)},
                      {"system_prompt", model.value("system_prompt", std::string())}};
-  execute("UPDATE chat_messages SET "
-          "provider_id=?,model_config_id=?,request_json=? WHERE id=?",
-          {model["provider_id"], model["id"], parameters.dump(), message});
+  execute("BEGIN IMMEDIATE");
+  try {
+    auto rows=query("SELECT session_id,seq,metadata_json FROM chat_messages WHERE id=?",{message});
+    if(!rows.empty()) {
+      auto session=rows[0]["session_id"];auto seq=rows[0]["seq"];
+      auto users=query("SELECT id,metadata_json FROM chat_messages WHERE session_id=? AND role='user' AND seq<? AND seq>(SELECT coalesce(max(seq),0) FROM chat_messages WHERE session_id=? AND role='assistant' AND seq<?)",{session,seq,session,seq});
+      for(auto &user:users) {
+        auto meta=objectField(user,"metadata_json");auto time=meta.value("timeline",Json::object());
+        // Only new tracked messages acquire their original send time; a retry
+        // must never invent or replace the original time of an old message.
+        if(time.is_object() && time.value("version",0)==1 && !chatTimestamp(time,"sent_at")) {
+          time["sent_at"]=sentAt;meta["timeline"]=time;
+          execute("UPDATE chat_messages SET metadata_json=? WHERE id=?",{meta.dump(),user["id"]});
+        }
+      }
+      auto meta=objectField(rows[0],"metadata_json");meta["timeline"]={{"version",1},{"request_started_at",startedAt}};
+      execute("UPDATE chat_messages SET provider_id=?,model_config_id=?,request_json=?,metadata_json=? WHERE id=?",
+              {model["provider_id"],model["id"],parameters.dump(),meta.dump(),message});
+      recordActivity(session,sentAt);
+    }
+    execute("COMMIT");
+  } catch(...) {execute("ROLLBACK");throw;}
 }
 void Database::saveProvider(const Json &f, const std::vector<std::string> &names) {
   if (!onWorker()) {

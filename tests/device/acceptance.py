@@ -78,6 +78,9 @@ def page_action(title):
             tap((x1+x2)//2,(y1+y2)//2);return
         settings_swipe(120 if y1<viewport[1] else -120)
     raise AssertionError('Page action is not reachable: '+title)
+def history_action(key):
+    x1,y1,x2,y2=state()["history_actions"][key]
+    tap((x1+x2)//2,(y1+y2)//2)
 def home():
     adb('/tmp/penchat-key /dev/input/by-path/adc-keys 102 1 100 300')
     wait(lambda:not pid())

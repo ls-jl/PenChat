@@ -141,7 +141,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-transfer-ui-') as directory:
         app.tap(300,134);ready('preview');shot('model-mapped')
         home();app.tap(40,32);app.to_chat();assert app.diag()['draft_length']==len('保留的草稿')
         app.open_navigation();row=app.diag()['history_rows'][0];app.long_press(row['x'],row['y']);shot('history-export')
-        app.tap(670,147);ready('export_chats');assert app.diag()['view']=='transfer'
+        app.history_action("export");ready('export_chats');assert app.diag()['view']=='transfer'
     finally:app.close()
 shutil.rmtree(fixture['root'])
 print('Transfer: chat/preset roundtrip, credentials exclusion, Markdown, hostile archives, rollback, directory and LVGL flows passed.')

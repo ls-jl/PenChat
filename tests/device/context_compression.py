@@ -83,7 +83,7 @@ def delete_history(sid):
     row=next(r for r in d.state()['history_rows'] if r['id']==sid)
     shell('/tmp/penchat-ui-tap --hold '+str(row['y']+113)+' '+str(959-row['x'])+' 650 2>/dev/null')
     d.wait(lambda:d.state()['history_context']==sid)
-    d.tap(530,147)
+    d.history_action("delete")
 def compile_helpers():
     sdk=os.environ.get('RK_SDK_ROOT','/home/ls-jl/dictpen/x7pro/android13_sdk/RK3562_Android13.0_SDK')
     tool=os.environ.get('JSAPI_TOOLCHAIN_ROOT',sdk+'/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu')+'/bin/aarch64-linux-gnu-g++'

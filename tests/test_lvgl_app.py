@@ -80,7 +80,7 @@ class Native:
 
     def receive(self, kind):
         if kind=='keyboard.open' and self.official_adapter:
-            wait_for(lambda:self.diag()['editor']['active']);self.tap(820,236)
+            wait_for(lambda:self.diag()['editor']['active']);screen=self.diag();self.tap(screen['width']-126,screen['height']-30)
         for i,value in enumerate(self.pending):
             if value.get("type")==kind:return self.pending.pop(i)
         while True:
@@ -90,6 +90,9 @@ class Native:
             self.pending.append(value)
     def tap(self,x,y):
         self.send('touch',x=x,y=y,pressed=True);time.sleep(.06);self.send('touch',x=x,y=y,pressed=False);time.sleep(.08)
+    def history_action(self,key):
+        x1,y1,x2,y2=self.diag()["history_actions"][key]
+        self.tap((x1+x2)//2,(y1+y2)//2)
     def long_press(self,x,y):
         self.send('touch',x=x,y=y,pressed=True);time.sleep(.65);self.send('touch',x=x,y=y,pressed=False);time.sleep(.08)
     def diag(self):
@@ -131,8 +134,8 @@ class Native:
         with sqlite3.connect(self.directory/'penchat.db') as db:
             return db.execute('select role,status,output_text,error_json from chat_messages order by created_at,seq').fetchall()
     def edit(self,value):
-        wait_for(lambda:self.diag()['toolbar_y']==208)
-        self.tap(500,232);request=self.receive('keyboard.open')
+        screen=self.diag();wait_for(lambda:self.diag()['toolbar_y']==screen['height']-58)
+        self.tap(screen['width']//2,screen['height']-34);request=self.receive('keyboard.open')
         self.send('keyboard.result',requestId='stale',confirmed=True,text='must not appear')
         assert self.diag()['keyboard'] is True
         self.send('keyboard.result',requestId=request['requestId'],confirmed=True,text=value)

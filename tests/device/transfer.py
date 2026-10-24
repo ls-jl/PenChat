@@ -58,7 +58,7 @@ if __name__=='__main__':
         swipe(230,130);print('checkbox scroll',d.state()['scroll_y'],flush=True);capture('preset-scrolled');d.tap(300,256-int(d.state()['scroll_y']));capture('preset-after-checkbox')
         swipe(90,230);swipe(90,230);capture('preset-before-import');print('top scroll',d.state()['scroll_y'],flush=True);d.tap(300,140);ready('done');assert d.state()['transfer_data']['added']==1;results.append('preset-export-and-explicit-default-confirmation')
         home();d.tap(40,32);d.to_chat();d.open_navigation();row=d.state()['history_rows'][0]
-        d.adb('/tmp/penchat-ui-tap --hold '+str(row['y']+113)+' '+str(959-row['x'])+' 650 2>/dev/null');d.wait(lambda:d.state()['modal']);capture('history-export');d.tap(670,147);ready('export_chats');results.append('history-single-row-export-entry')
+        d.adb('/tmp/penchat-ui-tap --hold '+str(row['y']+113)+' '+str(959-row['x'])+' 650 2>/dev/null');d.wait(lambda:d.state()['modal']);capture('history-export');d.history_action("export");ready('export_chats');results.append('history-single-row-export-entry')
         pull(d.DATA+'/penchat.db',OUT/'check.db')
         with sqlite3.connect(OUT/'check.db') as db:
             assert db.execute('select count(*) from chat_sessions').fetchone()[0]==2

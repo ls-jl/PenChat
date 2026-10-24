@@ -70,22 +70,22 @@ def run():
             app.open_navigation();d=app.diag();assert abs(d['history_rows'][0]['y']-30)<=1, d['history_rows']
             assert d['title_width']<=568*.8 and d['title_limit']<=23
             screenshot(app,'history-no-header')
-            context(app,first);screenshot(app,'history-actions');app.tap(250,147)
+            context(app,first);screenshot(app,'history-actions');app.history_action("pin")
             assert info(directory,first)[2]['pinned_at']>0
-            context(app,'old0');app.tap(250,147)
+            context(app,'old0');app.history_action("pin")
             assert app.diag()['history_rows'][0]['id']=='old0'
-            context(app,'old0');app.tap(110,147);request=app.receive('keyboard.open')
+            context(app,'old0');app.history_action("rename");request=app.receive('keyboard.open')
             app.send('visibility',visible=False)
             app.send('keyboard.result',requestId=request['requestId'],confirmed=True,text='手动置顶标题')
             app.send('visibility',visible=True)
             wait_for(lambda:app.diag()['navigation_open'])
             assert info(directory,'old0')[0]=='手动置顶标题'
-            context(app,'old0');app.tap(390,147)
+            context(app,'old0');app.history_action("archive")
             assert info(directory,'old0')[1]=='archived' and not any(r['id']=='old0' for r in app.diag()['history_rows'])
             app.tap(500,236);app.setting("archives");assert app.diag()['view']=='archives';screenshot(app,'archives')
             app.tap(726,76);assert info(directory,'old0')[1]=='active'
             app.to_chat();app.open_navigation();assert app.diag()['history_rows'][0]['id']=='old0'
-            context(app,'old0');app.tap(390,147);app.tap(500,236);app.setting("archives");app.tap(846,76)
+            context(app,'old0');app.history_action("archive");app.tap(500,236);app.setting("archives");app.tap(846,76)
             assert info(directory,'old0') is None
             app.tap(40,32);app.setting("title_model");assert app.diag()['popup']=='title_models'
             app.tap(300,162);assert app.diag()['active_model']=='a'
@@ -103,12 +103,12 @@ def run():
             Server.title_delay=2
             pending=new(app);send(app,'命名过程中手动改名')
             wait_for(lambda:app.diag()['title_busy'])
-            context(app,pending);app.tap(110,147);request=app.receive('keyboard.open')
+            context(app,pending);app.history_action("rename");request=app.receive('keyboard.open')
             app.send('keyboard.result',requestId=request['requestId'],confirmed=True,text='用户确认的标题')
             wait_for(lambda:not app.diag()['title_busy'],timeout=6);time.sleep(.1)
             assert info(directory,pending)[0]=='用户确认的标题' and info(directory,pending)[2]['title_state']=='manual'
             removed=new(app);send(app,'命名过程中删除会话');wait_for(lambda:app.diag()['title_busy'])
-            context(app,removed);app.tap(530,147)
+            context(app,removed);app.history_action("delete")
             wait_for(lambda:not app.diag()['title_busy'],timeout=6)
             assert info(directory,removed) is None
             Server.title_delay=0;Server.fail_title=True

@@ -110,12 +110,19 @@ void paint(lv_event_t *event) {
     line(0, -5, 0, 0);
     line(0, 0, 4, 3);
   } else if (k == "settings") {
-    circle(0, 0, 7);
-    circle(0, 0, 2.5f);
-    for (int i = 0; i < 8; ++i) {
-      float a = i * 6.2831853f / 8;
-      line(std::cos(a) * 7, std::sin(a) * 7, std::cos(a) * 10, std::sin(a) * 10);
+    // One closed tooth contour: radial spokes drawn over a circle caused
+    // rounded caps to cut through the ring at every tooth root.
+    float firstX=0,firstY=0,lastX=0,lastY=0;
+    const float angles[]={-22.5f,-13.f,-13.f,13.f,13.f,22.5f};
+    const float radii[]={7.2f,7.2f,10.f,10.f,7.2f,7.2f};
+    for (int i=0;i<48;++i) {
+      const float a=(i/6*45+angles[i%6])*.0174532925f;
+      const float x=std::cos(a)*radii[i%6],y=std::sin(a)*radii[i%6];
+      if(i) {if(std::abs(x-lastX)+std::abs(y-lastY)>.01f)line(lastX,lastY,x,y);}
+      else {firstX=x;firstY=y;}
+      lastX=x;lastY=y;
     }
+    line(lastX,lastY,firstX,firstY);circle(0,0,3);
   } else if (k == "camera") {
     rect(-10, -6, 20, 15, 3);
     line(-5, -6, -3, -9);

@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "chat_time.hpp"
 #include "context.hpp"
 #include "icons.hpp"
 #include "src/misc/cache/instance/lv_image_cache.h"
@@ -887,6 +888,7 @@ void App::clear() {
   transferProgress_ = nullptr;
   scanImage_ = scanLabel_ = scanUse_ = scanHint_ = nullptr;
   historyRows_.clear();
+  historyCaptions_.clear();historyActions_.clear();historyFullTitle_=historyFullTime_=nullptr;
   historyContextId_.clear();
   reasoningHeaders_.clear();
   if (navigationList_)
@@ -1847,17 +1849,19 @@ void App::settingsPage() {
               }, autoContext);
   settingsRow("archives", "归档会话", "查看、还原或删除归档", right, 220, column,
               [this] { archiveOffset_ = 0; show("archives"); });
-  label(pageContent_, "数据与应用", left, 292, width, 16, theme::muted);
-  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 316, column,
+  const auto historyMode=config.value("history_time_display",std::string("time"));
+  settingsRow("history_time","历史时间显示",historyMode=="title"?"会话标题优先":historyMode=="off"?"关闭时间显示":"时间显示优先",left,284,column,[this]{historyTimePicker();});
+  label(pageContent_, "数据与应用", left, 356, width, 16, theme::muted);
+  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 380, column,
               [this] { openTransfer(); });
   const bool persistentExports = config.value("persistent_export_directory", true);
   settingsRow("persistent_exports", "持久化导出目录",
               persistentExports ? "关闭应用后保留导出文件" : "关闭应用时清理导出文件",
-              right, 316, column, [this, persistentExports] {
+              right, 380, column, [this, persistentExports] {
                 db_.setting("persistent_export_directory", !persistentExports);
                 build();
               }, persistentExports);
-  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", left, 380, width,
+  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", left, 444, width,
               [this] {
                 const auto summary = db_.summary();
                 modal("关于 " PENCHAT_NAME,
@@ -2110,6 +2114,7 @@ void App::goBack() {
 }
 void App::closeNavigation(bool resumeCamera) {
   const bool wasOpen = navigationOpen_;
+  if(wasOpen)historyCaptions_.clear();
   navigationOpen_ = false;
   historyRows_.clear();
   navigationBackdrop_ = navigationPointerDown_ = false;
@@ -2138,7 +2143,7 @@ void App::historyDrawer() {
   // Only the drawer is replaced when paging, keeping the underlying form/draft.
   if (navigationList_)
     navigationScroll_ = std::max(0, int(lv_obj_get_scroll_y(navigationList_)));
-  historyRows_.clear();
+  historyRows_.clear();historyCaptions_.clear();
   auto previous = navigation_;
   navigation_ = navigationList_ = navigationActive_ = nullptr;
   if (previous)
@@ -2329,8 +2334,10 @@ void App::albumPage() {
 void App::persistReply(const std::string &status, const Json &error) {
   if (assistant_.empty())
     return;
+  if(status=="complete" && !messageTimeline_.contains("completed_at"))messageTimeline_["completed_at"]=nowMs();
+  auto metadata=reasoningMetadata_;metadata["timeline"]=messageTimeline_;
   db_.queueMessage(session_, assistant_, networkGeneration_, ++saveVersion_, output_,
-                   reasoning_, status, error, reasoningMetadata_);
+                   reasoning_, status, error, metadata);
   persistDirty_ = false;
   persistDue_ = ticks() + 500;
 }
@@ -2379,6 +2386,7 @@ void App::sendMessage(const std::string &retry) {
   const std::string retryId = !retry.empty() ? retry :
       (!hasText(draft_) && failed ? stringValue(latest[0], "id") : std::string());
   if (retryId.empty() && !canSend()) return;
+  sendActionAt_=nowMs();
   startContext(false, retryId);
 }
 void App::sendPrepared(Json model, Json input, const std::string &retryId,
@@ -2407,7 +2415,9 @@ void App::sendPrepared(Json model, Json input, const std::string &retryId,
     db_.updateMessage(retryId, "", "", "streaming");
     reasoningOverrides_.erase(retryId);
   }
-  db_.recordRequest(assistant_, model);
+  const auto started=nowMs();
+  messageTimeline_={{"version",1},{"request_started_at",started}};
+  db_.recordRequest(assistant_, model,sendActionAt_?sendActionAt_:started,started);
   notice_.clear();
   reasoningMetadata_ = Json::object();
   output_.clear();
@@ -2697,8 +2707,9 @@ void App::tick() {
     if (saved.type == "message_saved") {
       const auto session = saved.data.value("session", std::string());
       const auto message = saved.data.value("message", std::string());
-      if (saved.data.value("status", std::string()) == "complete")
-        scheduleTitle(session, message);
+      if (saved.data.value("status", std::string()) == "complete") {
+        historyDirty_=true; scheduleTitle(session, message);
+      }
       if (message == assistant_ &&
           saved.data.value("generation", -1) == networkGeneration_) {
         saveInFlight_ = false;
@@ -2837,11 +2848,17 @@ void App::tick() {
           }
         }
       }
+    } else if (e.type == "history_time_display") {
+      input_.cancel();db_.setting("history_time_display",e.data.at("mode"));build();
     } else if (e.type == "reasoning_display") {
       input_.cancel();
       db_.setting("reasoning_display", e.data.at("mode"));
       reasoningOverrides_.clear();
       build();
+    } else if (e.type == "history_details" && view_=="archives") {
+      input_.cancel();auto session=db_.sessionInfo(e.data.value("id",std::string()));
+      if(!session.empty())modal("会话详情",session.value("title",std::string())+"\n\n"+
+          (sessionChatTime(session)?"最后聊天："+historyTime(sessionChatTime(session),nowMs(),true):"没有已记录的聊天时间"));
     } else if (e.type == "history_context") {
       auto id = e.data.value("id", std::string());
       if (navigationOpen_ && !modal_ && !keyboard_ &&
@@ -3049,12 +3066,23 @@ Json App::diagnostics() const {
                            {"x", (area.x1 + area.x2) / 2},
                            {"y", (area.y1 + area.y2) / 2}});
   }
+  auto bounds=[](lv_obj_t *object)->Json {if(!object)return Json();lv_area_t a;lv_obj_get_coords(object,&a);return Json::array({a.x1,a.y1,a.x2,a.y2});};
+  Json historyCaptions=Json::object(),historyActions=Json::object();
+  for(const auto &entry:historyCaptions_) {
+    auto title=entry.second.title;auto time=entry.second.time;
+    historyCaptions[entry.first]={{"title_bounds",bounds(title)},{"time_bounds",bounds(time)},
+       {"title_length",editLength(lv_label_get_text(title))},{"marquee",lv_label_get_long_mode(title)==LV_LABEL_LONG_MODE_SCROLL_CIRCULAR},
+       {"time",time?lv_label_get_text(time):""}};
+  }
+  for(const auto &entry:historyActions_)historyActions[entry.first]=bounds(entry.second);
   return {
       {"editor", editorDiagnostic()},
       {"draft_length", editLength(draft_)},
       {"storage", db_.storageStats()},
       {"diagnostic_time", ticks()},
       {"history_rows", historyRows},
+      {"history_captions",historyCaptions},{"history_actions",historyActions},
+      {"history_details",{{"title_length",historyFullTitle_?editLength(lv_label_get_text(historyFullTitle_)):0},{"time",historyFullTime_?lv_label_get_text(historyFullTime_):""}}},
       {"history_context", historyContextId_},
       {"title_busy", titleBusy_.load()},
       {"title_pending", titleJobs_.size()},

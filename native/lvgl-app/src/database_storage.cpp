@@ -1,4 +1,5 @@
 #include "database.hpp"
+#include "chat_time.hpp"
 #include "reasoning.hpp"
 #include "schema.hpp"
 #include <cerrno>
@@ -355,10 +356,16 @@ void Database::queueMessage(const std::string &session, const std::string &id,
   }
   saveVersions_[id] = {
       {"generation", generation}, {"version", version}, {"terminal", terminal}};
+  auto savedMetadata=metadata.is_object()?metadata:Json::object();
+  if(status=="complete") {
+    auto time=savedMetadata.value("timeline",Json::object());
+    if(!chatTimestamp(time,"completed_at"))time["completed_at"]=nowMs();
+    time["version"]=1;savedMetadata["timeline"]=time;
+  }
   pendingSaves_[id] = {
       {"session", session}, {"message", id},  {"generation", generation},
       {"version", version}, {"text", text},   {"reasoning", reasoning},
-      {"status", status},   {"error", error}, {"metadata", metadata}};
+      {"status", status},   {"error", error}, {"metadata", savedMetadata}};
   if (scheduledSaves_.insert(id).second)
     jobs_.push_back([this, id] { savePending(id); });
   jobsReady_.notify_one();

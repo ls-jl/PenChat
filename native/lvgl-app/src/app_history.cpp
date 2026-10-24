@@ -1,5 +1,6 @@
 #include "app.hpp"
 #include "titles.hpp"
+#include "chat_time.hpp"
 #include <algorithm>
 namespace penchat {
 int App::titleWidth() const {
@@ -43,6 +44,8 @@ void App::scheduleTitle(const std::string &session, const std::string &assistant
     titleJobs_.push_back(job);
 }
 void App::tickTitles() {
+  const int day=chatDayKey();
+  if(day!=historyDayKey_) {historyDayKey_=day;if(navigationOpen_ || view_=="archives")historyDirty_=true;}
   if (historyDirty_ && !touchDown_ && !navigationPointerDown_ && !modal_ &&
       !keyboard_) {
     if (navigationOpen_)
@@ -113,11 +116,45 @@ void App::tickTitles() {
     titleBusy_ = false;
   });
 }
+void App::historyTimePicker() {
+  modal("历史时间显示","");
+  const auto selected=db_.settings().value("history_time_display",std::string("time"));
+  const char *keys[]={"time","title","off"};
+  const char *names[]={"时间显示优先","会话标题优先","关闭时间显示"};
+  const int width=(screen_.width-162)/3;
+  for(int i=0;i<3;++i) {
+    const std::string key=keys[i];
+    button(modal_,(selected==key?"● ":"○ ")+std::string(names[i]),16+i*(width+12),65,width,52,
+           [this,key]{events_.push("history_time_display",{{"mode",key}});});
+  }
+  label(modal_,"仅影响显示；发送与回复完成时间始终记录",16,130,screen_.width-135,16,theme::muted);
+}
+void App::historyCaption(lv_obj_t *parent,const Json &session,int x,int y,int width) {
+  const auto text=session.value("title",std::string("对话"));
+  const auto mode=db_.settings().value("history_time_display",std::string("time"));
+  const auto stamp=mode=="off"?std::string():historyTime(sessionChatTime(session));
+  lv_point_t titleSize{},timeSize{};
+  lv_text_get_size(&titleSize,text.c_str(),font(20),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+  lv_text_get_size(&timeSize,stamp.c_str(),font(16),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+  const bool show=!stamp.empty() && (mode!="title" || titleSize.x+12+timeSize.x<=width);
+  const int titleWidth=std::max(1,width-(show?timeSize.x+12:0));
+  auto caption=label(parent,text,x,y,titleWidth,20);
+  lv_obj_set_height(caption,26);
+  lv_label_set_long_mode(caption,mode=="time"?LV_LABEL_LONG_MODE_SCROLL_CIRCULAR:LV_LABEL_LONG_MODE_DOTS);
+  lv_obj_t *time=nullptr;
+  if(show) {time=label(parent,stamp,x+width-timeSize.x,y+2,timeSize.x,16,theme::muted);lv_obj_set_height(time,23);}
+  historyCaptions_[session["id"].get<std::string>()]={caption,time};
+  auto owner=new std::pair<App *,std::string>(this,session["id"].get<std::string>());
+  lv_obj_add_event_cb(caption,[](lv_event_t *e) {
+    auto owner=static_cast<std::pair<App *,std::string> *>(lv_event_get_user_data(e));
+    owner->first->historyCaptions_.erase(owner->second);delete owner;
+  },LV_EVENT_DELETE,owner);
+}
 lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
                           int width) {
   const auto id = session["id"].get<std::string>();
   auto row = button(
-      parent, fitTitle(session.value("title", std::string("对话"))), 0, y,
+      parent, "", 0, y,
       width, 44,
       [this, id] {
         if (longPressedSession_ == id)
@@ -139,10 +176,10 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
       },
       id == session_ ? theme::surface : theme::sidebar, LV_TEXT_ALIGN_LEFT);
   auto caption = lv_obj_get_child(row, 0);
-  lv_obj_set_width(caption, width - 48);
-  lv_obj_align(caption, LV_ALIGN_LEFT_MID, 24, 0);
-  if (objectField(session, "metadata_json").value("pinned_at", int64_t(0)) >
-      0) {
+  lv_obj_set_hidden(caption,true);
+  const bool pinned=objectField(session,"metadata_json").value("pinned_at",int64_t(0))>0;
+  historyCaption(row,session,24,9,width-48-(pinned?28:0));
+  if (pinned) {
     icon(row, "pin", width - 34, 8, 28, 28, {},
          id == session_ ? theme::surface : theme::sidebar, theme::muted);
   }
@@ -189,6 +226,7 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
 void App::closeHistoryContext() {
   auto object = modal_;
   modal_ = nullptr;
+  historyFullTitle_=historyFullTime_=nullptr;historyActions_.clear();
   historyContextId_.clear();
   navigationPointerDown_ = navigationBackdrop_ = false;
   if (object)
@@ -211,23 +249,28 @@ void App::historyContext(const std::string &id) {
         if (lv_event_get_code(e) == LV_EVENT_DELETE) {
           app->modal_ = nullptr;
           app->historyContextId_.clear();
-        } else if (lv_event_get_target(e) == app->modal_)
+          app->historyFullTitle_=app->historyFullTime_=nullptr;app->historyActions_.clear();
+        } else if (lv_event_get_code(e)==LV_EVENT_CLICKED && lv_event_get_target(e) == app->modal_)
           app->closeHistoryContext();
       },
-      LV_EVENT_CLICKED, this);
-  auto panel = box(modal_, 32, 72, 720, 112, theme::surface);
+      LV_EVENT_ALL, this);
+  const int panelWidth=screen_.width-64,panelHeight=screen_.height-32;
+  auto panel = box(modal_, 32, 16, panelWidth, panelHeight, theme::surface);
   lv_obj_set_scrollable(panel, false);
   lv_obj_set_style_radius(panel, 16, 0);
-  auto title =
-      label(panel, session.value("title", std::string()), 16, 10, 688, 21);
-  lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(title, 28);
-  button(panel, "重命名", 12, 50, 132, 50, [this, id, session] {
+  auto reader=box(panel,16,10,panelWidth-32,panelHeight-94,theme::surface);
+  lv_obj_set_scroll_dir(reader,LV_DIR_VER);
+  historyFullTitle_=label(reader,session.value("title",std::string()),0,0,panelWidth-32,21);
+  lv_obj_set_height(historyFullTitle_,LV_SIZE_CONTENT);
+  const auto stamp=historyTime(sessionChatTime(session),nowMs(),true);
+  historyFullTime_=label(panel,stamp.empty()?"没有已记录的聊天时间":"最后聊天："+stamp,16,panelHeight-80,panelWidth-32,16,theme::muted);
+  const int actionWidth=(panelWidth-56)/5,actionY=panelHeight-60;
+  historyActions_["rename"]=button(panel, "重命名", 12, actionY, actionWidth, 50, [this, id, session] {
     closeHistoryContext();
     edit(
         session.value("title", std::string()), "重命名会话",
         [this, id](const std::string &value) {
-          auto title = fitTitle(value);
+          auto title = plainTitle(value,256);
           if (!title.empty()) {
             if (titleSession_ == id)
               titleCancel_ = true;
@@ -235,11 +278,11 @@ void App::historyContext(const std::string &id) {
           }
           toggleNavigation();
         },
-        titleLimit(), "ZhCNPreferred", [this] { toggleNavigation(); });
+        256, "ZhCNPreferred", [this] { toggleNavigation(); });
   });
   bool pinned =
       objectField(session, "metadata_json").value("pinned_at", int64_t(0)) > 0;
-  button(panel, pinned ? "取消置顶" : "置顶", 152, 50, 132, 50,
+  historyActions_["pin"]=button(panel, pinned ? "取消置顶" : "置顶", 12+(actionWidth+8), actionY, actionWidth, 50,
          [this, id, pinned] {
            closeHistoryContext();
            db_.pinSession(id, !pinned);
@@ -249,17 +292,18 @@ void App::historyContext(const std::string &id) {
              lv_obj_scroll_to_y(navigationList_, 0, LV_ANIM_OFF);
            historyDrawer();
          });
-  button(panel, "归档", 292, 50, 132, 50, [this, id] {
+  historyActions_["archive"]=button(panel, "归档", 12+2*(actionWidth+8), actionY, actionWidth, 50, [this, id] {
     closeHistoryContext();
     retireSession(id, true);
   });
-  auto remove = button(panel, "删除", 432, 50, 132, 50, [this, id] {
+  auto remove = button(panel, "删除", 12+3*(actionWidth+8), actionY, actionWidth, 50, [this, id] {
     closeHistoryContext();
     retireSession(id, false);
   });
+  historyActions_["delete"]=remove;
   lv_obj_set_style_text_color(lv_obj_get_child(remove, 0),
                               lv_color_hex(theme::danger), 0);
-  button(panel, "导出", 572, 50, 132, 50, [this, id] {
+  historyActions_["export"]=button(panel, "导出", 12+4*(actionWidth+8), actionY, actionWidth, 50, [this, id] {
     events_.push("transfer_open_session", {{"id", id}});
   });
 }
@@ -295,27 +339,34 @@ void App::retireSession(const std::string &id, bool archive) {
 }
 void App::archivesPage() {
   pageHeader("归档会话");
-  historyRows_.clear();
+  historyRows_.clear();historyCaptions_.clear();
   auto sessions = db_.sessions(archiveOffset_, true);
   if (sessions.empty())
     emptyState("没有归档会话", "长按历史对话可归档，在这里还原或删除。");
   int y = 6;
   for (const auto &session : sessions) {
     auto id = session["id"].get<std::string>();
-    auto title = label(pageContent_, fitTitle(session.value("title", std::string())),
-                       10, y + 10, 570, 20);
-    lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_height(title, 26);
+    const int width=screen_.width-118;
+    auto holder=box(pageContent_,10,y,width-240,44);
+    lv_obj_set_scrollable(holder,false);lv_obj_set_clickable(holder,true);
+    historyCaption(holder,session,0,9,width-240);
+    auto title=historyCaptions_[id].title;
+    auto data=new std::pair<App *,std::string>(this,id);
+    lv_obj_add_event_cb(holder,[](lv_event_t *e) {
+      auto data=static_cast<std::pair<App *,std::string> *>(lv_event_get_user_data(e));
+      if(lv_event_get_code(e)==LV_EVENT_DELETE){delete data;return;}
+      if(lv_event_get_code(e)==LV_EVENT_LONG_PRESSED)data->first->events_.push("history_details",{{"id",data->second}});
+    },LV_EVENT_ALL,data);
     if (id == archiveHighlight_)
       lv_obj_set_style_text_color(title, lv_color_hex(theme::link), 0);
     historyRows_.push_back({id, title});
-    button(pageContent_, "还原", 590, y, 100, 44, [this, id] {
+    button(pageContent_, "还原", width-220, y, 100, 44, [this, id] {
       db_.archiveSession(id, false);
       if (archiveOffset_ && db_.sessions(archiveOffset_, true).empty())
         archiveOffset_ = std::max(0, archiveOffset_ - 30);
       build();
     });
-    auto remove = button(pageContent_, "删除", 710, y, 100, 44,
+    auto remove = button(pageContent_, "删除", width-110, y, 100, 44,
            [this, id] { retireSession(id, false); });
     lv_obj_set_style_text_color(lv_obj_get_child(remove, 0), lv_color_hex(theme::danger), 0);
     y += 52;

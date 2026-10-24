@@ -1,4 +1,5 @@
 #include "transfer.hpp"
+#include "chat_time.hpp"
 #include "context.hpp"
 #include "presets.hpp"
 #include <cstdio>
@@ -288,8 +289,11 @@ Json portableContextRows(const Json &conversation) {
   return rows;
 }
 Json publicMetadata(const Json &o) {
-  return kept(o, {"reasoning_observed", "reasoning_duration_ms", "reasoning_complete",
+  auto out=kept(o, {"reasoning_observed", "reasoning_duration_ms", "reasoning_complete",
                   "reasoning_timing_source", "imported_reference"});
+  auto time=publicTimeline(o.value("timeline",Json::object()));
+  if(!time.empty())out["timeline"]=time;
+  return out;
 }
 Json preferences(const Json &m) {
   return kept(m,
@@ -697,6 +701,7 @@ Json Transfer::exportData(const Json &a) {
                         "last_message_at", "pinned_at", "preview_text"});
       c["metadata"] = {{"chat_preferences",
                         preferences(meta.value("chat_preferences", Json::object()))}};
+      if(meta.contains("timeline"))c["metadata"]["timeline"]=publicTimeline(meta["timeline"]);
       c["model"] = describe(s["default_model_config_id"].is_string()
                                 ? s["default_model_config_id"].get<std::string>()
                                 : "");
@@ -1429,6 +1434,7 @@ Json Transfer::importData(const Json &a) {
                          {"transfer_compression_model",
                           item.value("compression_model", Json::object())}};
         auto importedMeta = item.value("metadata", Json::object());
+        if(importedMeta.contains("timeline"))c["metadata"]["timeline"]=publicTimeline(importedMeta["timeline"]);
         if (importedMeta.contains("context_compression"))
           c["metadata"]["context_compression"] =
               publicContext(importedMeta["context_compression"]);
