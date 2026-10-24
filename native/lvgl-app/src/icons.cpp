@@ -1,11 +1,67 @@
 #include "icons.hpp"
 #include <algorithm>
 #include <cmath>
+#include <vector>
 namespace penchat {
 namespace {
 struct Icon {
   std::string name;
   uint32_t ink;
+};
+// Rasterize the native geometry once, then mirror pixel coverage. Snapping
+// separate line endpoints and a circle to even-sized button centers gives
+// different half-pixel phases, making a mathematically regular gear look tilted.
+struct GearMask {
+  std::vector<uint8_t> alpha;
+  lv_image_dsc_t image{};
+  GearMask(int size, double scale) : alpha(size * size) {
+    struct Point { double x, y; } points[36];
+    const double angles[] = {-30, -19, -10, 10, 19, 30};
+    const double radii[] = {8, 8, 11, 11, 8, 8};
+    for (int i = 0; i < 36; ++i) {
+      const double a = (-90 + i / 6 * 60 + angles[i % 6]) * .0174532925199433;
+      points[i] = {std::cos(a) * radii[i % 6] * scale,
+                   std::sin(a) * radii[i % 6] * scale};
+    }
+    const double inner = 3.5 * scale;
+    const double center = size * .5;
+    constexpr int samples = 8;
+    for (int y = 0; y < size / 2; ++y) {
+      for (int x = 0; x < size / 2; ++x) {
+        int covered = 0;
+        for (int sy = 0; sy < samples; ++sy) {
+          for (int sx = 0; sx < samples; ++sx) {
+            const double px = x + (sx + .5) / samples - center;
+            const double py = y + (sy + .5) / samples - center;
+            const double r2 = px * px + py * py;
+            bool hit = r2 >= (inner - 1) * (inner - 1) &&
+                       r2 <= (inner + 1) * (inner + 1);
+            for (int i = 0; !hit && i < 36; ++i) {
+              const auto a = points[i], b = points[(i + 1) % 36];
+              const double dx = b.x - a.x, dy = b.y - a.y;
+              const double length2 = dx * dx + dy * dy;
+              if (length2 < 1e-10) continue;
+              const double t = std::max(0., std::min(1.,
+                  ((px - a.x) * dx + (py - a.y) * dy) / length2));
+              const double ex = px - a.x - t * dx, ey = py - a.y - t * dy;
+              hit = ex * ex + ey * ey <= 1.; // 2px stroke at both icon sizes
+            }
+            covered += hit;
+          }
+        }
+        const auto value = uint8_t((covered * 255 + samples * samples / 2) /
+                                   (samples * samples));
+        for (int my : {y, size - 1 - y})
+          for (int mx : {x, size - 1 - x}) alpha[my * size + mx] = value;
+      }
+    }
+    image.header.magic = LV_IMAGE_HEADER_MAGIC;
+    image.header.cf = LV_COLOR_FORMAT_A8;
+    image.header.w = image.header.h = size;
+    image.header.stride = size;
+    image.data_size = alpha.size();
+    image.data = alpha.data();
+  }
 };
 void paint(lv_event_t *event) {
   auto icon = static_cast<Icon *>(lv_event_get_user_data(event));
@@ -110,21 +166,18 @@ void paint(lv_event_t *event) {
     line(0, -5, 0, 0);
     line(0, 0, 4, 3);
   } else if (k == "settings") {
-    // One closed tooth contour: radial spokes drawn over a circle caused
-    // rounded caps to cut through the ring at every tooth root.
-    float firstX=0,firstY=0,lastX=0,lastY=0;
-    const float angles[]={-30.f,-19.f,-10.f,10.f,19.f,30.f};
-    const float radii[]={8.f,8.f,11.f,11.f,8.f,8.f};
-    for (int i=0;i<36;++i) {
-      const float a=(i/6*60+angles[i%6])*.0174532925f;
-      const float x=std::cos(a)*radii[i%6],y=std::sin(a)*radii[i%6];
-      if(i) {if(std::abs(x-lastX)+std::abs(y-lastY)>.01f)line(lastX,lastY,x,y);}
-      else {firstX=x;firstY=y;}
-      lastX=x;lastY=y;
-    }
-    // A half-unit inner radius keeps its snapped center aligned with the
-    // half-pixel center of an even-sized button at both supported icon scales.
-    line(lastX,lastY,firstX,firstY);circle(0,0,3.5f);
+    static const GearMask regular(26, 1.), small(20, .75);
+    const auto &mask = scale < 1 ? small.image : regular.image;
+    lv_draw_image_dsc_t d;
+    lv_draw_image_dsc_init(&d);
+    d.src = &mask;
+    d.recolor = ink;
+    d.recolor_opa = LV_OPA_COVER;
+    d.opa = opacity;
+    const int x = bounds.x1 + (lv_obj_get_width(object) - mask.header.w) / 2;
+    const int y = bounds.y1 + (lv_obj_get_height(object) - mask.header.h) / 2;
+    lv_area_t area{x, y, x + int(mask.header.w) - 1, y + int(mask.header.h) - 1};
+    lv_draw_image(layer, &d, &area);
   } else if (k == "camera") {
     rect(-10, -6, 20, 15, 3);
     line(-5, -6, -3, -9);

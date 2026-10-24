@@ -151,6 +151,10 @@ try:
             return p if abs(p.get('x',-100)-x)<=1 and abs(p.get('y',-100)-y)<=1 else None
         p=wait(mapped);result['corners'].append([p['x'],p['y']])
     tap(40,32);assert state()['navigation_open'];capture('drawer')
+    # Check the pixels captured from the real LVGL page, not just constants.
+    pixel_probe=ROOT/'build/host/penchat-icon-pixel-tests'
+    subprocess.run([str(pixel_probe),str(OUT/'drawer.png'),str(W*2//3-145),str(H-43),'26','0'],check=True)
+    result['gear_pixel_symmetry']=True
     tap(W*2//3-70,H-30);assert state()['view']=='settings';capture('settings')
     assert state()['settings']['viewport'][1:4:2]==[0,H-1]
     # A settled drag reveals Settings controls in the former title-bar area.
