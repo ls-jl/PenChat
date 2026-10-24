@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Explicit-target Falcon geometry acceptance; isolates user data and never restarts Falcon."""
-import argparse,json,pathlib,shlex,subprocess,time
+import argparse,json,pathlib,shlex,sqlite3,subprocess,sys,time
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text())
 parser=argparse.ArgumentParser();parser.add_argument('--serial',required=True)
+parser.add_argument('--back-navigation',action='store_true')
 args=parser.parse_args();SERIAL=args.serial
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
@@ -65,8 +66,23 @@ def raw(x,y):
 def tap(x,y):
     rx,ry=raw(x,y)
     shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap '+str(rx)+' '+str(ry)+' 2>/dev/null');time.sleep(.08)
+def drag(x,y,ex,ey):
+    sx,sy=raw(x,y);tx,ty=raw(ex,ey)
+    shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --drag-hold '+str(sx)+' '+str(sy)+' '+str(tx)+' '+str(ty)+' 450 200 2>/dev/null')
+    time.sleep(.1)
+def side_back():drag(20,H//2,W//5,H//2)
+def blocked(value):wait(lambda:state()['back_navigation']['policy_ok'] and state()['back_navigation']['blocked']==value)
+def settings_swipe(delta):
+    y=H-50 if delta<0 else 75;drag(W//2,y,W//2,min(H-10,max(10,y+delta)))
 def key(value):
     k=next(k for k in state()['editor']['keys'] if k['key']==value);tap(k['x'],k['y'])
+def wake():
+    if SERIAL!='MEA2300009007113':return
+    for _ in range(2):
+        if int(shell('cat /sys/class/backlight/backlight/actual_brightness'))>5:return
+        shell('/tmp/penchat-display-key /dev/input/by-path/rk805-pwrkey 116 1 100 300')
+        time.sleep(.4)
+    assert int(shell('cat /sys/class/backlight/backlight/actual_brightness'))>5,'Y02 did not wake'
 
 if pid():
     s=state();assert not s['generating'] and not s.get('compressing') and not s['title_busy'] and not s['keyboard'] and not s['editor']['active'] and not s['draft_length'] and not s['storage']['unsaved'],'Pending work preserved; finish it before isolated acceptance'
@@ -94,11 +110,26 @@ try:
     shell('mkdir -p '+DATA);privateIsolated=True
     if hasPublic:shell('mv '+public+' '+publicSaved)
     publicIsolated=True
+    if args.back_navigation:
+        sys.path.insert(0,str(ROOT/'tests'))
+        from test_image_viewer import fixture
+        import shutil
+        sample=OUT/'fixture'
+        if sample.exists():shutil.rmtree(sample)
+        sample.mkdir();fixture(sample)
+        with sqlite3.connect(sample/'penchat.db') as db:
+            db.execute('update message_assets set stored_path=?,original_path=?',(DATA+'/assets/original.png',)*2)
+        shell('mkdir -p '+DATA+'/assets')
+        for source,target in [(sample/'penchat.db',DATA+'/penchat.db'),(sample/'assets/original.png',DATA+'/assets/original.png')]:
+            subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
+    wake()
     shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);time.sleep(2.2) # Let Falcon's app transition finish before corner mapping.
-    if SERIAL=='MEA2300009007113' and shell('cat /sys/class/backlight/backlight/actual_brightness')=='5':
-        shell('/tmp/penchat-display-key /dev/input/by-path/rk805-pwrkey 116 1 100 300')
-        shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);time.sleep(2.2)
+    if SERIAL=='MEA2300009007113' and int(shell('cat /sys/class/backlight/backlight/actual_brightness'))<=5:
+        wake();shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);time.sleep(2.2)
     s=state();assert (s['width'],s['height'],s['rotation'])==(W,H,screen.get('direction',0));capture('chat')
+    # Firmware may swallow the first touch while leaving its idle state. Use
+    # a blank-area wake tap, then require subsequent exact mapped events.
+    tap(W//2,2);time.sleep(.6)
     for x,y in [(2,2),(W-3,2),(2,H-3),(W-3,H-3)]:
         tap(x,y)
         def mapped():
@@ -113,8 +144,39 @@ try:
     shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --drag-hold '+str(sx)+' '+str(sy)+' '+str(ex)+' '+str(ey)+' 450 200 2>/dev/null')
     wait(lambda:not state()['settings']['scrolling'])
     assert state()['settings']['heading'][3]<0;capture('settings-scrolled')
-    tap(40,32);assert state()['view']=='chat'
+    if args.back_navigation:
+        native=pid();blocked(True)
+        from settings_ui import activate
+        activate(state,tap,settings_swipe,'models');wait(lambda:state()['view']=='provider');blocked(True);capture('back-provider')
+        side_back();wait(lambda:state()['view']=='settings');assert pid()==native
+        side_back();wait(lambda:state()['navigation_open']);blocked(True)
+        drag(W*5//6,H//2,W-10,H//2);assert state()['navigation_open']
+        result['child_back_and_drawer_tap_only']=True
+    else:tap(40,32)
+    assert state()['view']=='chat'
     if state()['navigation_open']:tap(W-30,100)
+    if args.back_navigation:
+        blocked(False)
+        for _ in range(8):
+            s=state();photo=next((p for p in s['chat_images'] if p['y']>=0 and p['y']+p['height']<=H),None)
+            if photo:break
+            settings_swipe(100)
+        assert photo
+        before=state();tap(photo['x']+photo['width']//2,photo['y']+photo['height']//2)
+        wait(lambda:state()['image_viewer'].get('loaded'));blocked(True);capture('back-image-fit')
+        tap(W-40,114);tap(W-40,114);pan=state()['image_viewer']['pan']
+        drag(W//3,H//2,W//3+W//5,H//2)
+        assert state()['image_viewer']['open'] and state()['image_viewer']['pan']!=pan
+        capture('back-image-pan');side_back();wait(lambda:not state()['image_viewer']['open'])
+        assert state()['session']==before['session'] and state()['scroll_y']==before['scroll_y'] and pid()==native
+        s=state()
+        if s['to_bottom_visible']:tap(s['to_bottom_x']+22,s['to_bottom_y']+22)
+        wait(lambda:state()['toolbar_y']==H-58)
+        tap(W//2,H-34);wait(lambda:state()['editor']['active']);blocked(True)
+        key('language');key('q');assert state()['editor']['length']==1
+        side_back();wait(lambda:not state()['editor']['active']);blocked(False)
+        assert state()['draft_length']==0 and pid()==native
+        result['image_pan_and_edge_back']=result['editor_back_cancels_input']=True
     wait(lambda:state()['toolbar_y']==H-58);time.sleep(.4)
     tap(W//2,H-34);wait(lambda:state()['editor']['active']);capture('keyboard')
     assert state()['editor']['top_panel_blocked']
@@ -140,6 +202,9 @@ try:
     assert 'allocated by = penchat-lvgl' not in shell('cat /sys/kernel/debug/dri/0/state')
     shell('miniapp_cli start '+APP['appid']);wait(lambda:state()['visible']);assert pid()==p
     assert state()['draft_length']>0;result['background_resume']=True
+    if args.back_navigation:
+        blocked(False);side_back();wait(lambda:not pid() or not state()['visible'])
+        result['root_system_exit']=True
     assert shell('pidof miniapp')==host;result['host_unchanged']=True
 except BaseException:
     if pid():
