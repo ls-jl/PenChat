@@ -90,7 +90,10 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   double(a,624,93);hold(a,624,93);assert state(a)['menu'];shot(a,'selection-menu');a.tap(725,154)
   assert state(a)['clipboard_count']==1
   key(a,'X' if state(a)['shift'] else 'x');assert not state(a)['selected']
-  hold(a,940,185);assert state(a)['undo_menu'];shot(a,'undo');a.tap(634,154);assert state(a)['selected']
+  before=state(a);hold(a,940,185);popup=state(a)
+  assert popup['undo_menu'] and popup['text_bounds']==before['text_bounds'] and popup['text_scroll']==before['text_scroll']
+  x1,y1,x2,y2=popup['undo_popup'];assert (x2-x1+1,y2-y1+1)==(96,52)
+  shot(a,'undo');a.editor_action('undo');assert state(a)['selected']
   a.tap(930,236);assert state(a)['clipboard_open'];shot(a,'clipboard');a.tap(700,98);assert not state(a)['clipboard_open']
   # OCR IDs, capture de-duplication and multi-line sequence, with text never in diagnostics.
   seed(a,'');ocr=a.receive('ocr.start')

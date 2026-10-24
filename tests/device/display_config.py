@@ -240,6 +240,14 @@ try:
     wait(lambda:state()['editor']['ocr_multi']);capture('keyboard-multi')
     tap((x1+x2)//2,(y1+y2)//2);wait(lambda:not state()['editor']['ocr_multi'])
     key('language');key('a');key('b');assert state()['editor']['length']==2
+    before=state()['editor'];rx,ry=raw(W-20,H-80)
+    shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 650 2>/dev/null')
+    wait(lambda:state()['editor']['undo_menu']);popup=state()['editor'];capture('keyboard-undo')
+    assert popup['text_bounds']==before['text_bounds'] and popup['text_scroll']==before['text_scroll']
+    x1,y1,x2,y2=popup['undo_popup'];assert (x2-x1+1,y2-y1+1)==(96,52)
+    x1,y1,x2,y2=popup['actions']['undo'];tap((x1+x2)//2,(y1+y2)//2)
+    wait(lambda:not state()['editor']['undo_menu']);assert state()['editor']['length']==1
+    result['floating_undo_preserves_editor']=True
     key('mode');key('1');assert state()['editor']['mode']==1;capture('numbers')
     key('symbols');assert state()['editor']['mode']==2;capture('symbols');key('mode')
     key('language')

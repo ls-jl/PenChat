@@ -170,17 +170,25 @@ void App::editorBuild() {
     lv_obj_set_clickable(editorHandles_[i],false);
     attachIcon(editorHandles_[i],"selection-handle",theme::link);
   }
-  if(editorMenu_ || editorUndoMenu_) {
+  if(editorUndoMenu_) {
+    const auto popup=layout.undoPopup(editorUndoAnchor_.x,editorUndoAnchor_.y);
+    auto menu=box(editorRoot_,popup.x,popup.y,popup.width,popup.height,theme::sidebar);
+    lv_obj_set_scrollable(menu,false);
+    lv_obj_set_style_radius(menu,10,0);
+    lv_obj_set_style_shadow_color(menu,lv_color_hex(theme::scrim),0);
+    lv_obj_set_style_shadow_opa(menu,LV_OPA_40,0);
+    lv_obj_set_style_shadow_width(menu,12,0);
+    lv_obj_set_style_shadow_offset_y(menu,3,0);
+    auto undo=button(menu,"撤销",4,4,popup.width-8,44,[action]{action("undo");});
+    if(editor_.undo.empty())lv_obj_add_state(undo,LV_STATE_DISABLED);
+  } else if(editorMenu_) {
     auto menu=box(editorRoot_,layout.textX,layout.menuY,layout.textWidth,52,theme::background);
     lv_obj_set_scroll_dir(menu,LV_DIR_HOR);
-    std::vector<std::pair<std::string,std::string>> commands=editorUndoMenu_?
-      std::vector<std::pair<std::string,std::string>>{{"撤销","undo"}}:
-      std::vector<std::pair<std::string,std::string>>{{"全选","all"},{"复制","copy"},{"粘贴","paste"},{"剪切","cut"}};
+    std::vector<std::pair<std::string,std::string>> commands={{"全选","all"},{"复制","copy"},{"粘贴","paste"},{"剪切","cut"}};
     if(editorSelectionOnly_)commands={{"全选","all"},{"复制","copy"}};
     for(size_t i=0;i<commands.size();++i) {
       auto b=button(menu,commands[i].first,int(i)*layout.textWidth/4,4,layout.textWidth/4-4,44,[action,commands,i]{action(commands[i].second);});
-      if((commands[i].second=="undo"&&editor_.undo.empty()) ||
-         ((commands[i].second=="copy"||commands[i].second=="cut")&&editor_.secret&&!editor_.reveal) ||
+      if(((commands[i].second=="copy"||commands[i].second=="cut")&&editor_.secret&&!editor_.reveal) ||
          (commands[i].second=="paste"&&editorClipboard_.current.empty())) lv_obj_add_state(b,LV_STATE_DISABLED);
     }
   }
@@ -472,7 +480,10 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
   if(pressed&&!editorPointer_) {
     editorPointer_=true;editorSlid_=editorTextMoved_=editorCursorDrag_=false;
     editorStartX_=x;editorStartY_=y;editorHeld_=-1;editorRepeats_=0;editorPressTime_=ticks();editorHandle_=-1;
-    bool overlay=editorClipboardOpen_||editorExpanded_||((editorMenu_||editorUndoMenu_)&&y>=layout.menuY&&y<layout.menuY+54);
+    const auto undo=layout.undoPopup(editorUndoAnchor_.x,editorUndoAnchor_.y);
+    bool overlay=editorClipboardOpen_||editorExpanded_||
+      (editorMenu_&&y>=layout.menuY&&y<layout.menuY+54)||
+      (editorUndoMenu_&&undo.contains(x,y));
     if(!overlay && editor_.selected()) {
       auto r=editor_.range();int distance=100000;
       for(int i=0;i<2;++i) {
@@ -510,7 +521,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
       if(!editorTextMoved_) {
         auto index=editorPositionAt(x,y);
         if(held) {
-          auto r=editor_.range();editorMenu_=editor_.selected()&&index>=r.first&&index<=r.second;editorUndoMenu_=!editorMenu_;if(editorUndoMenu_)editor_.position(index);if(editorSelectionOnly_){if(!editor_.selected())editor_.word(index);editorMenu_=true;editorUndoMenu_=false;}
+          auto r=editor_.range();editorMenu_=editor_.selected()&&index>=r.first&&index<=r.second;editorUndoMenu_=!editorMenu_;if(editorUndoMenu_){editor_.position(index);editorUndoAnchor_={x,y};editorLastTap_=0;}if(editorSelectionOnly_){if(!editor_.selected())editor_.word(index);editorMenu_=true;editorUndoMenu_=false;}
         } else if(ticks()-editorLastTap_<350&&std::abs(x-editorLastTapX_)<=12&&std::abs(y-editorLastTapY_)<=12) {
           editor_.word(index);editorMenu_=editorUndoMenu_=false;editorLastTap_=0;
         } else {
@@ -572,6 +583,13 @@ Json App::editorDiagnostic() const {
   Json actions=Json::object();
   if(editor_.active&&!editorSelectionOnly_)for(const auto &a:layout.actions())
     actions[a.name]={a.x,layout.actionsY,a.x+a.width-1,layout.actionsY+43};
+  Json undoPopup=Json::array(),textBounds=Json::array();
+  if(editorText_) {lv_area_t a;lv_obj_get_coords(editorText_,&a);textBounds={a.x1,a.y1,a.x2,a.y2};}
+  if(editor_.active&&editorUndoMenu_) {
+    const auto p=layout.undoPopup(editorUndoAnchor_.x,editorUndoAnchor_.y);
+    undoPopup={p.x,p.y,p.x+p.width-1,p.y+p.height-1};
+    actions["undo"]={p.x+4,p.y+4,p.x+p.width-5,p.y+p.height-5};
+  }
   Json controls=Json::array();
   if(editorRoot_) for(uint32_t i=0;i<lv_obj_get_child_count(editorRoot_);++i) {
     auto o=lv_obj_get_child(editorRoot_,i); lv_area_t a;lv_obj_get_coords(o,&a);
@@ -585,7 +603,7 @@ Json App::editorDiagnostic() const {
     {"chinese",editor_.chinese},{"shift",editor_.shift},{"multiline",editor_.multiline},{"secret",editor_.secret},
     {"length",editLength(editor_.text)},{"cursor",editor_.cursor},{"preedit_length",editor_.preedit.size()},
     {"selection_start",editor_.range().first},{"selection_end",editor_.range().second},{"selected",editor_.selected()},
-    {"clipboard_count",editorClipboard_.records.size()},{"clipboard_open",editorClipboardOpen_},{"menu",editorMenu_},{"undo_menu",editorUndoMenu_},
+    {"clipboard_count",editorClipboard_.records.size()},{"clipboard_open",editorClipboardOpen_},{"menu",editorMenu_},{"undo_menu",editorUndoMenu_},{"undo_popup",undoPopup},{"text_bounds",textBounds},
     {"ocr_request",editorOcrId_},{"ocr_active",editorOcrActive_},{"ocr_multi",editorOcrMulti_},{"ocr_busy",editorOcrBusy_},{"top_panel_blocked",editorTopBlocked_},
     {"query_ms",editorLatency_},{"candidate_count",editorCandidates_.size()},{"revision",editorRevision_},{"keys",keys}};
 }

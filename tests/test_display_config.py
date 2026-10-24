@@ -49,6 +49,18 @@ def run(w,h,rotation):
             t.wait_for(lambda:a.diag()['editor']['preedit_length']==3)
             k=keys['enter'];a.tap(k['x'],k['y'])
             t.wait_for(lambda:a.diag()['editor']['length']==3)
+            before=a.diag()['editor']
+            for x,y in [(before['text_bounds'][0]+12,before['text_bounds'][1]+12),(w-20,h-80)]:
+                a.long_press(x,y);popup=a.diag()['editor']
+                assert popup['undo_menu'] and popup['text_bounds']==before['text_bounds'] and popup['text_scroll']==before['text_scroll']
+                x1,y1,x2,y2=popup['undo_popup'];assert x2-x1+1==96 and y2-y1+1==52
+                assert before['text_bounds'][0]<=x1<x2<w-8 and 0<=y1<y2<h-52
+                screenshot(a,f'{w}-{h}-undo-{y}',w,h)
+                # Text beside the popup remains interactive, without a full-width cover.
+                tx=before['text_bounds'][2]-12 if x1<before['text_bounds'][0]+100 else before['text_bounds'][0]+12
+                ty=max(before['text_bounds'][1]+12,min(before['text_bounds'][3]-12,(y1+y2)//2))
+                a.tap(tx,ty);assert not a.diag()['editor']['undo_menu']
+            a.long_press(w-20,h-80);a.editor_action('undo');assert not a.diag()['editor']['undo_menu']
             # Mode transitions, candidates, clipboard and official cancellation use
             # the same logical geometry; they do not rescale already mapped touches.
             k=keys['mode'];a.tap(k['x'],k['y']);assert a.diag()['editor']['mode']==1

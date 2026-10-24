@@ -349,6 +349,7 @@ class App {
   lv_obj_t *editorMagnifier_ = nullptr, *editorMagnifierImage_ = nullptr, *editorMagnifierCaret_ = nullptr;
   lv_draw_buf_t *editorMagnifierBuffer_ = nullptr;
   bool editorClipboardOpen_=false, editorClipboardConfirm_=false, editorUndoMenu_=false;
+  lv_point_t editorUndoAnchor_{};
   bool editorOcrMulti_=false, editorOcrActive_=false, editorOcrBusy_=false, editorOcrShown_=false;
   bool editorTopBlocked_=false;
   std::string editorOcrId_;

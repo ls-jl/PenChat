@@ -22,6 +22,16 @@ struct EditorLayout {
     if (selectionOnly) { split=86;textX=96;textWidth=w-106;textY=56;textHeight=h-66; }
     menuY = textY + std::min(50, std::max(0, textHeight - 52));
   }
+  struct Popup {
+    int x, y, width, height;
+    bool contains(int px,int py) const {
+      return px>=x&&px<x+width&&py>=y&&py<y+height;
+    }
+  };
+  Popup undoPopup(int x,int y) const {
+    return {std::max(textX,std::min(width-104,x-48)),
+            std::max(4,std::min(actionsY-58,y-60)),96,52};
+  }
   struct Action { const char *name; int x, width; };
   std::array<Action,5> actions() const {
     const int cancelWidth=textWidth-64-48-104-44-16;
