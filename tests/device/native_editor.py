@@ -63,7 +63,7 @@ def exercise():
         key('space');d.wait(lambda:state()['length']>0)
         while state()['preedit_length']:
             d.wait(lambda:state()['candidate_count']>0);key('space')
-        original=state();d.tap(820,236);d.wait(lambda:d.state()['keyboard'])
+        original=state();d.official_editor();d.wait(lambda:d.state()['keyboard'])
         d.adb('miniapp_cli capture /tmp/penchat-official-editor.png')
         subprocess.run(['adb','-s',d.SERIAL,'pull','/tmp/penchat-official-editor.png',str(d.OUT/'editor-official.png')],check=True,capture_output=True)
         d.tap(35,35);d.wait(lambda:not d.state()['keyboard']);d.wait(lambda:state()['top_panel_blocked'] and state()['ocr_active'])
@@ -72,7 +72,8 @@ def exercise():
         assert not state()['ocr_active']
         d.adb('miniapp_cli start '+d.APP_ID);d.wait(lambda:d.state()['visible'] and state()['top_panel_blocked'] and state()['ocr_active'])
         assert d.pid()==native and state()['session']==session
-        d.tap(730,236);d.wait(lambda:state()['ocr_multi']);d.capture('editor-multi-ocr')
+        x1,y1,x2,y2=state()['actions']['ocr-mode'];d.tap((x1+x2)//2,(y1+y2)//2)
+        d.wait(lambda:state()['ocr_multi']);d.capture('editor-multi-ocr')
         d.tap(630,236);d.wait(lambda:not state()['active']);assert not state()['ocr_active']
         results.update(clipboard=True,selection=True,undo=True,mode_reset=True,official_cancel=True,background_resume=True,ocr_registration_and_release=True)
         assert d.adb('pidof miniapp')==host

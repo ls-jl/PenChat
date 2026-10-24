@@ -232,6 +232,13 @@ try:
     wait(lambda:state()['toolbar_y']==H-58);time.sleep(.4)
     tap(W//2,H-34);wait(lambda:state()['editor']['active']);capture('keyboard')
     assert state()['editor']['top_panel_blocked']
+    actions=state()['editor']['actions']
+    assert list(sorted(actions,key=lambda k:actions[k][0]))==['cancel','official','ocr-mode','done','clipboard']
+    for name,width in [('official',64),('ocr-mode',48),('done',104),('clipboard',44)]:
+        x1,y1,x2,y2=actions[name];assert x2-x1+1==width and y2-y1+1==44
+    x1,y1,x2,y2=actions['ocr-mode'];tap((x1+x2)//2,(y1+y2)//2)
+    wait(lambda:state()['editor']['ocr_multi']);capture('keyboard-multi')
+    tap((x1+x2)//2,(y1+y2)//2);wait(lambda:not state()['editor']['ocr_multi'])
     key('language');key('a');key('b');assert state()['editor']['length']==2
     key('mode');key('1');assert state()['editor']['mode']==1;capture('numbers')
     key('symbols');assert state()['editor']['mode']==2;capture('symbols');key('mode')
@@ -243,7 +250,7 @@ try:
         wait(lambda:state()['editor']['candidate_count']>0);key('space')
     result['system_ime_candidates']=True
     tap(W-30,H-30);assert state()['editor']['clipboard_open'];capture('clipboard');tap(W-45,25)
-    before=state()['editor'];tap(W-126,H-30);wait(lambda:state()['keyboard'])
+    before=state()['editor'];x1,y1,x2,y2=before['actions']['official'];tap((x1+x2)//2,(y1+y2)//2);wait(lambda:state()['keyboard'])
     shell('miniapp_cli capture /tmp/penchat-display-official.png')
     subprocess.run(['adb','-s',SERIAL,'pull','/tmp/penchat-display-official.png',str(OUT/'official.png')],check=True,capture_output=True)
     tap(35,35);wait(lambda:not state()['keyboard']);assert state()['editor']['length']==before['length']

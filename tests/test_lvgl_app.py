@@ -80,7 +80,7 @@ class Native:
 
     def receive(self, kind):
         if kind=='keyboard.open' and self.official_adapter:
-            wait_for(lambda:self.diag()['editor']['active']);screen=self.diag();self.tap(screen['width']-126,screen['height']-30)
+            wait_for(lambda:self.diag()['editor']['active']);self.editor_action('official')
         for i,value in enumerate(self.pending):
             if value.get("type")==kind:return self.pending.pop(i)
         while True:
@@ -90,6 +90,9 @@ class Native:
             self.pending.append(value)
     def tap(self,x,y):
         self.send('touch',x=x,y=y,pressed=True);time.sleep(.06);self.send('touch',x=x,y=y,pressed=False);time.sleep(.08)
+    def editor_action(self,key):
+        x1,y1,x2,y2=self.diag()['editor']['actions'][key]
+        self.tap((x1+x2)//2,(y1+y2)//2)
     def history_action(self,key):
         x1,y1,x2,y2=self.diag()["history_actions"][key]
         self.tap((x1+x2)//2,(y1+y2)//2)

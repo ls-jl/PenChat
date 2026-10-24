@@ -43,7 +43,8 @@ def tap(x,y):
     time.sleep(.04)
 def official_editor():
     wait(lambda:state()['editor']['active'])
-    tap(820,236)
+    x1,y1,x2,y2=state()['editor']['actions']['official']
+    tap((x1+x2)//2,(y1+y2)//2)
     wait(lambda:state()['keyboard'])
 def cancel_native_editor():
     wait(lambda:not state()['keyboard'])

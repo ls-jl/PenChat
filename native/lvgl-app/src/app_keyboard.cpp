@@ -101,14 +101,15 @@ void App::editorBuild() {
   auto right=box(editorRoot_,layout.split,0,screen_.width-layout.split,screen_.height,0x111111); lv_obj_set_scrollable(right,false);
   // Composition/candidates never resize the keys; actions share a bottom baseline.
   lv_obj_move_background(right);
-  int actionX=layout.textX;
-  auto footer=[&](const std::string &title,int width,const std::string &value) {
-    auto result=control(title,actionX,layout.actionsY,width,value);actionX+=width+4;return result;
-  };
-  footer("取消",layout.textWidth-104-64-48-44-16,"cancel");
-  footer(!editorOcrActive_&&!editorOcrId_.empty()?"重试扫描":editorOcrMulti_?"多行扫描":"单行扫描",104,"ocr-mode");
-  footer("官方",64,"official");primary(footer("完成",48,"done"));
-  attachIcon(footer("",44,"clipboard"),"clipboard",theme::text);
+  for(const auto &a:layout.actions()) {
+    const std::string actionName=a.name;
+    const std::string title=actionName=="cancel"?"取消":actionName=="official"?"官方":
+      actionName=="done"?"完成":actionName=="ocr-mode"?
+      (!editorOcrActive_&&!editorOcrId_.empty()?"重试":editorOcrMulti_?"多行":"单行"):"";
+    auto b=control(title,a.x,layout.actionsY,a.width,actionName);
+    if(actionName=="done")primary(b);
+    if(actionName=="clipboard")attachIcon(b,"clipboard",theme::text);
+  }
   } else {
     auto back=control("",16,8,48,"cancel");attachIcon(back,"back",theme::text);
     label(editorRoot_,editor_.notice.empty()?"选择文本 · 双击选择，拖动手柄调整":editor_.notice,96,14,screen_.width-338,19,theme::muted);
@@ -568,6 +569,9 @@ void App::editorTick() {
 Json App::editorDiagnostic() const {
   const auto layout=editorLayout();
   Json keys=Json::array(); for(const auto &k:editorKeys_) keys.push_back({{"key",k.value},{"x",k.x+k.w/2},{"y",k.y+k.h/2}});
+  Json actions=Json::object();
+  if(editor_.active&&!editorSelectionOnly_)for(const auto &a:layout.actions())
+    actions[a.name]={a.x,layout.actionsY,a.x+a.width-1,layout.actionsY+43};
   Json controls=Json::array();
   if(editorRoot_) for(uint32_t i=0;i<lv_obj_get_child_count(editorRoot_);++i) {
     auto o=lv_obj_get_child(editorRoot_,i); lv_area_t a;lv_obj_get_coords(o,&a);
@@ -577,7 +581,7 @@ Json App::editorDiagnostic() const {
   Json handles=Json::array();
   for(int i=0;i<2;++i)if(editorHandles_[i]&&!lv_obj_is_hidden(editorHandles_[i])) {lv_area_t a;lv_obj_get_coords(editorHandles_[i],&a);handles.push_back({{"endpoint",i},{"x",(a.x1+a.x2)/2},{"y",(a.y1+a.y2)/2}});}
   auto caret=editorPoint(editor_.cursor);
-  return {{"magnifier",editorMagnifier_!=nullptr},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
+  return {{"magnifier",editorMagnifier_!=nullptr},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
     {"chinese",editor_.chinese},{"shift",editor_.shift},{"multiline",editor_.multiline},{"secret",editor_.secret},
     {"length",editLength(editor_.text)},{"cursor",editor_.cursor},{"preedit_length",editor_.preedit.size()},
     {"selection_start",editor_.range().first},{"selection_end",editor_.range().second},{"selected",editor_.selected()},

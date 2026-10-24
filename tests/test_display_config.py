@@ -36,6 +36,13 @@ def run(w,h,rotation):
             for key in d['keys']:assert 0<=key['x']<w and 0<=key['y']<h
             for item in d['controls']:
                 x1,y1,x2,y2=item['bounds'];assert 0<=x1<=x2<w and 0<=y1<=y2<h, item
+            actions=d['actions']
+            assert list(sorted(actions,key=lambda k:actions[k][0]))==['cancel','official','ocr-mode','done','clipboard']
+            for name,width in [('official',64),('ocr-mode',48),('done',104),('clipboard',44)]:
+                x1,y1,x2,y2=actions[name]
+                assert x2-x1+1==width and y2-y1+1==44
+                assert any(item['bounds']==actions[name] for item in d['controls'])
+            assert (actions['done'][1]+actions['done'][3])//2==(actions['official'][1]+actions['official'][3])//2
             screenshot(a,f'{w}-{h}-keyboard',w,h)
             for value in ['q','w','e']:
                 k=keys[value];a.tap(k['x'],k['y'])
@@ -49,7 +56,7 @@ def run(w,h,rotation):
             a.tap(w-30,h-30);assert a.diag()['editor']['clipboard_open']
             screenshot(a,f'{w}-{h}-clipboard',w,h)
             a.tap(w-45,25);assert not a.diag()['editor']['clipboard_open']
-            a.tap(w-126,h-30);request=a.receive('keyboard.open')
+            a.editor_action('official');request=a.receive('keyboard.open')
             assert a.diag()['keyboard']
             a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
             t.wait_for(lambda:not a.diag()['keyboard'])

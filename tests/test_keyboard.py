@@ -19,7 +19,7 @@ def latest(a,text):
 def reply(a,r,**v):
  a.send('ime.result',session=r['session'],sequence=r['sequence'],revision=r['revision'],ok=True,**v);time.sleep(.08)
 def official(a,confirmed=False,text=''):
- a.tap(820,236);r=a.receive('keyboard.open');a.send('keyboard.result',requestId=r['requestId'],confirmed=confirmed,text=text);time.sleep(.1);return r
+ a.editor_action('official');r=a.receive('keyboard.open');a.send('keyboard.result',requestId=r['requestId'],confirmed=confirmed,text=text);time.sleep(.1);return r
 def export_text(a):return official(a)['text']
 def hold(a,x,y):a.send('touch',x=x,y=y,pressed=True);time.sleep(.52);a.send('touch',x=x,y=y,pressed=False);time.sleep(.12)
 def double(a,x,y):a.tap(x,y);a.tap(x,y)
@@ -96,7 +96,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   seed(a,'');ocr=a.receive('ocr.start')
   while ocr['requestId']!=state(a)['ocr_request']:ocr=a.receive('ocr.start')
   scan(a,ocr,1,'单行');scan(a,ocr,1,'重复');assert state(a)['length']==2
-  a.tap(730,236);multi=a.receive('ocr.start')
+  a.editor_action('ocr-mode');multi=a.receive('ocr.start')
   while multi['requestId']!=state(a)['ocr_request']:multi=a.receive('ocr.start')
   scan(a,ocr,2,'旧结果');assert state(a)['length']==2
   scan(a,multi,1,'第一行');scan(a,multi,2,'第二行');assert export_text(a)=='单行第一行\n第二行'
