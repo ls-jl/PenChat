@@ -82,12 +82,28 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   t.wait_for(lambda:state(a)['magnifier'])
   a.send('touch',x=720,y=96,pressed=False,cancelled=True);time.sleep(.1)
   assert not state(a)['magnifier'] and not state(a)['cursor_drag']
+  seed(a,'m'*17);current=state(a);x=current['caret'][0]-4;y=current['caret'][1]-16
+  a.send('touch',x=x,y=y,pressed=True);time.sleep(.5);a.send('touch',x=x+16,y=y,pressed=True)
+  t.wait_for(lambda:state(a)['magnifier']);current=state(a)
+  assert current['magnifier_bounds'][2]<a.diag()['width']
+  assert abs((current['magnifier_caret'][0]+current['magnifier_caret'][2]+1)//2-current['caret'][0])<=1
+  shot(a,'caret-magnifier-right');a.send('touch',x=x+16,y=y,pressed=False);time.sleep(.1)
+  seed(a,'alpha\nbeta\ngamma\ndelta\nepsilon')
+  current=state(a);double(a,current['text_bounds'][0]+20,min(current['text_bounds'][3]-6,current['caret'][1]-16))
+  current=state(a);assert current['selected']
+  handles=current['selection_handles'];assert any(h['bounds'][3]>current['text_bounds'][3] for h in handles)
+  for h in handles:assert abs(h['x']-h['anchor'][0])<=1 and abs(h['y']-h['anchor'][1])<=1
+  shot(a,'selection-bottom-overflow');end=next(h for h in handles if h['endpoint']==1);before=current['selection_end']
+  a.send('touch',x=end['x'],y=end['y']+8,pressed=True);a.send('touch',x=end['x']-24,y=end['y']+8,pressed=True);a.send('touch',x=end['x']-24,y=end['y']+8,pressed=False);time.sleep(.1)
+  assert state(a)['active'] and state(a)['selected'] and state(a)['selection_end']<before
   seed(a,'alpha beta 中文 👩‍💻')
   double(a,624,93);assert state(a)['selected'] and state(a)['selection_end']==5;shot(a,'selection')
   handles=state(a)['selection_handles'];assert len(handles)==2
+  assert any(h['bounds'][0]<state(a)['text_bounds'][0] for h in handles)
+  for h in handles:assert abs(h['x']-h['anchor'][0])<=1 and abs(h['y']-h['anchor'][1])<=1
   end=handles[1];a.send('touch',x=end['x'],y=end['y'],pressed=True);time.sleep(.06);a.send('touch',x=end['x']+35,y=end['y'],pressed=True);a.send('touch',x=end['x']+35,y=end['y'],pressed=False);time.sleep(.1)
   assert state(a)['selection_end']>5
-  double(a,624,93);hold(a,624,93);assert state(a)['menu'];shot(a,'selection-menu');a.tap(725,154)
+  double(a,624,93);hold(a,624,93);assert state(a)['menu'];shot(a,'selection-menu');before=state(a)['length'];a.editor_action('copy');assert state(a)['length']==before
   assert state(a)['clipboard_count']==1
   key(a,'X' if state(a)['shift'] else 'x');assert not state(a)['selected']
   before=state(a);hold(a,940,185);popup=state(a)

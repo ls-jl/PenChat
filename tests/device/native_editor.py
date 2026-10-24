@@ -7,6 +7,8 @@ import acceptance as d
 def state():return d.state()['editor']
 def key(value):
     item=next(k for k in state()['keys'] if k['key']==value);d.tap(item['x'],item['y'])
+def tap_action(action):
+    x1,y1,x2,y2=state()['actions'][action];d.tap((x1+x2)//2,(y1+y2)//2)
 def hold(x,y):
     d.adb('/tmp/penchat-ui-tap --hold '+str(y+113)+' '+str(959-x)+' 550 2>/dev/null');time.sleep(.1)
 def double(x,y):
@@ -25,7 +27,7 @@ def select_all():
     if state()['preedit_length']:key('enter')
     if not state()['length']:return
     double(622,93);d.wait(lambda:state()['selected']);hold(622,93)
-    d.wait(lambda:state()['menu']);d.tap(632,154);d.wait(lambda:state()['selection_end']==state()['length'])
+    d.wait(lambda:state()['menu']);tap_action('all');d.wait(lambda:state()['selection_end']==state()['length'])
 def clear():
     select_all()
     if state()['length']:key('delete')
@@ -51,7 +53,7 @@ def exercise():
         key('mode');key('1');d.capture('editor-numbers');key('symbols');key('[');d.capture('editor-symbols')
         key('mode');key('mode');assert state()['mode']==1;key('mode');clear()
         for c in 'alpha':key(c)
-        select_all();d.capture('editor-selection');hold(622,93);d.wait(lambda:state()['menu']);d.tap(722,154)
+        select_all();d.capture('editor-selection');hold(622,93);d.wait(lambda:state()['menu']);tap_action('copy')
         assert state()['clipboard_count']==1
         key('x');assert state()['length']==1
         hold(938,185);d.wait(lambda:state()['undo_menu']);d.capture('editor-undo');x1,y1,x2,y2=state()['actions']['undo'];d.tap((x1+x2)//2,(y1+y2)//2);assert state()['selected']

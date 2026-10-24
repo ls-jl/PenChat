@@ -31,6 +31,8 @@ void App::edit(const std::string &text, const std::string &placeholder,
   editorTextTouch_=editorCursorDrag_=false; editorHandle_=-1; editorLastTap_=0;editorTextScroll_=0;editorFollowCursor_=true;
   editorPolicy(!editorSelectionOnly_);
   editorExpanded_ = editorMenu_ = false; editorCandidates_ = Json::array();
+  const auto layout=editorLayout();
+  editorMenuAnchor_={layout.textX+layout.textWidth/2,layout.textY+52};
   editorInFlight_ = editorDue_ = 0; editorChoosing_=false; editorDeferred_.clear();
   editCancellation_ = std::move(cancelled);
   const auto view = view_; const int scroll = body_ ? lv_obj_get_scroll_y(body_) : 0;
@@ -170,8 +172,10 @@ void App::editorBuild() {
     lv_obj_set_clickable(editorHandles_[i],false);
     attachIcon(editorHandles_[i],"selection-handle",theme::link);
   }
-  if(editorUndoMenu_) {
-    const auto popup=layout.undoPopup(editorUndoAnchor_.x,editorUndoAnchor_.y,!editorClipboard_.current.empty());
+  if(editorUndoMenu_||editorMenu_) {
+    const auto popup=editorUndoMenu_?
+      layout.undoPopup(editorMenuAnchor_.x,editorMenuAnchor_.y,!editorClipboard_.current.empty()):
+      layout.selectionPopup(editorMenuAnchor_.x,editorMenuAnchor_.y,editorSelectionOnly_);
     auto menu=box(editorRoot_,popup.x,popup.y,popup.width,popup.height,theme::sidebar);
     lv_obj_set_scrollable(menu,false);
     lv_obj_set_style_radius(menu,10,0);
@@ -179,18 +183,18 @@ void App::editorBuild() {
     lv_obj_set_style_shadow_opa(menu,LV_OPA_40,0);
     lv_obj_set_style_shadow_width(menu,12,0);
     lv_obj_set_style_shadow_offset_y(menu,3,0);
-    auto undo=button(menu,"撤销",4,4,88,44,[action]{action("undo");});
-    if(editor_.undo.empty())lv_obj_add_state(undo,LV_STATE_DISABLED);
-    if(!editorClipboard_.current.empty())button(menu,"粘贴",96,4,88,44,[action]{action("paste");});
-  } else if(editorMenu_) {
-    auto menu=box(editorRoot_,layout.textX,layout.menuY,layout.textWidth,52,theme::background);
-    lv_obj_set_scroll_dir(menu,LV_DIR_HOR);
-    std::vector<std::pair<std::string,std::string>> commands={{"全选","all"},{"复制","copy"},{"粘贴","paste"},{"剪切","cut"}};
-    if(editorSelectionOnly_)commands={{"全选","all"},{"复制","copy"}};
+    std::vector<std::pair<std::string,std::string>> commands;
+    if(editorUndoMenu_) {
+      commands={{"撤销","undo"}};
+      if(!editorClipboard_.current.empty())commands.push_back({"粘贴","paste"});
+    } else commands=editorSelectionOnly_?
+      std::vector<std::pair<std::string,std::string>>{{"全选","all"},{"复制","copy"}}:
+      std::vector<std::pair<std::string,std::string>>{{"全选","all"},{"复制","copy"},{"粘贴","paste"},{"剪切","cut"}};
     for(size_t i=0;i<commands.size();++i) {
-      auto b=button(menu,commands[i].first,int(i)*layout.textWidth/4,4,layout.textWidth/4-4,44,[action,commands,i]{action(commands[i].second);});
-      if(((commands[i].second=="copy"||commands[i].second=="cut")&&editor_.secret&&!editor_.reveal) ||
-         (commands[i].second=="paste"&&editorClipboard_.current.empty())) lv_obj_add_state(b,LV_STATE_DISABLED);
+      auto b=button(menu,commands[i].first,4+int(i)*92,4,88,44,[action,commands,i]{action(commands[i].second);});
+      if((commands[i].second=="undo"&&editor_.undo.empty())||
+         ((commands[i].second=="copy"||commands[i].second=="cut")&&editor_.secret&&!editor_.reveal)||
+         (commands[i].second=="paste"&&editorClipboard_.current.empty()))lv_obj_add_state(b,LV_STATE_DISABLED);
     }
   }
   if(editorClipboardOpen_) {
@@ -405,9 +409,11 @@ void App::editorMagnify(bool show) {
   auto point=editorPoint(editor_.cursor);point.y-=font(20)->line_height+8-font(20)->line_height/2;
   lv_area_t a;lv_obj_get_coords(editorText_,&a);
   const int ext=(int(editorMagnifierBuffer_->header.w)-lv_obj_get_width(editorText_))/2;
-  lv_obj_set_pos(editorMagnifierImage_,90-(point.x-a.x1+ext)*7/4,29-(point.y-a.y1+ext)*7/4);
-  lv_obj_set_pos(editorMagnifierCaret_,89,(58-lv_obj_get_height(editorMagnifierCaret_))/2);
-  lv_obj_set_pos(editorMagnifier_,std::max(layout.textX,std::min(screen_.width-188,int(point.x)-90)),std::max(4,int(point.y)-96));
+  const auto popup=layout.floatingPopup(int(point.x)-90,int(point.y)-96,180,58);
+  const int lensX=int(point.x)-popup.x;
+  lv_obj_set_pos(editorMagnifierImage_,lensX-(point.x-a.x1+ext)*7/4,29-(point.y-a.y1+ext)*7/4);
+  lv_obj_set_pos(editorMagnifierCaret_,lensX-1,(58-lv_obj_get_height(editorMagnifierCaret_))/2);
+  lv_obj_set_pos(editorMagnifier_,popup.x,popup.y);
   lv_obj_move_foreground(editorMagnifier_);
 }
 void App::editorSyncText(bool text) {
@@ -423,8 +429,11 @@ void App::editorSyncText(bool text) {
   if(editorCursorDrag_||editorHandle_>=0)editorScroll(scroll);
   for(int i=0;i<2;++i)if(editorHandles_[i]) {
     auto point=editorPoint(i?r.second:r.first);
-    lv_obj_set_hidden(editorHandles_[i],!editor_.selected()||editorClipboardOpen_||editorExpanded_||editorMenu_||editorUndoMenu_||point.y<layout.textY+12||point.y>layout.textBottom()+12);
-    lv_obj_set_pos(editorHandles_[i],std::max(layout.split,std::min(screen_.width-44,int(point.x)-22)),std::min(layout.textBottom()-44,int(point.y)-22));
+    const int lineBottom=point.y-8;
+    const bool lineVisible=lineBottom>layout.textY&&lineBottom-font(20)->line_height<layout.textBottom();
+    lv_obj_set_hidden(editorHandles_[i],!editor_.selected()||editorClipboardOpen_||editorExpanded_||editorMenu_||editorUndoMenu_||!lineVisible);
+    lv_obj_set_pos(editorHandles_[i],int(point.x)-22,int(point.y)-22);
+    lv_obj_move_foreground(editorHandles_[i]);
   }
   editorMagnify(editorPointer_&&(editorCursorDrag_||editorHandle_>=0));
 }
@@ -481,10 +490,10 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
   if(pressed&&!editorPointer_) {
     editorPointer_=true;editorSlid_=editorTextMoved_=editorCursorDrag_=false;
     editorStartX_=x;editorStartY_=y;editorHeld_=-1;editorRepeats_=0;editorPressTime_=ticks();editorHandle_=-1;
-    const auto undo=layout.undoPopup(editorUndoAnchor_.x,editorUndoAnchor_.y,!editorClipboard_.current.empty());
-    bool overlay=editorClipboardOpen_||editorExpanded_||
-      (editorMenu_&&y>=layout.menuY&&y<layout.menuY+54)||
-      (editorUndoMenu_&&undo.contains(x,y));
+    const auto undo=layout.undoPopup(editorMenuAnchor_.x,editorMenuAnchor_.y,!editorClipboard_.current.empty());
+    const auto selection=layout.selectionPopup(editorMenuAnchor_.x,editorMenuAnchor_.y,editorSelectionOnly_);
+    const bool popupHit=(editorMenu_&&selection.contains(x,y))||(editorUndoMenu_&&undo.contains(x,y));
+    bool overlay=editorClipboardOpen_||editorExpanded_||popupHit;
     if(!overlay && editor_.selected()) {
       auto r=editor_.range();int distance=100000;
       for(int i=0;i<2;++i) {
@@ -499,7 +508,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
       if(!editor_.preedit.empty()&&editor_.raw()) {editorChanged();editorSyncText(true);}
       editorTextScroll_=lv_obj_get_scroll_y(editorText_);input_.cancel();return;
     }
-    for(size_t i=0;i<editorKeys_.size();++i) {
+    if(!popupHit)for(size_t i=0;i<editorKeys_.size();++i) {
       const auto &k=editorKeys_[i];
       if(x>=k.x-4&&x<k.x+k.w+4&&y>=k.y-3&&y<k.y+k.h+3) {
         editorHeld_=int(i);editorPress_=k;lv_obj_set_style_bg_color(k.object,lv_color_hex(theme::border),0);editorRepeat_=ticks()+450;break;
@@ -522,7 +531,8 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
       if(!editorTextMoved_) {
         auto index=editorPositionAt(x,y);
         if(held) {
-          auto r=editor_.range();editorMenu_=editor_.selected()&&index>=r.first&&index<=r.second;editorUndoMenu_=!editorMenu_;if(editorUndoMenu_){editor_.position(index);editorUndoAnchor_={x,y};editorLastTap_=0;}if(editorSelectionOnly_){if(!editor_.selected())editor_.word(index);editorMenu_=true;editorUndoMenu_=false;}
+          editorMenuAnchor_={x,y};editorLastTap_=0;
+          auto r=editor_.range();editorMenu_=editor_.selected()&&index>=r.first&&index<=r.second;editorUndoMenu_=!editorMenu_;if(editorUndoMenu_)editor_.position(index);if(editorSelectionOnly_){if(!editor_.selected())editor_.word(index);editorMenu_=true;editorUndoMenu_=false;}
         } else if(ticks()-editorLastTap_<350&&std::abs(x-editorLastTapX_)<=12&&std::abs(y-editorLastTapY_)<=12) {
           editor_.word(index);editorMenu_=editorUndoMenu_=false;editorLastTap_=0;
         } else {
@@ -584,13 +594,21 @@ Json App::editorDiagnostic() const {
   Json actions=Json::object();
   if(editor_.active&&!editorSelectionOnly_)for(const auto &a:layout.actions())
     actions[a.name]={a.x,layout.actionsY,a.x+a.width-1,layout.actionsY+43};
-  Json undoPopup=Json::array(),textBounds=Json::array();
+  Json undoPopup=Json::array(),selectionPopup=Json::array(),magnifierBounds=Json::array(),magnifierCaret=Json::array(),textBounds=Json::array();
+  if(editorMagnifierCaret_){lv_area_t a;lv_obj_get_coords(editorMagnifierCaret_,&a);magnifierCaret={a.x1,a.y1,a.x2,a.y2};}
+  if(editorMagnifier_){lv_area_t a;lv_obj_get_coords(editorMagnifier_,&a);magnifierBounds={a.x1,a.y1,a.x2,a.y2};}
   if(editorText_) {lv_area_t a;lv_obj_get_coords(editorText_,&a);textBounds={a.x1,a.y1,a.x2,a.y2};}
   if(editor_.active&&editorUndoMenu_) {
-    const auto p=layout.undoPopup(editorUndoAnchor_.x,editorUndoAnchor_.y,!editorClipboard_.current.empty());
+    const auto p=layout.undoPopup(editorMenuAnchor_.x,editorMenuAnchor_.y,!editorClipboard_.current.empty());
     undoPopup={p.x,p.y,p.x+p.width-1,p.y+p.height-1};
     actions["undo"]={p.x+4,p.y+4,p.x+91,p.y+47};
     if(!editorClipboard_.current.empty())actions["paste"]={p.x+96,p.y+4,p.x+183,p.y+47};
+  }
+  if(editor_.active&&editorMenu_) {
+    const auto p=layout.selectionPopup(editorMenuAnchor_.x,editorMenuAnchor_.y,editorSelectionOnly_);
+    selectionPopup={p.x,p.y,p.x+p.width-1,p.y+p.height-1};
+    const std::vector<std::string> commands=editorSelectionOnly_?std::vector<std::string>{"all","copy"}:std::vector<std::string>{"all","copy","paste","cut"};
+    for(size_t i=0;i<commands.size();++i){int x=p.x+4+int(i)*92;actions[commands[i]]={x,p.y+4,x+87,p.y+47};}
   }
   Json controls=Json::array();
   if(editorRoot_) for(uint32_t i=0;i<lv_obj_get_child_count(editorRoot_);++i) {
@@ -599,9 +617,13 @@ Json App::editorDiagnostic() const {
       if(lv_obj_get_child_count(o) && lv_obj_check_type(lv_obj_get_child(o,0),&lv_label_class)) {auto l=lv_obj_get_child(o,0);lv_obj_get_coords(l,&a);item["label_bounds"]={a.x1,a.y1,a.x2,a.y2}; } controls.push_back(item); }
   }
   Json handles=Json::array();
-  for(int i=0;i<2;++i)if(editorHandles_[i]&&!lv_obj_is_hidden(editorHandles_[i])) {lv_area_t a;lv_obj_get_coords(editorHandles_[i],&a);handles.push_back({{"endpoint",i},{"x",(a.x1+a.x2)/2},{"y",(a.y1+a.y2)/2}});}
+  const auto range=editor_.range();
+  for(int i=0;i<2;++i)if(editorHandles_[i]&&!lv_obj_is_hidden(editorHandles_[i])) {
+    lv_area_t a;lv_obj_get_coords(editorHandles_[i],&a);const auto anchor=editorPoint(i?range.second:range.first);
+    handles.push_back({{"endpoint",i},{"x",(a.x1+a.x2)/2},{"y",(a.y1+a.y2)/2},{"anchor",{anchor.x,anchor.y}},{"bounds",{a.x1,a.y1,a.x2,a.y2}}});
+  }
   auto caret=editorPoint(editor_.cursor);
-  return {{"magnifier",editorMagnifier_!=nullptr},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
+  return {{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
     {"chinese",editor_.chinese},{"shift",editor_.shift},{"multiline",editor_.multiline},{"secret",editor_.secret},
     {"length",editLength(editor_.text)},{"cursor",editor_.cursor},{"preedit_length",editor_.preedit.size()},
     {"selection_start",editor_.range().first},{"selection_end",editor_.range().second},{"selected",editor_.selected()},

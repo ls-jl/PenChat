@@ -251,11 +251,15 @@ try:
     # Copy the visible word, clear selection, then paste from the caret-only popup.
     editor=state()['editor'];tx=editor['text_bounds'][0]+12;ty=editor['text_bounds'][1]+12
     tap(tx,ty);tap(tx,ty);wait(lambda:state()['editor']['selected'])
+    for handle in state()['editor']['selection_handles']:
+        assert abs(handle['x']-handle['anchor'][0])<=1 and abs(handle['y']-handle['anchor'][1])<=1
+    capture('keyboard-selection-edge')
     rx,ry=raw(tx,ty)
     shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 650 2>/dev/null')
-    wait(lambda:state()['editor']['menu']);editor=state()['editor'];tw=editor['text_bounds'][2]-editor['text_bounds'][0]+1
-    bar=next(c['bounds'] for c in editor['controls'] if c['bounds'][2]-c['bounds'][0]+1==tw and c['bounds'][3]-c['bounds'][1]+1==52)
-    tap(bar[0]+tw*3//8,bar[1]+26);wait(lambda:not state()['editor']['menu'])
+    wait(lambda:state()['editor']['menu']);editor=state()['editor'];capture('keyboard-selection-menu')
+    assert editor['selection_popup'][0]<editor['text_bounds'][0]
+    x1,y1,x2,y2=editor['actions']['copy'];tap((x1+x2)//2,(y1+y2)//2)
+    wait(lambda:not state()['editor']['menu']);assert state()['editor']['length']==1
     tap(W-20,H-80);wait(lambda:not state()['editor']['selected']);rx,ry=raw(W-20,H-80)
     shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 650 2>/dev/null')
     wait(lambda:state()['editor']['undo_menu']);popup=state()['editor'];assert 'paste' in popup['actions']
@@ -271,9 +275,34 @@ try:
     touch=subprocess.Popen(['adb','-s',SERIAL,'shell',command],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     try:
         wait(lambda:state()['editor']['cursor_drag'] and abs(state()['touch']['x']-(x+24))<4)
-        assert state()['editor']['magnifier'];capture('keyboard-magnifier')
+        editor=state()['editor'];assert editor['magnifier']
+        assert editor['magnifier_bounds'][0]<editor['text_bounds'][0]
+        assert abs((editor['magnifier_bounds'][0]+editor['magnifier_bounds'][2]+1)//2-editor['caret'][0])<=1
+        capture('keyboard-magnifier')
     finally:assert touch.wait(timeout=5)==0
     wait(lambda:not state()['editor']['magnifier']);result['caret_magnifier']=True
+    key('enter');key('e');key('enter');key('f')
+    editor=state()['editor'];tx=editor['text_bounds'][0]+12;ty=min(editor['text_bounds'][3]-6,editor['caret'][1]-16)
+    tap(tx,ty);tap(tx,ty);wait(lambda:state()['editor']['selected']);editor=state()['editor']
+    handles=editor['selection_handles'];assert any(h['bounds'][3]>editor['text_bounds'][3] for h in handles)
+    for h in handles:assert abs(h['x']-h['anchor'][0])<=1 and abs(h['y']-h['anchor'][1])<=1
+    capture('keyboard-selection-bottom');handle=next(h for h in handles if h['endpoint']==1)
+    before=editor['length'];drag(handle['x'],handle['y']+20,handle['x']-16,handle['y']+20)
+    assert state()['editor']['active'] and state()['editor']['length']==before
+    tap(W-20,H-80);result['selection_overflow_drag']=True
+    key('enter')
+    for _ in range(17):key('m')
+    editor=state()['editor'];cx,cy=editor['caret'];x=cx-4;y=min(editor['text_bounds'][3]-8,cy-16)
+    target=min(editor['text_bounds'][2]-8,x+16);sx,sy=raw(x,y);ex,ey=raw(target,y)
+    command='PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --drag-hold '+str(sx)+' '+str(sy)+' '+str(ex)+' '+str(ey)+' 550 2000'
+    touch=subprocess.Popen(['adb','-s',SERIAL,'shell',command],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    try:
+        wait(lambda:state()['editor']['cursor_drag'] and abs(state()['touch']['x']-target)<4)
+        editor=state()['editor'];assert editor['magnifier']
+        assert abs((editor['magnifier_caret'][0]+editor['magnifier_caret'][2]+1)//2-editor['caret'][0])<=1
+        capture('keyboard-magnifier-right')
+    finally:assert touch.wait(timeout=5)==0
+    wait(lambda:not state()['editor']['magnifier'])
     key('mode');key('1');assert state()['editor']['mode']==1;capture('numbers')
     key('symbols');assert state()['editor']['mode']==2;capture('symbols');key('mode')
     key('language')

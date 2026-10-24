@@ -54,7 +54,8 @@ def run(w,h,rotation):
                 a.long_press(x,y);popup=a.diag()['editor']
                 assert popup['undo_menu'] and popup['text_bounds']==before['text_bounds'] and popup['text_scroll']==before['text_scroll']
                 x1,y1,x2,y2=popup['undo_popup'];assert x2-x1+1==96 and y2-y1+1==52
-                assert before['text_bounds'][0]<=x1<x2<w-8 and 0<=y1<y2<h-52
+                assert 4<=x1<x2<w-4 and 4<=y1<y2<h-4
+                if x==before['text_bounds'][0]+12:assert x1<before['text_bounds'][0]
                 screenshot(a,f'{w}-{h}-undo-{y}',w,h)
                 # Text beside the popup remains interactive, without a full-width cover.
                 tx=before['text_bounds'][2]-12 if x1<before['text_bounds'][0]+100 else before['text_bounds'][0]+12
