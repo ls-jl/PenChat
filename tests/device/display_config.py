@@ -97,7 +97,7 @@ try:
     shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);time.sleep(2.2) # Let Falcon's app transition finish before corner mapping.
     if SERIAL=='MEA2300009007113' and shell('cat /sys/class/backlight/backlight/actual_brightness')=='5':
         shell('/tmp/penchat-display-key /dev/input/by-path/rk805-pwrkey 116 1 100 300')
-        shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);time.sleep(.6)
+        shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);time.sleep(2.2)
     s=state();assert (s['width'],s['height'],s['rotation'])==(W,H,screen.get('direction',0));capture('chat')
     for x,y in [(2,2),(W-3,2),(2,H-3),(W-3,H-3)]:
         tap(x,y)

@@ -1702,18 +1702,18 @@ std::string App::pageKey() const {
   if (view_ == "archives") return view_ + ":" + std::to_string(archiveOffset_);
   return view_;
 }
-void App::pageHeader(const std::string &title) {
+void App::pageHeader(const std::string &title, int top) {
   // Header and business content share one full-height reader. No overlay may
   // cover the space released when the title scrolls out.
   const int width = screen_.width - 90;
-  pageHeader_ = box(body_, 0, 0, width, 48);
+  pageHeader_ = box(body_, 0, top, width, 48);
   lv_obj_set_scrollable(pageHeader_, false);
   pageHeading_ = label(pageHeader_, title, 10, 7, width - 20, 26);
   lv_label_set_long_mode(pageHeading_, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(pageHeading_,font(26)->line_height);
-  pageContent_ = box(body_, 0, 48, width, LV_SIZE_CONTENT);
+  pageContent_ = box(body_, 0, top + 48, width, LV_SIZE_CONTENT);
   lv_obj_set_scrollable(pageContent_, false);
-  lv_obj_set_style_min_height(pageContent_, screen_.height - 60, 0);
+  lv_obj_set_style_min_height(pageContent_, screen_.height - top - 60, 0);
   lv_obj_set_style_pad_bottom(body_, 12, 0);
   lv_obj_set_style_width(body_, 3, LV_PART_SCROLLBAR);
   lv_obj_set_style_bg_color(body_, lv_color_hex(theme::muted), LV_PART_SCROLLBAR);
@@ -1888,7 +1888,7 @@ void App::providerPage() {
   int w = screen_.width - 118;
   pageHeader(providerForm_.empty()          ? "Provider / 模型"
              : providerForm_.contains("id") ? "编辑 Provider"
-                                            : "添加 Provider");
+                                            : "添加 Provider", providerForm_.empty() ? 8 : 0);
   if (providerForm_.empty()) {
     pageAction("添加 Provider", 17, 195,
            [this] {

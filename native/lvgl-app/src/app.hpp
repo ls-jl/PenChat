@@ -197,7 +197,7 @@ class App {
   void chatScrolled();
   void updateChatControls(bool animate);
   void jumpToBottom();
-  void pageHeader(const std::string &title);
+  void pageHeader(const std::string &title, int top = 0);
   lv_obj_t *pageAction(const std::string &title, int right, int width, std::function<void()> action);
   std::string pageKey() const;
   Json pageDiagnostic() const;

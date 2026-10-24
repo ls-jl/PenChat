@@ -39,16 +39,18 @@ def run(w,h):
             raise AssertionError('Cannot return to title')
         def inspect(name,scroll=True):
             d=a.diag();page=d['page'];assert page and page['viewport'][1:4:2]==[0,h-1],name
-            assert page['heading'][1]==7,name
+            assert page['heading'][1]==(15 if name=='provider-list' else 7),name
+            headingY=page['heading'][1];actionsY={k:v[1] for k,v in page['actions'].items()}
+            if name=='provider-list':assert page['actions']['添加 Provider'][1]==10
             for bounds in page['actions'].values():
                 assert page['heading'][2]<bounds[0] and bounds[3]-bounds[1]+1>=44,(name,page)
             shot(name+'-top')
             if scroll:
                 maximum=d['scroll_bottom']+d['scroll_y'];a.settings_swipe(-120);t.wait_for(lambda:not a.diag()["page"]["scrolling"])
                 d=a.diag();page=d['page']
-                assert page['heading'][1]==7-d['scroll_y'],(name,d['scroll_y'],page)
+                assert page['heading'][1]==headingY-d['scroll_y'],(name,d['scroll_y'],page)
                 if maximum>=48:assert page['heading'][3]<0,(name,maximum,d['scroll_y'])
-                for bounds in page['actions'].values():assert bounds[1]==2-d['scroll_y']
+                for key,bounds in page['actions'].items():assert bounds[1]==actionsY[key]-d['scroll_y']
                 shot(name+'-scrolled')
             top()
         try:

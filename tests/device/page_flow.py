@@ -29,10 +29,12 @@ def fixture():
 
 def inspect(name):
     state=d.state();page=state['page'];assert page and page['viewport'][1:4:2]==[0,state['height']-1],name
+    headingY=page['heading'][1]
+    if name=='provider-list':assert page['actions']['添加 Provider'][1]==10
     d.capture('flow-'+name+'-top')
     maximum=state['scroll_y']+state['scroll_bottom']
     d.settings_swipe(-120);d.wait(lambda:not d.state()['page']['scrolling'])
-    state=d.state();page=state['page'];assert page['heading'][1]==7-state['scroll_y']
+    state=d.state();page=state['page'];assert page['heading'][1]==headingY-state['scroll_y']
     if maximum>=48:assert page['heading'][3]<0,(name,state)
     d.capture('flow-'+name+'-scrolled')
     for _ in range(30):
