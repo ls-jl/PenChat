@@ -138,7 +138,7 @@ def run():
             RESULTS.append(api+'-auto-manual-image-archive-restore-and-frozen-request')
             # New chat inherits only the selection, never coverage; old copies remain independent.
             d.open_navigation();d.tap(180,236);assert not d.state()['session_preferences'].get('context_compression')
-            d.open_settings();d.tap(740,80);d.view('archives');capture('archives-after-restore-'+api)
+            d.open_settings();d.setting("archives");d.view('archives');capture('archives-after-restore-'+api)
             d.tap(846,76)
             with snapshot() as db:
                 assert db.execute('select count(*) from chat_sessions').fetchone()[0]==2
@@ -151,7 +151,7 @@ def run():
             RESULTS.append(api+'-last-shared-reference-collected')
         seed();type_draft('keep');mode('context-delay');d.tap(908,232)
         d.wait(lambda:d.state()['compressing']);d.tap(890,222)
-        d.open_settings();d.tap(180,80);d.tap(300,175)
+        d.open_settings();d.setting("models");d.tap(300,175)
         assert d.state()['active_model']=='b'
         idle();assert d.state()['active_model']=='b' and logs()[-1]['model']=='a'
         d.to_chat();type_draft('next');mode('ok');d.tap(908,232);idle()
@@ -185,8 +185,8 @@ def run():
         assert d.state()['draft_length']==4;d.tap(890,222);RESULTS.append('short-manual-follows-chat-model')
         d.open_settings();swipe(350,230,60);capture('settings')
         # Native model and preset forms, plus real system IME handoff.
-        d.to_chat();d.open_settings();d.tap(180,80);d.tap(870,175);d.view('model');swipe(450,230,60);capture('model-budget');d.tap(870,24)
-        d.to_chat();d.open_settings();d.tap(300,230);d.view('presets');d.tap(300,166);d.view('preset_edit');capture('preset-compression-model')
+        d.to_chat();d.open_settings();d.setting("models");d.tap(870,175);d.view('model');swipe(450,230,60);capture('model-budget');d.tap(870,24)
+        d.to_chat();d.open_settings();d.setting("presets");d.view('presets');d.tap(300,166);d.view('preset_edit');capture('preset-compression-model')
         # Save a concrete compression model, then explicitly restore following.
         d.tap(300,192);d.wait(lambda:d.state()['modal']);capture('compression-model-options')
         d.tap(300,186);d.tap(870,24);d.view('presets')

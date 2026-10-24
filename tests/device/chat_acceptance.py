@@ -141,7 +141,7 @@ if __name__=='__main__':
         mode('cancel');send_request();time.sleep(.4);device.tap(908,232);wait_reply(4,'cancelled');results.append('cancel')
         mode('ok')
         # Enable image auto-send using the actual settings UI, then take a real photo.
-        device.open_settings();device.tap(300,134);device.to_chat()
+        device.open_settings();device.setting("image_auto_send");device.to_chat()
         device.tap(128,232);device.tap(200,38);device.view('camera');time.sleep(.5);device.tap(888,133);device.view('crop')
         state=device.state();assert not state['crop_save_album']
         w,h=state['crop_preview'];x=86+12+(630-w)//2+3;y=(266-h)//2+3
@@ -161,7 +161,7 @@ if __name__=='__main__':
         mode('unicode');device.tap(908,232);wait_reply(5,'error');device.wait(lambda:device.state()['modal'])
         mode('ok');device.tap(770,225);wait_reply(5,'complete');assert requests()[-1]['has_image'];results.append('camera-crop-pending-and-album')
         # Disable auto-send, pick the saved photo through the real album UI, then send manually.
-        device.open_settings();device.tap(300,134);device.to_chat()
+        device.open_settings();device.setting("image_auto_send");device.to_chat()
         count=len(requests());device.tap(128,232);device.tap(200,82);device.view('album');device.tap(200,95);device.view('chat');time.sleep(.2)
         assert len(requests())==count and len(messages())==5
         # Long press removes only the pending attachment after confirmation.
@@ -291,10 +291,10 @@ if __name__=='__main__':
         device.wait(lambda:device.state()['navigation_open']);assert session_info()[2]['title_state']=='complete'
         history_menu();device.tap(250,147);assert session_info()[2].get('pinned_at',0)>0
         history_menu();device.tap(390,147);assert session_info()[1]=='archived'
-        device.tap(500,236);device.tap(740,80);device.view('archives');device.capture('archived-chat')
+        device.tap(500,236);device.setting("archives");device.view('archives');device.capture('archived-chat')
         device.tap(726,76);assert session_info()[1]=='active'
         device.to_chat();history_menu();device.tap(390,147)
-        device.tap(500,236);device.tap(740,80);device.tap(846,76);assert session_info() is None
+        device.tap(500,236);device.setting("archives");device.tap(846,76);assert session_info() is None
         results.append('history-long-press-rename-cancel-pin-archive-restore-delete')
         assert device.adb('pidof miniapp')==parent
     except BaseException:

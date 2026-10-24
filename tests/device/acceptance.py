@@ -61,6 +61,14 @@ def open_navigation():
     to_chat();tap(40,32);wait(lambda:state()['navigation_open'])
 def open_settings():
     open_navigation();tap(570,236);view('settings')
+def settings_swipe(delta):
+    start=220 if delta<0 else 75
+    adb('/tmp/penchat-ui-tap --drag-hold '+str(start+113)+' 459 '+str(start+delta+113)+' 459 450 200 2>/dev/null')
+def setting(name,indicator=False):
+    import sys
+    if str(ROOT/'tests') not in sys.path:sys.path.insert(0,str(ROOT/'tests'))
+    from settings_ui import activate
+    return activate(state,tap,settings_swipe,name,indicator)
 def home():
     adb('/tmp/penchat-key /dev/input/by-path/adc-keys 102 1 100 300')
     wait(lambda:not pid())

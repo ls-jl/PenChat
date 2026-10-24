@@ -133,6 +133,12 @@ class App {
   bool chatFollowing_ = true, chatLayout_ = false;
   int chatScroll_ = 0, chatControlsTarget_ = -1;
   std::string builtView_;
+  int settingsScroll_ = 0;
+  struct SettingsControl {
+    lv_obj_t *row, *title, *detail, *indicator;
+    bool toggle;
+  };
+  std::map<std::string, SettingsControl> settingsControls_;
   lv_obj_t *chatControls_ = nullptr, *toBottom_ = nullptr;
   lv_obj_t *attachments_ = nullptr, *modal_ = nullptr,
            *pullIndicator_ = nullptr, *pullArc_ = nullptr,
@@ -189,6 +195,11 @@ class App {
   void jumpToBottom();
   void pageHeader(const std::string &title);
   void settingsPage();
+  void settingsRow(const std::string &id, const std::string &title,
+                   const std::string &detail, int x, int y, int width,
+                   std::function<void()> action, int checked = -1,
+                   bool unavailable = false);
+  Json settingsDiagnostic() const;
   void providerPage();
   void editProvider(const std::string &id);
   void historyDrawer();

@@ -15,12 +15,11 @@ with tempfile.TemporaryDirectory(prefix='penchat-clean-') as directory:
         (output/'welcome.png').write_bytes((pathlib.Path(directory)/'lvgl-diagnostic.png').read_bytes())
         app.open_settings();app.process.send_signal(signal.SIGUSR1);time.sleep(.2)
         (output/'settings.png').write_bytes((pathlib.Path(directory)/'lvgl-diagnostic.png').read_bytes())
-        for y in (220,190,160,130,90):
-            app.send('touch',x=750,y=y,pressed=True);time.sleep(.03)
-        app.send('touch',x=750,y=90,pressed=False);time.sleep(.3)
+        from settings_ui import locate
+        locate(app.diag,app.settings_swipe,'about')
         app.process.send_signal(signal.SIGUSR1);time.sleep(.2)
         (output/'settings-details.png').write_bytes((pathlib.Path(directory)/'lvgl-diagnostic.png').read_bytes())
-        app.tap(750,48+268+22-app.diag()['scroll_y']);assert app.diag()['modal']
+        app.setting('about');assert app.diag()['modal']
         app.process.send_signal(signal.SIGUSR1);time.sleep(.2)
         (output/'about.png').write_bytes((pathlib.Path(directory)/'lvgl-diagnostic.png').read_bytes())
     finally:app.close()

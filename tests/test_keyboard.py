@@ -132,7 +132,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   a.send('touch',x=k['x'],y=k['y'],pressed=True);time.sleep(.7);a.send('visibility',visible=False);time.sleep(.1)
   n=state(a)['length'];time.sleep(.3);assert state(a)['length']==n and not state(a)['ocr_active']
   a.send('visibility',visible=True);time.sleep(.1);a.tap(630,236);assert a.diag()['draft_length']==len(long)
-  a.open_settings();a.tap(180,80);a.tap(790,30);a.tap(250,120)
+  a.open_settings();a.setting("models");a.tap(790,30);a.tap(250,120)
   assert state(a)['secret'] and not state(a)['chinese'] and not state(a)['multiline'];key(a,'a');shot(a,'secret')
   r=official(a);assert r['text']=='a' and r['inputType']=='EnUSOnly' and not r['multiline'];a.tap(630,236)
  finally:a.close()

@@ -77,7 +77,7 @@ def run():
             app.tap(630,30);assert app.diag()['navigation_open']
             drag(app,[190,160,130,90],x=200);assert app.diag()['navigation_open']
             app.tap(180,236);assert app.diag()['summary']['sessions']==0
-            app.open_settings();snapshot(app,'settings');app.tap(180,80);snapshot(app,'providers')
+            app.open_settings();snapshot(app,'settings');app.setting('models');snapshot(app,'providers')
             app.tap(790,30);snapshot(app,'provider-form')
             assert app.diag()['navigation_button']=='back'
             app.tap(40,32);assert app.diag()['view']=='provider'

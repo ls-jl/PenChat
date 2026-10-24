@@ -106,6 +106,15 @@ class Native:
     def open_settings(self):
         self.open_navigation();self.tap(500,236)
         assert self.diag()['view']=='settings'
+    def settings_swipe(self, delta):
+        start=220 if delta<0 else 75
+        for i in range(7):
+            self.send('touch',x=500,y=start+int(delta*i/6),pressed=True);time.sleep(.025)
+        time.sleep(.2) # Settle at the destination before release, without a fling.
+        self.send('touch',x=500,y=start+delta,pressed=False)
+    def setting(self, name, indicator=False):
+        from settings_ui import activate
+        return activate(self.diag,self.tap,self.settings_swipe,name,indicator)
     def read_messages(self):
         with sqlite3.connect(self.directory/'penchat.db') as db:
             return db.execute('select role,status,output_text,error_json from chat_messages order by created_at,seq').fetchall()
@@ -167,7 +176,7 @@ if __name__ == '__main__':
                 wait_for(lambda:(directory/'lvgl-diagnostic.png').exists())
                 (artifacts/f'{model}-{api}.png').write_bytes((directory/'lvgl-diagnostic.png').read_bytes())
                 if model=='fixture' and api=='responses':
-                    app.open_settings();app.tap(180,80);app.tap(790,30);app.tap(250,120)
+                    app.open_settings();app.setting("models");app.tap(790,30);app.tap(250,120)
                     request=app.receive('keyboard.open')
                     assert request['inputType']=='EnUSOnly' and request['maxlength']==4096
                     dummy_key='sk-'+'0123456789abcdef'*2

@@ -170,12 +170,12 @@ def run():
                     assert app.diag()['view']=='archives' and app.diag()['session']=='s'
                     snapshot(app,'context-archives-'+api)
                     app.to_chat();assert app.diag()['draft_length']==12
-                    app.open_settings();app.tap(180,80);app.tap(870,175)
+                    app.open_settings();app.setting("models");app.tap(870,175)
                     assert app.diag()['view']=='model'
                     drag(app,[230,190,150,100,60],x=450)
                     snapshot(app,'context-model-budget-'+api)
                     app.tap(870,24);app.to_chat()
-                    app.open_settings();app.tap(300,230);app.tap(300,166)
+                    app.open_settings();app.setting("presets");app.tap(300,166)
                     assert app.diag()['view']=='preset_edit'
                     drag(app,[230,190,150,100,60],x=450)
                     snapshot(app,'context-preset-model-'+api)
@@ -189,7 +189,7 @@ def run():
                 try:
                     Server.requests=[];Server.delay=1
                     app.edit('selection');app.tap(908,232);wait_for(lambda:app.diag()['compressing'])
-                    app.tap(890,222);app.open_settings();app.tap(180,80);app.tap(300,175)
+                    app.tap(890,222);app.open_settings();app.setting("models");app.tap(300,175)
                     assert app.diag()['active_model']=='b'
                     wait_idle(app)
                     assert app.diag()['active_model']=='b', 'Queued send replaced the next-request selection'

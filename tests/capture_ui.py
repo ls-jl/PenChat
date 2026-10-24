@@ -15,20 +15,20 @@ def snap(app,name):
 with tempfile.TemporaryDirectory(prefix='penchat-audit-') as directory:
     p=pathlib.Path(directory);app=Native(binary,p)
     try:
-        app.open_settings();app.tap(300,192);snap(app,'title-model-picker');app.tap(900,232)
+        app.open_settings();app.setting('title_model');snap(app,'title-model-picker');app.tap(900,232)
         app.tap(180,80);app.tap(870,70);snap(app,'provider-edit')
         app.tap(250,120);app.receive('ocr.start');snap(app,'key-editor')
         app.tap(630,236);app.tap(40,32);app.tap(790,24);snap(app,'provider-new')
         app.tap(*( (505,223) if args.legacy else (870,24)));time.sleep(.2);snap(app,'validation-dialog')
         app.tap(890,225);app.to_chat()
-        app.open_settings();app.tap(740,80);snap(app,'archives-empty');app.to_chat()
+        app.open_settings();app.setting('archives');snap(app,'archives-empty');app.to_chat()
         app.close()
         with sqlite3.connect(p/'penchat.db') as db:
             presets=[{'id':'default','name':'默认预设','prompt_mode':'custom','prompt':'用简洁的中文解释问题。','model_id':'fixture-model','effort':'high'}]
             db.execute("insert or replace into app_settings(key,value_json,updated_at) values('chat_presets',?,1)",(json.dumps(presets),))
         app=Native(binary,p);app.open_settings()
         if args.legacy:drag(app,[210,160,100],x=300);app.tap(300,190)
-        else:app.tap(300,230)
+        else:app.setting('presets')
         assert app.diag()['view']=='presets'
         app.tap(300,166);assert app.diag()['view']=='preset_edit'
         snap(app,'preset-editor-top')
@@ -49,6 +49,6 @@ with tempfile.TemporaryDirectory(prefix='penchat-empty-audit-') as directory:
     app=Native(binary,pathlib.Path(directory),seed_model=False)
     try:
         snap(app,'welcome-unconfigured')
-        app.open_settings();app.tap(180,80);snap(app,'providers-empty')
+        app.open_settings();app.setting('models');snap(app,'providers-empty')
     finally:app.close()
 print('Supplementary page screenshots:',out)

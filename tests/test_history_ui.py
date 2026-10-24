@@ -82,12 +82,12 @@ def run():
             assert info(directory,'old0')[0]=='手动置顶标题'
             context(app,'old0');app.tap(390,147)
             assert info(directory,'old0')[1]=='archived' and not any(r['id']=='old0' for r in app.diag()['history_rows'])
-            app.tap(500,236);app.tap(740,80);assert app.diag()['view']=='archives';screenshot(app,'archives')
+            app.tap(500,236);app.setting("archives");assert app.diag()['view']=='archives';screenshot(app,'archives')
             app.tap(726,76);assert info(directory,'old0')[1]=='active'
             app.to_chat();app.open_navigation();assert app.diag()['history_rows'][0]['id']=='old0'
-            context(app,'old0');app.tap(390,147);app.tap(500,236);app.tap(740,80);app.tap(846,76)
+            context(app,'old0');app.tap(390,147);app.tap(500,236);app.setting("archives");app.tap(846,76)
             assert info(directory,'old0') is None
-            app.tap(40,32);app.tap(300,192);assert app.diag()['popup']=='title_models'
+            app.tap(40,32);app.setting("title_model");assert app.diag()['popup']=='title_models'
             app.tap(300,162);assert app.diag()['active_model']=='a'
             assert json.loads(query(directory,"select value_json from app_settings where key='title_model_id'")[0][0])=='b'
             app.to_chat();second=new(app);send(app,'指定模型命名');named(app,directory,second)

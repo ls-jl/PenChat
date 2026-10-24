@@ -439,12 +439,14 @@ void App::modelPicker(bool forTitles) {
     for (const auto &model : models)
       if (model["provider_id"] == provider["id"]) {
         auto id = model["id"].get<std::string>();
-        button(
+        auto held = std::make_shared<bool>(false);
+        auto item = button(
             panel,
             (current.value("id", std::string()) == id ? "● " : "○ ") +
                 model.value("name", std::string()),
             8, y, 620, 44,
-            [this, id, forTitles] {
+            [this, id, forTitles, held] {
+              if (*held) return;
               if (forTitles)
                 db_.setting("title_model_id", id);
               else
@@ -452,12 +454,27 @@ void App::modelPicker(bool forTitles) {
               build();
             },
             theme::surface, LV_TEXT_ALIGN_LEFT);
+        if (forTitles) {
+          auto action = new std::function<void()>([this, id, held] {
+            *held = true;
+            events_.push("title_model_detail", {{"id", id}});
+          });
+          lv_obj_add_event_cb(item, [](lv_event_t *e) {
+            auto callback = *static_cast<std::function<void()> *>(lv_event_get_user_data(e));
+            callback();
+          }, LV_EVENT_LONG_PRESSED, action);
+          lv_obj_add_event_cb(item, [](lv_event_t *e) {
+            delete static_cast<std::function<void()> *>(lv_event_get_user_data(e));
+          }, LV_EVENT_DELETE, action);
+        }
         y += 46;
       }
   }
   if (models.empty())
     button(panel, "添加 Provider / 模型", 10, 50, 600, 48,
            [this] { show("provider"); });
+  if (forTitles && !models.empty())
+    label(attachments_, "长按模型查看完整名称", 24, 216, 650, 16, theme::muted);
 }
 void App::effortPicker() {
   auto model = currentModel();
@@ -867,6 +884,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  settingsControls_.clear();
   transferProgress_ = nullptr;
   scanImage_ = scanLabel_ = scanUse_ = scanHint_ = nullptr;
   historyRows_.clear();
@@ -901,7 +919,7 @@ void App::clear() {
 }
 void App::build() {
   const int settingsY = body_ && builtView_ == "settings" && view_ == "settings"
-                            ? std::max(0, int(lv_obj_get_scroll_y(body_))) : 0;
+                            ? std::max(0, int(lv_obj_get_scroll_y(body_))) : settingsScroll_;
   const int transferY = body_ && builtView_ == "transfer" &&
                                 transferBuiltScreen_ == transferScreen_ &&
                                 !transfer_->busy()
@@ -986,13 +1004,19 @@ void App::build() {
     lv_obj_scroll_to_y(body_, transferY, LV_ANIM_OFF);
     transferBuiltScreen_ = transfer_->busy() ? "" : transferScreen_;
   }
-  if (view_ == "settings") lv_obj_scroll_to_y(body_, settingsY, LV_ANIM_OFF);
+  if (view_ == "settings") {
+    lv_obj_scroll_to_y(body_, settingsY, LV_ANIM_OFF);
+    settingsScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
+  }
   builtView_ = view_;
   chatLayout_ = false;
   syncScanner();
   if (editorRoot_) lv_obj_move_foreground(editorRoot_);
 }
 void App::show(const std::string &view) {
+  if (view_ == "settings" && body_)
+    settingsScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
+  if (view == "settings" && view_ == "chat") settingsScroll_ = 0;
   if (view_ == "crop" && view != "crop")
     clearCrop();
   if (view_ == "scan" && view != "scan") {
@@ -1665,82 +1689,133 @@ void App::pageHeader(const std::string &title) {
   lv_obj_set_style_bg_color(body_, lv_color_hex(theme::muted), LV_PART_SCROLLBAR);
   lv_obj_set_style_radius(body_, 3, LV_PART_SCROLLBAR);
 }
+void App::settingsRow(const std::string &id, const std::string &title,
+                      const std::string &detail, int x, int y, int width,
+                      std::function<void()> action, int checked, bool unavailable) {
+  auto row = box(body_, x, y, width, 56, theme::surface);
+  lv_obj_set_scrollable(row, false);
+  lv_obj_set_style_radius(row, 12, 0);
+  lv_obj_set_style_bg_color(row, lv_color_hex(theme::border), LV_STATE_PRESSED);
+  auto caption = label(row, title, 12, 3, width - 80, 20);
+  auto value = label(row, detail, 12, 31, width - 80, 16,
+                     unavailable ? theme::danger : theme::muted);
+  for (auto text : {caption, value}) {
+    lv_label_set_long_mode(text, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_height(text, lv_obj_get_style_text_font(text, LV_PART_MAIN)->line_height);
+    lv_obj_set_clickable(text, false);
+  }
+  lv_obj_t *indicator;
+  if (checked >= 0) {
+    indicator = lv_switch_create(row);
+    lv_obj_set_pos(indicator, width - 56, 16);
+    lv_obj_set_size(indicator, 44, 24);
+    lv_obj_set_style_bg_color(indicator, lv_color_hex(theme::border), 0);
+    lv_obj_set_style_bg_color(indicator, lv_color_hex(theme::border), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(indicator, lv_color_hex(theme::accent), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(indicator, lv_color_hex(theme::text), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(indicator, -2, LV_PART_KNOB);
+    if (checked) lv_obj_add_state(indicator, LV_STATE_CHECKED);
+  } else {
+    indicator = box(row, width - 50, 6, 44, 44, theme::surface);
+    lv_obj_set_style_bg_opa(indicator, LV_OPA_TRANSP, 0);
+    lv_obj_set_scrollable(indicator, false);
+    attachIcon(indicator, "chevron-right", theme::muted);
+  }
+  // The row is the only click target. The visual switch must not also toggle.
+  lv_obj_set_clickable(indicator, false);
+  onClick(row, std::move(action));
+  settingsControls_[id] = {row, caption, value, indicator, checked >= 0};
+}
+Json App::settingsDiagnostic() const {
+  Json rows = Json::object();
+  auto bounds = [](lv_obj_t *object) {
+    lv_area_t area; lv_obj_get_coords(object, &area);
+    return Json::array({area.x1, area.y1, area.x2, area.y2});
+  };
+  for (const auto &entry : settingsControls_) {
+    const auto &control = entry.second;
+    Json row = {{"bounds", bounds(control.row)}, {"title", bounds(control.title)},
+                {"detail", bounds(control.detail)}, {"indicator", bounds(control.indicator)},
+                {"toggle", control.toggle}};
+    if (control.toggle) row["checked"] = lv_obj_has_state(control.indicator, LV_STATE_CHECKED);
+    rows[entry.first] = std::move(row);
+  }
+  return {{"rows", rows}, {"scrolling", view_ == "settings" && body_ && lv_obj_is_scrolling(body_)}};
+}
 void App::settingsPage() {
   pageHeader("设置");
   const int width = screen_.width - 118;
-  const int gap = 14, column = (width - gap) / 2;
+  const int gap = 16, column = (width - gap) / 2;
   const int left = 10, right = left + column + gap;
   const auto config = db_.settings();
   const auto settings = config.value("penchat_settings", Json::object());
-  auto action = [&](const std::string &text, int x, int y,
-                    std::function<void()> callback) {
-    return button(body_, text, x, y, column, 44, std::move(callback),
-                  theme::surface, LV_TEXT_ALIGN_LEFT);
-  };
-  action("模型管理", left, 4, [this] { show("provider"); });
-  action("归档会话", right, 4, [this] {
-    archiveOffset_ = 0;
-    show("archives");
-  });
-  action(settings.value("autoSendCapturedContent", false) ? "图片自动发送：开"
-                                                          : "图片自动发送：关",
-         left, 56, [this] {
-           auto settings =
-               db_.settings().value("penchat_settings", Json::object());
-           settings["autoSendCapturedContent"] =
-               !settings.value("autoSendCapturedContent", false);
-           db_.setting("penchat_settings", settings);
-           build();
-         });
-  const bool autoTitle = config.value("auto_title_enabled", true);
-  action(autoTitle ? "自动命名：开" : "自动命名：关", right, 56,
-         [this, autoTitle] {
-           db_.setting("auto_title_enabled", !autoTitle);
-           if (autoTitle)
-             titleCancel_ = true;
-           build();
-         });
-  auto titleModelId = config.value("title_model_id", std::string());
-  std::string titleModelName =
-      titleModelId.empty() ? "跟随当前聊天模型" : "指定模型不可用";
-  for (const auto &m : db_.models())
-    if (m["id"] == titleModelId)
-      titleModelName = m.value("name", std::string());
-  action("命名模型：" + titleModelName, left, 108,
-         [this] { modelPicker(true); });
-  const auto reasoningMode =
-      config.value("reasoning_display", std::string("collapsed"));
+  label(body_, "聊天与会话", left, 4, width, 16, theme::muted);
+  settingsRow("models", "模型管理", "Provider 与模型", left, 28, column,
+              [this] { show("provider"); });
+  settingsRow("presets", "会话预设", "管理会话配置", right, 28, column,
+              [this] { show("presets"); });
+  const auto reasoningMode = config.value("reasoning_display", std::string("collapsed"));
   const std::string reasoningName = reasoningMode == "always" ? "始终展开"
-                                    : reasoningMode == "during"
-                                        ? "思考完毕后收起"
-                                        : "不展开";
-  action("思考过程：" + reasoningName, right, 108,
-         [this] { reasoningDisplayPicker(); });
-  action("会话预设", left, 160, [this] { show("presets"); });
-  action("导入与导出", right, 160, [this] { openTransfer(); });
-  const bool persistentExports = config.value("persistent_export_directory", true);
-  action(persistentExports ? "持久化导出目录：开" : "持久化导出目录：关",
-         right, 216, [this, persistentExports] {
-           db_.setting("persistent_export_directory", !persistentExports);
-           build();
-         });
+                                    : reasoningMode == "during" ? "思考完毕后收起" : "不展开";
+  settingsRow("reasoning", "思考过程", reasoningName, left, 92, column,
+              [this] { reasoningDisplayPicker(); });
+  settingsRow("image_auto_send", "图片自动发送", "开启后自动发送图片消息", right, 92, column,
+              [this] {
+                auto value = db_.settings().value("penchat_settings", Json::object());
+                // Read first: C++14 allows [] to insert null before the RHS
+                // value() is evaluated on the device's GCC 6 toolchain.
+                const bool enabled = value.value("autoSendCapturedContent", false);
+                value["autoSendCapturedContent"] = !enabled;
+                db_.setting("penchat_settings", value);
+                build();
+              }, settings.value("autoSendCapturedContent", false));
+  const bool autoTitle = config.value("auto_title_enabled", true);
+  settingsRow("auto_title", "自动命名", "首条回复完成后生成标题", left, 156, column,
+              [this, autoTitle] {
+                db_.setting("auto_title_enabled", !autoTitle);
+                if (autoTitle) titleCancel_ = true;
+                build();
+              }, autoTitle);
+  auto titleModelId = config.value("title_model_id", std::string());
+  std::string titleModelName = titleModelId.empty() ? "跟随当前聊天模型" : "指定模型不可用";
+  bool titleModelMissing = !titleModelId.empty();
+  for (const auto &model : db_.models()) {
+    if (model["id"] == titleModelId) {
+      titleModelName = model.value("name", std::string());
+      titleModelMissing = false;
+    }
+  }
+  settingsRow("title_model", "命名模型", titleModelName, right, 156, column,
+              [this] { modelPicker(true); }, -1, titleModelMissing);
   const bool autoContext = config.value("auto_context_compression", true);
-  action(autoContext ? "自动上下文压缩：开" : "自动上下文压缩：关", left, 216,
-         [this, autoContext] {
-           db_.setting("auto_context_compression", !autoContext);
-           build();
-         });
-  label(body_, "压缩前自动归档，原消息和图片保留", left, 280, column, 16, theme::muted);
-  action("关于 " PENCHAT_NAME, right, 268, [this] {
-    const auto summary = db_.summary();
-    modal("关于 " PENCHAT_NAME,
-          "版本：" PENCHAT_VERSION " · LVGL 9.6.0\n"
-          "存储：" + summary["sessions"].dump() + " 个会话 / " +
-          summary["messages"].dump() + " 条消息\n"
-          "作者：" PENCHAT_AUTHOR "\n"
-          "AI 协作：" PENCHAT_AI_CONTRIBUTOR "\n"
-          "项目地址：" PENCHAT_PROJECT_URL);
-  });
+  settingsRow("auto_context", "自动上下文压缩", "压缩前归档，保留消息和图片", left, 220, column,
+              [this, autoContext] {
+                db_.setting("auto_context_compression", !autoContext);
+                build();
+              }, autoContext);
+  settingsRow("archives", "归档会话", "查看、还原或删除归档", right, 220, column,
+              [this] { archiveOffset_ = 0; show("archives"); });
+  label(body_, "数据与应用", left, 292, width, 16, theme::muted);
+  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 316, column,
+              [this] { openTransfer(); });
+  const bool persistentExports = config.value("persistent_export_directory", true);
+  settingsRow("persistent_exports", "持久化导出目录",
+              persistentExports ? "关闭应用后保留导出文件" : "关闭应用时清理导出文件",
+              right, 316, column, [this, persistentExports] {
+                db_.setting("persistent_export_directory", !persistentExports);
+                build();
+              }, persistentExports);
+  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", left, 380, width,
+              [this] {
+                const auto summary = db_.summary();
+                modal("关于 " PENCHAT_NAME,
+                      "版本：" PENCHAT_VERSION " · LVGL 9.6.0\n"
+                      "存储：" + summary["sessions"].dump() + " 个会话 / " +
+                      summary["messages"].dump() + " 条消息\n"
+                      "作者：" PENCHAT_AUTHOR "\n"
+                      "AI 协作：" PENCHAT_AI_CONTRIBUTOR "\n"
+                      "项目地址：" PENCHAT_PROJECT_URL);
+              });
 }
 void App::reasoningDisplayPicker() {
   modal("自动展开思考过程", "");
@@ -2674,6 +2749,16 @@ void App::tick() {
         chatFollowing_ = false;
         renderMessages(false);
       }
+    } else if (e.type == "title_model_detail") {
+      if (view_ == "settings" && visible_ && popupKind_ == "title_models") {
+        for (const auto &model : db_.models()) {
+          if (model["id"] == e.data.value("id", std::string())) {
+            input_.cancel();
+            modal("命名模型", model.value("name", std::string()));
+            break;
+          }
+        }
+      }
     } else if (e.type == "reasoning_display") {
       input_.cancel();
       db_.setting("reasoning_display", e.data.at("mode"));
@@ -2969,6 +3054,7 @@ Json App::diagnostics() const {
            ? std::max<int64_t>(0, PullPauseMs - (ticks() - pullLastActivity_))
            : 0},
       {"scroll_y", body_ ? lv_obj_get_scroll_y(body_) : 0},
+      {"settings", settingsDiagnostic()},
       {"scroll_bottom", body_ ? lv_obj_get_scroll_bottom(body_) : 0},
       {"composer_width", composer_ ? lv_obj_get_width(composer_) : 0},
       {"toolbar_y", chatControls_ ? lv_obj_get_y(chatControls_) : -1},

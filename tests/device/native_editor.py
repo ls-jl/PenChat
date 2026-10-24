@@ -34,7 +34,7 @@ def exercise():
     s=d.state();assert not s['editor']['active'] and not s['keyboard'] and not s['generating'] and not s.get('compressing',False) and not s['draft_length'],'Finish existing input before testing'
     host=d.adb('pidof miniapp');results={'version':d.APP['version'],'host_pid':host}
     try:
-        d.open_settings();d.tap(180,80);d.tap(790,30);d.tap(250,60)
+        d.open_settings();d.setting("models");d.tap(790,30);d.tap(250,60)
         d.wait(lambda:state()['active'] and state()['top_panel_blocked']);d.wait(lambda:state()['ocr_active'])
         # Swipe from the physical top edge; it must remain in this native editor.
         d.adb('/tmp/penchat-ui-tap 114 659 313 659 25 2>/dev/null')
@@ -109,7 +109,7 @@ def main():
         isolated_public=True
         d.adb('miniapp_cli start '+d.APP_ID);d.wait(d.pid);d.wait(lambda:d.state()['visible']);time.sleep(.6)
         exercise()
-        d.open_settings();d.tap(180,80);d.tap(790,30)
+        d.open_settings();d.setting("models");d.tap(790,30)
         for index in range(20):
             d.tap(250,60);d.wait(lambda:state()['top_panel_blocked'] and state()['ocr_active'] and d.state()['scan_released'])
             native=d.pid();cycles.append({'cycle':index+1,'fds':int(d.adb('ls /proc/'+native+'/fd | wc -l')),'rss_kib':int(d.adb("awk '/VmRSS/{print $2}' /proc/"+native+'/status'))})

@@ -23,7 +23,10 @@ previews and join/cancel readers before releasing scan results.
 
 Use two-space indentation; format C++ consistently. Keep LVGL calls on its UI
 thread. Use the existing queues for background work and discard stale generation
-and input request IDs. Release child processes, camera, pointers and the display
+and input request IDs. With GCC 6/C++14, read JSON defaults into a local before
+assigning through `operator[]` on that object; assignment operands are unordered
+and `[]` may insert null before the read.
+Release child processes, camera, pointers and the display
 plane on lifecycle transitions. Never dereference freed LVGL object pointers;
 register image cleanup on LV_EVENT_DELETE (9.6's old is_valid alias is unsafe).
 Section pages use a fixed 48px header and a separate scrolling body. Fixed-height

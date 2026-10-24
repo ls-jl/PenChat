@@ -134,7 +134,7 @@ def run():
             assert app.diag()['active_model']=='a' and app.diag()['effective_effort']=='high'
             send(app,'新聊天沿用本次强度')
             assert Server.requests[-1][1]['reasoning']['effort']=='high'
-            app.open_settings();app.tap(180,80);app.tap(870,175)
+            app.open_settings();app.setting("models");app.tap(870,175)
             assert app.diag()['view']=='model';screenshot(app,'model-capabilities')
             app.tap(700,200)  # Disable max: only High remains on model b.
             app.tap(700,24);screenshot(app,'model-mapping')

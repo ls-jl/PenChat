@@ -65,7 +65,7 @@ def main():
         entry={'cycle':i+1,'scanner_pid':p,'fds':int(d.adb('ls /proc/'+p+'/fd | wc -l')),'rss_kib':int(d.adb("awk '/VmRSS/{print $2}' /proc/"+p+'/status'))}
         result['cycles'].append(entry);print(json.dumps(entry),flush=True)
     # System OCR retains its own bridge and releases the custom capture lease.
-    d.open_settings();d.tap(180,80);d.view('provider')
+    d.open_settings();d.setting("models");d.view('provider')
     d.tap(790,30);d.tap(250,122);d.wait(lambda:d.state()['editor']['active']);released()
     assert d.state()['editor']['ocr_active']
     d.tap(630,236);d.tap(40,32);d.to_chat();ready()

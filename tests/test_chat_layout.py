@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-thought-collapse-') as director
             d=app.diag();app.tap(d['reasoning_header_x'],d['reasoning_header_y'])
             d=app.diag();assert d['reasoning_expanded_count']==0 and d['scroll_y']==0 and d['following_latest']
         app.edit('收起后仍可正常输入')
-        app.open_settings();app.tap(730,192);assert app.diag()['modal'];snapshot(app,'thought-display-options')
+        app.open_settings();app.setting("reasoning");assert app.diag()['modal'];snapshot(app,'thought-display-options')
         app.tap(800,96);assert not app.diag()['modal']
         with sqlite3.connect(pathlib.Path(directory)/'penchat.db') as db:assert json.loads(db.execute("select value_json from app_settings where key='reasoning_display'").fetchone()[0])=='always'
         app.to_chat();assert app.diag()['reasoning_expanded_count']==1

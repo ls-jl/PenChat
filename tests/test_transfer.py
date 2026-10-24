@@ -121,7 +121,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-transfer-ui-') as directory:
     def home():
         while app.diag()['transfer_screen']!='home':app.tap(40,32);time.sleep(.05)
     try:
-        app.edit('保留的草稿');app.open_settings();app.tap(740,232)
+        app.edit('保留的草稿');app.open_settings();app.setting("transfer")
         assert app.diag()['view']=='transfer';shot('home')
         app.tap(300,108);ready('export_chats');wait_for(lambda:bool(app.diag()['transfer_data'].get('items')));shot('chat-selection')
         app.tap(300,184);app.tap(300,72);ready('done');shot('export-done')
@@ -161,9 +161,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-transfer-policy-') as directory
     app=Native(binary,data)
     try:
         app.open_settings()
-        from test_chat_style import drag
-        drag(app,[230,200,170,130],x=700)
-        app.tap(740,286-int(app.diag()['scroll_y']))
+        app.setting('persistent_exports')
         with sqlite3.connect(data/'penchat.db') as db:
             assert json.loads(db.execute("select value_json from app_settings where key='persistent_export_directory'").fetchone()[0]) is False
         shot_dir=ROOT/'.work/transfer-ui';time.sleep(.25);app.process.send_signal(signal.SIGUSR1);time.sleep(.25)

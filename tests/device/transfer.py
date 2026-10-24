@@ -40,7 +40,7 @@ if __name__=='__main__':
                 for key,value in [('active_session_id','transfer-device'),('auto_title_enabled',False),('chat_presets',[preset])]:db.execute('insert into app_settings(key,value_json,updated_at) values(?,?,1)',(key,json.dumps(value)))
             png=folder/'fixture.png';png.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII='))
             push(png,image);push(folder/'penchat.db',d.DATA+'/penchat.db')
-        start();d.open_settings();d.tap(740,232);assert d.state()['view']=='transfer';capture('home')
+        start();d.open_settings();d.setting("transfer");assert d.state()['view']=='transfer';capture('home')
         assert len(d.adb('find '+ROOT+' -type d').splitlines())==7
         d.tap(300,108);ready('export_chats');d.wait(lambda:len(d.state()['transfer_data'].get('items',[]))==1)
         d.tap(300,184);capture('chat-selected');d.tap(300,72);ready('done');export=d.state()['transfer_data']['path'];capture('export-done')
