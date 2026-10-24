@@ -2468,6 +2468,8 @@ void App::attach(const Json &image) {
   });
 }
 void App::suspend(bool value) {
+  resetBack();
+  backGesture_ = 0; backStart_ = Json::object();
   viewerPointer_ = viewerCanvasTouch_ = false; viewerLastTap_ = 0;
   if (value && imageStoreWorker_.joinable())
     imageStoreWorker_.join();
@@ -2500,6 +2502,7 @@ void App::suspend(bool value) {
 void App::shutdown() {
   if (shutdownComplete_) return;
   shutdownComplete_ = true;
+  resetBack();
   closeImageViewer(false);
   cancelContext();
   if (transfer_)
@@ -2526,6 +2529,63 @@ void App::shutdown() {
   db_.flush();
   if (transfer_ && !transfer_->finish(db_.settings().value("persistent_export_directory", true)))
     db_.setting("export_cleanup_failed", true);
+}
+void App::routeTouch(const Json &m) {
+  if (imageViewer_) {
+    imageViewerTouch(m.value("x",0),m.value("y",0),m.value("pressed",false),m.value("cancelled",false));return;
+  }
+  if (editor_.active) { editorTouch(m.value("x",0), m.value("y",0), m.value("pressed",false), m.value("cancelled",false)); return; }
+  const int x = m.value("x", 0), y = m.value("y", 0);
+  const bool pressed = m.value("pressed", false);
+  if (navigationOpen_ && !modal_) {
+    if (pressed && !navigationPointerDown_) {
+      navigationBackdrop_ = x >= screen_.width * 2 / 3;
+      navigationStartX_ = x;
+      navigationStartY_ = y;
+      navigationDistance_ = 0;
+    }
+    navigationPointerDown_ = pressed;
+    if (navigationBackdrop_) {
+      const int dx = x - navigationStartX_, dy = y - navigationStartY_;
+      navigationDistance_ = std::max(navigationDistance_, dx * dx + dy * dy);
+      if (!pressed || m.value("cancelled", false)) {
+        bool close = !m.value("cancelled", false) &&
+                     navigationDistance_ <= 144 && x >= screen_.width * 2 / 3;
+        navigationBackdrop_ = navigationPointerDown_ = false;
+        input_.cancel();
+        if (close)
+          closeNavigation();
+      }
+      return;
+    }
+    if (m.value("cancelled", false))
+      navigationPointerDown_ = false;
+  }
+  // Track the entire physical gesture before LVGL dispatches CLICKED.
+  // A swipe that returns to its origin must never become an input tap.
+  if (pressed && !touchDown_) {
+    composerTouchX_ = x;
+    composerTouchY_ = y;
+    composerTapAllowed_ = false;
+    if (view_ == "chat" && composer_ && !modal_ && !navigationOpen_ &&
+        !attachments_ && !lv_obj_has_flag(chatControls_, LV_OBJ_FLAG_HIDDEN)) {
+      lv_area_t bounds;
+      lv_obj_get_coords(composer_, &bounds);
+      composerTapAllowed_ = x >= bounds.x1 && x <= bounds.x2 &&
+                            y >= bounds.y1 && y <= bounds.y2;
+    }
+  }
+  const int composerDx = x - composerTouchX_, composerDy = y - composerTouchY_;
+  if (composerDx * composerDx + composerDy * composerDy > 144 ||
+      m.value("cancelled", false))
+    composerTapAllowed_ = false;
+  if (m.value("cancelled", false)) {
+    resetPull();
+    touchDown_ = false;
+    pullTrackActivity_ = false;
+    input_.cancel();
+  } else if (!chatTouch(x, y, pressed))
+    input_.touch(x, y, pressed);
 }
 void App::handle(const Json &m) {
   auto type = m.value("type", std::string());
@@ -2564,6 +2624,7 @@ void App::handle(const Json &m) {
   if (type == "init") {
     bridge_.generation(m.value("generation", 0));
     bridge_.send("ready");
+    syncBackPolicy();
     syncScanner();
     return;
   }
@@ -2589,61 +2650,7 @@ void App::handle(const Json &m) {
     if (imageStoreBusy_)
       return;
     lastTouch_ = m;
-    if (imageViewer_) {
-      imageViewerTouch(m.value("x",0),m.value("y",0),m.value("pressed",false),m.value("cancelled",false));return;
-    }
-    if (editor_.active) { editorTouch(m.value("x",0), m.value("y",0), m.value("pressed",false), m.value("cancelled",false)); return; }
-    const int x = m.value("x", 0), y = m.value("y", 0);
-    const bool pressed = m.value("pressed", false);
-    if (navigationOpen_ && !modal_) {
-      if (pressed && !navigationPointerDown_) {
-        navigationBackdrop_ = x >= screen_.width * 2 / 3;
-        navigationStartX_ = x;
-        navigationStartY_ = y;
-        navigationDistance_ = 0;
-      }
-      navigationPointerDown_ = pressed;
-      if (navigationBackdrop_) {
-        const int dx = x - navigationStartX_, dy = y - navigationStartY_;
-        navigationDistance_ = std::max(navigationDistance_, dx * dx + dy * dy);
-        if (!pressed || m.value("cancelled", false)) {
-          bool close = !m.value("cancelled", false) &&
-                       navigationDistance_ <= 144 && x >= screen_.width * 2 / 3;
-          navigationBackdrop_ = navigationPointerDown_ = false;
-          input_.cancel();
-          if (close)
-            closeNavigation();
-        }
-        return;
-      }
-      if (m.value("cancelled", false))
-        navigationPointerDown_ = false;
-    }
-    // Track the entire physical gesture before LVGL dispatches CLICKED.
-    // A swipe that returns to its origin must never become an input tap.
-    if (pressed && !touchDown_) {
-      composerTouchX_ = x;
-      composerTouchY_ = y;
-      composerTapAllowed_ = false;
-      if (view_ == "chat" && composer_ && !modal_ && !navigationOpen_ &&
-          !attachments_ && !lv_obj_has_flag(chatControls_, LV_OBJ_FLAG_HIDDEN)) {
-        lv_area_t bounds;
-        lv_obj_get_coords(composer_, &bounds);
-        composerTapAllowed_ = x >= bounds.x1 && x <= bounds.x2 &&
-                              y >= bounds.y1 && y <= bounds.y2;
-      }
-    }
-    const int composerDx = x - composerTouchX_, composerDy = y - composerTouchY_;
-    if (composerDx * composerDx + composerDy * composerDy > 144 ||
-        m.value("cancelled", false))
-      composerTapAllowed_ = false;
-    if (m.value("cancelled", false)) {
-      resetPull();
-      touchDown_ = false;
-      pullTrackActivity_ = false;
-      input_.cancel();
-    } else if (!chatTouch(x, y, pressed))
-      input_.touch(x, y, pressed);
+    if (!backTouch(m)) routeTouch(m);
   } else if (type == "visibility")
     suspend(!m.value("visible", false));
   else if (type == "ime.result") {
@@ -2660,6 +2667,12 @@ void App::handle(const Json &m) {
       } else {editorPolicy(true);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
     }
     display_.visible(visible_);
+  } else if(type=="navigation.back") {
+    systemBack(m);
+  } else if(type=="navigation.policy") {
+    if(m.value("sequence",uint64_t(0))==backPolicySequence_) {
+      backPolicyOk_=m.value("ok",false); backPolicyBlocked_=m.value("blocked",false);
+    }
   } else if(type=="editor.policy") {
     if(editor_.active && m.value("session",std::string())==editor_.id && m.value("sequence",uint64_t(0))==editorPolicySequence_) {
       editorTopBlocked_=m.value("blocked",false);
@@ -2937,6 +2950,7 @@ void App::tick() {
       }
     }
   }
+  syncBackPolicy();
   tickTitles();
   if (persistDirty_ && !saveInFlight_ && ticks() >= persistDue_)
     persistReply("streaming");
@@ -3123,6 +3137,7 @@ Json App::diagnostics() const {
       {"settings", settingsDiagnostic()},
       {"page", pageDiagnostic()},
       {"image_viewer", imageViewerDiagnostic()},
+      {"back_navigation", {{"root",navigationRoot()},{"sequence",backPolicySequence_},{"policy_ok",backPolicyOk_},{"blocked",backPolicyBlocked_},{"claimed",backClaimed_}}},
       {"scroll_bottom", body_ ? lv_obj_get_scroll_bottom(body_) : 0},
       {"composer_width", composer_ ? lv_obj_get_width(composer_) : 0},
       {"toolbar_y", chatControls_ ? lv_obj_get_y(chatControls_) : -1},

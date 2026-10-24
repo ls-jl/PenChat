@@ -18,7 +18,7 @@ function fixture() {
     .replace(/^import .*$/gm, '').replace('export default', 'module.exports =')
   vm.runInContext(script, context)
   const options = context.module.exports
-  const page = Object.assign(options.data(), options.methods, { $page: { finish: () => calls.push(['finish']), $npage: {setSupportTopPanel: value => calls.push(['topPanel',value])} } })
+  const page = Object.assign(options.data(), options.methods, { $page: { finish: () => calls.push(['finish']), $npage: {setSupportTopPanel: value => calls.push(['topPanel',value]), setSupportBack: value => calls.push(['systemBack',value]), on: (name,cb)=>calls.push(['listen',name,cb]), off: name=>calls.push(['unlisten',name])} } })
   return { page, options, calls, native, context, timers, edit: (...args) => editCallback(...args) }
 }
 test('Falcon pageX/pageY touches retain logical coordinates through the full-screen hole', () => {
@@ -35,6 +35,34 @@ test('startup is deduplicated, sends clean initialization, and disposal closes e
   f.page.poll(); f.page.dispose(); f.page.dispose()
   assert.equal(f.calls.filter(c => c[0] === 'stop').length, 1)
   assert.equal(f.timers.size, 0)
+})
+test('only native root allows system side exit, with ordered policy and lifecycle restoration', async () => {
+  const f=fixture(); await f.page.boot()
+  const last=()=>f.calls.filter(c=>c[0]==='systemBack').at(-1)[1]
+  assert.equal(last(),false)
+  f.page.navigationState({sequence:1,root:true});assert.equal(last(),true)
+  f.page.navigationState({sequence:2,root:false});assert.equal(last(),false)
+  f.page.navigationState({sequence:1,root:true});assert.equal(last(),false)
+  f.options.onHide.call(f.page);assert.equal(last(),true)
+  f.page.resume();assert.equal(last(),false)
+  f.page.navigationState({sequence:3,root:true});assert.equal(last(),true)
+  f.page.editorState({sequence:1,session:'edit',active:true});assert.equal(last(),false)
+  f.page.navigationState({sequence:4,root:true});assert.equal(last(),false)
+  f.page.editorState({sequence:2,session:'edit',active:false});assert.equal(last(),true)
+  f.page.fail('test');assert.equal(last(),true)
+  f.page.dispose();assert.equal(last(),true)
+})
+test('Falcon takeover forwards one scoped completion and unregisters its listener', async () => {
+  const f=fixture();await f.page.boot()
+  f.page.navigationState({sequence:2,root:false})
+  f.page.touchStart({changedTouches:[{pageX:20,pageY:120}]})
+  f.page.touchCancel({changedTouches:[{pageX:80,pageY:120}]})
+  const signal=f.calls.find(c=>c[0]==='listen'&&c[1]==='backpressed')[2]
+  signal()
+  const event=f.calls.filter(c=>c[0]==='send'&&c[1].type==='navigation.back').at(-1)[1]
+  assert.equal(event.sequence,2);assert.equal(event.gesture,1)
+  f.page.navigationState({sequence:3,root:true});const count=f.calls.length;signal();assert.equal(f.calls.length,count)
+  f.page.dispose();assert(f.calls.some(c=>c[0]==='unlisten'&&c[1]==='backpressed'))
 })
 test('system keyboard rejects stale completion, supports cancel, and suppresses touch forwarding', async () => {
   const f = fixture(); await f.page.boot()

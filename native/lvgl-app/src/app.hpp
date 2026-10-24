@@ -233,6 +233,23 @@ class App {
   void historyDrawer();
   void toggleNavigation();
   void goBack();
+  bool navigationRoot() const;
+  std::string backContext() const;
+  void syncBackPolicy();
+  void nativeBack();
+  void systemBack(const Json &);
+  void routeTouch(const Json &);
+  bool backTouch(const Json &);
+  void resetBack();
+  uint64_t backPolicySequence_ = 0, backPolicyGeneration_ = 0;
+  uint64_t backGesture_ = 0, backConsumedGesture_ = 0;
+  std::string backPolicyContext_;
+  bool backPolicyRoot_ = false, backPolicyOk_ = false, backPolicyBlocked_ = false;
+  bool backDown_ = false, backCandidate_ = false, backClaimed_ = false, backAborted_ = false;
+  Json backStart_ = Json::object();
+  std::string backContext_;
+  int backX_ = 0, backY_ = 0;
+  lv_obj_t *backHint_ = nullptr;
   void closeNavigation(bool resumeCamera = true);
   void cameraPage();
   int photoWidth() const { return cameraAngle_%180 ? screen_.height : screen_.width; }

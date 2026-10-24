@@ -36,6 +36,7 @@ export default {
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
   onHide() {
+    this.setBackPolicy(true)
     this.setNativeEditorPolicy(false)
     this.stopOcr()
     this.resetIme()
@@ -50,6 +51,8 @@ export default {
     resume() {
       this._disposed = false
       this.visible = true
+      this.bindBack()
+      this.setBackPolicy(!!this._nativeRoot && !this._nativeEditor && !this.keyboardOpen)
       if (this._nativeEditor && !this.keyboardOpen) this.setNativeEditorPolicy(true)
       if (this.running && (typeof launcher.status !== 'function' || !launcher.status().alive)) {
         this.running = false
@@ -68,6 +71,10 @@ export default {
       if (this._starting || this.running || this._disposed) return
       this._starting = true
       this._generation = ++generationSeed
+      this._nativeRoot = false; this._navigationSequence = 0
+      this._touchSerial = 0
+      this.bindBack()
+      this.setBackPolicy(false)
       const generation = this._generation
       this.setNativeEditorPolicy(false)
       this._nativeEditor = null; this._editorPolicySequence = 0
@@ -106,6 +113,7 @@ export default {
           else if (event.type === 'ime.request') this.queryIme(event)
           else if (event.type === 'ime.reset') this.resetIme()
           else if (event.type === 'editor.state') this.editorState(event)
+          else if (event.type === 'navigation.state') this.navigationState(event)
           else if (event.type === 'keyboard.open') this.openKeyboard(event)
           else if (event.type === 'ocr.start') this.startOcr(event)
           else if (event.type === 'ocr.cancel') this.stopOcr(event.requestId)
@@ -124,10 +132,42 @@ export default {
         return true
       } catch (_) { return false }
     },
+    setBackPolicy(allow) {
+      try {
+        const page = this.$page && this.$page.$npage
+        if (!page || typeof page.setSupportBack !== 'function') return false
+        page.setSupportBack(allow)
+        this._systemBackAllowed = allow
+        return true
+      } catch (_) { return false }
+    },
+    bindBack() {
+      const page = this.$page && this.$page.$npage
+      if (this._backPage || !page || typeof page.on !== 'function') return
+      this._backPressed = () => {
+        if (this.running && this.visible && !this.keyboardOpen && !this._systemBackAllowed)
+          this.send('navigation.back', { sequence: this._navigationSequence, gesture: this._touchSerial || 0 })
+      }
+      page.on('backpressed', this._backPressed)
+      this._backPage = page
+    },
+    unbindBack() {
+      if (this._backPage && typeof this._backPage.off === 'function') this._backPage.off('backpressed', this._backPressed)
+      this._backPage = null; this._backPressed = null
+    },
+    navigationState(event) {
+      if (event.sequence <= (this._navigationSequence || 0)) return
+      this._navigationSequence = event.sequence
+      this._nativeRoot = event.root === true
+      const allow = !this.visible || (!!this._nativeRoot && !this._nativeEditor && !this.keyboardOpen)
+      const ok = this.setBackPolicy(allow)
+      this.send('navigation.policy', { sequence: event.sequence, ok, blocked: ok && !allow })
+    },
     editorState(event) {
       if (event.sequence <= (this._editorPolicySequence || 0)) return
       this._editorPolicySequence = event.sequence
       this._nativeEditor = event.active ? event.session : null
+      this.setBackPolicy(!this.visible || (!!this._nativeRoot && !this._nativeEditor && !this.keyboardOpen))
       const active = !!event.active && this.visible && !this.keyboardOpen
       const ok = this.setNativeEditorPolicy(active)
       this.send('editor.policy', { session: event.session, sequence: event.sequence, ok, blocked: ok && active })
@@ -174,6 +214,7 @@ export default {
       this.stopOcr()
       if (this.keyboardOpen || !this.visible) { this.send('keyboard.result', { requestId: event.requestId, confirmed: false, text: '' }); return }
       this.keyboardOpen = true
+      this.setBackPolicy(false)
       this._keyboardRequest = event.requestId
       try {
         if (!this._global) this._global = new globalModule.Global()
@@ -194,7 +235,7 @@ export default {
         this.keyboardOpen = false
       }
     },
-    touchStart(e) { this.forwardTouch(e, true) },
+    touchStart(e) { this._touchSerial = (this._touchSerial || 0) + 1; this.forwardTouch(e, true) },
     touchMove(e) { this.forwardTouch(e, true) },
     touchEnd(e) { this.forwardTouch(e, false) },
     touchCancel(e) { this.forwardTouch(e, false, true) },
@@ -204,16 +245,18 @@ export default {
       const touches = (event && event.touches) || detail.touches
       if (touches && touches.length > 1) {
         this._multiTouch = true
-        this.send('touch', { x: 0, y: 0, pressed: false, cancelled: true })
+        this.send('touch', { x: 0, y: 0, pressed: false, cancelled: true, gesture: this._touchSerial || 0 })
         return
       }
       if (this._multiTouch) { if (!pressed && (!touches || !touches.length)) this._multiTouch = false; return }
       const p = point(event) || (!pressed ? this._lastPoint : null)
       if (!p) return
       this._lastPoint = p
-      this.send('touch', { x: Math.round(p.x), y: Math.round(p.y), pressed, cancelled })
+      this.send('touch', { x: Math.round(p.x), y: Math.round(p.y), pressed, cancelled, gesture: this._touchSerial || 0 })
     },
     fail(message) {
+      this.setBackPolicy(true)
+      this.unbindBack()
       this.setNativeEditorPolicy(false)
       this.stopOcr()
       if (this._disposed) return
@@ -227,6 +270,8 @@ export default {
     finish() { this.dispose(); this.$page.finish() },
     dispose() {
       if (this._disposed) return
+      this.setBackPolicy(true)
+      this.unbindBack()
       this.setNativeEditorPolicy(false)
       this._nativeEditor = null
       this._disposed = true

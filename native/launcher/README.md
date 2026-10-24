@@ -26,6 +26,9 @@ Keyboard IDs are opaque strings; ordinary messages use monotonically increasing 
 | shell → native | `ocr.status` / `ocr.result` | matching request ID, completion or generic error; no logging |
 | either | `exit` / `finish` | close native process / request Falcon page finish |
 | native → shell | `booted`, `ready`, `fatal` | startup progress and actionable failure |
+| native → shell | `navigation.state` | ordered sequence and root-only system side-exit permission |
+| shell → native | `navigation.policy` | matching sequence and Falcon setSupportBack result |
+| shell → native | `navigation.back` | firmware backpressed completion with page sequence and physical gesture ID |
 
 The native process reads `/etc/miniapp/resources/cfg.json` → `screen` once at startup.
 Width and height are required; missing/invalid configuration fails visibly rather
@@ -47,3 +50,17 @@ The v1 touch payload accepts `cancelled: true` on system touch cancellation or
 background release. Native resets pointer/gesture state without activating a click
 or committing the pull-to-create gesture. Older payloads without this flag retain
 normal press/release behavior; the protocol version and socket format are unchanged.
+
+Only unobstructed root chat enables Falcon's `setSupportBack(true)`. Native child
+pages, image viewing, the editor, menus and modals disable the shell's exit gesture.
+When raw touch remains available, the native logical left edge owns right-swipe
+back: commit on release after 10% of logical width, cancel on retreat/interruption,
+and otherwise replay taps or
+vertical scrolling. Interior image pan, text selection and horizontal tables keep
+their existing handlers. Back reuses each page's contextual return action; the
+history drawer retains its tap-only dismissal. Firmware may cancel raw touches
+before emitting `backpressed`; the shell forwards that completion, and native
+validates the frozen edge target and deduplicates it against the raw release by
+physical gesture ID. Hide, disposal and bridge
+failure restore Falcon policy; resume reapplies native state. Sequence and process
+generation checks prevent stale permissions from re-enabling exit over a child page.
