@@ -8,6 +8,7 @@
 #include "stb_image_write.h"
 #include "util.h"
 #include <cstring>
+#include <cmath>
 #include <stdexcept>
 #include <unistd.h>
 #include <webp/decode.h>
@@ -26,12 +27,12 @@ Images::~Images() {
     worker_.join();
 }
 std::string Images::request(const std::string &path, int w, int h,
-                            bool upscale) {
+                            bool upscale, bool detail) {
   auto key = path + ":" + std::to_string(w) + "x" + std::to_string(h) +
-             (upscale ? ":up" : "");
+             (upscale ? ":up" : "") + (detail ? ":detail" : "");
   std::lock_guard<std::mutex> lock(mutex_);
   if (!cache_.count(key) && pending_.insert(key).second) {
-    queue_.push_back({path, key, w, h, upscale});
+    queue_.push_back({path, key, w, h, upscale, detail});
     condition_.notify_one();
   }
   return key;
@@ -102,7 +103,7 @@ void Images::work() {
       if (bytes.empty() || bytes.size() > 16 * 1024 * 1024 ||
           !(webp ? WebPGetInfo(source, bytes.size(), &w, &h)
                  : stbi_info_from_memory(source, bytes.size(), &w, &h, &n)) ||
-          w < 1 || h < 1 || w > 8192 || h > 8192 || int64_t(w) * h > 16000000)
+          w < 1 || h < 1 || w > 65535 || h > 65535 || int64_t(w) * h > 16000000)
         throw std::runtime_error("Unsupported or oversized image");
       std::vector<unsigned char> decoded;
       unsigned char *data = nullptr;
@@ -119,6 +120,11 @@ void Images::work() {
       if (!data)
         throw std::runtime_error("Image decode failed");
       float scale = std::min(float(r.width) / w, float(r.height) / h);
+      if (r.detail) {
+        // Retain long, narrow scan details without allocating an unbounded
+        // full-resolution bitmap. A detailed cached frame is at most 16 MiB.
+        scale = std::min(scale, float(std::sqrt(4000000.0 / (double(w)*h))));
+      }
       if (!r.upscale)
         scale = std::min(1.f, scale);
       auto image = std::make_shared<ImageFrame>();
@@ -129,7 +135,8 @@ void Images::work() {
         for (int x = 0; x < image->width; ++x) {
           auto in =
               data +
-              (size_t(y * h / image->height) * w + x * w / image->width) * 4;
+              (size_t(int64_t(y) * h / image->height) * w +
+               size_t(int64_t(x) * w / image->width)) * 4;
           auto out = image->pixels.data() + (size_t(y) * image->width + x) * 4;
           out[0] = in[2];
           out[1] = in[1];

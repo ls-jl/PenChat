@@ -72,6 +72,27 @@ class App {
   std::set<std::string> expandedReasoning_;
   std::map<std::string, bool> reasoningOverrides_;
   std::set<lv_obj_t *> chatPhotos_;
+  lv_obj_t *imageViewer_ = nullptr, *viewerCanvas_ = nullptr, *viewerImage_ = nullptr,
+           *viewerStatus_ = nullptr, *viewerZoomLabel_ = nullptr,
+           *viewerPlus_ = nullptr, *viewerMinus_ = nullptr;
+  std::string viewerKey_;
+  std::shared_ptr<ImageFrame> viewerFrame_;
+  double viewerZoom_ = 1, viewerPanX_ = 0, viewerPanY_ = 0,
+         viewerStartPanX_ = 0, viewerStartPanY_ = 0;
+  int viewerScroll_ = 0, viewerStartX_ = 0, viewerStartY_ = 0,
+      viewerLastX_ = 0, viewerLastY_ = 0, viewerDistance_ = 0,
+      viewerLastTapX_ = 0, viewerLastTapY_ = 0;
+  int64_t viewerLastTap_ = 0;
+  bool viewerPointer_ = false, viewerCanvasTouch_ = false, viewerFailed_ = false;
+  void requestImageViewer(const std::string &path);
+  void openImageViewer(const std::string &path);
+  void closeImageViewer(bool restore = true);
+  void refreshImageViewer();
+  void updateImageViewer();
+  void zoomImageViewer(double zoom, int x = -1, int y = -1);
+  void imageViewerTouch(int x, int y, bool pressed, bool cancelled);
+  Json imageViewerDiagnostic() const;
+
   std::string imageDeleteId_;
   void reasoningDisplayPicker();
   std::vector<lv_obj_t *> reasoningHeaders_;

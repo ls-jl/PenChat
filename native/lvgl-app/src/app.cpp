@@ -234,47 +234,39 @@ void App::image(lv_obj_t *parent, const std::string &path, int x, int y, int w,
     lv_obj_set_hidden(placeholder, true);
   } else if (images_.failed(key))
     lv_label_set_text(placeholder, "图片读取失败");
-  if (!pendingMessage.empty()) {
+  if (!click && view_ == "chat")
+    click = [this, path] { requestImageViewer(path); };
+  if (click || !pendingMessage.empty()) {
     struct Press {
       App *app;
       std::string session, message;
       lv_point_t start{};
       int distance = 0;
+      bool held = false;
     };
-    auto data = new Press{this, session_, pendingMessage};
+    auto state = std::make_shared<Press>();
+    state->app = this; state->session = session_; state->message = pendingMessage;
+    auto owner = new std::shared_ptr<Press>(state);
     lv_obj_set_clickable(holder, true);
-    lv_obj_add_event_cb(
-        holder,
-        [](lv_event_t *event) {
-          auto p = static_cast<Press *>(lv_event_get_user_data(event));
-          auto code = lv_event_get_code(event);
-          if (code == LV_EVENT_DELETE) {
-            delete p;
-            return;
-          }
-          if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING &&
-              code != LV_EVENT_LONG_PRESSED)
-            return;
-          auto indev = lv_indev_active();
-          if (!indev)
-            return;
-          lv_point_t point;
-          lv_indev_get_point(indev, &point);
-          if (code == LV_EVENT_PRESSED) {
-            p->start = point;
-            p->distance = 0;
-          }
-          int dx = point.x - p->start.x, dy = point.y - p->start.y;
-          p->distance = std::max(p->distance, dx * dx + dy * dy);
-          if (code == LV_EVENT_LONG_PRESSED && p->distance <= 144)
-            p->app->events_.push(
-                "image_delete_request",
-                {{"session", p->session}, {"message", p->message}});
-        },
-        LV_EVENT_ALL, data);
+    lv_obj_add_event_cb(holder, [](lv_event_t *event) {
+      auto owner = static_cast<std::shared_ptr<Press> *>(lv_event_get_user_data(event));
+      if (lv_event_get_code(event) == LV_EVENT_DELETE) { delete owner; return; }
+      auto p = *owner;
+      auto code = lv_event_get_code(event);
+      if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING && code != LV_EVENT_LONG_PRESSED) return;
+      auto indev = lv_indev_active(); if (!indev) return;
+      lv_point_t point; lv_indev_get_point(indev, &point);
+      if (code == LV_EVENT_PRESSED) { p->start = point; p->distance = 0; p->held = false; }
+      const int dx = point.x-p->start.x, dy = point.y-p->start.y;
+      p->distance = std::max(p->distance,dx*dx+dy*dy);
+      if (code == LV_EVENT_LONG_PRESSED) {
+        p->held = true;
+        if (p->distance <= 144 && !p->message.empty())
+          p->app->events_.push("image_delete_request",{{"session",p->session},{"message",p->message}});
+      }
+    }, LV_EVENT_ALL, owner);
+    if (click) onClick(holder,[state,click] { if (!state->held && state->distance<=144) click(); });
   }
-  if (click)
-    onClick(holder, std::move(click));
 }
 lv_obj_t *App::icon(lv_obj_t *parent, const std::string &kind, int x, int y,
                     int w, int h, std::function<void()> action,
@@ -1025,8 +1017,10 @@ void App::build() {
   chatLayout_ = false;
   syncScanner();
   if (editorRoot_) lv_obj_move_foreground(editorRoot_);
+  if (imageViewer_) lv_obj_move_foreground(imageViewer_);
 }
 void App::show(const std::string &view) {
+  closeImageViewer(false);
   if (view_ == "settings" && body_)
     settingsScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
   if (view == "settings" && view_ == "chat") settingsScroll_ = 0;
@@ -1405,7 +1399,11 @@ void App::renderMessages(bool bottom, bool cached) {
         path = stringValue(m, "stored_path");
       if (path.empty())
         path = stringValue(m, "original_path");
-      image(photoGroup, path, 0, 0, width, 140, {}, false, true,
+      auto original = stringValue(m, "stored_path");
+      if (original.empty()) original = stringValue(m, "original_path");
+      if (original.empty()) original = path;
+      image(photoGroup, path, 0, 0, width, 140,
+            [this,original] { requestImageViewer(original); }, false, true,
             m["seq"].get<int>() > lastAssistant ? m["id"].get<std::string>()
                                                 : "");
       continue;
@@ -1498,7 +1496,11 @@ void App::renderMessages(bool bottom, bool cached) {
     if (!path.empty()) {
       auto imgBox = box(wrap, 0, 0, textWidth, 140);
       lv_obj_set_scrollable(imgBox, false);
-      image(imgBox, path, 0, 0, textWidth, 140, {}, user, true);
+      auto original = stringValue(m, "stored_path");
+      if (original.empty()) original = stringValue(m, "original_path");
+      if (original.empty()) original = path;
+      image(imgBox, path, 0, 0, textWidth, 140,
+            [this,original] { requestImageViewer(original); }, user, true);
     }
     if (!content.empty()) {
       if (user)
@@ -2466,6 +2468,7 @@ void App::attach(const Json &image) {
   });
 }
 void App::suspend(bool value) {
+  viewerPointer_ = viewerCanvasTouch_ = false; viewerLastTap_ = 0;
   if (value && imageStoreWorker_.joinable())
     imageStoreWorker_.join();
   if (value) editorInterrupt();
@@ -2497,6 +2500,7 @@ void App::suspend(bool value) {
 void App::shutdown() {
   if (shutdownComplete_) return;
   shutdownComplete_ = true;
+  closeImageViewer(false);
   cancelContext();
   if (transfer_)
     transfer_->stop();
@@ -2585,6 +2589,9 @@ void App::handle(const Json &m) {
     if (imageStoreBusy_)
       return;
     lastTouch_ = m;
+    if (imageViewer_) {
+      imageViewerTouch(m.value("x",0),m.value("y",0),m.value("pressed",false),m.value("cancelled",false));return;
+    }
     if (editor_.active) { editorTouch(m.value("x",0), m.value("y",0), m.value("pressed",false), m.value("cancelled",false)); return; }
     const int x = m.value("x", 0), y = m.value("y", 0);
     const bool pressed = m.value("pressed", false);
@@ -2742,6 +2749,13 @@ void App::tick() {
       scanEvent(e);
       continue;
     }
+    if (e.type == "image_view_close") {closeImageViewer();continue;}
+    if (e.type == "image_view_request") {
+      if (view_ == "chat" && visible_ && !keyboard_ && !editor_.active && !modal_ &&
+          !navigationOpen_ && !imageViewer_ && e.data.value("session",std::string()) == session_)
+        openImageViewer(e.data.value("path",std::string()));
+      continue;
+    }
     if (e.type == "image_delete_request") {
       auto id = e.data.value("message", std::string());
       if (view_ == "chat" && visible_ && !contextBusy_ && !navigationOpen_ &&
@@ -2870,8 +2884,9 @@ void App::tick() {
         notice_ = "拉取失败：" + e.data.value("error", std::string());
       if (view_ == "provider")
         build();
-    } else if (e.type == "image_ready" || e.type == "image_error")
-      refreshImages();
+    } else if (e.type == "image_ready" || e.type == "image_error") {
+      refreshImages(); refreshImageViewer();
+    }
     else if (e.type == "camera_mode" && view_ == "camera" && visible_ && !cameraCapturing_)
       cameraMode(e.data.value("auto",false),e.data.value("angle",0));
     else if (e.type == "camera_orientation" && view_ == "camera")
@@ -3107,6 +3122,7 @@ Json App::diagnostics() const {
       {"scroll_y", body_ ? lv_obj_get_scroll_y(body_) : 0},
       {"settings", settingsDiagnostic()},
       {"page", pageDiagnostic()},
+      {"image_viewer", imageViewerDiagnostic()},
       {"scroll_bottom", body_ ? lv_obj_get_scroll_bottom(body_) : 0},
       {"composer_width", composer_ ? lv_obj_get_width(composer_) : 0},
       {"toolbar_y", chatControls_ ? lv_obj_get_y(chatControls_) : -1},

@@ -48,6 +48,18 @@ def run():
                 assert pathlib.Path(asset[0]).exists() and pathlib.Path(asset[1]).exists()
                 assert asset[2]=='scan' and json.loads(asset[3])['counts']['committed']==33
                 assert pathlib.Path(asset[1]).stat().st_size<1024*1024
+                # A second confirm tap can land on the newly attached photo.
+                # Viewing it must release capture, and closing must rearm it;
+                # neither tap may append the scan twice.
+                if not app.diag()['image_viewer']['open']:
+                    state=app.diag()
+                    photo=next(i for i in state['chat_images'] if 0<=i['y'] and i['y']+i['height']<=state['height'])
+                    app.tap(photo['x']+photo['width']//2,photo['y']+photo['height']//2)
+                wait_for(lambda:app.diag()['image_viewer']['open'])
+                wait_for(lambda:app.diag()['scan_released'])
+                app.tap(922,30)
+                wait_for(lambda:not app.diag()['image_viewer']['open'])
+                assert len(app.read_messages())==1
                 # History can render the thumbnail after the pending original is deleted.
                 wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
                 assert not list((pathlib.Path(directory)/'.scan-pending').glob('*.png'))
@@ -116,5 +128,5 @@ def run():
         for k,v in previous.items():
             if v is None:os.environ.pop(k,None)
             else:os.environ[k]=v
-    print('Scanner LVGL: review before persistence, discard, duplicate confirm, thumbnail storage, menu/IME/background release, empty-result exclusion, automatic image sending and active-generation preservation passed.')
+    print('Scanner LVGL: review before persistence, discard, duplicate confirm, thumbnail/original viewer, menu/IME/background release, empty-result exclusion, automatic image sending and active-generation preservation passed.')
 if __name__=='__main__':run()

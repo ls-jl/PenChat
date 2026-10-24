@@ -73,6 +73,11 @@ void paint(lv_event_t *event) {
   else if (k == "menu") {
     line(-9, -4, 9, -4);
     line(-9, 4, 3, 4);
+  } else if (k == "close") {
+    line(-6, -6, 6, 6);
+    line(-6, 6, 6, -6);
+  } else if (k == "minus") {
+    line(-8, 0, 8, 0);
   } else if (k == "plus") {
     line(-8, 0, 8, 0);
     line(0, -8, 0, 8);

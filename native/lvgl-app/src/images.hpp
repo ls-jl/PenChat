@@ -12,7 +12,7 @@ class Images {
   struct Request {
     std::string path, key;
     int width, height;
-    bool upscale;
+    bool upscale, detail;
   };
   std::mutex mutex_;
   std::condition_variable condition_;
@@ -31,7 +31,7 @@ public:
   explicit Images(Events &events);
   ~Images();
   std::string request(const std::string &path, int width, int height,
-                      bool upscale = false);
+                      bool upscale = false, bool detail = false);
   std::shared_ptr<ImageFrame> get(const std::string &key);
   bool failed(const std::string &key);
 };
