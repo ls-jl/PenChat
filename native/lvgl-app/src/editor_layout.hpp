@@ -28,9 +28,10 @@ struct EditorLayout {
       return px>=x&&px<x+width&&py>=y&&py<y+height;
     }
   };
-  Popup undoPopup(int x,int y) const {
-    return {std::max(textX,std::min(width-104,x-48)),
-            std::max(4,std::min(actionsY-58,y-60)),96,52};
+  Popup undoPopup(int x,int y,bool canPaste=false) const {
+    const int popupWidth=canPaste?188:96;
+    return {std::max(textX,std::min(width-popupWidth-8,x-popupWidth/2)),
+            std::max(4,std::min(actionsY-58,y-60)),popupWidth,52};
   }
   struct Action { const char *name; int x, width; };
   std::array<Action,5> actions() const {

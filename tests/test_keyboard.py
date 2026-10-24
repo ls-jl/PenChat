@@ -92,9 +92,14 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   key(a,'X' if state(a)['shift'] else 'x');assert not state(a)['selected']
   before=state(a);hold(a,940,185);popup=state(a)
   assert popup['undo_menu'] and popup['text_bounds']==before['text_bounds'] and popup['text_scroll']==before['text_scroll']
-  x1,y1,x2,y2=popup['undo_popup'];assert (x2-x1+1,y2-y1+1)==(96,52)
+  x1,y1,x2,y2=popup['undo_popup'];assert (x2-x1+1,y2-y1+1)==(188,52) and 'paste' in popup['actions']
   shot(a,'undo');a.editor_action('undo');assert state(a)['selected']
   a.tap(930,236);assert state(a)['clipboard_open'];shot(a,'clipboard');a.tap(700,98);assert not state(a)['clipboard_open']
+  # A nonselected caret can paste directly, and the inserted text remains undoable.
+  seed(a,'');before=state(a);hold(a,940,185);popup=state(a)
+  assert not popup['selected'] and 'paste' in popup['actions'] and popup['text_bounds']==before['text_bounds']
+  shot(a,'undo-paste');a.editor_action('paste');assert export_text(a)=='alpha' and not state(a)['undo_menu']
+  hold(a,940,185);a.editor_action('undo');assert state(a)['length']==0
   # OCR IDs, capture de-duplication and multi-line sequence, with text never in diagnostics.
   seed(a,'');ocr=a.receive('ocr.start')
   while ocr['requestId']!=state(a)['ocr_request']:ocr=a.receive('ocr.start')

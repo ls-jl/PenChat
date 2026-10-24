@@ -244,10 +244,25 @@ try:
     shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 650 2>/dev/null')
     wait(lambda:state()['editor']['undo_menu']);popup=state()['editor'];capture('keyboard-undo')
     assert popup['text_bounds']==before['text_bounds'] and popup['text_scroll']==before['text_scroll']
-    x1,y1,x2,y2=popup['undo_popup'];assert (x2-x1+1,y2-y1+1)==(96,52)
+    x1,y1,x2,y2=popup['undo_popup'];assert (x2-x1+1,y2-y1+1)==(188 if 'paste' in popup['actions'] else 96,52)
     x1,y1,x2,y2=popup['actions']['undo'];tap((x1+x2)//2,(y1+y2)//2)
     wait(lambda:not state()['editor']['undo_menu']);assert state()['editor']['length']==1
     result['floating_undo_preserves_editor']=True
+    # Copy the visible word, clear selection, then paste from the caret-only popup.
+    editor=state()['editor'];tx=editor['text_bounds'][0]+12;ty=editor['text_bounds'][1]+12
+    tap(tx,ty);tap(tx,ty);wait(lambda:state()['editor']['selected'])
+    rx,ry=raw(tx,ty)
+    shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 650 2>/dev/null')
+    wait(lambda:state()['editor']['menu']);editor=state()['editor'];tw=editor['text_bounds'][2]-editor['text_bounds'][0]+1
+    bar=next(c['bounds'] for c in editor['controls'] if c['bounds'][2]-c['bounds'][0]+1==tw and c['bounds'][3]-c['bounds'][1]+1==52)
+    tap(bar[0]+tw*3//8,bar[1]+26);wait(lambda:not state()['editor']['menu'])
+    tap(W-20,H-80);wait(lambda:not state()['editor']['selected']);rx,ry=raw(W-20,H-80)
+    shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 650 2>/dev/null')
+    wait(lambda:state()['editor']['undo_menu']);popup=state()['editor'];assert 'paste' in popup['actions']
+    assert popup['undo_popup'][2]-popup['undo_popup'][0]+1==188;capture('keyboard-undo-paste')
+    x1,y1,x2,y2=popup['actions']['paste'];tap((x1+x2)//2,(y1+y2)//2)
+    wait(lambda:not state()['editor']['undo_menu']);assert state()['editor']['length']==2
+    result['caret_popup_paste']=True
     # Three lines put the caret below the top clamp so the magnifier offset is visible.
     key('enter');key('c');key('enter');key('d')
     editor=state()['editor'];cx,cy=editor['caret'];x=cx+2;y=min(editor['text_bounds'][3]-12,cy-12)
