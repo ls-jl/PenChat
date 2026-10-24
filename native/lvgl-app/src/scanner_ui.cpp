@@ -184,7 +184,7 @@ void App::scanEvent(const Event &event) {
         if (db_.settings()
                 .value("penchat_settings", Json::object())
                 .value("autoSendCapturedContent", false) &&
-            !generating_)
+            !generating_ && messageEdit_.empty())
           sendMessage();
       });
     } catch (const std::exception &e) {

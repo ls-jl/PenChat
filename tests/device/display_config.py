@@ -6,8 +6,9 @@ APP=json.loads((ROOT/'package.json').read_text())
 parser=argparse.ArgumentParser();parser.add_argument('--serial',required=True)
 parser.add_argument('--back-navigation',action='store_true')
 parser.add_argument('--history-time',action='store_true')
+parser.add_argument('--message-edit',action='store_true')
 args=parser.parse_args();SERIAL=args.serial
-assert not (args.back_navigation and args.history_time),'Run isolated feature fixtures separately'
+assert sum((args.back_navigation,args.history_time,args.message_edit))<=1,'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 def shell(command):return subprocess.check_output(['adb','-s',SERIAL,'shell',command],text=True).replace('\r','').strip()
@@ -106,12 +107,18 @@ assert shell('test ! -e '+saved+' && test ! -e '+publicSaved+' && echo safe')=='
 hasData=shell('test -d '+DATA+' && echo yes')=='yes';original=hashes(DATA) if hasData else []
 hasPublic=shell('test -d '+public+' && echo yes')=='yes';originalPublic=hashes(public) if hasPublic else []
 host=shell('pidof miniapp');privateIsolated=publicIsolated=False
+messageServer=None;messageHandler=None
 result={'serial':SERIAL,'version':APP['version'],'screen':screen,'corners':[]}
 try:
     if hasData:shell('mv '+DATA+' '+saved)
     shell('mkdir -p '+DATA);privateIsolated=True
     if hasPublic:shell('mv '+public+' '+publicSaved)
     publicIsolated=True
+    if args.message_edit:
+        import message_edit_flow
+        messageServer,messageHandler,files=message_edit_flow.prepare(ROOT,OUT/'fixture',DATA,SERIAL)
+        shell('mkdir -p '+DATA+'/assets')
+        for source,target in files:subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
     if args.back_navigation or args.history_time:
         sys.path.insert(0,str(ROOT/'tests'))
         from test_image_viewer import fixture
@@ -151,6 +158,11 @@ try:
     shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --drag-hold '+str(sx)+' '+str(sy)+' '+str(ex)+' '+str(ey)+' 450 200 2>/dev/null')
     wait(lambda:not state()['settings']['scrolling'])
     assert state()['settings']['heading'][3]<0;capture('settings-scrolled')
+    if args.message_edit:
+        tap(40,32)
+        if state()["navigation_open"]:tap(W-30,100)
+        message_edit_flow.run(globals(),messageHandler)
+        tap(40,32);tap(W*2//3-70,H-30)
     if args.history_time:
         from settings_ui import activate
         for index,mode in enumerate(('time','title','off')):
@@ -235,6 +247,8 @@ except BaseException:
         capture('failure')
     raise
 finally:
+    if messageServer:
+        messageServer.shutdown();messageServer.server_close()
     if pid():close()
     if privateIsolated:
         shell('rm -rf '+DATA)

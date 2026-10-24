@@ -13,6 +13,7 @@ class Database {
   std::map<std::string, sqlite3_stmt *> statements_;
   Json settingsCache_, modelsCache_;
   bool onWorker() const { return std::this_thread::get_id() == worker_.get_id(); }
+  std::string archiveCopy(const Json &snapshot, const std::string &label, const std::string &key);
   void migrate(const std::string &path);
   void collectAssets(bool discover = false);
   void deferAssetCollection();
@@ -98,6 +99,10 @@ public:
   Json contextSnapshot(const std::string &session, bool lease = false);
   Json commitCompression(const Json &snapshot, Json checkpoint,
                          std::atomic<bool> &cancel);
+  Json messageEditSnapshot(const std::string &session, const std::string &message);
+  Json commitMessageEdit(const Json &snapshot, const Json &images,
+                         const std::string &text, const Json &preferences,
+                         bool archive, int64_t sentAt);
   Json summary();
 };
 } // namespace penchat

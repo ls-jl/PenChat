@@ -9,6 +9,7 @@
 #include <dirent.h>
 #include <iostream>
 #include <sys/stat.h>
+#include <sys/stat.h>
 #include <unistd.h>
 namespace penchat {
 namespace {
@@ -67,6 +68,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
       rich_(fontPath, resources,
             join(workspace, "assets/fonts/DejaVuSans.ttf")),
       workspace_(std::move(workspace)), dataDir_(std::move(dataDir)) {
+  initializeMessageEdits();
   transfer_.reset(new Transfer(db_, events_, dataDir_));
   transfer_->start("init");
   clearCrop();
@@ -210,7 +212,7 @@ lv_obj_t *App::imageWidget(lv_obj_t *parent) {
 }
 void App::image(lv_obj_t *parent, const std::string &path, int x, int y, int w,
                 int h, std::function<void()> click, bool rightAligned,
-                bool chatPhoto, const std::string &pendingMessage) {
+                bool chatPhoto, const std::string &pendingMessage, const std::string &sentMessage) {
   auto holder =
       box(parent, x, y, chatPhoto ? std::min(w, h) : w, h, theme::surface);
   lv_obj_set_scrollable(holder, false);
@@ -237,16 +239,17 @@ void App::image(lv_obj_t *parent, const std::string &path, int x, int y, int w,
     lv_label_set_text(placeholder, "图片读取失败");
   if (!click && view_ == "chat")
     click = [this, path] { requestImageViewer(path); };
+  if(!sentMessage.empty()&&pendingMessage.empty())messageLongPress(holder,sentMessage);
   if (click || !pendingMessage.empty()) {
     struct Press {
       App *app;
-      std::string session, message;
+      std::string session, message, sent;
       lv_point_t start{};
       int distance = 0;
       bool held = false;
     };
     auto state = std::make_shared<Press>();
-    state->app = this; state->session = session_; state->message = pendingMessage;
+    state->app = this; state->session = session_; state->message = pendingMessage; state->sent=sentMessage;
     auto owner = new std::shared_ptr<Press>(state);
     lv_obj_set_clickable(holder, true);
     lv_obj_add_event_cb(holder, [](lv_event_t *event) {
@@ -262,8 +265,10 @@ void App::image(lv_obj_t *parent, const std::string &path, int x, int y, int w,
       p->distance = std::max(p->distance,dx*dx+dy*dy);
       if (code == LV_EVENT_LONG_PRESSED) {
         p->held = true;
-        if (p->distance <= 144 && !p->message.empty())
-          p->app->events_.push("image_delete_request",{{"session",p->session},{"message",p->message}});
+        if (p->distance <= 144) {
+          if(!p->message.empty())p->app->events_.push("image_delete_request",{{"session",p->session},{"message",p->message}});
+
+        }
       }
     }, LV_EVENT_ALL, owner);
     if (click) onClick(holder,[state,click] { if (!state->held && state->distance<=144) click(); });
@@ -366,7 +371,7 @@ Json App::currentModel() {
              : resolveReasoning(model, sessionPreferences_, effortMemory_);
 }
 void App::savePreferences() {
-  if (emptyForPreset()) return;
+  if (!messageEdit_.empty() || emptyForPreset()) return;
   db_.saveSessionPreferences(session_, sessionPreferences_);
 }
 void App::bindPreferences(const Json &model) {
@@ -387,7 +392,7 @@ void App::bindPreferences(const Json &model) {
 void App::chooseModel(const std::string &id) {
   sessionPreferences_["model_id"] = id;
   sessionPreferences_["preset_adjusted"] = true;
-  db_.selectModel(id);
+  if(messageEdit_.empty())db_.selectModel(id);
   savePreferences();
 }
 void App::chooseEffort(const std::string &key) {
@@ -709,6 +714,7 @@ void App::resetPull() {
   updateChatControls(wasPulling);
 }
 bool App::chatTouch(int x, int y, bool pressed) {
+  if(!messageEdit_.empty()||messageEditBusy_){touchDown_=pressed;return false;}
   const bool began = pressed && !touchDown_;
   touchDown_ = pressed;
   const auto now = ticks();
@@ -943,9 +949,10 @@ void App::build() {
     lv_obj_set_style_transform_rotation(screenObj_,(360-cameraAngle_)*10,0);
   }
   lv_obj_set_scrollable(screenObj_, false);
-  icon(screenObj_, view_ == "chat" ? "menu" : "back", 16, 8, 48, 48, [this] {
-    if (view_ == "chat")
-      toggleNavigation();
+  icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", 16, 8, 48, 48, [this] {
+    if (view_ == "chat") {
+      if(!messageEdit_.empty())cancelMessageEdit();else toggleNavigation();
+    }
     else
       goBack();
   });
@@ -1235,6 +1242,7 @@ void App::jumpToBottom() {
   paintVisible();
 }
 void App::newChat(bool inherit) {
+  if(!messageEdit_.empty() || messageEditBusy_)return;
   auto preferences = sessionPreferences_;
   if (inherit) {
     auto model = currentModel();
@@ -1339,7 +1347,7 @@ void App::renderMessages(bool bottom, bool cached) {
   liveContent_ = nullptr;
   reasoningHeaders_.clear();
   lv_obj_clean(messageContent_);
-  auto messages = cached ? rows_ : db_.messages(session_, messageOffset_, 30);
+  auto messages = cached ? rows_ : messageEdit_.empty()?db_.messages(session_, messageOffset_, 30):editedMessages();
   lv_obj_set_style_pad_top(messageContent_, messages.empty() ? 0 : 8, 0);
   if (!cached)
     reasoningDisplay_ =
@@ -1375,8 +1383,8 @@ void App::renderMessages(bool bottom, bool cached) {
   if (!cached)
     lastAssistantSeq_ =
         db_.query("SELECT coalesce(max(seq),0) AS seq FROM chat_messages WHERE "
-                  "session_id=? AND role='assistant'",
-                  {session_})[0]["seq"]
+                  "session_id=? AND role='assistant' AND seq<?",
+                  {session_,messageEdit_.value("pivot",INT64_MAX)})[0]["seq"]
             .get<int>();
   const auto lastAssistant = lastAssistantSeq_;
   lv_obj_t *photoGroup = nullptr;
@@ -1406,8 +1414,7 @@ void App::renderMessages(bool bottom, bool cached) {
       if (original.empty()) original = path;
       image(photoGroup, path, 0, 0, width, 140,
             [this,original] { requestImageViewer(original); }, false, true,
-            m["seq"].get<int>() > lastAssistant ? m["id"].get<std::string>()
-                                                : "");
+            m["seq"].get<int>() > lastAssistant ? m["id"].get<std::string>() : "",m.value("edit_virtual",false)?"":m["id"].get<std::string>());
       continue;
     }
     photoGroup = nullptr;
@@ -1431,6 +1438,7 @@ void App::renderMessages(bool bottom, bool cached) {
     lv_obj_set_scrollable(wrap, false);
     lv_obj_set_style_pad_all(wrap, hasImage ? 0 : (user ? 12 : 8), 0);
     lv_obj_set_style_radius(wrap, user ? 18 : 0, 0);
+    if(user)messageLongPress(wrap,m["id"].get<std::string>());
     const int textWidth = contentWidth - (hasImage ? 0 : (user ? 24 : 16));
     auto id = m["id"].get<std::string>();
     std::string content =
@@ -1527,6 +1535,11 @@ void App::renderMessages(bool bottom, bool cached) {
           events_.push("retry_request", {{"id", id}, {"session", session_}});
         });
     }
+  }
+  if(!messageEdit_.empty()) {
+    auto banner=box(messageContent_,0,0,width,44,theme::background);
+    lv_obj_set_scrollable(banner,false);
+    label(banner,"发送后将从此处继续 · 后续对话已暂时隐藏",8,10,width-16,18,theme::muted);
   }
   if (messageOffset_ > 0)
     button(messageContent_, "加载较新消息", 0, 0, width, 35, [this] {
@@ -1850,6 +1863,8 @@ void App::settingsPage() {
   settingsRow("archives", "归档会话", "查看、还原或删除归档", right, 220, column,
               [this] { archiveOffset_ = 0; show("archives"); });
   const auto historyMode=config.value("history_time_display",std::string("time"));
+  const auto editDefault=config.value("message_edit_default",std::string("ask"));
+  settingsRow("message_edit","编辑消息",editDefault=="archive"?"发送时先归档":editDefault=="overwrite"?"发送时直接覆盖":"每次询问",right,284,column,[this]{messageEditDefaultPicker();});
   settingsRow("history_time","历史时间显示",historyMode=="title"?"会话标题优先":historyMode=="off"?"关闭时间显示":"时间显示优先",left,284,column,[this]{historyTimePicker();});
   label(pageContent_, "数据与应用", left, 356, width, 16, theme::muted);
   settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 380, column,
@@ -2108,7 +2123,7 @@ void App::goBack() {
       show("settings");
   } else if (view_ == "settings") {
     show("chat");
-    toggleNavigation();
+    if(messageEdit_.empty())toggleNavigation();
   } else
     show("chat");
 }
@@ -2126,6 +2141,7 @@ void App::closeNavigation(bool resumeCamera) {
     startCamera();
 }
 void App::toggleNavigation() {
+  if(!messageEdit_.empty()||messageEditBusy_)return;
   if (navigationOpen_) {
     closeNavigation();
     return;
@@ -2365,6 +2381,8 @@ void App::stopNetwork() {
   ++networkGeneration_;
 }
 bool App::canSend() {
+  if(messageEditBusy_)return false;
+  if(!messageEdit_.empty())return hasText(draft_)||!messageEditImages_.empty();
   if (hasText(draft_))
     return true;
   // Pending user content survives an interruption or image auto-send being off.
@@ -2377,6 +2395,7 @@ bool App::canSend() {
           !stringValue(latest[0], "original_path").empty());
 }
 void App::sendMessage(const std::string &retry) {
+  if(!messageEdit_.empty()){if(retry.empty())commitMessageEdit();return;}
   if (generating_ || contextBusy_)
     return;
   auto latest = db_.messages(session_, 0, 1);
@@ -2441,7 +2460,7 @@ void App::sendPrepared(Json model, Json input, const std::string &retryId,
   build();
 }
 void App::storeImage(const Json &image, std::function<void(bool)> completion) {
-  if (imageStoreBusy_)
+  if (imageStoreBusy_ || messageEditBusy_)
     return;
   if (imageStoreWorker_.joinable())
     imageStoreWorker_.join();
@@ -2449,15 +2468,30 @@ void App::storeImage(const Json &image, std::function<void(bool)> completion) {
   imageStoreCompletion_ = std::move(completion);
   const auto session = session_;
   const auto preferences = sessionPreferences_;
+  const auto editToken=messageEdit_.empty()?std::string():messageEditToken_;
   modal("正在保存图片", "图片准备完成后会自动返回，请稍候…");
-  imageStoreWorker_ = std::thread([this, image, session, preferences] {
+  imageStoreWorker_ = std::thread([this, image, session, preferences,editToken] {
     bool ok = true;
+    Json asset=Json::object();std::vector<std::string> created;
     try {
-      db_.append(session, "user", "", image, preferences);
-    } catch (...) {
-      ok = false;
-    }
-    events_.push("image_stored", {{"ok", ok}, {"session", session}});
+      if(editToken.empty())db_.append(session, "user", "", image, preferences);
+      else {
+        const auto directory=join(dataDir_,".message-edit");
+        ensureDirectory(directory);
+        struct stat st{};
+        if(lstat(directory.c_str(),&st)||!S_ISDIR(st.st_mode)||S_ISLNK(st.st_mode))throw std::runtime_error("Invalid staging directory");
+        for(auto mapping:{std::make_pair("path","stored_path"),std::make_pair("previewPath","display_src")}) {
+          if(!image.contains(mapping.first))continue;
+          auto file=join(join(dataDir_,".message-edit"),uid("image")+".png");created.push_back(file);
+          auto bytes=fileText(image[mapping.first].get<std::string>(),16*1024*1024);
+          if(bytes.empty())throw std::runtime_error("Cannot read image");
+          atomicText(file,bytes);asset[mapping.second]=file;
+        }
+        asset["edit_new"]=true;asset["edit_id"]=uid("edit-image");asset["width"]=image.value("width",0);asset["height"]=image.value("height",0);
+        asset["source_type"]=image.value("source",std::string("camera"));asset["metadata_json"]=image.value("metadata",Json::object()).dump();
+      }
+    } catch (...) {ok=false;for(const auto &path:created){unlink(path.c_str());unlink((path+".part").c_str());}}
+    events_.push("image_stored", {{"ok", ok}, {"session", session},{"edit_token",editToken},{"asset",asset}});
   });
 }
 void App::attach(const Json &image) {
@@ -2473,7 +2507,7 @@ void App::attach(const Json &image) {
     if (db_.settings()
             .value("penchat_settings", Json::object())
             .value("autoSendCapturedContent", false) &&
-        !generating_)
+        !generating_ && messageEdit_.empty())
       sendMessage();
   });
 }
@@ -2505,7 +2539,7 @@ void App::suspend(bool value) {
   display_.visible(!value && !keyboard_);
   if (value) {
     camera_.stop();
-  } else if (editor_.active && !keyboard_) {editorPolicy(true);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
+  } else if (editor_.active && !keyboard_) {editorPolicy(!editorSelectionOnly_);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
   else if (view_ == "camera")
     startCamera();
 }
@@ -2519,6 +2553,8 @@ void App::shutdown() {
     transfer_->stop();
   if (imageStoreWorker_.joinable())
     imageStoreWorker_.join();
+  if(messageEditWorker_.joinable())messageEditWorker_.join();
+  messageEditBusy_=false;cancelMessageEdit(false);
   editorInterrupt();
   if (editorRoot_) { lv_obj_delete(editorRoot_); editorRoot_ = editorText_ = nullptr; }
   scanner_.eligible(false, session_);
@@ -2761,7 +2797,15 @@ void App::tick() {
         lv_obj_delete(modal_);
       auto callback = std::move(imageStoreCompletion_);
       imageStoreCompletion_ = {};
-      const bool ok = e.data.value("ok", false);
+      bool ok = e.data.value("ok", false);
+      auto editToken=e.data.value("edit_token",std::string());
+      if(!editToken.empty()&&ok) {
+        auto asset=e.data.at("asset");
+        if(editToken==messageEditToken_&&!messageEdit_.empty()) {
+          messageEditImages_.push_back(asset);
+          for(auto field:{"stored_path","display_src"})if(asset.contains(field))messageEditFiles_.push_back(asset[field].get<std::string>());
+        } else {for(auto field:{"stored_path","display_src"})if(asset.contains(field))unlink(asset[field].get<std::string>().c_str());ok=false;}
+      }
       if (callback)
         callback(ok);
       if (!ok)
@@ -2773,6 +2817,7 @@ void App::tick() {
       scanEvent(e);
       continue;
     }
+    if(messageEvent(e))continue;
     if (e.type == "image_view_close") {closeImageViewer();continue;}
     if (e.type == "image_view_request") {
       if (view_ == "chat" && visible_ && !keyboard_ && !editor_.active && !modal_ &&
@@ -2785,7 +2830,7 @@ void App::tick() {
       if (view_ == "chat" && visible_ && !contextBusy_ && !navigationOpen_ &&
           !attachments_ && !modal_ && !keyboard_ &&
           e.data.value("session", std::string()) == session_ &&
-          db_.pendingImage(session_, id)) {
+          ((!messageEdit_.empty()&&std::any_of(messageEditImages_.begin(),messageEditImages_.end(),[&](const Json &a){return a["edit_id"]==id;}))||db_.pendingImage(session_, id))) {
         input_.cancel();
         modal("删除图片", "删除这张待发送图片？系统相册原图不会删除。");
         imageDeleteId_ = id;
@@ -2814,8 +2859,10 @@ void App::tick() {
           e.data.value("session", std::string()) == session_ &&
           e.data.value("message", std::string()) == imageDeleteId_) {
         input_.cancel();
-        if (db_.removePendingImage(session_,
-                                   e.data.value("message", std::string()))) {
+        if(!messageEdit_.empty()) {
+          const auto id=e.data.value("message",std::string());
+          messageEditImages_.erase(std::remove_if(messageEditImages_.begin(),messageEditImages_.end(),[&](const Json &a){return a["edit_id"]==id;}),messageEditImages_.end());build();
+        } else if (db_.removePendingImage(session_,e.data.value("message", std::string()))) {
           messageOffset_ = 0;
           build();
         } else {
@@ -3108,7 +3155,8 @@ Json App::diagnostics() const {
       {"navigation_active_x", navigationActive_ ? (active.x1 + active.x2) / 2 : -1},
       {"navigation_active_y", navigationActive_ ? (active.y1 + active.y2) / 2 : -1},
       {"navigation_scroll", navigationList_ ? lv_obj_get_scroll_y(navigationList_) : 0},
-      {"navigation_button", view_ == "chat" ? "menu" : "back"},
+      {"message_interactions",messageDiagnostic()},
+      {"navigation_button", view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back"},
       {"pull_indicator_y", pullIndicator_ ? lv_obj_get_y(pullIndicator_) : -1},
       {"pull_content_y", body_ ? lv_obj_get_style_translate_y(body_, LV_PART_MAIN) : 0},
       {"following_latest", chatFollowing_},

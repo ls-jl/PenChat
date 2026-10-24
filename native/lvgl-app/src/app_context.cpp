@@ -10,6 +10,10 @@ void App::cancelContext() {
   ++contextGeneration_;
 }
 void App::startContext(bool manual, const std::string &retry) {
+  if(!messageEdit_.empty()) {
+    if(manual)modal("请先完成消息编辑","发送或取消编辑后，再压缩上下文。原对话尚未修改。");
+    return;
+  }
   if (contextBusy_ || generating_ || imageStoreBusy_)
     return;
   auto model = currentModel();

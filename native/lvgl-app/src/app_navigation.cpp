@@ -3,10 +3,10 @@
 namespace penchat {
 bool App::navigationRoot() const {
   return view_ == "chat" && !imageViewer_ && !editor_.active && !keyboard_ &&
-         !navigationOpen_ && !attachments_ && !modal_ && !imageStoreBusy_;
+         !navigationOpen_ && !attachments_ && !modal_ && !imageStoreBusy_ && messageEdit_.empty() && !messageEditBusy_;
 }
 std::string App::backContext() const {
-  return view_ + ":" + pageKey() + ":" + transferScreen_ + ":" + editor_.id + ":" +
+  return messageEditToken_ + ":" + view_ + ":" + pageKey() + ":" + transferScreen_ + ":" + editor_.id + ":" +
     std::to_string(reinterpret_cast<uintptr_t>(imageViewer_)) + ":" +
     std::to_string(reinterpret_cast<uintptr_t>(modal_)) + ":" +
     std::to_string(reinterpret_cast<uintptr_t>(attachments_));
@@ -25,12 +25,14 @@ void App::resetBack() {
   if (backHint_) { lv_obj_delete(backHint_); backHint_ = nullptr; }
 }
 void App::nativeBack() {
+  if(messageEditBusy_)return;
   input_.cancel(); touchDown_ = false; composerTapAllowed_ = false;
   if (imageViewer_) closeImageViewer();
   else if (editor_.active) editorFinish(false);
   else if (modal_) { auto object = modal_; modal_ = nullptr; historyContextId_.clear(); lv_obj_delete(object); }
   else if (attachments_) closeAttachments();
   else if (!navigationOpen_ && view_ != "chat") goBack();
+  else if(!messageEdit_.empty())cancelMessageEdit();
   syncScanner(); syncBackPolicy();
 }
 void App::systemBack(const Json &m) {

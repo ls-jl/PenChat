@@ -2,6 +2,7 @@
 #include "database.hpp"
 #include "transfer.hpp"
 #include "editor.hpp"
+#include "editor_layout.hpp"
 #include "images.hpp"
 #include "network.hpp"
 #include "platform.hpp"
@@ -94,6 +95,29 @@ class App {
   Json imageViewerDiagnostic() const;
 
   std::string imageDeleteId_;
+  Json messageEdit_ = Json::object(), messageEditImages_ = Json::array();
+  Json messageEditPreferences_ = Json::object();
+  std::string messageEditToken_, messageContextId_, messageEditMemory_;
+  std::thread messageEditWorker_;
+  lv_obj_t *messagePrepareModal_ = nullptr;
+  bool messageEditBusy_ = false, messageEditArchive_ = false;
+  int messageEditOffset_ = 0, messageEditScroll_ = 0;
+  bool messageEditFollowing_ = true;
+  std::vector<std::string> messageEditFiles_;
+  std::vector<int64_t> messageEditCursors_;
+  std::map<std::string,lv_obj_t *> userBubbles_, messageActions_;
+  void initializeMessageEdits();
+  void messageLongPress(lv_obj_t *, const std::string &id);
+  void messageMenu(const std::string &id);
+  void messageEditWarning(const std::string &id);
+  void messageEditDefaultPicker();
+  void beginMessageEdit(const std::string &id, bool archive);
+  void cancelMessageEdit(bool restore = true);
+  void commitMessageEdit();
+  bool messageEvent(const Event &);
+  Json editedMessages();
+  Json messageDiagnostic() const;
+  void selectMessageText(const std::string &text);
   void reasoningDisplayPicker();
   std::vector<lv_obj_t *> reasoningHeaders_;
   bool modelAdvanced_ = false, hasConversationContent_ = false;
@@ -210,7 +234,8 @@ class App {
   lv_obj_t *imageWidget(lv_obj_t *parent);
   void image(lv_obj_t *parent, const std::string &path, int x, int y, int w,
              int h, std::function<void()> click = {}, bool rightAligned = false,
-             bool chatPhoto = false, const std::string &pendingMessage = "");
+             bool chatPhoto = false, const std::string &pendingMessage = "",
+             const std::string &sentMessage = "");
   void texture(lv_obj_t *object, std::shared_ptr<ImageFrame> frame,
                bool premultiplied = false);
   lv_obj_t *icon(lv_obj_t *parent, const std::string &kind, int x, int y, int w,
@@ -300,6 +325,8 @@ class App {
   std::map<std::string, int> tableScrolls_;
   void renderLiveMessage();
   void refreshImages();
+  bool editorSelectionOnly_ = false;
+  EditorLayout editorLayout() const { return EditorLayout(screen_.width,screen_.height,editorSelectionOnly_); }
   EditorState editor_;
   EditorClipboard editorClipboard_;
   lv_obj_t *editorHandles_[2] = {nullptr,nullptr};
@@ -351,7 +378,7 @@ class App {
   void edit(const std::string &text, const std::string &placeholder,
             std::function<void(const std::string &)> callback,
             int maxLength = 4096, const char *inputType = "ZhCNPreferred",
-            std::function<void()> cancelled = {}, bool multiline = false, bool secret = false);
+            std::function<void()> cancelled = {}, bool multiline = false, bool secret = false, bool selectionOnly = false);
   bool canSend();
   void sendMessage(const std::string &retry = "");
   void attach(const Json &image);

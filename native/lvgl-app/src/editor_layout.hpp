@@ -9,7 +9,7 @@ struct EditorLayout {
   int width, height, split, textX, textWidth, textY = 78, textHeight;
   int actionsY, bottomY, rowHeight, menuY;
   double keyWidth;
-  EditorLayout(int w, int h) : width(w), height(h) {
+  EditorLayout(int w, int h, bool selectionOnly = false) : width(w), height(h) {
     split = w - std::max(352, w * 2 / 5 - 8);
     textX = split + 8;
     textWidth = w - textX - 8;
@@ -18,6 +18,7 @@ struct EditorLayout {
     bottomY = h - 50;
     rowHeight = (bottomY - 24) / 3;
     keyWidth = (split - 44) / 10.0;
+    if (selectionOnly) { split=86;textX=96;textWidth=w-106;textY=56;textHeight=h-66; }
     menuY = textY + std::min(50, std::max(0, textHeight - 52));
   }
   int px(double value) const { return int(std::lround(value)); }
