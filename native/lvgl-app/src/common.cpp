@@ -78,17 +78,32 @@ std::vector<std::string> characters(const std::string &v) {
 }
 Screen Screen::fromConfig(const Json &cfg) {
   Screen s;
-  const auto c = cfg.value("screen", Json::object());
-  s.width = c.value("width", 960);
-  s.height = c.value("height", 266);
-  s.rotation = c.value("direction", 270);
-  s.xoffset = c.value("xoffset", 0);
-  s.yoffset = c.value("yoffset", 107);
-  if (s.width < 200 || s.height < 100 || s.width > 4096 || s.height > 4096)
-    throw std::runtime_error("Invalid screen size");
+  if (!cfg.contains("screen") || !cfg.at("screen").is_object())
+    throw std::runtime_error("Falcon configuration has no screen section");
+  const auto &c = cfg.at("screen");
+  auto integer = [&](const char *key, int minimum, int maximum, bool required) {
+    if (!c.contains(key)) {
+      if (!required) return 0;
+      throw std::runtime_error(std::string("Missing Falcon screen.") + key);
+    }
+    const auto &v = c.at(key);
+    if (!v.is_number_integer() || v.get<double>() < minimum || v.get<double>() > maximum)
+      throw std::runtime_error(std::string("Invalid Falcon screen.") + key);
+    return v.get<int>();
+  };
+  // Bounds cap allocation/DRM coordinates; they never supply missing geometry.
+  s.width = integer("width", 200, 4096, true);
+  s.height = integer("height", 100, 4096, true);
+  s.rotation = integer("direction", 0, 270, false);
+  s.xoffset = integer("xoffset", -4096, 4096, false);
+  s.yoffset = integer("yoffset", -4096, 4096, false);
   if (s.rotation != 0 && s.rotation != 90 && s.rotation != 180 &&
       s.rotation != 270)
     throw std::runtime_error("Invalid screen rotation");
   return s;
+}
+Json Screen::descriptor() const {
+  return {{"width",width},{"height",height},{"rotation",rotation},
+          {"xoffset",xoffset},{"yoffset",yoffset}};
 }
 } // namespace penchat

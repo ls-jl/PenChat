@@ -312,7 +312,7 @@ void App::toggleAttachments() {
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
-  auto menu = box(attachments_, 20, 12, 260, 188, theme::surface);
+  auto menu = box(attachments_, 20, 12, 260, screen_.height - 78, theme::surface);
   lv_obj_set_style_radius(menu, 16, 0);
   lv_obj_set_scroll_dir(menu, LV_DIR_VER);
   lv_obj_set_scroll_elastic(menu, false);
@@ -411,7 +411,8 @@ void App::modelPicker(bool forTitles) {
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
-  auto panel = box(attachments_, 20, 12, 650, 188, theme::surface);
+  const int panelWidth = std::min(650, screen_.width - 130);
+  auto panel = box(attachments_, 20, 12, panelWidth, screen_.height - 78, theme::surface);
   lv_obj_set_style_radius(panel, 16, 0);
   lv_obj_set_scroll_dir(panel, LV_DIR_VER);
   auto current = currentModel();
@@ -420,7 +421,7 @@ void App::modelPicker(bool forTitles) {
   int y = 4;
   if (forTitles) {
     button(
-        panel, "跟随当前聊天模型", 8, y, 620, 44,
+        panel, "跟随当前聊天模型", 8, y, panelWidth - 30, 44,
         [this] {
           db_.setting("title_model_id", "");
           build();
@@ -433,7 +434,7 @@ void App::modelPicker(bool forTitles) {
     return a.value("name", std::string()) < b.value("name", std::string());
   });
   for (const auto &provider : db_.providers()) {
-    label(panel, provider.value("name", std::string("Provider")), 14, y, 610,
+    label(panel, provider.value("name", std::string("Provider")), 14, y, panelWidth - 40,
           18, theme::muted);
     y += 30;
     for (const auto &model : models)
@@ -444,7 +445,7 @@ void App::modelPicker(bool forTitles) {
             panel,
             (current.value("id", std::string()) == id ? "● " : "○ ") +
                 model.value("name", std::string()),
-            8, y, 620, 44,
+            8, y, panelWidth - 30, 44,
             [this, id, forTitles, held] {
               if (*held) return;
               if (forTitles)
@@ -471,10 +472,10 @@ void App::modelPicker(bool forTitles) {
       }
   }
   if (models.empty())
-    button(panel, "添加 Provider / 模型", 10, 50, 600, 48,
+    button(panel, "添加 Provider / 模型", 10, 50, panelWidth - 50, 48,
            [this] { show("provider"); });
   if (forTitles && !models.empty())
-    label(attachments_, "长按模型查看完整名称", 24, 216, 650, 16, theme::muted);
+    label(attachments_, "长按模型查看完整名称", 24, screen_.height - 50, panelWidth, 16, theme::muted);
 }
 void App::effortPicker() {
   auto model = currentModel();
@@ -491,21 +492,23 @@ void App::effortPicker() {
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
-  auto panel = box(attachments_, 20, 12, 830, 188, theme::surface);
+  const int panelWidth = screen_.width - 130;
+  const int sliderWidth = panelWidth - 80;
+  auto panel = box(attachments_, 20, 12, panelWidth, screen_.height - 78, theme::surface);
   lv_obj_set_scrollable(panel, false);
   lv_obj_set_style_radius(panel, 16, 0);
   auto selected = model.value("effective_effort", std::string());
   if (selected.empty())
     selected = "api_default";
   auto title =
-      label(panel, effortLabel(selected) + " · 推理强度", 24, 14, 600, 24);
-  button(panel, "跟随设置", 664, 4, 156, 44, [this] {
+      label(panel, effortLabel(selected) + " · 推理强度", 24, 14, panelWidth - 230, 24);
+  button(panel, "跟随设置", panelWidth - 166, 4, 156, 44, [this] {
     chooseEffort("");
     build();
   });
   auto slider = lv_slider_create(panel);
   lv_obj_set_pos(slider, 40, 76);
-  lv_obj_set_size(slider, 750, 44);
+  lv_obj_set_size(slider, sliderWidth, 44);
   lv_slider_set_range(slider, 0,
                       options.size() == 1 ? 2 : int(options.size()) - 1);
   auto found = std::find(options.begin(), options.end(), selected);
@@ -584,7 +587,7 @@ void App::effortPicker() {
       LV_EVENT_ALL, data);
   for (size_t i = 0; i < options.size(); ++i) {
     int x =
-        options.size() == 1 ? 415 : 40 + int(i) * 750 / int(options.size() - 1);
+        options.size() == 1 ? panelWidth / 2 : 40 + int(i) * sliderWidth / int(options.size() - 1);
     auto caption = label(panel, effortLabel(options[i]), x - 38, 138, 76, 18);
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
   }
@@ -593,11 +596,11 @@ void App::modelPage() {
   pageHeader("模型设置");
   const int width = screen_.width - 118, column = (width - 14) / 2;
   const auto id = modelForm_.value("id", std::string());
-  button(screenObj_, "参数映射", 650, 2, 140, 44, [this] {
+  button(screenObj_, "参数映射", screen_.width - 310, 2, 140, 44, [this] {
     modelAdvanced_ = !modelAdvanced_;
     build();
   });
-  auto save = button(screenObj_, "保存", 806, 2, 130, 44, [this, id] {
+  auto save = button(screenObj_, "保存", screen_.width - 154, 2, 130, 44, [this, id] {
     db_.saveModelCapabilities(
         id, modelForm_["reasoning"],
         modelForm_.value("context_budget", contextBudget(modelForm_)));
@@ -822,7 +825,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
     lv_obj_scroll_to_y(body_, LV_COORD_MAX, LV_ANIM_OFF);
     chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
     chatLayout_ = false;
-    pullIndicator_ = box(screenObj_, 381, 168, 280, 98);
+    pullIndicator_ = box(screenObj_, 86 + (screen_.width - 90 - 280) / 2, screen_.height - 98, 280, 98);
     lv_obj_set_style_bg_opa(pullIndicator_, 0, 0);
     lv_obj_set_scrollable(pullIndicator_, false);
     pullArc_ = lv_arc_create(pullIndicator_);
@@ -1096,8 +1099,9 @@ void App::chat() {
       },
       LV_EVENT_SCROLL, this);
   renderMessages(chatFollowing_);
+  const int composerWidth = screen_.width - 130;
   chatControls_ =
-      box(screenObj_, 106, screen_.height - 58, 830, 48, theme::surface);
+      box(screenObj_, 106, screen_.height - 58, composerWidth, 48, theme::surface);
   lv_obj_set_scrollable(chatControls_, false);
   lv_obj_set_style_radius(chatControls_, 24, 0);
   icon(
@@ -1106,11 +1110,11 @@ void App::chat() {
   const bool gauge = sessionPreferences_.value("gauge", !effortMemory_.empty());
   if (gauge)
     icon(
-        chatControls_, "gauge", 730, 2, 44, 44, [this] { effortPicker(); },
+        chatControls_, "gauge", composerWidth - 100, 2, 44, 44, [this] { effortPicker(); },
         theme::surface, theme::muted);
   composer_ = button(
       chatControls_, draft_.empty() ? "询问 " PENCHAT_NAME : draft_, 50, 2,
-      gauge ? 674 : 726, 44,
+      composerWidth - (gauge ? 156 : 104), 44,
       [this] {
         if (contextBusy_ || !composerTapAllowed_)
           return;
@@ -1129,7 +1133,7 @@ void App::chat() {
                                 lv_color_hex(theme::muted), 0);
   const bool sendEnabled = contextBusy_ || generating_ || canSend();
   auto send = icon(
-      chatControls_, (generating_ || contextBusy_) ? "stop" : "up", 780, 2, 44, 44,
+      chatControls_, (generating_ || contextBusy_) ? "stop" : "up", composerWidth - 50, 2, 44, 44,
       [this] {
         if (contextBusy_) {
           cancelContext();
@@ -1145,7 +1149,7 @@ void App::chat() {
   if (!sendEnabled)
     lv_obj_set_clickable(send, false);
   toBottom_ = icon(
-      screenObj_, "down", 499, screen_.height - 114, 44, 44,
+      screenObj_, "down", 106 + (composerWidth - 44) / 2, screen_.height - 114, 44, 44,
       [this] { jumpToBottom(); }, theme::surface);
   lv_obj_set_style_border_color(toBottom_, lv_color_hex(theme::border), 0);
   lv_obj_set_style_border_width(toBottom_, 1, 0);
@@ -1825,10 +1829,11 @@ void App::reasoningDisplayPicker() {
       {"always", "始终展开"}};
   const auto mode =
       db_.settings().value("reasoning_display", std::string("collapsed"));
+  const int choiceWidth = (screen_.width - 92 - 70) / 3;
   for (int i = 0; i < 3; ++i) {
     const std::string key = choices[i].first;
     button(modal_, (mode == key ? "● " : "○ ") + std::string(choices[i].second),
-           16 + i * 278, 65, 266, 52, [this, key] {
+           16 + i * (choiceWidth + 12), 65, choiceWidth, 52, [this, key] {
              events_.push("reasoning_display", {{"mode", key}});
            });
   }
@@ -1889,7 +1894,7 @@ void App::providerPage() {
       emptyState("还没有可用模型", "点击右上角“添加 Provider”，连接你的模型服务。");
     return;
   }
-  auto save = button(screenObj_, "保存", 806, 2, 130, 44, [this] { saveProvider(); });
+  auto save = button(screenObj_, "保存", screen_.width - 154, 2, 130, 44, [this] { saveProvider(); });
   primary(save);
   auto field = [&](const std::string &key, const std::string &name, int x,
                    int y, int width, bool secret = false) {
@@ -2200,7 +2205,7 @@ void App::cameraPage() {
   auto center=box(shutter,5,5,56,56,theme::text);lv_obj_set_style_radius(center,LV_RADIUS_CIRCLE,0);
   lv_obj_set_scrollable(center,false);lv_obj_set_clickable(center,false);lv_obj_center(center);
   onClick(shutter,[this]{if(!cameraCapturing_){cameraCapturing_=true;camera_.capture(cameraAngle_);}});
-  button(body_,"转向 90°",railX,portrait?h-48:200,portrait?w-24:124,44,
+  button(body_,"转向 90°",railX,portrait?h-48:h-66,portrait?w-24:124,44,
          [this]{events_.push("camera_mode",{{"auto",false},{"angle",(cameraAngle_+90)%360}});});
   status_=label(preview,cameraError_.empty()?"相机启动中…":cameraError_,12,12,lv_obj_get_width(preview)-24,19,theme::muted);
 }
@@ -2478,7 +2483,7 @@ void App::handle(const Json &m) {
   if (type == "icons.test") {
     clear();
     view_ = "icons";
-    screenObj_ = box(lv_screen_active(), 0, 0, 960, 266);
+    screenObj_ = box(lv_screen_active(), 0, 0, screen_.width, screen_.height);
     const std::vector<std::string> names = {
         "menu",         "back",     "up",         "down",   "plus",
         "stop",         "settings", "history",    "camera", "album",
@@ -2518,7 +2523,7 @@ void App::handle(const Json &m) {
     if (m.value("x", 0) != 0 || m.value("y", 0) != 0 ||
         m.value("width", screen_.width) != screen_.width ||
         m.value("height", screen_.height) != screen_.height)
-      throw std::runtime_error("ORANGE requires a full-screen 960x266 hole");
+      throw std::runtime_error("Display area does not match Falcon screen configuration");
     resetPull();
     input_.cancel();
     bridge_.send("display.ready", {{"requestId", m.value("requestId", Json())},

@@ -7,7 +7,9 @@ font = ROOT / '.deps/chinese.ttf'
 assert hashlib.sha256(font.read_bytes()).hexdigest() == manifest['font_sha256'], 'Font changed: review and regenerate the ORANGE screenshot baseline'
 with tempfile.TemporaryDirectory(prefix='penchat-render-') as directory:
     image = pathlib.Path(directory) / 'render.png'
-    subprocess.run([str(ROOT/'build/host/penchat-lvgl'), '--headless', '--data-dir', directory,
+    config=pathlib.Path(directory)/'screen.json'
+    config.write_text(json.dumps({'screen':{'width':manifest['size'][0],'height':manifest['size'][1],'direction':0}}))
+    subprocess.run([str(ROOT/'build/host/penchat-lvgl'), '--headless', '--screen-config',str(config),'--data-dir', directory,
                     '--workspace', str(ROOT), '--font', str(font), '--tex-resources', str(ROOT/'.deps/microtex/res'),
                     '--demo-markdown', str(ROOT/'tests/markdown-demo.md'), '--frames', str(manifest['frames']),
                     '--screenshot', str(image)], check=True)

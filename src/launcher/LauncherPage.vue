@@ -72,6 +72,7 @@ export default {
       this.setNativeEditorPolicy(false)
       this._nativeEditor = null; this._editorPolicySequence = 0
       this._nativeReady = false
+      this._screen = null
       this._requestSequence = 0
       this.errorText = ''
       try {
@@ -80,7 +81,6 @@ export default {
         if (this._disposed) { await launcher.stop(); return }
         this.running = true
         this.send('init', {})
-        this.send('display.area', { x: 0, y: 0, width: 960, height: 266 })
         this.send('visibility', { visible: this.visible })
         // Arm before polling: Falcon may deliver an already queued ready event
         // during interval registration. A stale timeout cannot close a ready page.
@@ -95,7 +95,14 @@ export default {
       try {
         for (const event of launcher.poll() || []) {
           if (event.generation !== undefined && event.generation !== this._generation && event.type !== 'booted' && event.type !== 'fatal' && event.type !== 'exit') continue
-          if (event.type === 'ready') { this._nativeReady = true; clearTimeout(this._readyTimer); this._readyTimer = null }
+          if (event.type === 'booted') {
+            const screen = event.screen
+            if (!screen || !Number.isInteger(screen.width) || !Number.isInteger(screen.height) || screen.width <= 0 || screen.height <= 0)
+              throw new Error('Invalid Falcon display configuration')
+            this._screen = screen
+            this.send('display.area', { x: 0, y: 0, width: screen.width, height: screen.height })
+          }
+          else if (event.type === 'ready') { this._nativeReady = true; clearTimeout(this._readyTimer); this._readyTimer = null }
           else if (event.type === 'ime.request') this.queryIme(event)
           else if (event.type === 'ime.reset') this.resetIme()
           else if (event.type === 'editor.state') this.editorState(event)

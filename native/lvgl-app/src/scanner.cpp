@@ -40,7 +40,11 @@ struct ScanService::Impl {
 #endif
     available = access(binary.c_str(), R_OK) == 0 &&
                 access(join(resources, "demo_gain.json").c_str(), R_OK) == 0;
-#ifndef __aarch64__
+#ifdef __aarch64__
+    // Capture calibration/lease is still specific to ORANGE hardware. Display
+    // geometry support must not implicitly enable its scanner on another board.
+    available = available && fileText("/proc/device-tree/model", 4096).find("ORANGE") != std::string::npos;
+#else
     available = available && getenv("PENCHAT_SCANNER_BINARY");
 #endif
     worker = std::thread([this] { run(); });

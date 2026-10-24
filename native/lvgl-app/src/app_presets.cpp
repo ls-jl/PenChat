@@ -35,7 +35,7 @@ void App::presetPicker() {
   auto backdrop = button(attachments_, "", 0, 0, screen_.width - 86, screen_.height,
                          [this] { closeAttachments(); });
   lv_obj_set_style_bg_opa(backdrop, LV_OPA_TRANSP, 0);
-  auto panel = box(attachments_, 20, 12, screen_.width - 130, 188, theme::surface);
+  auto panel = box(attachments_, 20, 12, screen_.width - 130, screen_.height - 78, theme::surface);
   lv_obj_set_style_radius(panel, 16, 0);
   lv_obj_set_scroll_dir(panel, LV_DIR_VER);
   lv_obj_set_scroll_elastic(panel, false);
@@ -65,7 +65,7 @@ void App::presetsPage() {
   bool enabled = db_.settings().value("presets_enabled", false);
   button(body_, enabled ? "启用预设入口：开" : "启用预设入口：关", 10, 4, column, 48,
          [this, enabled] { db_.setting("presets_enabled", !enabled); build(); });
-  auto add = button(screenObj_, "新增预设", 806, 2, 130, 44, [this] {
+  auto add = button(screenObj_, "新增预设", screen_.width - 154, 2, 130, 44, [this] {
     presetForm_ = defaultPreset();
     presetForm_["id"] = uid("preset");
     presetForm_["name"] = "新预设";
@@ -128,7 +128,7 @@ void App::presetChoices(const std::string &field) {
 void App::presetEditor() {
   pageHeader("编辑预设");
   const int width = screen_.width - 118, column = (width - 14) / 2, right = 24 + column;
-  auto save = button(screenObj_, "保存", 806, 2, 130, 44, [this] {
+  auto save = button(screenObj_, "保存", screen_.width - 154, 2, 130, 44, [this] {
     if (!presetHasText(presetForm_.value("name", std::string()))) { modal("请输入预设名称", "名称不能为空。"); return; }
     if (presetForm_.value("prompt_mode", std::string()) == "custom" && !presetHasText(presetForm_.value("prompt", std::string()))) {
       modal("请输入系统提示词", "若需要移除提示词，请选择“清空”。"); return;

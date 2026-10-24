@@ -155,3 +155,12 @@ archive and checkpoint atomically on the DB worker after all batches succeed; re
 references and cancel stale jobs on session replacement/deletion/shutdown. Preset compression model
 empty means follow the chat model, not inherit a previous preset override. New chats never inherit
 summary coverage or archive links. Device access remains forbidden while unavailable.
+
+Screen geometry must come from Falcon's `/etc/miniapp/resources/cfg.json` screen section.
+Never add a device-specific width/height fallback or resolution gate. The native booted.screen
+message supplies the same dimensions to the AMR; Falcon already maps input coordinates.
+Use EditorLayout for keyboard controls, decorations and touch bounds. Test fixtures may
+specify explicit resolutions; camera sensor capture sizes are independent of display sizes.
+`tests/device/display_config.py --serial <explicit serial>` covers the user-authorized Y02
+and ORANGE display targets using their config and discovered input device. Keep ORANGE
+scanner calibration guards even when display/input support expands to another board.

@@ -19,7 +19,7 @@ struct HoleRect {
     int fit;
     int offsetX;
     int offsetY;
-    HoleRect(int px = 0, int py = 0, int pw = 0, int ph = 0, int panelWidth = 960, int panelHeight = 266,
+    HoleRect(int px = 0, int py = 0, int pw = 0, int ph = 0, int panelWidth = 0, int panelHeight = 0,
         int direction = 0, int correction = 0, int mode = 0, int ox = 0, int oy = 0)
         : x(px), y(py), w(pw), h(ph), panelW(panelWidth), panelH(panelHeight), rotation(direction), turn(correction), fit(mode), offsetX(ox), offsetY(oy) {}
 };

@@ -26,15 +26,17 @@ int main(int argc, char** argv)
     const int x = std::atoi(argv[(pinch || hold || dragHold) ? 2 : 1]), y = std::atoi(argv[(pinch || hold || dragHold) ? 3 : 2]);
     const int endX = hold ? x : dragHold ? std::atoi(argv[4]) : pinch ? std::atoi(argv[6]) : (argc == 5 || argc == 6) ? std::atoi(argv[3]) : x;
     const int endY = hold ? y : dragHold ? std::atoi(argv[5]) : pinch ? std::atoi(argv[7]) : (argc == 5 || argc == 6) ? std::atoi(argv[4]) : y;
+    const char* requestedDevice = std::getenv("PENCHAT_TOUCH_DEVICE");
     int fd = -1;
     input_absinfo ax = {}, ay = {};
     for (int i = 0; i < 32; ++i) {
         char path[64], name[128] = {};
         snprintf(path, sizeof(path), "/dev/input/event%d", i);
+        if (requestedDevice && strcmp(requestedDevice, path)) continue;
         const int candidate = open(path, O_RDWR | O_CLOEXEC);
         if (candidate < 0) continue;
         if (ioctl(candidate, EVIOCGNAME(sizeof(name)), name) >= 0 &&
-            (strstr(name, "hyn_ts") || strstr(name, "Hyn_TS")) &&
+            (requestedDevice || strstr(name, "hyn_ts") || strstr(name, "Hyn_TS")) &&
             ioctl(candidate, EVIOCGABS(ABS_MT_POSITION_X), &ax) == 0 &&
             ioctl(candidate, EVIOCGABS(ABS_MT_POSITION_Y), &ay) == 0) {
             fd = candidate;

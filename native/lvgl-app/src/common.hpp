@@ -78,7 +78,8 @@ public:
   }
 };
 struct Screen {
-  int width = 960, height = 266, rotation = 270, xoffset = 0, yoffset = 107;
+  int width = 0, height = 0, rotation = 0, xoffset = 0, yoffset = 0;
   static Screen fromConfig(const Json &cfg);
+  Json descriptor() const;
 };
 } // namespace penchat

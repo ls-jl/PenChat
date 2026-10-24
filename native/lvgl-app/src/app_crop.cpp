@@ -314,7 +314,7 @@ void App::cropPage() {
         a->db_.setting("penchat_settings", settings);
       },
       LV_EVENT_VALUE_CHANGED, this);
-  const int footerY = portrait ? bodyH - 48 : 208;
+  const int footerY = portrait ? bodyH - 48 : screen_.height - 58;
   auto confirm =
       button(body_, cropBusy_ ? "处理中" : "确定", rail, footerY,
              (railW - 8) / 2, 44, [this] { events_.push("crop_confirm"); });

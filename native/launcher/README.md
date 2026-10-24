@@ -15,8 +15,8 @@ Keyboard IDs are opaque strings; ordinary messages use monotonically increasing 
 
 | Direction | Message | Meaning |
 |---|---|---|
-| shell → native | `init` | generation and one-time legacy Storage import |
-| shell → native | `display.area` | full logical hole bounds; ORANGE requires 0,0,960,266 |
+| shell → native | `init` | generation and clean native initialization |
+| shell → native | `display.area` | full logical hole bounds from the native `booted.screen` descriptor |
 | native → shell | `display.ready` | accepted dimensions and device rotation/offsets |
 | shell → native | `touch` | Falcon pageX/pageY logical coordinates, pressed state and optional `cancelled` flag |
 | shell → native | `visibility` | foreground/background; releases pointer and camera when hidden |
@@ -27,11 +27,15 @@ Keyboard IDs are opaque strings; ordinary messages use monotonically increasing 
 | either | `exit` / `finish` | close native process / request Falcon page finish |
 | native → shell | `booted`, `ready`, `fatal` | startup progress and actionable failure |
 
-The device `cfg.json` supplies DRM rotation and offsets; there is no 930px viewport.
+The native process reads `/etc/miniapp/resources/cfg.json` → `screen` once at startup.
+Width and height are required; missing/invalid configuration fails visibly rather
+than falling back to a device-specific resolution. `booted.screen` carries those
+logical dimensions to the shell, which echoes them in `display.area`. DRM uses the
+same configuration for rotation and offsets. Headless tests provide an explicit
+`--screen-config` file. The hole/overlay use the full Falcon viewport.
 Touch coordinates are already transformed by Falcon. System IME hides the native
 plane and releases touch; confirm/cancel restores the view and scroll position.
-SQLite is exclusively written by the native process. The shell only reads the old
-Storage values during migration. No API key is included in diagnostic output.
+SQLite is exclusively written by the native process. The shell does not read external Storage. No API key is included in diagnostic output.
 
 `src/launcher/ocr.js` adapts the system Global OCR signals, registers single-line
 scanMethod=0, and unregisters on completion, cancellation, timeout or page exit.

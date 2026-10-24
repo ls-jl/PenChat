@@ -155,8 +155,6 @@ Overlay::Overlay()
 {
     memset(&hole_, 0, sizeof(hole_));
     memset(bufs_, 0, sizeof(bufs_));
-    hole_.panelW = 960;
-    hole_.panelH = 266;
     hole_.rotation = 0;
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
@@ -482,8 +480,6 @@ void Overlay::setHole(const HoleRect& hole)
 {
     pthread_mutex_lock(&mu_);
     hole_ = hole;
-    if (hole_.panelW <= 0) hole_.panelW = 960;
-    if (hole_.panelH <= 0) hole_.panelH = 266;
     pthread_mutex_unlock(&mu_);
 }
 
@@ -511,7 +507,7 @@ void Overlay::mapRectToCrtc(int x, int y, int w, int h, int* dx, int* dy, int* d
     const int rot = hole_.rotation % 360;
     // The framework draws a configured viewport into the full framebuffer;
     // screen offsets are in the pre-rotation framebuffer coordinate system.
-    // Do not stretch an inset 960x266 UI to the entire 480x960 scanout.
+    // Do not stretch an inset Falcon viewport to the entire scanout.
     const int canvasW = rot == 90 || rot == 270 ? crtcH_ : crtcW_;
     const int canvasH = rot == 90 || rot == 270 ? crtcW_ : crtcH_;
     const CropRect mapped = mapPanelRect(x + hole_.offsetX, y + hole_.offsetY, w, h,

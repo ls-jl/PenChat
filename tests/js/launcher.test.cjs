@@ -188,3 +188,20 @@ test('native editor locks only its page top panel, rejects old policies and rele
   f.options.onShow.call(f.page);f.page.editorState({session:'two',sequence:4,active:true})
   f.page.fail('fixture');assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],true)
 })
+
+for (const [width,height] of [[960,266],[936,280],[1024,320]]) {
+  test(`hole geometry comes from native Falcon config (${width}x${height}), without a boot fallback`, async () => {
+    const f=fixture();await f.page.boot()
+    assert(!f.calls.some(c=>c[0]==='send'&&c[1].type==='display.area'))
+    f.native.poll=()=>[{type:'booted',screen:{width,height,rotation:270,xoffset:0,yoffset:107}}]
+    f.page.poll()
+    const area=f.calls.find(c=>c[0]==='send'&&c[1].type==='display.area')[1]
+    assert.equal(area.width,width);assert.equal(area.height,height);assert.equal(area.x,0);assert.equal(area.y,0)
+    f.page.dispose()
+  })
+}
+test('missing Falcon geometry fails instead of supplying a fixed resolution', async () => {
+  const f=fixture();await f.page.boot();f.native.poll=()=>[{type:'booted'}];f.page.poll()
+  assert.equal(f.page.running,false)
+  assert(!f.calls.some(c=>c[0]==='send'&&c[1].type==='display.area'))
+})

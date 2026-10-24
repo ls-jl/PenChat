@@ -45,7 +45,7 @@ def wait_for(callback, timeout=10):
     raise AssertionError('Timed out waiting for native state')
 
 class Native:
-    def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True):
+    def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True, screen=None):
         self.pending=[]
         self.official_adapter=official_adapter
         self.directory=pathlib.Path(directory);self.directory.mkdir(parents=True,exist_ok=True)
@@ -57,10 +57,12 @@ class Native:
                 if seed_model:
                     db.execute("insert into providers(id,name,type,base_url,api_key,metadata_json,created_at,updated_at,is_default) values('fixture-provider','Fixture','openai-compatible',?,'test-only-no-real-key',?,1,1,1)",(f'http://127.0.0.1:{port}/v1',json.dumps({'api':api})))
                     db.execute("insert into model_configs(id,provider_id,name,display_name,model_type,created_at,updated_at,is_default) values('fixture-model','fixture-provider',?,?,'chat',1,1,1)",(model,model))
+        display=screen if screen is not None else {'width':960,'height':266,'direction':0,'xoffset':0,'yoffset':0}
+        config=self.directory/'falcon-display.json';config.write_text(json.dumps({'screen':display}))
         self.parent, child=socket.socketpair(socket.AF_UNIX,socket.SOCK_SEQPACKET)
         self.parent.settimeout(float(os.environ.get("PENCHAT_TEST_TIMEOUT", "10")))
         self.log=(self.directory/'runtime.log').open('wb')
-        self.process=subprocess.Popen([str(binary),'--headless','--bridge-fd',str(child.fileno()),'--data-dir',str(self.directory),'--workspace',str(ROOT),'--font',str(ROOT/'.deps/chinese.ttf'),'--tex-resources',str(ROOT/'.deps/microtex/res')],pass_fds=[child.fileno()],stdout=self.log,stderr=self.log)
+        self.process=subprocess.Popen([str(binary),'--headless','--screen-config',str(config),'--bridge-fd',str(child.fileno()),'--data-dir',str(self.directory),'--workspace',str(ROOT),'--font',str(ROOT/'.deps/chinese.ttf'),'--tex-resources',str(ROOT/'.deps/microtex/res')],pass_fds=[child.fileno()],stdout=self.log,stderr=self.log)
         child.close();self.generation=17
         self.send('init')
         try:self.receive('ready')

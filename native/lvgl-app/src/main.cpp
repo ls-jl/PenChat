@@ -14,7 +14,8 @@ void diagnostic(int) {
 } // namespace
 int main(int argc, char **argv) {
   using namespace penchat;
-  std::string data, workspace, fontPath, resources, screenshot, demo;
+  std::string data, workspace, fontPath, resources, screenshot, demo,
+      screenConfig = "/etc/miniapp/resources/cfg.json";
   int fd = -1, frames = 0;
   bool headless = false;
   for (int i = 1; i < argc; ++i) {
@@ -36,6 +37,8 @@ int main(int argc, char **argv) {
       resources = value();
     else if (arg == "--headless")
       headless = true;
+    else if (arg == "--screen-config")
+      screenConfig = value();
     else if (arg == "--screenshot")
       screenshot = value();
     else if (arg == "--demo-markdown")
@@ -58,15 +61,10 @@ int main(int argc, char **argv) {
     signal(SIGTERM, stop);
     signal(SIGINT, stop);
     signal(SIGPIPE, SIG_IGN);
-    Screen screen;
-    if (!headless) {
-      auto cfg = Json::parse(fileText("/etc/miniapp/resources/cfg.json"));
-      screen = Screen::fromConfig(cfg);
-      if (screen.width != 960 || screen.height != 266)
-        throw std::runtime_error(
-            "This build currently supports ORANGE 960x266");
-    } else
-      screen.rotation = 0;
+    const auto configuration = fileText(screenConfig, 64 * 1024);
+    if (configuration.empty())
+      throw std::runtime_error("Cannot read Falcon screen configuration: " + screenConfig);
+    const auto screen = Screen::fromConfig(Json::parse(configuration));
     lv_init();
     lv_tick_set_cb([]() -> uint32_t { return uint32_t(ticks()); });
     initializeFonts(fontPath, join(workspace, "assets/fonts/DejaVuSans.ttf"));
@@ -78,7 +76,7 @@ int main(int argc, char **argv) {
             resources);
     if (!demo.empty())
       app.demo(fileText(demo));
-    bridge.send("booted");
+    bridge.send("booted", {{"screen", screen.descriptor()}});
     int frame = 0;
     while (running && ((headless && fd < 0) || bridge.connected())) {
       for (const auto &m : bridge.receive()) {

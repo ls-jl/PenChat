@@ -1,5 +1,6 @@
 #include "accelerometer.h"
 #include "editor.hpp"
+#include "editor_layout.hpp"
 #include "photo_orientation.hpp"
 #include "common.hpp"
 #include "database.hpp"
@@ -21,6 +22,26 @@
 using namespace penchat;
 int main(int argc, char **argv) {
   assert(argc == 4);
+  {
+    for (const auto size : {std::make_pair(960,266), std::make_pair(936,280), std::make_pair(1024,320)}) {
+      const auto cfg = Json{{"screen", {{"width",size.first},{"height",size.second},{"direction",270},{"yoffset",107}}}};
+      const auto screen = Screen::fromConfig(cfg);
+      assert(screen.width == size.first && screen.height == size.second && screen.rotation == 270);
+      assert(screen.yoffset == 107 && screen.descriptor()["width"] == size.first);
+      const EditorLayout l(screen.width, screen.height);
+      assert(l.textX+l.textWidth == screen.width-8 && l.actionsY+44 == screen.height-8);
+      assert(l.textBottom()+6 == l.actionsY && l.keyWidth >= 44 && l.rowHeight >= 44);
+    }
+    for (const auto cfg : {Json::object(), Json{{"width",960},{"height",266}},
+         Json{{"screen", {{"width",960}}}}, Json{{"screen", {{"width","936"},{"height",280}}}},
+         Json{{"screen", {{"width",960.5},{"height",266}}}}, Json{{"screen", {{"width",0},{"height",280}}}},
+         Json{{"screen", {{"width",uint64_t(1)<<40},{"height",280}}}},
+         Json{{"screen", {{"width",936},{"height",280},{"direction",45}}}}}) {
+      bool rejected = false;
+      try { Screen::fromConfig(cfg); } catch (const std::exception &) { rejected = true; }
+      assert(rejected);
+    }
+  }
   {
     EditorState e; e.limit=5;
     assert(e.insert("中😀a") && e.cursor==3 && editUtf16(e.text,e.cursor)==4);
