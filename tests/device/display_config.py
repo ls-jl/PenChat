@@ -248,6 +248,17 @@ try:
     x1,y1,x2,y2=popup['actions']['undo'];tap((x1+x2)//2,(y1+y2)//2)
     wait(lambda:not state()['editor']['undo_menu']);assert state()['editor']['length']==1
     result['floating_undo_preserves_editor']=True
+    # Three lines put the caret below the top clamp so the magnifier offset is visible.
+    key('enter');key('c');key('enter');key('d')
+    editor=state()['editor'];cx,cy=editor['caret'];x=cx+2;y=min(editor['text_bounds'][3]-12,cy-12)
+    sx,sy=raw(x,y);ex,ey=raw(x+24,y)
+    command='PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --drag-hold '+str(sx)+' '+str(sy)+' '+str(ex)+' '+str(ey)+' 550 2000'
+    touch=subprocess.Popen(['adb','-s',SERIAL,'shell',command],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    try:
+        wait(lambda:state()['editor']['cursor_drag'] and abs(state()['touch']['x']-(x+24))<4)
+        assert state()['editor']['magnifier'];capture('keyboard-magnifier')
+    finally:assert touch.wait(timeout=5)==0
+    wait(lambda:not state()['editor']['magnifier']);result['caret_magnifier']=True
     key('mode');key('1');assert state()['editor']['mode']==1;capture('numbers')
     key('symbols');assert state()['editor']['mode']==2;capture('symbols');key('mode')
     key('language')

@@ -406,7 +406,7 @@ void App::editorMagnify(bool show) {
   const int ext=(int(editorMagnifierBuffer_->header.w)-lv_obj_get_width(editorText_))/2;
   lv_obj_set_pos(editorMagnifierImage_,90-(point.x-a.x1+ext)*7/4,29-(point.y-a.y1+ext)*7/4);
   lv_obj_set_pos(editorMagnifierCaret_,89,(58-lv_obj_get_height(editorMagnifierCaret_))/2);
-  lv_obj_set_pos(editorMagnifier_,std::max(layout.textX,std::min(screen_.width-188,int(point.x)-90)),std::max(4,int(point.y)-80));
+  lv_obj_set_pos(editorMagnifier_,std::max(layout.textX,std::min(screen_.width-188,int(point.x)-90)),std::max(4,int(point.y)-96));
   lv_obj_move_foreground(editorMagnifier_);
 }
 void App::editorSyncText(bool text) {
