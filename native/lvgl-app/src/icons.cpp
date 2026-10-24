@@ -113,16 +113,18 @@ void paint(lv_event_t *event) {
     // One closed tooth contour: radial spokes drawn over a circle caused
     // rounded caps to cut through the ring at every tooth root.
     float firstX=0,firstY=0,lastX=0,lastY=0;
-    const float angles[]={-22.5f,-13.f,-13.f,13.f,13.f,22.5f};
-    const float radii[]={7.2f,7.2f,10.f,10.f,7.2f,7.2f};
-    for (int i=0;i<48;++i) {
-      const float a=(i/6*45+angles[i%6])*.0174532925f;
+    const float angles[]={-30.f,-19.f,-10.f,10.f,19.f,30.f};
+    const float radii[]={8.f,8.f,11.f,11.f,8.f,8.f};
+    for (int i=0;i<36;++i) {
+      const float a=(i/6*60+angles[i%6])*.0174532925f;
       const float x=std::cos(a)*radii[i%6],y=std::sin(a)*radii[i%6];
       if(i) {if(std::abs(x-lastX)+std::abs(y-lastY)>.01f)line(lastX,lastY,x,y);}
       else {firstX=x;firstY=y;}
       lastX=x;lastY=y;
     }
-    line(lastX,lastY,firstX,firstY);circle(0,0,3);
+    // A half-unit inner radius keeps its snapped center aligned with the
+    // half-pixel center of an even-sized button at both supported icon scales.
+    line(lastX,lastY,firstX,firstY);circle(0,0,3.5f);
   } else if (k == "camera") {
     rect(-10, -6, 20, 15, 3);
     line(-5, -6, -3, -9);
