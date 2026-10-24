@@ -1708,17 +1708,6 @@ void App::settingsPage() {
       titleModelName = m.value("name", std::string());
   action("命名模型：" + titleModelName, left, 108,
          [this] { modelPicker(true); });
-  const auto summary = db_.summary();
-  auto storage = box(body_, left, 216, column, 48, theme::background);
-  lv_obj_set_scrollable(storage, false);
-  lv_obj_set_style_radius(storage, 10, 0);
-  auto count = label(storage,
-                     "存储：" + summary["sessions"].dump() + " 个会话 / " +
-                         summary["messages"].dump() + " 条消息",
-                     12, 0, column - 24, 20, theme::muted);
-  lv_label_set_long_mode(count, LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(count, font(20)->line_height);
-  lv_obj_align(count, LV_ALIGN_LEFT_MID, 12, 0);
   const auto reasoningMode =
       config.value("reasoning_display", std::string("collapsed"));
   const std::string reasoningName = reasoningMode == "always" ? "始终展开"
@@ -1736,21 +1725,22 @@ void App::settingsPage() {
            build();
          });
   const bool autoContext = config.value("auto_context_compression", true);
-  action(autoContext ? "自动上下文压缩：开" : "自动上下文压缩：关", left, 276,
+  action(autoContext ? "自动上下文压缩：开" : "自动上下文压缩：关", left, 216,
          [this, autoContext] {
            db_.setting("auto_context_compression", !autoContext);
            build();
          });
-  label(body_, "压缩前自动归档，原消息和图片保留", left, 328, column, 16, theme::muted);
-  action("关于 " PENCHAT_NAME, right, 276, [this] {
+  label(body_, "压缩前自动归档，原消息和图片保留", left, 280, column, 16, theme::muted);
+  action("关于 " PENCHAT_NAME, right, 268, [this] {
+    const auto summary = db_.summary();
     modal("关于 " PENCHAT_NAME,
-          "版本：" PENCHAT_VERSION "\n"
+          "版本：" PENCHAT_VERSION " · LVGL 9.6.0\n"
+          "存储：" + summary["sessions"].dump() + " 个会话 / " +
+          summary["messages"].dump() + " 条消息\n"
           "作者：" PENCHAT_AUTHOR "\n"
           "AI 协作：" PENCHAT_AI_CONTRIBUTOR "\n"
           "项目地址：" PENCHAT_PROJECT_URL);
   });
-  label(body_, PENCHAT_NAME " " PENCHAT_VERSION " · LVGL 9.6.0", right, 328,
-        column, 16, theme::muted);
 }
 void App::reasoningDisplayPicker() {
   modal("自动展开思考过程", "");
