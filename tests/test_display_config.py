@@ -56,6 +56,10 @@ def run(w,h,rotation):
             a.tap(w-80,h-30);t.wait_for(lambda:not a.diag()['editor']['active'])
             a.tap(40,32);a.tap(w*2//3-70,h-30);assert a.diag()['view']=='settings'
             screenshot(a,f'{w}-{h}-settings',w,h)
+            assert a.diag()['settings']['viewport'][1:4:2]==[0,h-1]
+            a.settings_swipe(-120);t.wait_for(lambda:not a.diag()['settings']['scrolling'])
+            assert a.diag()['settings']['heading'][3]<0
+            screenshot(a,f'{w}-{h}-settings-scrolled',w,h)
             for item in a.diag()['settings']['rows'].values():
                 x1,y1,x2,y2=item['bounds'];assert 0<=x1<x2<w
         finally:a.close()

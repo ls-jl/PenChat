@@ -888,6 +888,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
 }
 void App::clear() {
   settingsControls_.clear();
+  settingsHeading_ = nullptr;
   transferProgress_ = nullptr;
   scanImage_ = scanLabel_ = scanUse_ = scanHint_ = nullptr;
   historyRows_.clear();
@@ -1744,26 +1745,36 @@ Json App::settingsDiagnostic() const {
     if (control.toggle) row["checked"] = lv_obj_has_state(control.indicator, LV_STATE_CHECKED);
     rows[entry.first] = std::move(row);
   }
-  return {{"rows", rows}, {"scrolling", view_ == "settings" && body_ && lv_obj_is_scrolling(body_)}};
+  const bool active = view_ == "settings" && body_;
+  return {{"rows", rows}, {"scrolling", active && lv_obj_is_scrolling(body_)},
+          {"viewport", active ? bounds(body_) : Json()},
+          {"heading", active && settingsHeading_ ? bounds(settingsHeading_) : Json()}};
 }
 void App::settingsPage() {
-  pageHeader("设置");
+  // Unlike forms, Settings has no pinned title bar: its full-height reader
+  // scrolls the heading away and makes the released space usable by controls.
+  const int headingHeight = 48;
+  settingsHeading_ = label(body_, "设置", 10, 7, screen_.width - 130, 26);
+  lv_obj_set_style_pad_bottom(body_, 12, 0);
+  lv_obj_set_style_width(body_, 3, LV_PART_SCROLLBAR);
+  lv_obj_set_style_bg_color(body_, lv_color_hex(theme::muted), LV_PART_SCROLLBAR);
+  lv_obj_set_style_radius(body_, 3, LV_PART_SCROLLBAR);
   const int width = screen_.width - 118;
   const int gap = 16, column = (width - gap) / 2;
   const int left = 10, right = left + column + gap;
   const auto config = db_.settings();
   const auto settings = config.value("penchat_settings", Json::object());
-  label(body_, "聊天与会话", left, 4, width, 16, theme::muted);
-  settingsRow("models", "模型管理", "Provider 与模型", left, 28, column,
+  label(body_, "聊天与会话", left, headingHeight + 4, width, 16, theme::muted);
+  settingsRow("models", "模型管理", "Provider 与模型", left, headingHeight + 28, column,
               [this] { show("provider"); });
-  settingsRow("presets", "会话预设", "管理会话配置", right, 28, column,
+  settingsRow("presets", "会话预设", "管理会话配置", right, headingHeight + 28, column,
               [this] { show("presets"); });
   const auto reasoningMode = config.value("reasoning_display", std::string("collapsed"));
   const std::string reasoningName = reasoningMode == "always" ? "始终展开"
                                     : reasoningMode == "during" ? "思考完毕后收起" : "不展开";
-  settingsRow("reasoning", "思考过程", reasoningName, left, 92, column,
+  settingsRow("reasoning", "思考过程", reasoningName, left, headingHeight + 92, column,
               [this] { reasoningDisplayPicker(); });
-  settingsRow("image_auto_send", "图片自动发送", "开启后自动发送图片消息", right, 92, column,
+  settingsRow("image_auto_send", "图片自动发送", "开启后自动发送图片消息", right, headingHeight + 92, column,
               [this] {
                 auto value = db_.settings().value("penchat_settings", Json::object());
                 // Read first: C++14 allows [] to insert null before the RHS
@@ -1774,7 +1785,7 @@ void App::settingsPage() {
                 build();
               }, settings.value("autoSendCapturedContent", false));
   const bool autoTitle = config.value("auto_title_enabled", true);
-  settingsRow("auto_title", "自动命名", "首条回复完成后生成标题", left, 156, column,
+  settingsRow("auto_title", "自动命名", "首条回复完成后生成标题", left, headingHeight + 156, column,
               [this, autoTitle] {
                 db_.setting("auto_title_enabled", !autoTitle);
                 if (autoTitle) titleCancel_ = true;
@@ -1789,27 +1800,27 @@ void App::settingsPage() {
       titleModelMissing = false;
     }
   }
-  settingsRow("title_model", "命名模型", titleModelName, right, 156, column,
+  settingsRow("title_model", "命名模型", titleModelName, right, headingHeight + 156, column,
               [this] { modelPicker(true); }, -1, titleModelMissing);
   const bool autoContext = config.value("auto_context_compression", true);
-  settingsRow("auto_context", "自动上下文压缩", "压缩前归档，保留消息和图片", left, 220, column,
+  settingsRow("auto_context", "自动上下文压缩", "压缩前归档，保留消息和图片", left, headingHeight + 220, column,
               [this, autoContext] {
                 db_.setting("auto_context_compression", !autoContext);
                 build();
               }, autoContext);
-  settingsRow("archives", "归档会话", "查看、还原或删除归档", right, 220, column,
+  settingsRow("archives", "归档会话", "查看、还原或删除归档", right, headingHeight + 220, column,
               [this] { archiveOffset_ = 0; show("archives"); });
-  label(body_, "数据与应用", left, 292, width, 16, theme::muted);
-  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 316, column,
+  label(body_, "数据与应用", left, headingHeight + 292, width, 16, theme::muted);
+  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, headingHeight + 316, column,
               [this] { openTransfer(); });
   const bool persistentExports = config.value("persistent_export_directory", true);
   settingsRow("persistent_exports", "持久化导出目录",
               persistentExports ? "关闭应用后保留导出文件" : "关闭应用时清理导出文件",
-              right, 316, column, [this, persistentExports] {
+              right, headingHeight + 316, column, [this, persistentExports] {
                 db_.setting("persistent_export_directory", !persistentExports);
                 build();
               }, persistentExports);
-  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", left, 380, width,
+  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", left, headingHeight + 380, width,
               [this] {
                 const auto summary = db_.summary();
                 modal("关于 " PENCHAT_NAME,

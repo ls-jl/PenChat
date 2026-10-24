@@ -134,6 +134,7 @@ class App {
   int chatScroll_ = 0, chatControlsTarget_ = -1;
   std::string builtView_;
   int settingsScroll_ = 0;
+  lv_obj_t *settingsHeading_ = nullptr;
   struct SettingsControl {
     lv_obj_t *row, *title, *detail, *indicator;
     bool toggle;

@@ -29,7 +29,9 @@ and `[]` may insert null before the read.
 Release child processes, camera, pointers and the display
 plane on lifecycle transitions. Never dereference freed LVGL object pointers;
 register image cleanup on LV_EVENT_DELETE (9.6's old is_valid alias is unsafe).
-Section pages use a fixed 48px header and a separate scrolling body. Fixed-height
+Section forms use a fixed 48px header and a separate scrolling body. Settings is
+the exception: its title belongs to the full-height scrolling body and scrolls
+away; never leave an empty pinned header strip after it disappears. Fixed-height
 buttons and list captions must bound labels to one line with ellipsis; never center
 a wrapped label that can grow beyond its control.
 Use the shared `theme.hpp` palette for all pages and native rich-text rendering.

@@ -97,6 +97,12 @@ try:
         p=wait(mapped);result['corners'].append([p['x'],p['y']])
     tap(40,32);assert state()['navigation_open'];capture('drawer')
     tap(W*2//3-70,H-30);assert state()['view']=='settings';capture('settings')
+    assert state()['settings']['viewport'][1:4:2]==[0,H-1]
+    # A settled drag reveals Settings controls in the former title-bar area.
+    sx,sy=raw(W//2,H-50);ex,ey=raw(W//2,H-170)
+    shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --drag-hold '+str(sx)+' '+str(sy)+' '+str(ex)+' '+str(ey)+' 450 200 2>/dev/null')
+    wait(lambda:not state()['settings']['scrolling'])
+    assert state()['settings']['heading'][3]<0;capture('settings-scrolled')
     tap(40,32);assert state()['view']=='chat'
     if state()['navigation_open']:tap(W-30,100)
     wait(lambda:state()['toolbar_y']==H-58);time.sleep(.4)

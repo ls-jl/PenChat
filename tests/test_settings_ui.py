@@ -48,7 +48,21 @@ with tempfile.TemporaryDirectory(prefix='penchat-settings-') as folder:
             assert row['title'][3]<row['detail'][1],name
         assert rows['presets']['bounds'][0]-rows['models']['bounds'][2]-1==16
         assert all(48<=rows[k]['bounds'][1] and rows[k]['bounds'][3]<266 for k in ROWS[:6])
+        assert state['settings']['viewport'][1:4:2]==[0,state['height']-1]
+        assert state['settings']['heading'][1]==7
         shot(app,'first-screen-long-model')
+        app.settings_swipe(-120)
+        wait_for(lambda:not app.diag()['settings']['scrolling'])
+        scrolled=app.diag()
+        assert scrolled['settings']['heading'][3]<0
+        assert scrolled['settings']['viewport'][1]==0
+        # The old pinned-header strip is now part of the actionable viewport.
+        upper=[k for k,v in scrolled['settings']['rows'].items() if 0<=v['bounds'][1]<48 and v['bounds'][3]<scrolled['height']]
+        assert upper
+        before=scrolled['scroll_y'];locate(app.diag,app.settings_swipe,upper[0])
+        assert app.diag()['scroll_y']==before
+        shot(app,'scrolled-heading-hidden')
+        show_top(app)
         for desired in (True,False):
             for i,name in enumerate(SWITCHES):
                 if app.diag()['settings']['rows'][name]['checked']!=desired:

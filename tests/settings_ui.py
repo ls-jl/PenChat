@@ -10,7 +10,8 @@ def locate(read, swipe, name):
             continue
         row = state['settings']['rows'][name]
         x1, y1, x2, y2 = row['bounds']
-        if y1 >= 48 and y2 < state['height']:
+        viewport = state['settings']['viewport']
+        if y1 >= viewport[1] and y2 <= viewport[3]:
             time.sleep(.12)
             stable = read()['settings']
             settled = stable['rows'][name]
