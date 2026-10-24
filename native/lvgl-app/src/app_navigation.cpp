@@ -25,6 +25,8 @@ void App::resetBack() {
   if (backHint_) { lv_obj_delete(backHint_); backHint_ = nullptr; }
 }
 void App::nativeBack() {
+  if(replyBusy_){replyCancel_=true;return;}
+  if(contextRegenerating_){cancelContext();build();return;}
   if(messageEditBusy_)return;
   input_.cancel(); touchDown_ = false; composerTapAllowed_ = false;
   if (imageViewer_) closeImageViewer();

@@ -714,7 +714,7 @@ void App::resetPull() {
   updateChatControls(wasPulling);
 }
 bool App::chatTouch(int x, int y, bool pressed) {
-  if(!messageEdit_.empty()||messageEditBusy_){touchDown_=pressed;return false;}
+  if(!messageEdit_.empty()||messageEditBusy_||replyBusy_||contextRegenerating_){touchDown_=pressed;return false;}
   const bool began = pressed && !touchDown_;
   touchDown_ = pressed;
   const auto now = ticks();
@@ -1242,7 +1242,9 @@ void App::jumpToBottom() {
   paintVisible();
 }
 void App::newChat(bool inherit) {
-  if(!messageEdit_.empty() || messageEditBusy_)return;
+  if(!messageEdit_.empty() || messageEditBusy_ || replyBusy_ || contextRegenerating_)return;
+  const auto nextSession=uid("session");
+  if(!switchDraft(nextSession))return;
   auto preferences = sessionPreferences_;
   if (inherit) {
     auto model = currentModel();
@@ -1260,7 +1262,7 @@ void App::newChat(bool inherit) {
   pullNeedsPause_ = false;
   pullTrackActivity_ = false;
   stopNetwork();
-  session_ = uid("session");
+  session_ = nextSession;
   sessionPreferences_ = preferences;
   reasoningMetadata_ = Json::object();
   expandedReasoning_.clear();
@@ -1363,6 +1365,7 @@ void App::renderMessages(bool bottom, bool cached) {
                    {session_})
              .empty();
   int width = screen_.width - 112;
+  const auto questionSeq=db_.query("SELECT coalesce(min(seq),?) seq FROM chat_messages WHERE session_id=? AND role='user' AND (length(trim(coalesce(output_text,'')))>0 OR message_type='image')",{INT64_MAX,session_})[0]["seq"].get<int64_t>();
   bool more = int(messages.size()) >= 30;
   if (more)
     button(messageContent_, "加载更早消息", 0, 0, width, 35, [this] {
@@ -1529,13 +1532,10 @@ void App::renderMessages(bool bottom, bool cached) {
       label(wrap, stringValue(m, "status") == "error" ? "生成失败" :
             (stringValue(m, "status") == "interrupted" ? "上次生成已中断" : "已停止生成"),
             0, 0, textWidth, 17, theme::danger);
-      auto latest = cached ? Json::array() : db_.messages(session_, 0, 1);
-      if (!generating_ && !latest.empty() && latest[0]["id"] == id)
-        button(wrap, "重试", 0, 0, 140, 44, [this, id] {
-          events_.push("retry_request", {{"id", id}, {"session", session_}});
-        });
     }
+    if(stringValue(m,"role")=="assistant")replyBar(wrap,m,textWidth,m["seq"].get<int64_t>()>questionSeq);
   }
+  syncReplyControls();
   if(!messageEdit_.empty()) {
     auto banner=box(messageContent_,0,0,width,44,theme::background);
     lv_obj_set_scrollable(banner,false);
@@ -2141,7 +2141,7 @@ void App::closeNavigation(bool resumeCamera) {
     startCamera();
 }
 void App::toggleNavigation() {
-  if(!messageEdit_.empty()||messageEditBusy_)return;
+  if(!messageEdit_.empty()||messageEditBusy_||replyBusy_||contextRegenerating_)return;
   if (navigationOpen_) {
     closeNavigation();
     return;
@@ -2395,6 +2395,7 @@ bool App::canSend() {
           !stringValue(latest[0], "original_path").empty());
 }
 void App::sendMessage(const std::string &retry) {
+  if(replyBusy_)return;
   if(!messageEdit_.empty()){if(retry.empty())commitMessageEdit();return;}
   if (generating_ || contextBusy_)
     return;
@@ -2404,6 +2405,7 @@ void App::sendMessage(const std::string &retry) {
   if (!retry.empty() && (!failed || stringValue(latest[0], "id") != retry)) return;
   const std::string retryId = !retry.empty() ? retry :
       (!hasText(draft_) && failed ? stringValue(latest[0], "id") : std::string());
+  if(!retryId.empty()){retryWarning(retryId);return;}
   if (retryId.empty() && !canSend()) return;
   sendActionAt_=nowMs();
   startContext(false, retryId);
@@ -2460,7 +2462,7 @@ void App::sendPrepared(Json model, Json input, const std::string &retryId,
   build();
 }
 void App::storeImage(const Json &image, std::function<void(bool)> completion) {
-  if (imageStoreBusy_ || messageEditBusy_)
+  if (imageStoreBusy_ || messageEditBusy_ || replyBusy_)
     return;
   if (imageStoreWorker_.joinable())
     imageStoreWorker_.join();
@@ -2517,7 +2519,7 @@ void App::suspend(bool value) {
   viewerPointer_ = viewerCanvasTouch_ = false; viewerLastTap_ = 0;
   if (value && imageStoreWorker_.joinable())
     imageStoreWorker_.join();
-  if (value) editorInterrupt();
+  if (value) {replyCancel_=true;if(contextRegenerating_)cancelContext();editorInterrupt();}
   if (value) {
     visible_ = false;
     scanner_.eligible(false, session_);
@@ -2549,6 +2551,7 @@ void App::shutdown() {
   resetBack();
   closeImageViewer(false);
   cancelContext();
+  replyCancel_=true;if(replyWorker_.joinable())replyWorker_.join();replyBusy_=false;
   if (transfer_)
     transfer_->stop();
   if (imageStoreWorker_.joinable())
@@ -2817,6 +2820,7 @@ void App::tick() {
       scanEvent(e);
       continue;
     }
+    if(replyEvent(e))continue;
     if(messageEvent(e))continue;
     if (e.type == "image_view_close") {closeImageViewer();continue;}
     if (e.type == "image_view_request") {
@@ -2873,7 +2877,7 @@ void App::tick() {
       if (view_ == "chat" && visible_ && !keyboard_ &&
           e.data.value("session", std::string()) == session_) {
         input_.cancel();
-        sendMessage(e.data.value("id", std::string()));
+        retryWarning(e.data.value("id", std::string()));
       }
     } else if (e.type == "reasoning_toggle") {
       if (view_ == "chat" &&
@@ -2914,6 +2918,7 @@ void App::tick() {
         historyContext(id);
       }
     } else if (e.type == "title_result") {
+      if(replyBusy_||contextRegenerating_){events_.push(e.type,e.data);continue;}
       auto title = db_.settings().value("auto_title_enabled", true)
                        ? fitTitle(e.data.value("title", std::string()))
                        : std::string();
@@ -3015,7 +3020,8 @@ void App::tick() {
     }
   }
   syncBackPolicy();
-  tickTitles();
+  syncReplyControls();
+  if(!replyBusy_&&!contextRegenerating_)tickTitles();
   if (persistDirty_ && !saveInFlight_ && ticks() >= persistDue_)
     persistReply("streaming");
   if (dirty_ && ticks() >= renderDue_) {
@@ -3156,6 +3162,7 @@ Json App::diagnostics() const {
       {"navigation_active_y", navigationActive_ ? (active.y1 + active.y2) / 2 : -1},
       {"navigation_scroll", navigationList_ ? lv_obj_get_scroll_y(navigationList_) : 0},
       {"message_interactions",messageDiagnostic()},
+      {"reply_actions",replyDiagnostic()},
       {"navigation_button", view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back"},
       {"pull_indicator_y", pullIndicator_ ? lv_obj_get_y(pullIndicator_) : -1},
       {"pull_content_y", body_ ? lv_obj_get_style_translate_y(body_, LV_PART_MAIN) : 0},

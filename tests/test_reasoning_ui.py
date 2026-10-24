@@ -36,7 +36,7 @@ class Server(BasicServer):
                         item['summary']=[{'type':'summary_text','text':'公开总结'}]
                     time.sleep(1.8 if mode in ('delayed','summary-delayed') else .25)
                     emit({'type':'response.output_item.done','output_index':0,'item':item})
-                emit({'type':'response.output_text.delta','output_index':1,'delta':'回答完成。'})
+                emit({'type':'response.output_text.delta','output_index':0 if mode=='none' else 1,'delta':'回答完成。'})
                 final=({'output':[item] if mode!='none' else []})
                 final['output'].append({'type':'message','role':'assistant','content':[{'type':'output_text','text':'回答完成。'}]})
                 emit({'type':'response.completed','response':final})

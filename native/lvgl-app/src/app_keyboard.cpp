@@ -18,7 +18,7 @@ void App::edit(const std::string &text, const std::string &placeholder,
                std::function<void(const std::string &)> callback, int maxLength,
                const char *inputType, std::function<void()> cancelled,
                bool multiline, bool secret, bool selectionOnly) {
-  if (editor_.active || keyboard_) return;
+  if (editor_.active || keyboard_ || replyBusy_ || contextRegenerating_) return;
   closeNavigation(false); closeAttachments(); resetPull();
   editorSelectionOnly_=selectionOnly;
   editor_ = EditorState{};

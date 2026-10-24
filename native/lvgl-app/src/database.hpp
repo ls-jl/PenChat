@@ -14,6 +14,10 @@ class Database {
   Json settingsCache_, modelsCache_;
   bool onWorker() const { return std::this_thread::get_id() == worker_.get_id(); }
   std::string archiveCopy(const Json &snapshot, const std::string &label, const std::string &key);
+  void copyConversationRows(const Json &session, const Json &rows,
+                            std::atomic<bool> *cancel = nullptr);
+  void deleteConversationRows(const std::string &session, const Json &rows);
+  void refreshConversationCount(const std::string &session);
   void migrate(const std::string &path);
   void collectAssets(bool discover = false);
   void deferAssetCollection();
@@ -103,6 +107,10 @@ public:
   Json commitMessageEdit(const Json &snapshot, const Json &images,
                          const std::string &text, const Json &preferences,
                          bool archive, int64_t sentAt);
+  Json commitRegeneration(const Json &snapshot, const std::string &message,
+                          bool archive, Json checkpoint, std::atomic<bool> &cancel);
+  Json createBranch(const Json &snapshot, const std::string &message,
+                    const Json &preferences, std::atomic<bool> &cancel);
   Json summary();
 };
 } // namespace penchat

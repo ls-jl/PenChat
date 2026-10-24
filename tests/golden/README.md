@@ -2,8 +2,8 @@
 
 `markdown.png` is the visually reviewed 960×266 headless rendering of
 `tests/markdown-demo.md`, scrolled to the final content by the normal chat UI.
-It covers the narrow-screen composer with the original new-chat plus icon,
-table/math tail, CJK code comments,
+It covers the capsule composer and assistant copy/retry/branch controls,
+the table/math tail, CJK code comments,
 monospace code, horizontal clipping and link color. Native core tests separately
 cover all formula families, list/Markdown parsing and large horizontal tiles.
 

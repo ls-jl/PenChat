@@ -7,8 +7,9 @@ parser=argparse.ArgumentParser();parser.add_argument('--serial',required=True)
 parser.add_argument('--back-navigation',action='store_true')
 parser.add_argument('--history-time',action='store_true')
 parser.add_argument('--message-edit',action='store_true')
+parser.add_argument('--reply-actions',action='store_true')
 args=parser.parse_args();SERIAL=args.serial
-assert sum((args.back_navigation,args.history_time,args.message_edit))<=1,'Run isolated feature fixtures separately'
+assert sum((args.back_navigation,args.history_time,args.message_edit,args.reply_actions))<=1,'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 def shell(command):return subprocess.check_output(['adb','-s',SERIAL,'shell',command],text=True).replace('\r','').strip()
@@ -114,6 +115,13 @@ try:
     shell('mkdir -p '+DATA);privateIsolated=True
     if hasPublic:shell('mv '+public+' '+publicSaved)
     publicIsolated=True
+    if args.reply_actions:
+        import message_edit_flow,reply_actions_flow
+        sys.path.insert(0,str(ROOT/'tests'))
+        from test_reply_actions import fixture as reply_fixture
+        messageServer,messageHandler,files=message_edit_flow.prepare(ROOT,OUT/'fixture',DATA,SERIAL,reply_fixture)
+        shell('mkdir -p '+DATA+'/assets')
+        for source,target in files:subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
     if args.message_edit:
         import message_edit_flow
         messageServer,messageHandler,files=message_edit_flow.prepare(ROOT,OUT/'fixture',DATA,SERIAL)
@@ -162,6 +170,11 @@ try:
     shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --drag-hold '+str(sx)+' '+str(sy)+' '+str(ex)+' '+str(ey)+' 450 200 2>/dev/null')
     wait(lambda:not state()['settings']['scrolling'])
     assert state()['settings']['heading'][3]<0;capture('settings-scrolled')
+    if args.reply_actions:
+        tap(40,32)
+        if state()['navigation_open']:tap(W-30,100)
+        reply_actions_flow.run(globals(),messageHandler)
+        tap(40,32);tap(W*2//3-70,H-30)
     if args.message_edit:
         tap(40,32)
         if state()["navigation_open"]:tap(W-30,100)

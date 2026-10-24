@@ -157,9 +157,11 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
       parent, "", 0, y,
       width, 44,
       [this, id] {
+        if(replyBusy_||contextRegenerating_)return;
         if (longPressedSession_ == id)
           return;
         if (id != session_) {
+          if(!switchDraft(id))return;
           stopNetwork();
           session_ = id;
           sessionPreferences_ = db_.sessionPreferences(id);
@@ -308,6 +310,7 @@ void App::historyContext(const std::string &id) {
   });
 }
 void App::retireSession(const std::string &id, bool archive) {
+  if(!archive)sessionDrafts_.erase(id);
   if (id == session_)
     stopNetwork();
   if (archive)

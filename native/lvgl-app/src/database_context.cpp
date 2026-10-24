@@ -76,23 +76,6 @@ std::string Database::archiveCopy(const Json &snapshot, const std::string &label
   metadata[key] = {
       {"source", source}, {"created_at", nowMs()}, {"label", label}};
   metadata["title_state"] = "manual";
-  // Insert complete copies with regenerated ownership IDs, sharing private files.
-  auto copy = [&](const std::string &table, Json row) {
-    std::string columns, placeholders;
-    Json args = Json::array();
-    for (auto it = row.begin(); it != row.end(); ++it) {
-      if (!columns.empty()) {
-        columns += ',';
-        placeholders += ',';
-      }
-      columns += it.key();
-      placeholders += '?';
-      args.push_back(it.value());
-    }
-    execute("INSERT INTO " + table + "(" + columns + ") VALUES(" + placeholders +
-                ")",
-            args);
-  };
   auto session = snapshot.at("session");
   session["id"] = archived;
   session["status"] = "archived";
@@ -100,46 +83,7 @@ std::string Database::archiveCopy(const Json &snapshot, const std::string &label
   session["title"] = label + " · " + session.value("title", std::string("聊天"));
   session["metadata_json"] = metadata.dump();
   session["updated_at"] = nowMs();
-  copy("chat_sessions", session);
-  std::map<std::string, std::string> messages, assets;
-  for (auto row :
-       query("SELECT * FROM chat_messages WHERE session_id=? ORDER BY seq",
-             {source})) {
-    auto old = row.at("id").get<std::string>();
-    messages[old] = uid("message");
-    row["id"] = messages[old];
-    row["session_id"] = archived;
-    copy("chat_messages", row);
-  }
-  for (auto row :
-       query("SELECT * FROM message_assets WHERE session_id=?", {source})) {
-    auto old = row.at("id").get<std::string>();
-    assets[old] = uid("asset");
-    row["id"] = assets[old];
-    row["session_id"] = archived;
-    if (row["message_id"].is_string())
-      row["message_id"] = messages.at(row["message_id"].get<std::string>());
-    copy("message_assets", row);
-  }
-  for (auto row : query("SELECT * FROM message_parts WHERE session_id=? ORDER BY "
-                        "message_id,part_index",
-                        {source})) {
-    row["id"] = uid("part");
-    row["session_id"] = archived;
-    row["message_id"] = messages.at(row["message_id"].get<std::string>());
-    if (row["asset_id"].is_string())
-      row["asset_id"] = assets.at(row["asset_id"].get<std::string>());
-    copy("message_parts", row);
-  }
-  for (auto row :
-       query("SELECT * FROM stream_events WHERE session_id=? ORDER BY seq",
-             {source})) {
-    row["id"] = uid("event");
-    row["session_id"] = archived;
-    if (row["message_id"].is_string())
-      row["message_id"] = messages.at(row["message_id"].get<std::string>());
-    copy("stream_events", row);
-  }
+  copyConversationRows(session, snapshot.at("rows"));
   return archived;
 }
 Json Database::commitCompression(const Json &snapshot, Json checkpoint,

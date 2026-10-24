@@ -1,7 +1,7 @@
 """Real-touch message flow, called within display_config's data isolation."""
 import http.server,json,re,shutil,socket,sqlite3,subprocess,sys,threading,time,types
 
-def prepare(root,folder,data,serial):
+def prepare(root,folder,data,serial,fixture_builder=None):
     sys.path.insert(0,str(root/'tests'))
     from test_message_edit import fixture,Server
     Server.mode='none';Server.requests=[]
@@ -12,7 +12,7 @@ def prepare(root,folder,data,serial):
     server=http.server.ThreadingHTTPServer((host,0),Server)
     threading.Thread(target=server.serve_forever,daemon=True).start()
     if folder.exists():shutil.rmtree(folder)
-    folder.mkdir();fixture(folder,server.server_port)
+    folder.mkdir();(fixture_builder or fixture)(folder,server.server_port)
     with sqlite3.connect(folder/'penchat.db') as db:
         db.execute('update providers set base_url=?',('http://'+host+':'+str(server.server_port)+'/v1',))
         db.execute('update message_assets set original_path=?',(data+'/original.png',))

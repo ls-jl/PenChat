@@ -94,6 +94,22 @@ class App {
   void imageViewerTouch(int x, int y, bool pressed, bool cancelled);
   Json imageViewerDiagnostic() const;
 
+  std::map<std::string,std::string> sessionDrafts_;
+  bool switchDraft(const std::string &next);
+  struct ReplyControls {lv_obj_t *bar,*copy,*retry,*branch;bool body,question;};
+  std::map<std::string,ReplyControls> replyControls_;
+  std::string replyConfirmId_,replyToken_,replySession_;
+  Json replyConfirmModel_=Json::object();
+  std::thread replyWorker_;
+  std::atomic<bool> replyCancel_{false};
+  bool replyBusy_=false,contextRegenerating_=false;
+  void replyBar(lv_obj_t *,const Json &,int,bool);
+  void syncReplyControls();
+  void replyToast(const std::string &);
+  void retryWarning(const std::string &);
+  void branchReply(const std::string &);
+  bool replyEvent(const Event &);
+  Json replyDiagnostic() const;
   std::string imageDeleteId_;
   Json messageEdit_ = Json::object(), messageEditImages_ = Json::array();
   Json messageEditPreferences_ = Json::object();
@@ -400,7 +416,9 @@ class App {
   int contextGeneration_ = 0;
   std::thread contextWorker_;
   std::atomic<bool> contextCancel_{false};
-  void startContext(bool manual, const std::string &retry = "");
+  void startContext(bool manual, const std::string &retry = "",
+                    bool regenerate = false, bool archive = false,
+                    Json frozenModel = Json::object());
   void cancelContext();
   void contextProgress(const std::string &text);
   void contextEvent(Event &event);

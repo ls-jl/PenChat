@@ -105,21 +105,28 @@ void paint(lv_event_t *event) {
   auto circle = [&](float x, float y, float r) {
     rect(x - r, y - r, 2 * r, 2 * r, LV_RADIUS_CIRCLE);
   };
-  auto arc = [&](int start, int end, int radius) {
+  auto arc = [&](int start, int end, int radius, int x = 0, int y = 0) {
     lv_draw_arc_dsc_t d;
     lv_draw_arc_dsc_init(&d);
     d.color = ink;
     d.opa = opacity;
     d.width = 2;
     d.rounded = 1;
-    d.center = {int32_t(std::lround(cx)), int32_t(std::lround(cy))};
+    d.center = {int32_t(std::lround(cx + x * scale)), int32_t(std::lround(cy + y * scale))};
     d.radius = std::lround(radius * scale);
     d.start_angle = start;
     d.end_angle = end;
     lv_draw_arc(layer, &d);
   };
   const auto &k = icon->name;
-  if(k=="globe") {
+  if(k=="copy") {
+    rect(-4,-5,13,15,2);line(-8,5,-8,-9);line(-8,-9,4,-9);
+  } else if(k=="retry") {
+    arc(35,320,9);line(7,-6,7,-12);line(7,-6,1,-6);
+  } else if(k=="branch") {
+    line(-6,-5,-6,5);line(-6,2,0,2);arc(0,90,6,0,-4);line(6,-4,6,-5);
+    circle(-6,-8,2.5);circle(-6,8,2.5);circle(6,-8,2.5);
+  } else if(k=="globe") {
     circle(0,0,10);line(-10,0,10,0);line(-8,-5,8,-5);line(-8,5,8,5);
     rect(-4,-10,8,20,LV_RADIUS_CIRCLE);
   } else if(k=="clipboard") {

@@ -40,12 +40,17 @@ with tempfile.TemporaryDirectory(prefix='penchat-retry-') as directory:
             print('Requests:',len(Handler.requests),'Rows:',[(m['role'],m['status'],m['error_json']) for m in messages()],'State:',app.diag(),'Log:',(p/'runtime.log').read_text(),flush=True)
             raise
         assert app.process.poll() is None
+    def confirm_retry(app):
+        wait_for(lambda:bool(app.diag()['reply_actions']['confirm']))
+        count=len(Handler.requests);s=app.diag();width=(s['width']-262)//2
+        app.tap(84+26+width+width//2,s['height']-44)
+        wait_for(lambda:len(Handler.requests)>count)
     app=Native(binary,p)
     try:
         app.tap(908,232);status(app,'error');time.sleep(.15)
         first=messages()[-1]['id'];assert len(Handler.requests)==1
         assert app.diag()['modal']
-        Handler.mode='invalid';app.tap(770,225);status(app,'error');time.sleep(.15)
+        Handler.mode='invalid';app.tap(770,225);confirm_retry(app);status(app,'error');time.sleep(.15)
         assert len(Handler.requests)==2 and len(messages())==2
         assert messages()[-1]['id']==first
         app.tap(890,225)
@@ -55,9 +60,9 @@ with tempfile.TemporaryDirectory(prefix='penchat-retry-') as directory:
     app=Native(binary,p)
     try:
         assert messages()[-1]['status']=='interrupted' and len(Handler.requests)==2
-        Handler.mode='cut';app.tap(908,232);status(app,'error');time.sleep(.15)
+        Handler.mode='cut';app.tap(908,232);confirm_retry(app);status(app,'error');time.sleep(.15)
         assert len(Handler.requests)==3
-        Handler.mode='ok';app.tap(770,225);status(app,'complete')
+        Handler.mode='ok';app.tap(770,225);confirm_retry(app);status(app,'complete')
         assert len(Handler.requests)==4 and len(messages())==2
         assert not app.diag()['modal']
         assert messages()[-1]['id']==first
