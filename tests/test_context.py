@@ -154,7 +154,7 @@ def run():
                         assert db.execute("select count(*) from chat_sessions where status='archived'").fetchone()[0]==1
                         assert db.execute("select count(*) from chat_messages where session_id=?",(cp['archive_id'],)).fetchone()[0]==80
                         assert db.execute("select count(*) from message_assets").fetchone()[0]==2
-                    app.tap(40,168);snapshot(app,'context-summary-'+api);app.tap(890,222)
+                    app.attachment_action('summary');snapshot(app,'context-summary-'+api);app.tap(890,222)
                     # Explicit second compression, exactly one more complete pre-state copy.
                     before=len(Server.requests);manual(app);wait_idle(app)
                     assert checkpoint(p)['revision']==2
@@ -163,7 +163,7 @@ def run():
                     snapshot(app,'context-summary-manual-'+api)
                     app.tap(890,222);app.open_settings();drag(app,[220,180,120,60],x=350)
                     snapshot(app,'context-settings-'+api)
-                    app.to_chat();app.edit('ARCHIVE_KEEP');app.tap(40,168);app.tap(150,222)
+                    app.to_chat();app.edit('ARCHIVE_KEEP');app.attachment_action('summary');app.tap(150,222)
                     assert app.diag()['view']=='archives' and app.diag()['session']=='s'
                     snapshot(app,'context-archives-'+api)
                     app.to_chat();assert app.diag()['draft_length']==12

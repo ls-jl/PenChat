@@ -48,6 +48,9 @@ def run(w,h):
             info=a.diag()['session_info'];assert info['estimated_tokens']==after['estimated_tokens'] and info['budget']==after['budget']
             assert len(Server.requests)>=1 and all('PenChat_CONTEXT_COMPRESSION_V1' in json.dumps(r[1]) for r in Server.requests)
             a.tap(40,32)
+            a.tap(40,168);assert not a.diag()['modal'] and a.diag()['view']=='chat'
+            a.attachment_action('summary');assert a.diag()['modal'];shot(a,f'context-summary-{w}-menu-only')
+            a.tap(w-71,h-44)
             for _ in range(5):
                 a.tap(128,h-34);a.tap(w-40,80);assert not a.diag()['attachments']
             time.sleep(.2);assert a.diag()['view']=='chat' and a.diag()['context_usage'] is None

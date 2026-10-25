@@ -325,7 +325,7 @@ void App::toggleAttachments() {
   names.push_back("压缩上下文（计算中）");
   icons.push_back("history");
   names.push_back("查看上下文摘要");
-  icons.push_back("history");
+  icons.push_back("context-summary");
   if (db_.settings().value("presets_enabled", false)) {
     ids.push_back("presets");
     names.push_back("预设");
@@ -1029,14 +1029,6 @@ void App::build() {
     albumPage();
   else if (view_ == "crop")
     cropPage();
-  if (view_ == "chat") {
-    auto state = db_.sessionInfo(session_);
-    if (!state.empty() &&
-        objectField(state, "metadata_json").contains("context_compression"))
-      icon(
-          screenObj_, "history", 16, 144, 48, 48, [this] { contextDetails(); },
-          theme::background, theme::muted);
-  }
   if (view_ == "chat" && scanner_.available()) {
     auto hint = box(screenObj_, 12, 60, 64, 64);
     lv_obj_set_scrollable(hint, false);
@@ -2708,7 +2700,7 @@ void App::handle(const Json &m) {
     screenObj_ = box(lv_screen_active(), 0, 0, screen_.width, screen_.height);
     const std::vector<std::string> names = {
         "menu",         "back",     "up",         "down",   "plus",
-        "stop",         "settings", "history",    "camera", "album",
+        "stop",         "settings", "context-summary", "camera", "album",
         "newchat",      "trash",    "pin",        "gauge",  "chevron-right",
         "chevron-down", "shift",    "shift-lock", "delete", "enter",
         "left",         "right"};

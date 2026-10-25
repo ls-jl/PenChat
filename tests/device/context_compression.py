@@ -130,7 +130,7 @@ def run():
                 assert db.execute('select count(*) from chat_messages where session_id=?',(cp['archive_id'],)).fetchone()[0]==81
                 assert db.execute('select count(distinct stored_path),count(*) from message_assets').fetchone()==(1,2)
                 assert not db.execute('pragma foreign_key_check').fetchall()
-            d.tap(40,168);capture('summary-'+api);d.tap(150,222);d.view('archives');capture('archive-'+api)
+            d.attachment_action('summary',swipe);capture('summary-'+api);d.tap(150,222);d.view('archives');capture('archive-'+api)
             d.tap(726,76);assert d.state()['session']=='s';d.to_chat()
             type_draft('keep');mode('ok');manual();idle();assert checkpoint()['revision']==2
             assert d.state()['draft_length']==4;capture('manual-summary-'+api);d.tap(890,222)

@@ -77,6 +77,16 @@ def run(env,Server):
     assert len(Server.requests)==2 and 'PenChat_CONTEXT_COMPRESSION_V1' in json.dumps(Server.requests[-1])
     d.capture('context-ring-after-compression');d.tap(W-30,80)
     assert d.state()['view']=='chat' and d.pid()==native
+    d.tap(40,168);assert not d.state()['modal']
+    d.tap(128,H-34)
+    for _ in range(15):
+        current=d.state();b=current['attachment_actions']['summary'];v=current['attachment_viewport']
+        if b[1]>=v[1] and b[3]<=v[3]:break
+        d.drag(220,v[3]-10,220,max(v[1]+10,v[3]-110))
+    ring_state();d.capture('context-summary-new-icon');bounds(b)
+    d.wait(lambda:d.state()['modal']);d.capture('context-summary-menu-details')
+    d.tap(W-71,H-44);assert d.state()['view']=='chat'
+    d.result['context_summary_menu_only']=True
     d.result['context_usage_ring_physical_compression']=True
     d.result['session_info_context_api_cache_reasoning_and_draft']=True
     d.result['session_info_api']='chat' if d.SERIAL.endswith('113') else 'responses'

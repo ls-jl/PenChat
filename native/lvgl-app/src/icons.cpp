@@ -119,7 +119,14 @@ void paint(lv_event_t *event) {
     lv_draw_arc(layer, &d);
   };
   const auto &k = icon->name;
-  if(k=="info") {
+  if (k == "context-summary") {
+    // Open document corners, paired endpoints and two text strokes.
+    rect(-10,-10,4,4,LV_RADIUS_CIRCLE,true);
+    line(-8,-6,-8,5);arc(90,180,4,-4,5);line(-4,9,1,9);
+    line(-1,-9,4,-9);arc(270,360,4,4,-5);line(8,-5,8,6);
+    rect(6,6,4,4,LV_RADIUS_CIRCLE,true);
+    line(-3,-3,4,-3);line(-3,2,2,2);
+  } else if(k=="info") {
     circle(0,0,10);line(0,-1,0,6);rect(-1,-7,2,2,LV_RADIUS_CIRCLE,true);
   } else if(k=="copy") {
     rect(-4,-5,13,15,2);line(-8,5,-8,-9);line(-8,-9,4,-9);
