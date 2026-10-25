@@ -26,6 +26,13 @@ for item in json.loads((ROOT / 'licenses/manifest.json').read_text())['files']:
         assert hashlib.sha256((ROOT / source).read_bytes()).hexdigest() == item['sha256'], source
 adaptation = json.loads((ROOT / 'native/camera/stb-adaptation.json').read_text())
 assert hashlib.sha256((ROOT / 'native/camera' / adaptation['file']).read_bytes()).hexdigest() == adaptation['adapted_sha256']
+pinyin = json.loads((ROOT/'native/pinyin/source-lock.json').read_text())
+assert hashlib.sha256((ROOT/'native/pinyin/penchat.patch').read_bytes()).hexdigest()==pinyin['patch_sha256']
+for name,entry in pinyin['files'].items():
+    if (ROOT/'.deps/libpinyinime'/name).exists():
+        assert hashlib.sha256((ROOT/'.deps/libpinyinime'/name).read_bytes()).hexdigest()==entry['source_sha256'],name
+    if (ROOT/'.deps/libpinyinime-penchat'/name).exists():
+        assert hashlib.sha256((ROOT/'.deps/libpinyinime-penchat'/name).read_bytes()).hexdigest()==entry['adapted_sha256'],name
 if args.amr:
     with zipfile.ZipFile(args.amr) as archive:
         expected = {'assets/licenses/' + name for name in payload}

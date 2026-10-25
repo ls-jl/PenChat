@@ -26,3 +26,6 @@ The FreeType Project (www.freetype.org). All rights reserved.
 Third-party license texts and notices are preserved in licenses/ and embedded
 in generated packages under assets/licenses/. Source locations, licensing
 choices and binary redistribution prerequisites are in THIRD_PARTY_NOTICES.md.
+
+Independent pinyin uses libpinyinime (RobinNotBad, MIT). Its declared code/data origins
+and unresolved upstream grants are documented separately in THIRD_PARTY_NOTICES.md.

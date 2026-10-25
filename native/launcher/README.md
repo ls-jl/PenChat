@@ -42,8 +42,8 @@ SQLite is exclusively written by the native process. The shell does not read ext
 
 `src/launcher/ocr.js` adapts the system Global OCR signals, registers single-line
 scanMethod=0, and unregisters on completion, cancellation, timeout or page exit.
-It forwards text only; the native page prepares the candidate and opens the English
-IME for review. No image stitching code, OCR models, or extra OCR network service
+It forwards text only into the native editor for review. The standalone native
+pinyin engine owns composition and learning; the official editor is a manual fallback. No image stitching code, OCR models, or extra OCR network service
 are bundled. The Provider database remains native-owned and changes only on Save.
 
 The v1 touch payload accepts `cancelled: true` on system touch cancellation or

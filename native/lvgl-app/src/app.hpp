@@ -2,6 +2,7 @@
 #include "database.hpp"
 #include "transfer.hpp"
 #include "editor.hpp"
+#include "pinyin.hpp"
 #include "editor_layout.hpp"
 #include "images.hpp"
 #include "image_input.hpp"
@@ -39,6 +40,7 @@ class App {
   bool directImageInput_ = false;
   int64_t imageInputExitDue_ = 0;
   Events events_;
+  PinyinService pinyin_;
   std::unique_ptr<Transfer> transfer_;
   lv_obj_t *transferProgress_ = nullptr;
   std::string transferBuiltScreen_, transferScreen_ = "home", transferKind_ = "chats", transferOp_, transferError_, transferMapKey_;
@@ -383,6 +385,12 @@ class App {
   bool editorSelectionOnly_ = false;
   EditorLayout editorLayout() const { return EditorLayout(screen_.width,screen_.height,editorSelectionOnly_); }
   EditorState editor_;
+  Json editorLearning_ = Json::array(), editorExact_ = Json::array(), editorPinyinPending_;
+  bool editorLayoutMenu_ = false, editorPunctuation_ = false;
+  std::map<std::string, lv_obj_t *> editorLocalActions_;
+  void keyboardSettingsPage();
+  void editorUseLayout(int layout, bool cycle = false);
+  void editorRememberLayout();
   EditorClipboard editorClipboard_;
   lv_obj_t *editorHandles_[2] = {nullptr,nullptr};
   lv_obj_t *editorMagnifier_ = nullptr, *editorMagnifierImage_ = nullptr, *editorMagnifierCaret_ = nullptr;

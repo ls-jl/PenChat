@@ -49,6 +49,7 @@ public:
   void execute(const std::string &sql, const Json &args = Json::array());
   Json settings();
   void setting(const std::string &key, const Json &value);
+  void queueSetting(const std::string &key, const Json &value);
   Json sessions(int offset = 0, bool archived = false);
   Json sessionsAfter(const Json &cursor, bool archived = false);
   Json messagesBefore(const std::string &session, int64_t before, int limit = 30);

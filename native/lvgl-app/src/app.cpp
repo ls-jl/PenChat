@@ -63,6 +63,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
          const Screen &s, std::string workspace, std::string dataDir,
          const std::string &fontPath, const std::string &resources)
     : db_(db), bridge_(bridge), display_(display), input_(input), screen_(s), imageInput_(s),
+      pinyin_(events_, join(workspace, "assets/pinyin"), dataDir),
       images_(events_), camera_(events_, join(dataDir, "camera-tmp"), workspace),
       scanner_(events_, workspace, dataDir),
       rich_(fontPath, resources,
@@ -73,6 +74,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   transfer_->start("init");
   clearCrop();
   auto config = db_.settings();
+  editor_.preferredChinese=config.value("pinyin_chinese_layout",std::string("zh26"))=="zh9"?2:0;
   const auto savedFont = config.value("reading_font_percent", Json());
   if (savedFont.is_number_integer())
     readingFontPercent_ = int(std::max<int64_t>(75, std::min<int64_t>(150, savedFont.get<int64_t>())));
@@ -1013,6 +1015,8 @@ void App::build() {
     settingsPage();
   else if (view_ == "font_size")
     fontSizePage();
+  else if (view_ == "keyboard_settings")
+    keyboardSettingsPage();
   else if (view_ == "transfer")
     transferPage();
   else if (view_ == "presets")
@@ -1933,10 +1937,11 @@ void App::settingsPage() {
   settingsRow("history_time","历史时间显示",historyMode=="title"?"会话标题优先":historyMode=="off"?"关闭时间显示":"时间显示优先",left,284,column,[this]{historyTimePicker();});
   label(pageContent_, "阅读与显示", left, 356, width, 16, theme::muted);
   settingsRow("font_size", "字体大小", std::to_string(readingFontPercent_) + "% · 聊天、思考和公式",
-              left, 380, width, [this] {
+              left, 380, column, [this] {
                 readingFontDraft_ = readingFontPercent_;
                 show("font_size");
               });
+  settingsRow("keyboard", "键盘与输入", "独立拼音与学习记忆", right, 380, column, [this] { show("keyboard_settings"); });
   label(pageContent_, "数据与应用", left, 452, width, 16, theme::muted);
   settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 476, column,
               [this] { openTransfer(); });
@@ -2216,7 +2221,7 @@ void App::goBack() {
     transferBack();
     return;
   }
-  if (view_ == "font_size")
+  if (view_ == "font_size" || view_ == "keyboard_settings")
     show("settings");
   else if (view_ == "presets")
     show("settings");
@@ -2681,6 +2686,7 @@ void App::shutdown() {
   if(messageEditWorker_.joinable())messageEditWorker_.join();
   messageEditBusy_=false;cancelMessageEdit(false);
   editorInterrupt();
+  pinyin_.stop();
   if (editorRoot_) { lv_obj_delete(editorRoot_); editorRoot_ = editorText_ = nullptr; }
   scanner_.eligible(false, session_);
   afterScanRelease_ = {};
@@ -2835,9 +2841,7 @@ void App::handle(const Json &m) {
     } else if (!backTouch(m)) routeTouch(m);
   } else if (type == "visibility")
     suspend(!m.value("visible", false));
-  else if (type == "ime.result") {
-    editorResult(m);
-  } else if (type == "keyboard.result") {
+  else if (type == "keyboard.result") {
     if (!keyboard_ || m.value("requestId", std::string()) != keyboardId_)
       return;
     keyboard_ = false;
@@ -2909,6 +2913,9 @@ void App::tick() {
           }
         }
       }
+    } else if (saved.type == "setting_error") {
+      const auto message=std::string("中文布局偏好未能保存，本次选择仍保留。");
+      if(editor_.active){editor_.notice=message;editorBuild();}else error(message);
     } else if (saved.type == "save_error") {
       notice_ = saved.data.value("error", std::string("保存失败"));
       modal("内容尚未保存", notice_);
@@ -2959,6 +2966,10 @@ void App::tick() {
         error("图片保存失败，请检查存储空间后重试");
       continue;
     }
+    if (e.type == "pinyin.result") { editorResult(e.data); continue; }
+    if (e.type == "pinyin.notice") { notice_ = e.data.value("message",std::string()); if(editor_.active){editor_.notice=notice_;editorBuild();}else error(notice_);continue; }
+    if (e.type == "pinyin_clear_confirm") {if(view_=="keyboard_settings"){input_.cancel();modal("正在清除拼音记忆","请稍候…");pinyin_.clear();}continue;}
+    if (e.type == "pinyin.cleared") {if(view_=="keyboard_settings"){build();if(e.data.value("ok",false))modal("拼音记忆","已恢复基础词典排序。");else modal("未能清除拼音记忆","文件未能保存，请检查可用空间后重试。");}continue;}
     if (e.type == "editor_action") { if (editor_.active && visible_ && !keyboard_ && e.data.value("id",std::string()) == editor_.id) editorAction(e.data.value("action",std::string())); continue; }
     if (e.type.find("scan_") == 0) {
       scanEvent(e);

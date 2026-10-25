@@ -6,6 +6,7 @@ python3 "$ROOT/scripts/stage-fonts.py"
 bash "$ROOT/scripts/prepare-native-system.sh"
 python3 "$ROOT/scripts/fetch-lvgl-deps.py"
 python3 "$ROOT/scripts/prepare-microtex.py"
+python3 "$ROOT/scripts/prepare-pinyin.py"
 bash "$ROOT/scripts/build-render-deps.sh" "$TARGET"
 ARGS=()
 if [ "$TARGET" = orange ]; then

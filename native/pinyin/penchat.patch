@@ -1,0 +1,238 @@
+--- a/src/pinyin_ime.cpp
++++ b/src/pinyin_ime.cpp
+@@ -7,6 +7,7 @@
+ #include <iostream>
+ #include <map>
+ #include <new>
++#include <memory>
+ #include <set>
+ #include <string>
+ #include <vector>
+@@ -103,26 +104,8 @@
+ namespace
+ {
+ 
+-long long timer = 0;
+-
+-long long millis() {
+-    using namespace std::chrono;
+-    auto now = system_clock::now();
+-    auto ms = duration_cast<milliseconds>(now.time_since_epoch());
+-    return ms.count();
+-}
+-
+-void print_millis(const std::string& name) {
+-	std::cout<<"[pinyin_ime] "<<name<<" time="<<millis()<<std::endl;
+-}
+-
+-void timer_set() {
+-	timer = millis();
+-}
+-
+-void timer_print(const std::string& name) {
+-	std::cout<<"[pinyin_ime] "<<name<<" cost="<<(millis() - timer)<<std::endl;
+-}
++void timer_set() {}
++void timer_print(const std::string&) {}
+ 
+ void trie_insert(TrieNode* root, const std::string& word)
+ {
+@@ -231,7 +214,7 @@
+ 	}
+ 	*/
+ 
+-	return true;
++	return !ime->pinyin_to_words.empty();
+ }
+ 
+ /**
+@@ -246,30 +229,28 @@
+ 	std::ifstream fin(path.c_str());
+ 	if (!fin) return false;
+ 
++	size_t loaded = 0;
+ 	std::string pinxie;
+ 	uint32_t word_count;
+ 	std::string word_utf8;
+ 	uint32_t word_freq;
+ 	while (fin >> pinxie)
+ 	{
+-		if (!(fin >> word_count))
+-			break;
++		if (!(fin >> word_count) || word_count > 100000) return false;
+ 		for (uint32_t i = 0; i < word_count; i++)
+ 		{
+-			if (!(fin >> word_utf8))
+-				break;
+-			if (!(fin >> word_freq))
+-				break;
++			if (!(fin >> word_utf8)) return false;
++			if (!(fin >> word_freq)) return false;
+ 			std::wstring word = utf8_to_wstring(word_utf8);
+ 
+ 			// 使用 set 容器，自身即保证不重复
+ 			ime->pinyin_to_words[pinxie].insert(word);
+-			ime->dictionary[word] = word_freq;
++			ime->dictionary[word] = word_freq; ++loaded;
+ 		}
+ 	}
+ 	fin.close();
+ 
+-	return true;
++	return loaded > 0;
+ }
+ 
+ /**
+@@ -350,15 +331,16 @@
+  * @param out 输出音节列表（递归调用时从后往前插入）
+  * @return 分词成功返回 true
+  */
+-bool segmentation(const pinyin_ime_t* ime, const std::string& s, int pos, std::vector<std::string>& out)
++bool segmentation_impl(const pinyin_ime_t* ime, const std::string& s, int pos, std::vector<std::string>& out, std::vector<bool>& failed)
+ {
+ 	// 已处理完所有字符，成功
+ 	if (pos >= s.size())
+ 		return true;
+ 		
++	if (failed[pos]) return false;
+ 	// 跳过当前这一位的 ' 分隔符
+ 	if (s[pos] == '\'')
+-		return segmentation(ime, s, pos + 1, out);
++		return segmentation_impl(ime, s, pos + 1, out, failed);
+ 		
+ 	// 找到下一个分隔符或字符串末尾，作为当前音节的最大可能长度
+ 	int end = s.find('\'', pos);
+@@ -377,7 +359,7 @@
+ 		//std::cout<<seg_str<<","<<valid<<","<<len<<std::endl;
+ 
+ 		// 如果合法，进行后续分词，看是否成功
+-		if (valid && segmentation(ime, s, pos + len, out))
++		if (valid && segmentation_impl(ime, s, pos + len, out, failed))
+ 		{
+ 			// 如果成功，递归返回时在开头插入当前音节（保证最终顺序正确）
+ 			out.insert(out.begin(), seg_str);
+@@ -394,8 +376,15 @@
+ 		
+ 		// 后续分词不成功，缩短长度继续
+ 	}
++	failed[pos] = true;
+ 	// 所有长度都失败，分词失败
+ 	return false;
++}
++
++bool segmentation(const pinyin_ime_t* ime, const std::string& s, int pos, std::vector<std::string>& out)
++{
++  std::vector<bool> failed(s.size() + 1, false);
++  return segmentation_impl(ime, s, pos, out, failed);
+ }
+ 
+ /**
+@@ -606,23 +595,22 @@
+ 		return nullptr;
+ 	try
+ 	{
+-		pinyin_ime_t* ime = new (std::nothrow) pinyin_ime_t();
++		std::unique_ptr<pinyin_ime_t> owner(new (std::nothrow) pinyin_ime_t());
++		pinyin_ime_t* ime = owner.get();
+ 		if (!ime)
+ 			return nullptr;
+ 		ime->pinyin_path = pinyin_path;
+ 		ime->dict_path = dictionary_path;
+ 		if (!load_pinyin_table(ime, pinyin_path))
+ 		{
+-			delete ime;
+ 			return nullptr;
+ 		}
+ 		if (!load_dictionary(ime, dictionary_path))
+ 		{
+-			delete ime;
+ 			return nullptr;
+ 		}
+ 		timer_print("init");
+-		return ime;
++		return owner.release();
+ 	}
+ 	catch (...)
+ 	{
+@@ -728,10 +716,10 @@
+ 		if (index < 0 || index >= ime->candidates.size())
+ 			return PINYIN_IME_ERR_INDEX;
+ 
+-		std::string& chosen_yin = ime->candidates[index].first;
+-		std::wstring& chosen = ime->candidates[index].second;
++		const std::string chosen_yin = ime->candidates[index].first;
++		const std::wstring chosen = ime->candidates[index].second;
+ 		// 词频 +1
+-		ime->dictionary[chosen]++;
++		// PenChat commits learning explicitly after editor confirmation.
+ 
+ 		// 按词的字数推进音节
+ 		ime->final_word += chosen;
+@@ -775,14 +763,8 @@
+ 			// 所有音节处理完毕
+ 			ime->finished = true;
+ 			ime->candidates.clear();
+-			// 新词自学习：如果是词典中不存在的新组合，写入词典
+-			std::string segments_string = join(ime->segments, 0, "'");
+-			if (ime->dictionary.find(ime->final_word) == ime->dictionary.end())
+-			{
+-				// 初始词频暂且设为 1
+-				ime->pinyin_to_words[segments_string].insert(ime->final_word);
+-				ime->dictionary[ime->final_word] = 1;
+-			}
++			// PenChat owns the user dictionary; candidate selection is read-only.
++
+ 		}
+ 		else
+ 		{
+@@ -958,4 +940,37 @@
+ 	return ime->finished ? 1 : 0;
+ }
+ 
++
++// PenChat adapter: read-only selection metadata and explicit user-delta overlay.
++const char* pinyin_ime_candidate_pinyin(pinyin_ime_t* ime, uint32_t index) {
++  return ime && index < ime->candidates.size() ? ime->candidates[index].first.c_str() : nullptr;
++}
++int pinyin_ime_candidate_consumed(pinyin_ime_t* ime, uint32_t index) {
++  if (!ime || index >= ime->candidates.size() || ime->use_k9) return -1;
++  const size_t count = ime->candidates[index].second.size();
++  if (count > ime->segments.size()) return -1;
++  size_t offset = 0;
++  for (size_t i = 0; i < count; ++i) {
++    while (offset < ime->raw_pinyin.size() && ime->raw_pinyin[offset] == '\'') ++offset;
++    offset += ime->segments[i].size();
++  }
++  while (offset < ime->raw_pinyin.size() && ime->raw_pinyin[offset] == '\'') ++offset;
++  return offset <= ime->raw_pinyin.size() ? int(offset) : -1;
++}
++int pinyin_ime_user_word(pinyin_ime_t* ime, const char* py, const char* text, uint32_t frequency) {
++  if (!ime || !py || !text) return PINYIN_IME_ERR_INVALID_ARG;
++  try {
++    const std::string pinyin(py);
++    if (pinyin.empty() || pinyin.size() > 128 || pinyin.find_first_not_of("abcdefghijklmnopqrstuvwxyz'") != std::string::npos)
++      return PINYIN_IME_ERR_INVALID_ARG;
++    std::vector<std::string> segments;
++    const auto word = utf8_to_wstring(text);
++    if (word.empty() || word.size() > 32 || !segmentation(ime, pinyin, 0, segments) || segments.size() != word.size())
++      return PINYIN_IME_ERR_INVALID_ARG;
++    ime->pinyin_to_words[pinyin].insert(word);
++    ime->dictionary[word] = std::max(ime->dictionary[word], frequency);
++    return PINYIN_IME_OK;
++  } catch (...) { return PINYIN_IME_ERR_INVALID_ARG; }
++}
++
+ } // extern "C"
+--- a/include/pinyin_ime.h
++++ b/include/pinyin_ime.h
+@@ -73,6 +73,10 @@
+ /* 是否已结束当前输入（无剩余分词） */
+ int pinyin_ime_is_finished(pinyin_ime_t* ime);
+ 
++const char* pinyin_ime_candidate_pinyin(pinyin_ime_t*, uint32_t index);
++int pinyin_ime_candidate_consumed(pinyin_ime_t*, uint32_t index);
++int pinyin_ime_user_word(pinyin_ime_t*, const char* pinyin, const char* word, uint32_t frequency);
++
+ #ifdef __cplusplus
+ }
+ #endif

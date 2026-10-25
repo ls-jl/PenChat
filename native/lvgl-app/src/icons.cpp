@@ -126,6 +126,8 @@ void paint(lv_event_t *event) {
     line(-1,-9,4,-9);arc(270,360,4,4,-5);line(8,-5,8,6);
     rect(6,6,4,4,LV_RADIUS_CIRCLE,true);
     line(-3,-3,4,-3);line(-3,2,2,2);
+  } else if(k=="check") {
+    line(-8,0,-2,6);line(-2,6,9,-7);
   } else if(k=="info") {
     circle(0,0,10);line(0,-1,0,6);rect(-1,-7,2,2,LV_RADIUS_CIRCLE,true);
   } else if(k=="copy") {

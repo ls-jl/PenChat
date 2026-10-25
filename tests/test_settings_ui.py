@@ -10,7 +10,7 @@ OUT = pathlib.Path(os.environ.get('PENCHAT_SETTINGS_ARTIFACTS', ROOT/'.work/sett
 OUT.mkdir(parents=True, exist_ok=True)
 SWITCHES = ('image_auto_send', 'auto_title', 'auto_context', 'persistent_exports')
 ROWS = ('models','presets','reasoning','image_auto_send','auto_title','title_model',
-        'auto_context','archives','history_time','message_edit','font_size','transfer','persistent_exports','about')
+        'auto_context','archives','history_time','message_edit','font_size','keyboard','transfer','persistent_exports','about')
 
 def shot(app, name):
     path = app.directory/'lvgl-diagnostic.png'
@@ -122,4 +122,4 @@ with tempfile.TemporaryDirectory(prefix='penchat-settings-empty-') as folder:
         app.tap(300,88);assert app.diag()['view']=='provider'
         app.tap(40,32);assert app.diag()['view']=='settings'
     finally:app.close()
-print('Settings: 14 reachable controls, switch clicks/persistence, long values, pickers, swipe and child-return scroll passed.')
+print('Settings: 15 reachable controls, switch clicks/persistence, long values, pickers, swipe and child-return scroll passed.')

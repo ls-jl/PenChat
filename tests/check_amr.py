@@ -17,6 +17,10 @@ with zipfile.ZipFile(path) as archive:
     assert [n for n in names if n.endswith('.bin')] == ['app.js.bin']
     assert not any(re.search(r'(?i)(jsapi_(camera|openai)|openh264|features/|scanning/)', n) for n in names)
     assert [n for n in names if n.endswith('.rknn')] == ['assets/scanner/pintu_32.rknn']
+    pinyin_lock=json.loads((ROOT/'native/pinyin/source-lock.json').read_text())
+    assert sorted(n for n in names if n.startswith('assets/pinyin/') and not n.endswith('/'))==['assets/pinyin/dictionary.data','assets/pinyin/pinyin.txt']
+    for name in ['dictionary.data','pinyin.txt']:
+        assert hashlib.sha256(archive.read('assets/pinyin/'+name)).hexdigest()==pinyin_lock['files'][name]['source_sha256']
     binary = archive.read('assets/bin/penchat-lvgl')
     assert binary[:5] == b'\x7fELF\x02' and struct.unpack_from('<H', binary, 18)[0] == 183
     assert binary == (ROOT / 'assets/bin/penchat-lvgl').read_bytes()
@@ -44,6 +48,9 @@ with zipfile.ZipFile(path) as archive:
     assert len(bridges) == 2 and all('libjsapi_penchat_launcher' in n for n in bridges)
     bridge = (ROOT / 'native/prebuilt/arm64-orange/libjsapi_penchat_launcher.so').read_bytes()
     assert all(archive.read(n) == bridge for n in bridges)
+    obsolete = [b'im_search', b'im_get_candidate', b'im_reset_search', b'ime.request', b'ime.result', b'imeReset']
+    assert not any(symbol in bridge or symbol in binary for symbol in obsolete), 'Obsolete shared pinyin adapter in production binary'
+    assert b'libpinyinime.so' not in binary, 'Pinyin must be built statically from locked sources'
     for name, digest in json.loads((ROOT / 'native/lvgl-app/math-resources.sha256.json').read_text()).items():
         assert hashlib.sha256(archive.read('assets/' + name)).hexdigest() == digest, name
     assert archive.read('assets/licenses/miniz.txt') == (ROOT/'.deps/miniz/LICENSE').read_bytes()

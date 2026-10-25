@@ -11,13 +11,11 @@ def shot(a,name):
 def state(a):return a.diag()['editor']
 def key(a,value):
  k=next(k for k in state(a)['keys'] if k['key']==value);a.tap(k['x'],k['y'])
-def latest(a,text):
- while True:
-  r=a.receive('ime.request')
-  if r['text']==text:return r
-  reply(a,r,candidates=['旧'])
-def reply(a,r,**v):
- a.send('ime.result',session=r['session'],sequence=r['sequence'],revision=r['revision'],ok=True,**v);time.sleep(.08)
+def layout(a,value):
+ k=next(k for k in state(a)['keys'] if k['key']=='language')
+ hold(a,k['x'],k['y']);t.wait_for(lambda:state(a)['layout_menu'])
+ a.editor_action('layout:'+str({'zh26':0,'en26':1,'zh9':2}[value]))
+ assert state(a)['layout']==value
 def official(a,confirmed=False,text=''):
  a.editor_action('official');r=a.receive('keyboard.open');a.send('keyboard.result',requestId=r['requestId'],confirmed=confirmed,text=text);time.sleep(.1);return r
 def export_text(a):return official(a)['text']
@@ -25,7 +23,7 @@ def hold(a,x,y):a.send('touch',x=x,y=y,pressed=True);time.sleep(.52);a.send('tou
 def double(a,x,y):a.tap(x,y);a.tap(x,y)
 def seed(a,text):
  official(a,True,text);a.tap(500,232)
- if state(a)['chinese']:key(a,'language')
+ layout(a,'en26')
 def scan(a,r,capture,text,**extra):
  a.send('ocr.result',requestId=r['requestId'],session=r['session'],mode=r['mode'],capture=capture,confirmed=True,text=text,**extra);time.sleep(.1)
 with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
@@ -34,18 +32,16 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   a.tap(500,232);assert state(a)['active'] and state(a)['multiline']
   policy=a.receive('editor.state');a.send('editor.policy',session=policy['session'],sequence=policy['sequence'],ok=True,blocked=True)
   t.wait_for(lambda:state(a)['top_panel_blocked']);assert a.receive('ocr.start')['mode']=='single'
-  key(a,'n');old=a.receive('ime.request');key(a,'i');key(a,'enter')
+  key(a,'n');key(a,'i');key(a,'enter')
   assert state(a)['length']==2 and state(a)['preedit_length']==0
-  reply(a,old,candidates=['你']);assert state(a)['candidate_count']==0
+  time.sleep(.15);assert state(a)['candidate_count']==0
   assert export_text(a)=='ni'
   a.tap(630,236);a.tap(500,232)
-  key(a,'n');r=a.receive('ime.request');key(a,'i');reply(a,r,candidates=['旧']);assert state(a)['candidate_count']==0
-  r=latest(a,'ni');reply(a,r,candidates=['你','呢','泥','拟','逆','倪','妮','腻']);shot(a,'composition')
+  for c in 'nihao':key(a,c)
+  t.wait_for(lambda:state(a)['candidate_count']>0 and not state(a)['pending']);shot(a,'composition')
   a.tap(930,28);shot(a,'candidates');a.tap(640,100)
-  r=a.receive('ime.request');assert r['operation']=='choose';reply(a,r,committed='你',remaining='')
-  for c in 'hao':key(a,c)
-  r=latest(a,'hao');reply(a,r,candidates=['好']);key(a,'space');r=a.receive('ime.request');assert r['operation']=='choose'
-  reply(a,r,committed='好',remaining='');a.tap(880,236);assert not state(a)['active'] and a.diag()['draft_length']==2
+  t.wait_for(lambda:state(a)['preedit_length']==0 and state(a)['length']==2)
+  a.tap(880,236);assert not state(a)['active'] and a.diag()['draft_length']==2
   a.tap(500,232);key(a,'language');assert not state(a)['chinese'];shot(a,'english')
   key(a,'shift');key(a,'A');assert state(a)['shift']==0
   key(a,'shift');key(a,'shift');assert state(a)['shift']==2

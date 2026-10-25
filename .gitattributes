@@ -3,3 +3,6 @@ native/scanner/engine/include/rknn/rknn_api.h -whitespace
 
 # Preserve upstream license bytes (including CRLF/trailing spaces) for SHA-256 checks.
 licenses/* -text -whitespace
+
+# Serialized upstream diff context must retain its exact whitespace.
+native/pinyin/penchat.patch -whitespace

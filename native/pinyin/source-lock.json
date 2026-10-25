@@ -1,0 +1,30 @@
+{
+  "revision": "cda375cfa4aafa1791f42a628d4888eba0a3db36",
+  "patch_sha256": "9c75b4a6b7c62634f68a94fef34c08f2d808710a4418660cc48e2f6021b3793f",
+  "files": {
+    "src/pinyin_ime.cpp": {
+      "source_sha256": "bdd7a736956a08fc428e23c717a07e7765bf6eb3ae1e076bce9611affc0f1b4f",
+      "adapted_sha256": "5b2928b8db0bdb61528c323b13d5ad2f3efc9c3266930d64188c672ebebdc28a"
+    },
+    "include/pinyin_ime.h": {
+      "source_sha256": "d7de373e7a85e0f054655cc3b3a682b88f098ac5f8676683b2df63e19149e057",
+      "adapted_sha256": "9f697c2ca42cc514393ae42066ed86e1b5681881f81c16567142ab39371eeba5"
+    },
+    "src/utf8.cpp": {
+      "source_sha256": "c55a3d3ed4c4dbafcf24ea0cb3ee2fea0f7cc88f4e2ec6aed29cbf54a6b2f005",
+      "adapted_sha256": "c55a3d3ed4c4dbafcf24ea0cb3ee2fea0f7cc88f4e2ec6aed29cbf54a6b2f005"
+    },
+    "src/utf8.h": {
+      "source_sha256": "85aa3e125a008c06d373213144b15f2c2e8c861a23e9ed017968a328b76d0de4",
+      "adapted_sha256": "85aa3e125a008c06d373213144b15f2c2e8c861a23e9ed017968a328b76d0de4"
+    },
+    "pinyin.txt": {
+      "source_sha256": "a812335874e92cc44e74a96e046e9611ace3de18c738e662cc2ec50e63a7cda4",
+      "adapted_sha256": "a812335874e92cc44e74a96e046e9611ace3de18c738e662cc2ec50e63a7cda4"
+    },
+    "dictionary.data": {
+      "source_sha256": "4489607de5f4ef08918d47be7eddf8ce69dca190552117e4ac341a59375a951a",
+      "adapted_sha256": "4489607de5f4ef08918d47be7eddf8ce69dca190552117e4ac341a59375a951a"
+    }
+  }
+}

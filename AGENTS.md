@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-PenChat 0.1.0 is a native LVGL app for ORANGE (RK3562/AArch64, 960×266).
+PenChat 0.2.1 is a native LVGL app for ORANGE (RK3562/AArch64, 960×266).
 The Falcon AMR is a thin launcher with a full-screen hole, system IME, touch and
 lifecycle forwarding. Do not put business UI or networking back into Vue.
 Scanning uses the source-pinned Stream32 backend in native/scanner, with a
@@ -17,6 +17,7 @@ previews and join/cancel readers before releasing scan results.
 - `native/lvgl-app/`: native UI, Markdown/math, HTTP/SSE, SQLite, images/camera.
 - `native/scanner/`: Stream32 source, isolated worker, hardware lease and row PNG encoding.
 - `native/launcher/`: source-built Falcon launch/IPC bridge.
+- `native/pinyin/`: locked libpinyinime source overlay and resource provenance.
 - `native/camera/`: reused V4L2/DRM/image primitives; no opaque camera libraries.
 - `src/launcher/`: thin AMR page; `assets/images/`: product icons.
 - `native/vendor/`: SDK source for the launch bridge.
@@ -167,3 +168,14 @@ specify explicit resolutions; camera sensor capture sizes are independent of dis
 `tests/device/display_config.py --serial <explicit serial>` covers the user-authorized Y02
 and ORANGE display targets using their config and discovered input device. Keep ORANGE
 scanner calibration guards even when display/input support expands to another board.
+
+The native editor owns libpinyinime on one background worker. Never reintroduce the Falcon
+shared decoder, system pinyin imports, symbol borrowing or a fallback bridge for candidates.
+The official text editor remains a manually selected fallback; OCR is independent. Keep
+26-key Chinese, English and nine-key main layouts separate from number/symbol pages.
+Ordinary globe taps toggle preferred Chinese/English; rapid unedited taps under 2s cycle
+Chinese26/English/Chinese9. Only actual Chinese typing changes the persisted preference.
+Park unfinished Chinese compositions separately; Enter emits original letters/digits, while
+finishing discards inactive compositions. Learning commits only after confirmed editing,
+never from secret fields/OCR/paste/cancel. Base dictionaries are read-only; private user
+deltas use bounded 10000-record/2MiB atomic files, never logs or transfer exports.

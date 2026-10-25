@@ -40,7 +40,6 @@ export default {
     this.setBackPolicy(true)
     this.setNativeEditorPolicy(false)
     this.stopOcr()
-    this.resetIme()
     this.visible = false
     this._touchPoints = []
     this.send('touch', { x: 0, y: 0, pressed: false, cancelled: true, points: [] })
@@ -112,8 +111,6 @@ export default {
             this.send('display.area', { x: 0, y: 0, width: screen.width, height: screen.height })
           }
           else if (event.type === 'ready') { this._nativeReady = true; clearTimeout(this._readyTimer); this._readyTimer = null }
-          else if (event.type === 'ime.request') this.queryIme(event)
-          else if (event.type === 'ime.reset') this.resetIme()
           else if (event.type === 'editor.state') this.editorState(event)
           else if (event.type === 'navigation.state') this.navigationState(event)
           else if (event.type === 'keyboard.open') this.openKeyboard(event)
@@ -194,28 +191,8 @@ export default {
       if (this._ocr) this._ocr.stop()
       this._ocr = null; this._ocrRequest = null
     },
-    resetIme() {
-      this._imeEpoch = (this._imeEpoch || 0) + 1
-      if (typeof launcher.imeReset === 'function') launcher.imeReset()
-    },
-    async queryIme(event) {
-      const epoch = this._imeEpoch || 0
-      const generation = this._generation
-      let result = { ok: false }
-      try {
-        // Import initializes the firmware-owned decoder. No private word data
-        // is copied and no system keyboard implementation is modified.
-        if (!this._imeModule) this._imeModule = import('im')
-        await this._imeModule
-        if (epoch !== (this._imeEpoch || 0) || generation !== this._generation || !this.visible || this.keyboardOpen || this._disposed) return
-        if (typeof launcher.ime === 'function') result = launcher.ime(event)
-      } catch (_) { result = { ok: false } }
-      if (epoch === (this._imeEpoch || 0) && generation === this._generation && this.visible && !this._disposed)
-        this.send('ime.result', Object.assign({}, result, { session: event.session, sequence: event.sequence, revision: event.revision }))
-    },
     openKeyboard(event) {
       this.setNativeEditorPolicy(false)
-      this.resetIme()
       this.stopOcr()
       if (this.keyboardOpen || !this.visible) { this.send('keyboard.result', { requestId: event.requestId, confirmed: false, text: '' }); return }
       this.keyboardOpen = true
@@ -301,7 +278,6 @@ export default {
       this._nativeEditor = null
       this._disposed = true
       this.stopOcr()
-      this.resetIme()
       this.send('exit')
       this.running = false
       clearInterval(this._poll); clearTimeout(this._readyTimer)

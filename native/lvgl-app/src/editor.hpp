@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <deque>
 #include <string>
@@ -57,7 +58,34 @@ inline size_t editBoundary(const std::string &s,size_t index,bool forward=false)
   return *next==index||forward||next==boundaries.begin()?*next:*std::prev(next);
 }
 struct EditorState {
-  struct Snapshot { std::string text, preedit; size_t cursor, anchor; bool all; };
+  struct Composition { std::string raw, fixed, word, pinyin; int pieces=0; };
+  struct Snapshot {
+    std::string text, preedit, fixed, word, pinyin;
+    std::array<Composition,2> parked;
+    size_t cursor, anchor; bool all; int layout, pieces;
+  };
+  // Main layout and numeric/symbol page are independent state machines.
+  int layout=0, preferredChinese=0, chainPieces=0;
+  uint64_t lastGlobe=0;
+  bool globeChain=false;
+  std::string fixed, chainWord, chainPinyin;
+  std::array<Composition,2> parked;
+  void contentChanged() { globeChain=false; }
+  void changeLayout(int next) {
+    if(layout!=1)parked[layout==2?1:0]={preedit,fixed,chainWord,chainPinyin,chainPieces};
+    preedit.clear();fixed.clear();chainWord.clear();chainPinyin.clear();chainPieces=0;
+    layout=next;chinese=next!=1;mode=0;
+    if(chinese) {
+      auto &stored=parked[layout==2?1:0];
+      preedit=stored.raw;fixed=stored.fixed;chainWord=stored.word;chainPinyin=stored.pinyin;chainPieces=stored.pieces;
+      stored=Composition{};
+    }
+  }
+  void globe(uint64_t now) {
+    const bool rapid=globeChain&&now>=lastGlobe&&now-lastGlobe<2000;
+    const int next=rapid?(layout+1)%3:layout==1?preferredChinese:1;
+    changeLayout(next);lastGlobe=now;globeChain=true;
+  }
   std::string text, preedit, placeholder, id, notice;
   size_t cursor=0, anchor=0, limit=4096;
   bool active=false, chinese=true, multiline=false, secret=false, reveal=false, all=false;
@@ -69,19 +97,19 @@ struct EditorState {
   void select(size_t start,size_t end) { all=false;anchor=editBoundary(text,start);cursor=editBoundary(text,end,true); }
   std::string selection() const { auto r=range();auto a=editByte(text,r.first);return text.substr(a,editByte(text,r.second)-a); }
   size_t retained() const { auto r=range();return editLength(text)-(r.second-r.first); }
-  void remember() { if(undo.size()==20) undo.erase(undo.begin());undo.push_back({text,preedit,cursor,anchor,all}); }
+  void remember() { if(undo.size()==20) undo.erase(undo.begin());undo.push_back({text,preedit,fixed,chainWord,chainPinyin,parked,cursor,anchor,all,layout,chainPieces}); }
   bool insert(const std::string &value,bool record=true) {
     if(retained()+editLength(value)>limit) { notice="已达到长度上限";return false; }
     if(record) remember();
     auto r=range();auto a=editByte(text,r.first);text.replace(a,editByte(text,r.second)-a,value);
     cursor=r.first+editLength(value);anchor=cursor;all=false;return true;
   }
-  bool commit(const std::string &value) { auto combined=preedit+value;if(!insert(combined))return false;preedit.clear();return true; }
-  bool raw() { if(preedit.empty()) return true;if(!insert(preedit)) return false;preedit.clear();return true; }
+  bool commit(const std::string &value) { auto combined=preedit+value;if(!insert(combined))return false;preedit.clear();fixed.clear();chainWord.clear();chainPinyin.clear();chainPieces=0;return true; }
+  bool raw() { if(preedit.empty()) return true;if(!insert(preedit)) return false;preedit.clear();fixed.clear();chainWord.clear();chainPinyin.clear();chainPieces=0;return true; }
   void erase() {
     if(preedit.empty() && !selected() && !cursor) return;
     remember();
-    if(!preedit.empty()) preedit.pop_back();
+    if(!preedit.empty()) { preedit.pop_back(); fixed.clear(); }
     else if(selected()) insert("",false);
     else { auto end=cursor;auto start=editBoundary(text,cursor-1);text.erase(editByte(text,start),editByte(text,end)-editByte(text,start));position(start); }
   }
@@ -92,7 +120,7 @@ struct EditorState {
     if(asciiWord(chars[at])) { while(begin && asciiWord(chars[begin-1]))--begin;while(end<chars.size()&&asciiWord(chars[end]))++end; }
     select(begin,end);
   }
-  void revert() { if(undo.empty())return;auto s=undo.back();undo.pop_back();text=s.text;preedit=s.preedit;cursor=s.cursor;anchor=s.anchor;all=s.all; }
+  void revert() { if(undo.empty())return;auto s=undo.back();undo.pop_back();text=s.text;preedit=s.preedit;fixed=s.fixed;chainWord=s.word;chainPinyin=s.pinyin;parked=s.parked;layout=s.layout;chinese=layout!=1;chainPieces=s.pieces;cursor=s.cursor;anchor=s.anchor;all=s.all;contentChanged(); }
 };
 struct EditorClipboard {
   std::deque<std::string> records;

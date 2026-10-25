@@ -1,7 +1,6 @@
 #include "jquick_config.h"
 #include "jqutil_v2/jqutil.h"
 #include "jsmodules/JSCModuleExtension.h"
-#include "Pinyin.hpp"
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
@@ -16,11 +15,9 @@ using namespace JQUTIL_NS;
 namespace {
 class Launcher : public JQBaseObject {
   std::mutex mutex_;
-  Pinyin pinyin_;
   int fd_ = -1;
   pid_t pid_ = -1;
   void stopLocked() {
-    pinyin_.reset();
     if (fd_ >= 0) {
       shutdown(fd_, SHUT_RDWR);
       close(fd_);
@@ -110,16 +107,6 @@ public:
     fcntl(fd_, F_SETFL, fcntl(fd_, F_GETFL) | O_NONBLOCK);
     info.post(Bson::object{{"ok", true}, {"pid", int(child)}});
   }
-  void ime(JQFunctionInfo &info) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto input = info.toParamsHolder();
-    try { info.GetReturnValue().Set(pinyin_.run(input[0])); }
-    catch (...) { pinyin_.reset(); info.GetReturnValue().Set(Bson::object{{"ok",false}}); }
-  }
-  void imeReset(JQFunctionInfo &info) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pinyin_.reset();
-  }
   void send(JQFunctionInfo &info) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto input = info.toParamsHolder();
@@ -189,8 +176,6 @@ int init(JSContext *ctx, JSModuleDef *module) {
   auto tpl = JQFunctionTemplate::New(env.get(), "launcher");
   tpl->InstanceTemplate()->setObjectCreator([]() { return new Launcher; });
   tpl->SetProtoMethodPromise("start", &Launcher::start);
-  tpl->SetProtoMethod("ime", &Launcher::ime);
-  tpl->SetProtoMethod("imeReset", &Launcher::imeReset);
   tpl->SetProtoMethod("send", &Launcher::send);
   tpl->SetProtoMethod("poll", &Launcher::poll);
   tpl->SetProtoMethod("status", &Launcher::status);

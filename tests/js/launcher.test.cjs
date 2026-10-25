@@ -173,20 +173,12 @@ test('a timeout from a previous startup cannot close a later generation', async 
   assert.equal(f.page.running, true)
   f.page.dispose()
 })
-test('native IME rejects lifecycle-stale queries and propagates candidate revision', async () => {
-  const f = fixture(); await f.page.boot()
-  let resolve
-  f.page._imeModule = new Promise(r => { resolve = r })
-  f.native.ime = () => ({ ok: true, candidates: ['你'] })
-  const request = { session: 's', sequence: 3, revision: 7, text: 'ni' }
-  const pending = f.page.queryIme(request)
-  f.options.onHide.call(f.page); resolve({}); await pending
-  assert(!f.calls.some(c => c[0] === 'send' && c[1].type === 'ime.result'))
-  f.page.visible = true
-  await f.page.queryIme(request)
-  const result = f.calls.find(c => c[0] === 'send' && c[1].type === 'ime.result')[1]
-  assert.equal(result.revision, 7); assert.equal(result.sequence, 3); assert.equal(result.session, 's')
-  f.page.dispose()
+test('native keyboard is independent of Falcon shared input methods', () => {
+  const source=fs.readFileSync('src/launcher/LauncherPage.vue','utf8')
+  assert(!source.includes("import('im')"))
+  assert(!source.includes('queryIme'))
+  const f=fixture()
+  assert.equal(typeof f.page.queryIme,'undefined')
 })
 test('multitouch forwards active IDs, preserves a gesture through finger changes and ends once', async () => {
   const f = fixture(); await f.page.boot(); f.calls.length = 0

@@ -100,3 +100,16 @@ libcurl、SQLite、glibc、系统输入法/OCR 与 Falcon 宿主由设备提供�
 `python3 scripts/stage-licenses.py` 校验许可副本哈希并将 LICENSE、NOTICE、本清单及
 许可原文放入 AMR 的 `assets/licenses/`。`npm run check:licenses` 检查来源副本、
 许可哈希和打包结果；这些自动检查只验证材料完整性，不宣称未知授权已解决。
+
+## libpinyinime
+
+Source: https://github.com/RobinNotBad/libpinyinime, revision cda375cfa4aafa1791f42a628d4888eba0a3db36.
+The upstream repository declares MIT; exact notice: `licenses/libpinyinime.txt`.
+PenChat builds from locked source with a checksum-pinned adapter for read-only selection,
+explicit user deltas, bounded segmentation and exception cleanup. No upstream binary is reused.
+
+The upstream credits https://github.com/syhien/pinyin-IME and derives its dictionary from
+https://github.com/zispace/hanzi-words-cycb. Those source repositories do not supply separate
+license grants in their inspected roots; this inventory does not infer or certify those grants,
+or relicense their material under PenChat's Apache-2.0. The upstream dictionary and phonetic
+table hashes are recorded separately in `native/pinyin/source-lock.json`.

@@ -220,6 +220,16 @@ void Database::setting(const std::string &key, const Json &value) {
           "VALUES(?,?,?)",
           {key, value.dump(), nowMs()});
 }
+void Database::queueSetting(const std::string &key, const Json &value) {
+  {
+    std::lock_guard<std::mutex> guard(jobsMutex_);
+    if(stopping_||jobs_.size()>=512) {saveEvents_.push("setting_error",{{"key",key}});return;}
+    jobs_.push_back([this,key,value] {
+      try {setting(key,value);}catch(...){saveEvents_.push("setting_error",{{"key",key}});}
+    });
+  }
+  jobsReady_.notify_one();
+}
 Json Database::sessions(int offset, bool archived) {
   if (!onWorker()) {
     return perform([=] { return sessions(offset, archived); });

@@ -38,3 +38,5 @@ assets/scanner/
 *.so
 *.so.*
 *.a
+
+assets/pinyin/

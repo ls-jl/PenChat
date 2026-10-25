@@ -59,6 +59,12 @@
       "revision": "293d4db1b7d0ffee9756d035b9ac6f7431ef8492",
       "url": "https://codeload.github.com/richgel999/miniz/tar.gz/293d4db1b7d0ffee9756d035b9ac6f7431ef8492",
       "sha256": "27d99216e9127d1678085639f3059f6907a02c044e8a38392a39f96163ddbbf0"
+    },
+    {
+      "name": "libpinyinime",
+      "revision": "cda375cfa4aafa1791f42a628d4888eba0a3db36",
+      "url": "https://codeload.github.com/RobinNotBad/libpinyinime/tar.gz/cda375cfa4aafa1791f42a628d4888eba0a3db36",
+      "sha256": "02a218692babca26bcf9332e01892c9dc2fd4d5a4019da6286cfb7ef5957f0e2"
     }
   ]
 }
