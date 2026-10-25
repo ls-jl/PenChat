@@ -436,6 +436,9 @@ class App {
   void openSessionInfo();
   void refreshSessionInfo();
   void sessionInfoPage();
+  void updateContextUsage();
+  Json contextUsageDiagnostic() const;
+  lv_obj_t *contextUsageArc_ = nullptr, *contextUsageLabel_ = nullptr;
   bool sessionInfoEvent(const Event &);
   std::thread sessionInfoWorker_;
   bool sessionInfoBusy_ = false, sessionInfoPending_ = false;

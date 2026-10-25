@@ -71,13 +71,52 @@ bool App::sessionInfoEvent(const Event &event) {
   }
   if (sessionInfoWorker_.joinable()) sessionInfoWorker_.join();
   sessionInfoBusy_ = false;
-  if (view_ == "session_info" && event.data.value("session", std::string()) == sessionInfoSession_ &&
+  const bool reader = view_ == "session_info";
+  const bool menu = view_ == "chat" && attachments_ && popupKind_ == "attachments";
+  if ((reader || menu) && event.data.value("session", std::string()) == sessionInfoSession_ &&
       event.data.value("token", uint64_t(0)) == sessionInfoGeneration_) {
     sessionInfoData_ = event.data.at("data");
-    build();
+    if (reader) build(); else updateContextUsage();
   }
-  if (view_ == "session_info" && sessionInfoPending_) { refreshSessionInfo(); build(); }
+  if ((reader || menu) && sessionInfoPending_) { refreshSessionInfo(); if (reader) build(); }
   return true;
+}
+void App::updateContextUsage() {
+  if (!contextUsageArc_ || !contextUsageLabel_) return;
+  const auto &data = sessionInfoData_;
+  std::string percent = data.contains("error") ? "未提供" : "未配置";
+  int value = 0;
+  const auto budget = data.value("budget", Json());
+  const bool known = !data.contains("error") && budget.is_number_integer() && budget.get<int64_t>() > 0;
+  if (known) {
+    const auto estimated = data.value("estimated_tokens", int64_t(0));
+    percent = ratio(estimated, budget);
+    const double fraction = std::max(0., std::min(1., double(estimated) / budget.get<int64_t>()));
+    value = int(fraction * 1000 + .5);
+  }
+  lv_arc_set_value(contextUsageArc_, value);
+  lv_obj_set_style_arc_opa(contextUsageArc_, known ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_INDICATOR);
+  const auto caption = "压缩上下文（" + percent + "）";
+  lv_label_set_text(contextUsageLabel_, caption.c_str());
+  // Keep the percentage whole, including over-budget values, without changing
+  // row heights or the user's menu scroll position.
+  lv_point_t measured;
+  lv_text_get_size(&measured, caption.c_str(), font(20), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+  auto menu = lv_obj_get_parent(lv_obj_get_parent(contextUsageLabel_));
+  const int width = std::min(screen_.width - 126, std::max(320, int(measured.x) + 76));
+  lv_obj_set_width(menu, width);
+  for (const auto &entry : attachmentEntries_) {
+    lv_obj_set_width(entry.second, width - 52);
+    lv_obj_set_width(lv_obj_get_child(entry.second, 0), width - 76);
+  }
+}
+Json App::contextUsageDiagnostic() const {
+  if (!contextUsageArc_ || !contextUsageLabel_) return Json();
+  auto bounds = [](lv_obj_t *object) { lv_area_t a; lv_obj_get_coords(object, &a); return Json::array({a.x1,a.y1,a.x2,a.y2}); };
+  return {{"caption", lv_label_get_text(contextUsageLabel_)}, {"value", lv_arc_get_value(contextUsageArc_)},
+          {"ring", bounds(contextUsageArc_)}, {"label", bounds(contextUsageLabel_)},
+          {"ready", !sessionInfoData_.empty()}, {"budget", sessionInfoData_.value("budget", Json())},
+          {"estimated_tokens", sessionInfoData_.value("estimated_tokens", Json())}};
 }
 void App::sessionInfoPage() {
   pageHeader("会话信息");

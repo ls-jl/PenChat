@@ -288,6 +288,8 @@ lv_obj_t *App::icon(lv_obj_t *parent, const std::string &kind, int x, int y,
   return object;
 }
 void App::closeAttachments() {
+  if (popupKind_ == "attachments") { ++sessionInfoGeneration_; sessionInfoPending_ = false; }
+  contextUsageArc_ = contextUsageLabel_ = nullptr;
   attachmentEntries_.clear();
   popupKind_.clear();
   if (!attachments_)
@@ -312,7 +314,7 @@ void App::toggleAttachments() {
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
-  auto menu = box(attachments_, 20, 12, 260, screen_.height - 78, theme::surface);
+  auto menu = box(attachments_, 20, 12, std::min(320, screen_.width - 126), screen_.height - 78, theme::surface);
   lv_obj_set_style_radius(menu, 16, 0);
   lv_obj_set_scroll_dir(menu, LV_DIR_VER);
   lv_obj_set_scroll_elastic(menu, false);
@@ -320,7 +322,7 @@ void App::toggleAttachments() {
   std::vector<std::string> names{"拍照", "相册", "模型", "推理强度"};
   std::vector<std::string> icons{"camera", "album", "settings", "gauge"};
   std::vector<std::string> ids{"camera", "album", "models", "effort", "compress", "summary"};
-  names.push_back("压缩上下文");
+  names.push_back("压缩上下文（计算中）");
   icons.push_back("history");
   names.push_back("查看上下文摘要");
   icons.push_back("history");
@@ -358,11 +360,36 @@ void App::toggleAttachments() {
         build();
       }
     };
-    icon(menu, icons[i], 4, 4 + i * 44, 44, 44, action, theme::surface);
-    auto entry = button(menu, names[i], 48, 4 + i * 44, 208, 44, action, theme::surface,
+    if (i == 4) {
+      auto control = button(menu, "", 4, 4 + i * 44, 44, 44, action, theme::surface);
+      contextUsageArc_ = lv_arc_create(control);
+      lv_obj_remove_style_all(contextUsageArc_);
+      lv_obj_set_scrollable(contextUsageArc_, false);
+      lv_obj_set_clickable(contextUsageArc_, false);
+      lv_obj_set_size(contextUsageArc_, 24, 24);
+      lv_obj_center(contextUsageArc_);
+      lv_arc_set_rotation(contextUsageArc_, 270);
+      lv_arc_set_bg_angles(contextUsageArc_, 0, 360);
+      lv_arc_set_range(contextUsageArc_, 0, 1000);
+      lv_arc_set_value(contextUsageArc_, 0);
+      lv_obj_set_style_arc_color(contextUsageArc_, lv_color_hex(theme::muted), LV_PART_MAIN);
+      lv_obj_set_style_arc_opa(contextUsageArc_, LV_OPA_50, LV_PART_MAIN);
+      lv_obj_set_style_arc_width(contextUsageArc_, 2, LV_PART_MAIN);
+      lv_obj_set_style_arc_color(contextUsageArc_, lv_color_hex(theme::link), LV_PART_INDICATOR);
+      lv_obj_set_style_arc_opa(contextUsageArc_, LV_OPA_TRANSP, LV_PART_INDICATOR);
+      lv_obj_set_style_arc_width(contextUsageArc_, 2, LV_PART_INDICATOR);
+      lv_obj_set_style_arc_rounded(contextUsageArc_, true, LV_PART_INDICATOR);
+      lv_obj_set_style_bg_opa(contextUsageArc_, LV_OPA_TRANSP, LV_PART_KNOB);
+    } else icon(menu, icons[i], 4, 4 + i * 44, 44, 44, action, theme::surface);
+    auto entry = button(menu, names[i], 48, 4 + i * 44, std::min(320, screen_.width - 126) - 52, 44, action, theme::surface,
                         LV_TEXT_ALIGN_LEFT);
     attachmentEntries_[ids[i]] = entry;
+    if (i == 4) contextUsageLabel_ = lv_obj_get_child(entry, 0);
   }
+  ++sessionInfoGeneration_;
+  sessionInfoSession_ = session_;
+  sessionInfoData_ = Json::object();
+  refreshSessionInfo();
 }
 Json App::currentModel() {
   auto id = sessionPreferences_.value("model_id", std::string());
@@ -912,6 +939,8 @@ void App::clear() {
   resetPull();
   if (touchDown_)
     input_.cancel();
+  if (popupKind_ == "attachments") { ++sessionInfoGeneration_; sessionInfoPending_ = false; }
+  contextUsageArc_ = contextUsageLabel_ = nullptr;
   attachmentEntries_.clear();
   attachments_ = modal_ = nullptr;
   popupKind_.clear();
@@ -2780,7 +2809,8 @@ void App::tick() {
     if (saved.type == "message_saved") {
       const auto session = saved.data.value("session", std::string());
       const auto message = saved.data.value("message", std::string());
-      if (view_ == "session_info" && sessionInfoSession_ == session) refreshSessionInfo();
+      if ((view_ == "session_info" || (view_ == "chat" && attachments_ && popupKind_ == "attachments")) &&
+          sessionInfoSession_ == session) refreshSessionInfo();
       if (saved.data.value("status", std::string()) == "complete") {
         historyDirty_=true; scheduleTitle(session, message);
       }
@@ -3209,6 +3239,7 @@ Json App::diagnostics() const {
       {"navigation_open", navigationOpen_},
       {"session_info", view_ == "session_info" ? sessionInfoData_ : Json::object()},
       {"session_info_busy", sessionInfoBusy_},
+      {"context_usage", contextUsageDiagnostic()},
       {"attachment_actions", attachmentActions},
       {"attachment_viewport", attachmentEntries_.empty() ? Json() : bounds(lv_obj_get_parent(attachmentEntries_.begin()->second))},
       {"archive_views",archiveViews},
