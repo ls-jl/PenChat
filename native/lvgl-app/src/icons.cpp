@@ -131,7 +131,9 @@ void paint(lv_event_t *event) {
   } else if(k=="copy") {
     rect(-4,-5,13,15,2);line(-8,5,-8,-9);line(-8,-9,4,-9);
   } else if(k=="retry") {
-    arc(35,320,9);line(7,-6,7,-12);line(7,-6,1,-6);
+    // Continue the arc tangent into the arrow tip, within the same optical box.
+    arc(35,315,9);line(6,-6,8,-4);
+    line(8,-4,8,-9);line(8,-4,3,-4);
   } else if(k=="branch") {
     line(-6,-5,-6,5);line(-6,2,0,2);arc(0,90,6,0,-4);line(6,-4,6,-5);
     circle(-6,-8,2.5);circle(-6,8,2.5);circle(6,-8,2.5);

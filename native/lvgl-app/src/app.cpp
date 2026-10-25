@@ -2706,7 +2706,7 @@ void App::handle(const Json &m) {
         "stop",         "settings", "context-summary", "camera", "album",
         "newchat",      "trash",    "pin",        "gauge",  "chevron-right",
         "chevron-down", "shift",    "shift-lock", "delete", "enter",
-        "left",         "right"};
+        "left",         "retry"};
     for (size_t i = 0; i < names.size(); ++i) {
       const int x = 8 + int(i % 11) * 86, y = 8 + int(i / 11) * 126;
       auto object = icon(screenObj_, names[i], x + 19, y, 48, 48, {}, theme::surface);
