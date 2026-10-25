@@ -33,7 +33,7 @@ PenChat 自有代码采用 [Apache-2.0](LICENSE)，第三方材料保留原许�
 运行 `npm run build:host`、`npm test`、`npm run test:sanitize`；生产构建使用 `npm run build:native`、`npm run build:prod`、`npm run check:package`。
 依赖来源和摘要见 native 下的锁文件；扫描资源准备见 `native/scanner/README.md`。构建脚本重新获取锁定依赖，不提交下载内容或二进制。
 
-设备验收使用明确指定的 ORANGE MEB0400008900794 或113设备 MEA2300009007113；屏幕几何读取Falcon配置。本轮0.2.5仅验收113，ORANGE按用户约定暂缓。安装包位于 dist，以清单中的 AppID 和版本命名。不得重启系统 MiniApp 宿主或修改其他应用的数据。
+设备验收使用明确指定的 ORANGE MEB0400008900794 或113设备 MEA2300009007113；屏幕几何读取Falcon配置。0.2.5已安装到两台设备；113完成验收，ORANGE协议验收通过，模型配置整轮复验待设备操作无冲突时完成，详情见[模型能力库验证记录](docs/MODEL-CATALOG.md#2026-10-26-交付验证)。安装包位于 dist，以清单中的 AppID 和版本命名。不得重启系统 MiniApp 宿主或修改其他应用的数据。
 
 图标为蜡笔与气泡几何图形，源文件为 `assets/penchat-icon.svg`。PNG 使用 `icon-<SHA256 前 8 位>.png` 内容命名，并由 package.json 的 icon 字段引用；修改图像后同步更新文件名和配置，避免宿主复用旧图片缓存。生产包检查会核对文件名、内容和 manifest。
 

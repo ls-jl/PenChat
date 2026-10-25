@@ -43,7 +43,10 @@ def state(image=False):
     p=pid();assert p
     target=DATA+'/lvgl-diagnostic.json'
     old=shell('cat '+target+' 2>/dev/null || true')
-    previous=json.loads(old).get('diagnostic_time',-1) if old else -1
+    saved=json.loads(old) if old else {}
+    # Restored user diagnostics can belong to an earlier process or boot, whose
+    # monotonic clock may be ahead of this one. Only compare this process's time.
+    previous=saved.get('diagnostic_time',-1) if str(saved.get('pid'))==p else -1
     wait(lambda:int(shell("awk '/SigCgt/{print $2}' /proc/"+p+'/status'),16)&(1<<(9 if image else 11)))
     shell('kill -'+('USR1' if image else 'USR2')+' '+p)
     def fresh():
@@ -455,6 +458,10 @@ except BaseException:
     if pid():
         (OUT/'failure.json').write_text(json.dumps(state(),ensure_ascii=False,indent=2))
         capture('failure')
+        # The native image cannot show a system panel that hid the app. Capture
+        # Falcon as well while the isolated fixture is still installed.
+        shell('miniapp_cli capture /tmp/penchat-display-system-failure.png')
+        subprocess.run(['adb','-s',SERIAL,'pull','/tmp/penchat-display-system-failure.png',str(OUT/'system-failure.png')],check=True,capture_output=True)
     raise
 finally:
     if messageServer:
@@ -469,7 +476,7 @@ finally:
     if hasData:assert hashes(DATA)==original
     if hasPublic:assert hashes(public)==originalPublic
     assert shell('pidof miniapp')==host
-    shell('rm -f /tmp/penchat-display-tap /tmp/penchat-display-key /tmp/penchat-display-official.png')
+    shell('rm -f /tmp/penchat-display-tap /tmp/penchat-display-key /tmp/penchat-display-official.png /tmp/penchat-display-system-failure.png')
 result['user_data_restored']=True
 (OUT/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
 shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);capture('final')
