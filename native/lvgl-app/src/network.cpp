@@ -291,6 +291,7 @@ HttpResult apiRequest(const Json &model, const std::string &resource,
   return result;
 }
 Json requestBody(const Json &m, Json input, bool streaming) {
+  validateModelImages(m, input);
   if (anthropicProtocol(m)) return anthropicRequestBody(m, input, streaming);
   const auto options = apiOptions(m); const bool chat = chatProtocol(m);
   Json body = {{"model", m.value("name", std::string())}, {"stream", streaming}};
@@ -299,10 +300,7 @@ Json requestBody(const Json &m, Json input, bool streaming) {
     Json messages = Json::array();
     const auto prompt = m.value("system_prompt", std::string());
     const auto caps = objectField(m, "capabilities_json");
-    const auto name = m.value("name", std::string());
-    const bool modern = name.find("gpt-5") == 0 || name.find("gpt-6") == 0 ||
-                        name.find("o1") == 0 || name.find("o3") == 0 || name.find("o4") == 0;
-    const auto instructionRole = caps.value("instruction_role", std::string(modern ? "developer" : "system"));
+    const auto instructionRole = caps.value("instruction_role", catalogReasoning(m).value("instruction_role", std::string("system")));
     if (instructionRole != "system" && instructionRole != "developer") throw std::runtime_error("Invalid instruction role");
     if (!prompt.empty()) messages.push_back({{"role", instructionRole}, {"content", prompt}});
     for (const auto &item : input) {
@@ -342,6 +340,7 @@ Json requestBody(const Json &m, Json input, bool streaming) {
     else body["reasoning"]["effort"] = effort;
   }
   if (!chat && options.summary && m.value("reasoning_summary", false)) body["reasoning"]["summary"] = "auto";
+  applyModelParameters(body, m);
   return body;
 }
 void streamChat(const Json &m, Json input, std::atomic<bool> &cancel, Events &events, int generation) {
@@ -469,7 +468,7 @@ std::string generateTitle(Json model, const std::string &question,
                           const std::string &answer, int maxCharacters,
                           std::atomic<bool> &cancel) {
   model.erase("system_prompt");
-  model["effort_value"] = "";
+  model["effort_value"] = ""; model["effective_effort"] = "api_default";
   model["reasoning_summary"] = false;
   Json input = Json::array(
       {{{"role", "system"},

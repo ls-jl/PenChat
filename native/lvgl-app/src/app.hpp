@@ -319,6 +319,10 @@ class App {
   void protocolPicker();
   void anthropicConnectionPage();
   void anthropicModelPage();
+  void modelCapabilityRows(int y);
+  void saveModelForm();
+  void modelAdapterPicker();
+  void compressionSettings();
   int providerScroll_ = 0;
   void editProvider(const std::string &id);
   void historyDrawer();

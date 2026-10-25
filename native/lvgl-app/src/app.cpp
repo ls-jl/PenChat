@@ -639,10 +639,8 @@ void App::modelPage() {
     build();
   });
   auto save = pageAction("保存", 24, 130, [this, id] {
-    db_.saveModelCapabilities(
-        id, modelForm_["reasoning"],
-        modelForm_.value("context_budget", contextBudget(modelForm_)));
-    show("provider");
+    try { saveModelForm(); show("provider"); }
+    catch (const std::exception &e) { modal("模型设置未保存", e.what()); }
   });
   primary(save);
   auto name = label(pageContent_, modelForm_.value("name", std::string()), 10, 0, width,
@@ -655,7 +653,7 @@ void App::modelPage() {
   for (const auto &key : effortOrder()) {
     if (modelAdvanced_) {
       if (levels.contains(key)) {
-        button(
+        auto control = button(
             pageContent_, effortLabel(key) + "：" + levels[key].get<std::string>(), 10,
             26 + n * 48, width, 44,
             [this, key] {
@@ -670,10 +668,11 @@ void App::modelPage() {
                   128, "EnUSOnly");
             },
             theme::surface, LV_TEXT_ALIGN_LEFT);
+        pageActions_["mapping:" + key] = control;
         ++n;
       }
     } else {
-      button(
+      auto control = button(
           pageContent_,
           std::string(levels.contains(key) ? "● " : "○ ") + effortLabel(key),
           10 + (n % 2) * (column + 14), 26 + (n / 2) * 48, column, 44,
@@ -686,45 +685,23 @@ void App::modelPage() {
             build();
           },
           theme::surface, LV_TEXT_ALIGN_LEFT);
+      pageActions_["effort:" + key] = control;
       ++n;
     }
   }
   if (!modelAdvanced_)
     button(
         pageContent_, caps.value("summary", false) ? "公开总结：开" : "公开总结：关",
-        10, 172, width, 44,
+        10, 26 + ((n + 1) / 2) * 48, width, 44,
         [this] {
           auto &caps = modelForm_["reasoning"];
           caps["summary"] = !caps.value("summary", false);
           build();
         },
         theme::surface, LV_TEXT_ALIGN_LEFT);
-  const int budgetY = modelAdvanced_ ? 32 + n * 48 : 224;
-  fieldButton(
-      pageContent_, "上下文预算（本地估算 token）",
-      std::to_string(modelForm_.value("context_budget", contextBudget(modelForm_))), 10,
-      budgetY, width, [this] {
-        edit(
-            std::to_string(
-                modelForm_.value("context_budget", contextBudget(modelForm_))),
-            "上下文预算：1024～2097152",
-            [this](const std::string &value) {
-              try {
-                size_t end;
-                int n = std::stoi(value, &end);
-                if (end != value.size() || n < 1024 || n > 2097152)
-                  throw std::runtime_error("budget");
-                modelForm_["context_budget"] = n;
-                build();
-              } catch (...) {
-                modal("预算无效", "请输入 1024～2097152 "
-                                  "的整数。这是本地估算预算，不是接口精确计费数据。");
-              }
-            },
-            7, "EnUSOnly");
-      });
-  label(pageContent_, "达到 75% 自动压缩，尽量降至 50%；不代表接口精确计费。", 10,
-        budgetY + 60, width, 16, theme::muted);
+  const int capabilityY = modelAdvanced_ ? 32 + n * 48 : 84 + ((n + 1) / 2) * 48;
+  modelCapabilityRows(capabilityY);
+
 }
 void App::resetPull() {
   const bool wasPulling = pulling_;
@@ -1819,9 +1796,12 @@ lv_obj_t *App::pageAction(const std::string &title, int right, int width, std::f
 Json App::pageDiagnostic() const {
   if (!pageHeader_ || !body_) return Json();
   auto bounds=[](lv_obj_t *o) {lv_area_t a;lv_obj_get_coords(o,&a);return Json::array({a.x1,a.y1,a.x2,a.y2});};
-  Json actions=Json::object();
-  for(const auto &entry:pageActions_) actions[entry.first]=bounds(entry.second);
-  return {{"viewport",bounds(body_)},{"heading",bounds(pageHeading_)},{"actions",actions},
+  Json actions=Json::object(), controls=Json::object();
+  for(const auto &entry:pageActions_) {
+    const bool control=entry.first.compare(0,7,"effort:")==0 || entry.first.compare(0,8,"mapping:")==0;
+    (control?controls:actions)[entry.first]=bounds(entry.second);
+  }
+  return {{"viewport",bounds(body_)},{"heading",bounds(pageHeading_)},{"actions",actions},{"controls",controls},
           {"scrolling",lv_obj_is_scrolling(body_)}};
 }
 void App::settingsRow(const std::string &id, const std::string &title,
@@ -1948,6 +1928,8 @@ void App::settingsPage() {
   const auto offset = (pullSensitivityOffset_ > 0 ? "+" : "") + std::to_string(pullSensitivityOffset_) + "%";
   settingsRow("pull_sensitivity", "上滑新建灵敏度", "偏移 " + offset + (pullSensitivityOffset_ ? " · 相对新版基准" : " · 新版基准"),
               left, 444, column, [this] { pullSensitivityPicker(); });
+  settingsRow("compression_threshold", "自动压缩阈值", std::to_string(compressionPercent(config)) + "% × 模型最大上下文",
+              right, 444, column, [this] { compressionSettings(); });
   label(pageContent_, "数据与应用", left, 516, width, 16, theme::muted);
   settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 540, column,
               [this] { openTransfer(); });
@@ -2073,7 +2055,11 @@ void App::providerPage() {
             theme::surface, LV_TEXT_ALIGN_LEFT);
         button(pageContent_, "编辑", w - 105, y, 95, 44, [this, m] {
           modelForm_ = m;
-          modelForm_["reasoning"] = reasoningCapabilities(m);
+          const auto saved = objectField(m, "capabilities_json");
+          // Editing another field must not save a projected/temporarily
+          // unsupported effort list over the user's original configuration.
+          modelForm_["reasoning"] = saved.contains("reasoning") && saved.at("reasoning").is_object()
+                                      ? saved.at("reasoning") : reasoningCapabilities(m);
           modelAdvanced_ = false;
           show("model");
         });
@@ -2147,8 +2133,23 @@ void App::providerPage() {
     settingsRow("anthropic_connection", "Anthropic 连接设置", "鉴权、API 版本与自定义请求头", 10, 288, w - 20, [this] {
       providerScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_))); show("anthropic_connection");
     });
-  status_ = label(pageContent_, notice_, 10, anthropic ? 356 : 292, w, 17, theme::muted);
-  int y = anthropic ? 382 : 318;
+  settingsRow("model_adapter", "厂商参数适配", providerForm_.value("model_adapter", std::string("auto")),
+              10, anthropic ? 352 : 288, w - 20, [this] { modelAdapterPicker(); });
+  int extra = 64;
+  if (anthropic) {
+    const auto maximum = providerForm_.value("max_output_tokens", 16384);
+    settingsRow("provider_output", "新模型输出额度", std::to_string(maximum) + " token · Messages必填，不能留空",
+                10, 416, w - 20, [this, maximum] {
+      edit(std::to_string(maximum), "新模型输出额度（必填）", [this](const std::string &value) {
+        try { size_t used; int n = std::stoi(value, &used); if (used != value.size() || n < 1 || n > 1048576) throw std::runtime_error("range");
+          providerForm_["max_output_tokens"] = n; build();
+        } catch (...) { modal("输出额度未修改", "Messages要求填写1～1048576之间的整数，不能留空。"); }
+      }, 7, "EnUSOnly", {}, false);
+    });
+    extra += 64;
+  }
+  status_ = label(pageContent_, notice_, 10, (anthropic ? 356 : 292) + extra, w, 17, theme::muted);
+  int y = (anthropic ? 382 : 318) + extra;
   for (auto &name : modelNames_) {
     auto nameLabel = label(pageContent_, name, 15, y, w, 20);
     lv_label_set_long_mode(nameLabel, LV_LABEL_LONG_MODE_DOTS);
@@ -2988,6 +2989,11 @@ void App::tick() {
     if (e.type == "pinyin.notice") { notice_ = e.data.value("message",std::string()); if(editor_.active){editor_.notice=notice_;editorBuild();}else error(notice_);continue; }
     if (e.type == "pinyin_clear_confirm") {if(view_=="keyboard_settings"){input_.cancel();modal("正在清除拼音记忆","请稍候…");pinyin_.clear();}continue;}
     if (e.type == "pinyin.cleared") {if(view_=="keyboard_settings"){build();if(e.data.value("ok",false))modal("拼音记忆","已恢复基础词典排序。");else modal("未能清除拼音记忆","文件未能保存，请检查可用空间后重试。");}continue;}
+    if (e.type == "catalog_help") {
+      if (visible_ && view_ == "model" && e.data.value("id", std::string()) == modelForm_.value("id", std::string()))
+        modal("使用匹配值", "点击填充图标只替换对应字段；其他设置不变，保存后生效。");
+      continue;
+    }
     if (e.type == "editor_action") { if (editor_.active && visible_ && !keyboard_ && e.data.value("id",std::string()) == editor_.id) editorAction(e.data.value("action",std::string())); continue; }
     if (e.type.find("scan_") == 0) {
       scanEvent(e);
@@ -3347,8 +3353,11 @@ Json App::diagnostics() const {
       {"view", view_},
       {"provider_protocol", providerForm_.is_object() ? providerForm_.value("api", std::string()) : std::string()},
       {"anthropic_connection", view_ == "anthropic_connection" ? objectField(providerForm_, "anthropic") : Json::object()},
-      {"model_parameters", view_ == "model" && anthropicProtocol(modelForm_) ?
-          Json({{"reasoning", modelForm_["reasoning"]}, {"maximum", modelForm_.value("max_output_tokens", anthropicMaxOutput(modelForm_))}}) : Json::object()},
+      {"model_catalog", view_ == "model" ? modelRecommendation(modelForm_) : Json::object()},
+      {"model_parameters", view_ == "model" ? Json({{"reasoning", modelForm_["reasoning"]},
+          {"maximum", anthropicProtocol(modelForm_) ? Json(modelForm_.value("max_output_tokens", anthropicMaxOutput(modelForm_))) : Json()},
+          {"context", modelForm_.value("context_budget", contextBudget(modelForm_))},
+          {"vision", modelForm_.value("vision", objectField(modelForm_, "capabilities_json").value("vision", Json()))}}) : Json::object()},
       {"transfer_screen", transferScreen_},
       {"transfer_busy", transfer_ && transfer_->busy()},
       {"transfer_error", transferError_},

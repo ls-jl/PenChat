@@ -3,6 +3,9 @@
 namespace penchat {
 // These are local conservative estimates, never provider billing/tokenizer counts.
 int contextBudget(const Json &model);
+int compressionPercent(const Json &settings);
+size_t compressionTrigger(const Json &model);
+size_t compressionTarget(const Json &model);
 void checkContextResources(const Json &input);
 size_t estimatedText(const std::string &text);
 size_t estimatedContext(const Json &input, const std::string &prompt = "");

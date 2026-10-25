@@ -63,13 +63,7 @@ void App::anthropicModelPage() {
   const auto mode = caps.value("mode", std::string("off"));
   auto save = pageAction("保存", 24, 130, [this] {
     try {
-      auto next = modelForm_;
-      auto capabilities = objectField(next, "capabilities_json");
-      capabilities["max_output_tokens"] = modelForm_.value("max_output_tokens", anthropicMaxOutput(modelForm_));
-      next["capabilities_json"] = capabilities;
-      validateAnthropic(next, modelForm_["reasoning"]);
-      db_.saveModelCapabilities(modelForm_.at("id"), modelForm_["reasoning"],
-          modelForm_.value("context_budget", contextBudget(modelForm_)), anthropicMaxOutput(next));
+      saveModelForm();
       show("provider");
     } catch (const std::exception &e) { modal("模型设置未保存", e.what()); }
   });
@@ -93,8 +87,6 @@ void App::anthropicModelPage() {
       try {
         size_t used; const int n = std::stoi(value, &used);
         if (used != value.size() || n < 1 || n > 1048576) throw std::runtime_error("请输入1～1048576之间的整数");
-        const int limit = anthropicOutputLimit(modelForm_);
-        if (limit && n > limit) throw std::runtime_error("超过此模型已知的最大输出上限");
         modelForm_["max_output_tokens"] = n; build();
       } catch (const std::exception &e) { modal("最大输出未修改", e.what()); }
     }, 7, "EnUSOnly", {}, false);
@@ -103,6 +95,7 @@ void App::anthropicModelPage() {
   if (mode != "off") {
     auto levels = caps.value("levels", Json::object());
     for (const auto &key : effortOrder()) {
+      if (key == "minimal") continue; // Messages has no minimal effort value.
       if (modelAdvanced_ && !levels.contains(key)) continue;
       if (modelAdvanced_) {
         settingsRow("thinking_" + key, effortLabel(key), levels[key].get<std::string>() + (mode == "budget" && key != "none" ? " token" : ""),
@@ -142,18 +135,8 @@ void App::anthropicModelPage() {
       }, caps.value("display_supported", false)); y += 64;
     }
   }
-  settingsRow("anthropic_context_budget", "上下文预算 · 本地估算",
-              std::to_string(modelForm_.value("context_budget", contextBudget(modelForm_))) + " token · 75%时自动压缩",
-              10, y, width - 20, [this] {
-    edit(std::to_string(modelForm_.value("context_budget", contextBudget(modelForm_))), "上下文预算（1024～2097152）",
-         [this](const std::string &value) {
-      try { size_t used; const int n = std::stoi(value, &used);
-        if (used != value.size() || n < 1024 || n > 2097152) throw std::runtime_error("请输入1024～2097152之间的整数");
-        modelForm_["context_budget"] = n; build();
-      } catch (const std::exception &e) { modal("预算未修改", e.what()); }
-    }, 7, "EnUSOnly", {}, false);
-  });
-  label(pageContent_, "API 默认不发送强度或预算，也不擅自开启思考。固定预算须小于最大输出；修改模式会初始化档位映射。"
-        "\n未知模型请按服务商文档配置，不会自动降档或重试。", 10, y + 72, width - 20, 17, theme::muted);
+  modelCapabilityRows(y);
+  label(pageContent_, "API默认省略思考参数。输出额度为Messages必填项，匹配不修改它。固定思考预算须小于输出额度。",
+        10, y + 264, width - 20, 16, theme::muted);
 }
 } // namespace penchat

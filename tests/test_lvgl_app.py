@@ -140,11 +140,12 @@ class Native:
         from settings_ui import activate
         return activate(self.diag,self.tap,self.settings_swipe,name,indicator)
     def page_action(self, title):
-        """Reveal an action in the scrolling page header before tapping it."""
+        """Reveal a named page action or registered model control before tapping."""
         for _ in range(30):
-            page=self.diag()['page'];assert page and title in page['actions'],title
+            page=self.diag()['page'];assert page,title
+            actions={**page.get('controls',{}),**page['actions']};assert title in actions,title
             if page['scrolling']:time.sleep(.1);continue
-            x1,y1,x2,y2=page['actions'][title];viewport=page['viewport']
+            x1,y1,x2,y2=actions[title];viewport=page['viewport']
             if y1>=viewport[1] and y2<=viewport[3]:
                 self.tap((x1+x2)//2,(y1+y2)//2);return
             self.settings_swipe(120 if y1<viewport[1] else -120);time.sleep(.2)

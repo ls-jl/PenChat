@@ -5,6 +5,7 @@ ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text())
 parser=argparse.ArgumentParser();parser.add_argument('--serial',required=True)
 parser.add_argument('--back-navigation',action='store_true')
+parser.add_argument('--model-catalog',action='store_true',help='Offline model capabilities, field fills and compression threshold')
 parser.add_argument('--anthropic',action='store_true',help='Native Messages local-server and physical-touch acceptance')
 parser.add_argument('--api-compatibility',action='store_true',help='Local API fixture and Provider settings with physical touches')
 parser.add_argument('--pinyin',action='store_true',help='Owned pinyin, learning and nine-key real-touch acceptance')
@@ -18,7 +19,7 @@ parser.add_argument('--reply-actions',action='store_true')
 parser.add_argument('--session-info',action='store_true',help='Run focused conversation statistics acceptance')
 parser.add_argument('--archive-reader',action='store_true',help='Run focused archive-reader acceptance, with normal data isolation/restoration')
 args=parser.parse_args();SERIAL=args.serial
-assert sum((args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin))<=1,'Run isolated feature fixtures separately'
+assert sum((args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin))<=1,'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 class FeatureComplete(Exception):
@@ -143,6 +144,10 @@ try:
         if sample.exists():shutil.rmtree(sample)
         sample.mkdir();fixture(sample)
         subprocess.run(['adb','-s',SERIAL,'push',str(sample/'penchat.db'),DATA+'/penchat.db'],check=True,capture_output=True)
+    if args.model_catalog:
+        import model_catalog_flow
+        sample=model_catalog_flow.prepare(ROOT,OUT/'catalog-fixture')
+        subprocess.run(['adb','-s',SERIAL,'push',str(sample),DATA+'/penchat.db'],check=True,capture_output=True)
     if args.anthropic:
         import anthropic_flow
         messageServer,messageHandler,files=anthropic_flow.prepare(ROOT,OUT/'anthropic-fixture',DATA,SERIAL)
@@ -219,6 +224,10 @@ try:
     if args.pull_sensitivity:
         import pull_sensitivity_flow
         pull_sensitivity_flow.run(globals())
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
+    if args.model_catalog:
+        model_catalog_flow.run(globals())
         assert shell('pidof miniapp')==host;result['host_unchanged']=True
         raise FeatureComplete()
     if args.anthropic:

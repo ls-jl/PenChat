@@ -24,6 +24,11 @@ with zipfile.ZipFile(path) as archive:
     binary = archive.read('assets/bin/penchat-lvgl')
     assert binary[:5] == b'\x7fELF\x02' and struct.unpack_from('<H', binary, 18)[0] == 183
     assert binary == (ROOT / 'assets/bin/penchat-lvgl').read_bytes()
+    catalog = (ROOT/'build/orange/generated/model_catalog_data.bin').read_bytes()
+    assert catalog[:4] == b'PCMC' and len(catalog) < 128*1024
+    assert binary.count(catalog) == 1, 'Production executable must embed the freshly built capability catalog'
+    assert not any(n.endswith(('.xlsx','.xls')) or 'model-catalog/source' in n for n in names)
+
     for field in ['author', 'aiContributor', 'homepage']:
         assert APP[field].encode('utf-8') in binary, 'Missing About metadata: ' + field
     assert sorted(n for n in names if n.startswith('assets/bin/') and not n.endswith('/')) == ['assets/bin/penchat-lvgl','assets/bin/penchat-scanner','assets/bin/penchat-sensor-guard']

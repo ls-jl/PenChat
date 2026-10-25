@@ -165,6 +165,8 @@ int main(int argc, char **argv) {
   Json effortModel = {
       {"name", "unknown"},
       {"provider_metadata", R"({"api":"responses","default_effort":"high"})"}};
+  assert(supportedEfforts(effortModel).empty()); // Unknown no longer guesses capabilities.
+  effortModel["capabilities_json"] = {{"reasoning", {{"levels", {{"medium", "medium"}, {"high", "high"}}}}}};
   assert(supportedEfforts(effortModel) ==
          std::vector<std::string>({"medium", "high"}));
   assert(resolveReasoning(effortModel, {{"effort", "medium"}},

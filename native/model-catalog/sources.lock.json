@@ -1,0 +1,395 @@
+{
+  "retrieved_at": "2026-10-25",
+  "sources": [
+    {
+      "url": "https://api-docs.deepseek.com/api/create-chat-completion/",
+      "sha256": "5f89e4bafbec8808896d7890ad23ca4caaa8a19ff226d881efae63a61a12d169",
+      "bytes": 144485,
+      "text_bytes": 30051,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://api-docs.deepseek.com/api/create-response/",
+      "sha256": "00329e0291c2692a3bdbfa9794ae091fa8acabb7032f376f7169ad0ecbc7b0f0",
+      "bytes": 89199,
+      "text_bytes": 16790,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://api-docs.deepseek.com/guides/responses_api/",
+      "sha256": "1b44ce8ba1722ded24829329655602449800ea2b5ffd54fb0ae27c08cd4ad1b6",
+      "bytes": 59082,
+      "text_bytes": 10418,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://api-docs.deepseek.com/guides/thinking_mode/",
+      "sha256": "7d9762238e92a7391173ba1726778e46ec11c7bc599e3e395265488f196618b7",
+      "bytes": 115902,
+      "text_bytes": 12316,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://api-docs.deepseek.com/quick_start/agent_integrations/oh_my_pi/",
+      "sha256": "046818a304e47d9246dc17e29ab0ebc6300f4f4db96ae38c3689db8e0b2b3e0d",
+      "bytes": 42402,
+      "text_bytes": 4636,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://api-docs.deepseek.com/quick_start/pricing/",
+      "sha256": "b856a6e93fa4793ecc8f3fd03a01bb7d8f7572f78a4739da8ce6dbdb09328d66",
+      "bytes": 26043,
+      "text_bytes": 3551,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://docs.z.ai/guides/llm/glm-5",
+      "sha256": "999475ed83c85b322ddff10377734bc891b03561e54cf4e04d98689e5e9e57fc",
+      "bytes": 384936,
+      "text_bytes": 151535,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://docs.z.ai/guides/llm/glm-5.2",
+      "sha256": "af87ab9876379d6b08bebd6a92dd9c9543ab31230348f743c7055cd84990e4be",
+      "bytes": 394059,
+      "text_bytes": 160112,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://docs.z.ai/guides/llm/glm-5.3",
+      "sha256": "8a79a2f5144aaa263cefa84c3633c9b2823ebf7a3d51d79cc3f0646a137a6372",
+      "bytes": 376862,
+      "text_bytes": 159900,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://docs.z.ai/guides/overview/concept-param",
+      "sha256": "cad314afabccf5848603d5b761a9b49afc215d44cbdd481ce30c2feeaa18d663",
+      "bytes": 171062,
+      "text_bytes": 50983,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://docs.z.ai/guides/overview/models",
+      "status": "HTTP Error 404: Not Found"
+    },
+    {
+      "url": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+      "sha256": "1fba4bba765947c4a21986a6874995662f9a66ecd796430875356a9fa2935d51",
+      "bytes": 243415,
+      "text_bytes": 85547,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+      "sha256": "4c1dfb285806c9a1384a9aaa40058760def82031d242d85ac4e299e92dae4bdc",
+      "bytes": 476689,
+      "text_bytes": 8393,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.claude.com/docs/en/build-with-claude/effort",
+      "sha256": "4946d6f552e45b7cd17b86be60e78ce1953b876488de427587c00e72e197dc59",
+      "bytes": 1019827,
+      "text_bytes": 25788,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.claude.com/docs/en/build-with-claude/thinking",
+      "sha256": "5c3f98dde3993c95e6b2fc80e8e7ffd3bd71aca51cad33ed9566051467a7ef58",
+      "bytes": 1311266,
+      "text_bytes": 56890,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.claude.com/docs/en/models/overview",
+      "sha256": "d0505ddaa980bda061391edb3669602998b5f00eee9082ddeec4c598f353016a",
+      "bytes": 476774,
+      "text_bytes": 8393,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.kimi.ai/docs/guide/kimi-k2-6-quickstart",
+      "sha256": "5da37340da5cade12d4b47db5eb73e09d41680662d78639448d5b298f68f00ac",
+      "bytes": 551899,
+      "text_bytes": 16149,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.kimi.ai/docs/guide/kimi-k2-7-code-quickstart",
+      "sha256": "512a962c8e15e2981289eccc4adf2b43db8d17e430e1f4e5e1193f760fcd53c2",
+      "bytes": 464762,
+      "text_bytes": 12348,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart",
+      "sha256": "5b023f9fe9b0d4e3319f8ee183870eae9e3a7368914fe18c283b58d5c334cf63",
+      "bytes": 768807,
+      "text_bytes": 22225,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.kimi.ai/docs/guide/kimi-k3-quickstart",
+      "sha256": "ef53ff2cf2e19fcd630c463e21bba56a3f85d961e76f5b5a8dad06459db5ed07",
+      "bytes": 581273,
+      "text_bytes": 14789,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.kimi.ai/docs/guide/use-reasoning-effort",
+      "sha256": "4b91b4e1689b9f8a9cfe6906ab86c14bca75f0760b78484dd0cc2ff530689570",
+      "bytes": 339106,
+      "text_bytes": 3552,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.kimi.ai/docs/guide/use-thinking-models",
+      "sha256": "f7b2fbff0b0feaa7d986573d17468005d333d6dbcbd4d275d7ff6868975d845d",
+      "bytes": 634043,
+      "text_bytes": 21751,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.kimi.ai/docs/models",
+      "sha256": "cf72eb275d81a7397dcc5a1d1344e387170dffd03841091b6cf2dd8b2f6e3a17",
+      "bytes": 312713,
+      "text_bytes": 4612,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.minimax.io/docs/api-reference/api-overview",
+      "sha256": "964c36b3d309e66c19100122e8472226bac1fffab4be95828af8019a74a0ae92",
+      "bytes": 649652,
+      "text_bytes": 10869,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.minimax.io/docs/api-reference/text-anthropic-api",
+      "sha256": "f9bce4d456afe35e859c507079e08924dab38943cab4814deb9b92ca6095bc82",
+      "bytes": 695510,
+      "text_bytes": 10090,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.minimax.io/docs/guides/text-generation",
+      "sha256": "1b2f54dd5d04d3a842357bf549c6cda8376de838fdcbb87e2acb50b13551e110",
+      "bytes": 693543,
+      "text_bytes": 8752,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models",
+      "sha256": "e4f86fa2e3147122652390d24baf82ed1389421ec8173da8a77833e5f777e5ef",
+      "bytes": 396897,
+      "text_bytes": 16114,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models/gpt-4.1",
+      "sha256": "004393faee7083609cb065da82476e41dfde380d380d9546a86bd9fe8bb240a1",
+      "bytes": 441231,
+      "text_bytes": 15201,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models/gpt-4o",
+      "sha256": "8cdd386f06211cfb2d94ce669ce8066ab65313be5d907a1230d5e299325f16cd",
+      "bytes": 443008,
+      "text_bytes": 15425,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models/gpt-5",
+      "sha256": "e00c030a550453dff5a5063e27509613c136abda05a24637cdd189127798a107",
+      "bytes": 447098,
+      "text_bytes": 15351,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models/gpt-5.1",
+      "sha256": "e3361dfcd8bcf0727452598f2e2d40238e09e56a9054bdf035a71aac981d6a83",
+      "bytes": 447017,
+      "text_bytes": 15311,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models/gpt-5.2",
+      "sha256": "cb8dc1f7e3c0d5283904270d9d67e56402d2372a97cdb7d40949108791ab1e37",
+      "bytes": 447437,
+      "text_bytes": 15288,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models/gpt-5.4",
+      "sha256": "b7c1b8b59ec32dfae33f3a7c3d7547853b85b1e4fde6b9b19c236bc819ce0a44",
+      "bytes": 462388,
+      "text_bytes": 15748,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models/gpt-5.6-luna",
+      "sha256": "ff223cf5535bbe8a16ac8e8a0c022029bad0625539922261efa70f09bdcd6f9e",
+      "bytes": 460215,
+      "text_bytes": 15643,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models/gpt-5.6-sol",
+      "sha256": "68e0f9f755936d1ea8a57eae5e4cc61cdb65e5939e758f975725304f1b28ec2b",
+      "bytes": 461900,
+      "text_bytes": 15900,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models/gpt-5.6-terra",
+      "sha256": "66c9aa09be1280224c5dad141b004aae732eafbfd06bd5d0d20482eaba8c66c9",
+      "bytes": 460936,
+      "text_bytes": 15645,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models/gpt-6-astra",
+      "sha256": "9652aae92ab37673a445087956a4e4fbe07013f52818b96e5d46e3c057ee3374",
+      "bytes": 460601,
+      "text_bytes": 15721,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models/gpt-6-luna",
+      "sha256": "6f89ae20a868c1c3af5a3f600856a9719ef862112b2c6317891188312a665263",
+      "bytes": 459629,
+      "text_bytes": 15933,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models/gpt-6.1-sol",
+      "sha256": "d7288bc2e1a5d2be1c7c425aeebaf9e540b80b4d9b5f31395c7ab55e259746a5",
+      "bytes": 461519,
+      "text_bytes": 16153,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models/o3",
+      "sha256": "30ff777e5ed1d6049928bf2f6035727bcec305e2adec694e9703c6db81053457",
+      "bytes": 447821,
+      "text_bytes": 15456,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.openai.com/docs/models/o4-mini",
+      "sha256": "652c84527782a99fb607337e45bec687f6457d728ca81145e8ca839d9c43737e",
+      "bytes": 445631,
+      "text_bytes": 15307,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/models",
+      "sha256": "975e08540503d8973262408d708400ebaf96b36e290cd8edabd8dbbe113a8407",
+      "bytes": 28154,
+      "text_bytes": 2829,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling",
+      "sha256": "0a682c85513d9008ec81d2962a95ec22156b16f47f080b175bb27492a8bb4da7",
+      "bytes": 246205,
+      "text_bytes": 179153,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/qwen3-7-flash",
+      "sha256": "3f68e69a69e4cb79bd40cb49172d84853227740fa19eada441d136e01cf77531",
+      "bytes": 56121,
+      "text_bytes": 17241,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/qwen3-7-max",
+      "sha256": "ba6dcec1308bcdf2669f5cd3a0a1468749b87973bf6024995db869ce16b903eb",
+      "bytes": 47301,
+      "text_bytes": 14952,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/qwen3-7-plus",
+      "sha256": "f6baef61abf9958855eda265f85a0a1b1e6961543ae9f338aeacb4e8b89c4871",
+      "bytes": 44197,
+      "text_bytes": 13174,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/qwen3-8-flash",
+      "sha256": "c1403ecf1a9437abb78e77018c453a78b639f0067e4ba5e8953dbcead3bfcfc4",
+      "bytes": 24377,
+      "text_bytes": 6697,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/qwen3-8-max",
+      "sha256": "010cd653aeef833f931f04e2d3bff0ee04cd1ebfc100778c21df935cf8dad77c",
+      "bytes": 46311,
+      "text_bytes": 12798,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/vision-model/",
+      "sha256": "c080cd6259d7992cc25df6ae717d4cca2b1be3ae9ee759c1f8be2a691fed3e1e",
+      "bytes": 28027,
+      "text_bytes": 5126,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://developers.openai.com/api/docs/guides/reasoning",
+      "sha256": "8b768d9006f342e627c7347be5d651fc17069866f3ffd185baa140f3bdc891ab",
+      "bytes": 1101821,
+      "text_bytes": 91005,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/deep-thinking",
+      "sha256": "71c9f77cdc4b9086968cdede45c9ab30a338b0d9c3a01a54fb776db61151cf6c",
+      "bytes": 142099,
+      "text_bytes": 80950,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://api-docs.deepseek.com/guides/anthropic_api/",
+      "sha256": "19b5e723f1c65f609c010999cdf3cc1929327c4369c54b0151e8ea82dc3dd033",
+      "bytes": 33800,
+      "text_bytes": 5263,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.4",
+      "sha256": "82b83cb8ace555ccc2d3cfd04b70e4ad182c383f926ec02d0beb35db4767d411",
+      "bytes": 855341,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+      "sha256": "e047a554027858871ae6ef68d9c4f23acbae3230eda1c0b6b256c96f5740e68f",
+      "bytes": 145919,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api",
+      "sha256": "883048f1d561770a37006ed4fea042e2d7d82060c69bc159785e63c66d548822",
+      "bytes": 89385,
+      "status": "retrieved"
+    },
+    {
+      "url": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking",
+      "sha256": "e7cc256f9a30ff4917e6c67f648288fbde801228c143f3ed71d7d665b15d2234",
+      "bytes": 728029,
+      "status": "retrieved"
+    }
+  ],
+  "files": {
+    "catalog.json": "45ee7d2cd95d38788db7a9e48186537bd67664c8fc4248253e39a78fa4f492e2",
+    "source.json": "32ce93e674379c62614e41ee9198ad5556ed65a987452cb06d8689ba1cb859c4",
+    "normalization.json": "8b9ffb16de835847974683435faead02988c66f1e891bb303e232c416065535d"
+  }
+}

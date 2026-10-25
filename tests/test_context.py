@@ -225,13 +225,18 @@ def run():
                 assert not Server.requests and not checkpoint(p)
             finally:app.close()
         # HTTP error, too-long output, unavailable image capability and stop retain original state/draft.
-        for mode in ['http','cancel','long','vision','model','switch','budget']:
+        for mode in ['http','cancel','long','vision','model','switch','budget','input_limit']:
             with tempfile.TemporaryDirectory(prefix='penchat-context-failure-') as d:
                 p=pathlib.Path(d);fixture(p,server.server_port,image=True,auto=mode!='budget')
                 if mode in ['vision','model']:
                     with sqlite3.connect(p/'penchat.db') as db:
                         if mode=='vision':db.execute("update model_configs set capabilities_json=? where id='b'",(json.dumps({'context_budget':4096,'vision':False}),))
                         else:db.execute("update model_configs set enabled=0 where id='b'")
+                if mode=='input_limit':
+                    with sqlite3.connect(p/'penchat.db') as db:
+                        caps=json.loads(db.execute("select capabilities_json from model_configs where id='a'").fetchone()[0])
+                        caps['max_input_tokens']=32
+                        db.execute("update model_configs set capabilities_json=? where id='a'",(json.dumps(caps),))
                 app=Native(binary,p)
                 try:
                     Server.requests=[];Server.fail=mode=='http';Server.verbose=mode=='long';Server.delay=2 if mode in ['cancel','switch'] else 0

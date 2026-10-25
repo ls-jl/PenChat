@@ -137,12 +137,12 @@ def run():
             assert Server.requests[-1][1]['reasoning']['effort']=='high'
             app.open_settings();app.setting("models");app.tap(870,175)
             assert app.diag()['view']=='model';screenshot(app,'model-capabilities')
-            app.tap(700,200)  # Disable max: only High remains on model b.
-            app.tap(700,24);screenshot(app,'model-mapping')
-            app.tap(400,104);request=app.receive('keyboard.open')
+            app.page_action('effort:max')  # Disable max using its real visible bounds.
+            app.page_action('参数映射');screenshot(app,'model-mapping')
+            app.page_action('mapping:high');request=app.receive('keyboard.open')
             app.send('keyboard.result',requestId=request['requestId'],confirmed=True,text='custom-high')
             wait_for(lambda:not app.diag()['keyboard'])
-            app.tap(860,24);app.to_chat()
+            app.page_action('保存');app.to_chat()
         finally:app.close()
         app=Native(binary,pathlib.Path(directory))
         try:

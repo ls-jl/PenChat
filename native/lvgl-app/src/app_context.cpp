@@ -35,7 +35,9 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
   if (contextWorker_.joinable())
     contextWorker_.join();
   const auto session = session_, draft = regenerate?std::string():draft_;
-  const bool automatic = db_.settings().value("auto_context_compression", true);
+  const auto contextSettings = db_.settings();
+  const bool automatic = contextSettings.value("auto_context_compression", true);
+  model["context_compression_percent"] = compressionPercent(contextSettings);
   const auto token = ++contextGeneration_;
   contextCancel_ = false;
   contextBusy_ = true;contextRegenerating_=regenerate;
@@ -109,7 +111,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
       const auto estimate =
           estimatedContext(input, model.value("system_prompt", std::string()));
       bool compressed = manual || invalid ||
-                        (automatic && estimate >= size_t(contextBudget(model)) * 3 / 4);
+                        (automatic && estimate >= compressionTrigger(model));
       Json checkpoint;
       if (compressed) {
         if (compressionConfig.empty())
@@ -132,6 +134,10 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
         throw std::runtime_error(
             "上下文超过本地预算，请手动压缩或提高模型预算；没有截断历史");
       }
+      validateModelImages(requestModel, input);
+      const auto inputLimit = objectField(requestModel, "capabilities_json").value("max_input_tokens", Json());
+      if (inputLimit.is_number_integer() && estimatedContext(input, requestModel.value("system_prompt", std::string())) > inputLimit.get<size_t>())
+        throw std::runtime_error("上下文超过此模型已设置的最大输入，请压缩或修改设置；没有截断历史");
       checkContextResources(input);
       if(regenerate) {
         // Validate/read every image before the destructive transaction. These
@@ -142,7 +148,8 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
           std::string data,error;if(!camera::imageDataUrl(path,&data,&error))throw std::runtime_error("原问题图片不可读，原会话未修改");
           p["image_url"]=std::move(data);if(contextCancel_)throw std::runtime_error("重试已取消");
         }
-        checkContextResources(input);
+        validateModelImages(requestModel, input);
+      checkContextResources(input);
         apiRoot(requestModel); apiHeaders(requestModel);
         if (anthropicProtocol(requestModel)) requestBody(requestModel, input, apiOptions(requestModel).streaming);
         if (contextCancel_) throw std::runtime_error("重试已取消，原会话未修改");

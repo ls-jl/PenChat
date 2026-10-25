@@ -89,6 +89,7 @@ public:
   Json activeModel();
   Json sessionPreferences(const std::string &session);
   void saveSessionPreferences(const std::string &session, const Json &preferences);
+  void saveModelSettings(const std::string &id, Json capabilities);
   void saveModelCapabilities(const std::string &id, const Json &reasoning,
                              int budget = 0, int maxOutput = 0);
   void recordRequest(const std::string &message, const Json &model,

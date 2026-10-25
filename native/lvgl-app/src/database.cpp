@@ -733,6 +733,7 @@ Json Database::providerForm(const std::string &id) {
                                        : "responses"},
           {"model", names},
           {"default_effort", metadata.value("default_effort", std::string())},
+          {"model_adapter", metadata.value("model_adapter", std::string("auto"))},
           {"compatibility", objectField(metadata, "compatibility")},
           {"anthropic", objectField(metadata, "anthropic")}};
 }
@@ -793,6 +794,12 @@ void Database::saveSessionPreferences(const std::string &session,
           "WHERE id=?",
           {id.empty() ? Json() : Json(id),
            model.empty() ? Json() : model[0]["provider_id"], metadata.dump(), session});
+}
+void Database::saveModelSettings(const std::string &id, Json capabilities) {
+  if (!onWorker()) { perform([=] { saveModelSettings(id, capabilities); return Json(); }); return; }
+  if (!capabilities.is_object()) throw std::runtime_error("模型设置无效");
+  if (query("SELECT id FROM model_configs WHERE id=?", {id}).empty()) throw std::runtime_error("模型已删除");
+  execute("UPDATE model_configs SET capabilities_json=?,updated_at=? WHERE id=?", {capabilities.dump(), nowMs(), id});
 }
 void Database::saveModelCapabilities(const std::string &id, const Json &reasoning,
                                      int budget, int maxOutput) {
@@ -882,6 +889,11 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
   }
   if (names.empty())
     throw std::runtime_error("At least one model is required");
+  if (f.value("api", std::string()) == "anthropic") {
+    auto output = f.value("max_output_tokens", Json(16384));
+    if (!output.is_number_integer() || output.get<double>() < 1 || output.get<double>() > 1048576)
+      throw std::runtime_error("Messages 输出额度必填，须为1～1048576之间的整数");
+  }
   const bool editing =
       f.contains("id") && f["id"].is_string() && !f["id"].get<std::string>().empty();
   const auto id = editing ? f["id"].get<std::string>() : uid("provider");
@@ -902,6 +914,7 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
       metadata["default_effort"] = f.value("default_effort", std::string());
       if (f.contains("compatibility")) metadata["compatibility"] = objectField(f, "compatibility");
       if (f.contains("anthropic")) metadata["anthropic"] = objectField(f, "anthropic");
+      metadata["model_adapter"] = f.value("model_adapter", std::string("auto"));
       if (old[0]["api_key"] != f.value("apiKey", std::string()) ||
           (f.contains("headers") && objectField(old[0], "headers_json") != f["headers"]))
         metadata["credential_revision"] = uid("credentials");
@@ -925,6 +938,7 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
                      {"default_effort", f.value("default_effort", std::string())},
                      {"compatibility", objectField(f, "compatibility")},
                      {"anthropic", objectField(f, "anthropic")},
+                     {"model_adapter", f.value("model_adapter", std::string("auto"))},
                      {"credential_revision", uid("credentials")}})
                    .dump(),
                nowMs(), nowMs(), first ? 1 : 0});
@@ -941,10 +955,15 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
       auto existing =
           query("SELECT id FROM model_configs WHERE provider_id=? AND name=?", {id, n});
       if (existing.empty()) {
+        Json model = {{"name", n}, {"base_url", f.value("baseURL", std::string())},
+                      {"provider_metadata", {{"api", f.value("api", std::string("responses"))},
+                                             {"model_adapter", f.value("model_adapter", std::string("auto"))}}}};
+        auto capabilities = initialModelCapabilities(model);
+        if (anthropicProtocol(model)) capabilities["max_output_tokens"] = f.value("max_output_tokens", Json(16384));
         execute("INSERT INTO "
                 "model_configs(id,provider_id,name,display_name,model_type,created_"
-                "at,updated_at,is_default) VALUES(?,?,?,?,'chat',?,?,?)",
-                {uid("model"), id, n, n, nowMs(), nowMs(), first ? 1 : 0});
+                "at,updated_at,is_default,capabilities_json) VALUES(?,?,?,?,'chat',?,?,?,?)",
+                {uid("model"), id, n, n, nowMs(), nowMs(), first ? 1 : 0, capabilities.dump()});
         first = false;
       } else
         execute("UPDATE model_configs SET enabled=1,updated_at=? WHERE id=?",

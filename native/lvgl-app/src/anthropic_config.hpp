@@ -1,37 +1,16 @@
 #pragma once
 #include "api_protocol.hpp"
+#include "model_catalog.hpp"
 #include <map>
 namespace penchat {
-// Exact families/date aliases only. Unknown proxy names are never guessed.
-inline bool anthropicFamily(const std::string &name, const std::string &family) {
-  return name == family || name == family + "-latest" ||
-         (name.size() == family.size() + 9 && name.compare(0, family.size() + 1, family + "-") == 0 &&
-          std::all_of(name.begin() + family.size() + 1, name.end(), [](char c) { return c >= '0' && c <= '9'; }));
-}
-inline int anthropicOutputLimit(const Json &model) {
-  const auto name = model.value("name", std::string());
-  if (anthropicFamily(name, "claude-3-haiku-20240307") || anthropicFamily(name, "claude-3-opus-20240229")) return 4096;
-  if (anthropicFamily(name, "claude-3-5-sonnet") || anthropicFamily(name, "claude-3-5-haiku")) return 8192;
-  for (const auto &family : {"claude-3-7-sonnet", "claude-sonnet-4", "claude-sonnet-4-5",
-                             "claude-haiku-4-5", "claude-opus-4", "claude-opus-4-1", "claude-opus-4-5"})
-    if (anthropicFamily(name, family)) return family == std::string("claude-opus-4") ||
-        family == std::string("claude-opus-4-1") ? 32000 : 64000;
-  for (const auto &family : {"claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7",
-                             "claude-opus-4-8", "claude-opus-5", "claude-opus-5-5",
-                             "claude-sonnet-5", "claude-sonnet-5-5", "claude-haiku-5-5",
-                             "claude-fable-5", "claude-fable-5-1", "claude-mythos-5", "claude-mythos-5-1"})
-    if (anthropicFamily(name, family)) return 128000;
-  return 0;
-}
 inline int anthropicMaxOutput(const Json &model) {
   const auto caps = objectField(model, "capabilities_json");
   const auto value = caps.value("max_output_tokens", Json(16384));
-  const auto limit = anthropicOutputLimit(model);
   if (!value.is_number_integer()) throw std::runtime_error("最大输出 token 必须是正整数");
   const auto n = value.get<double>();
-  if (n < 1 || n > 1048576 || (limit && n > limit && caps.contains("max_output_tokens")))
+  if (n < 1 || n > 1048576)
     throw std::runtime_error("最大输出 token 超出模型上限，请修改模型设置");
-  return std::min(int(n), limit ? limit : 1048576);
+  return int(n);
 }
 inline std::string anthropicBudget(const std::string &key) {
   static const std::map<std::string, std::string> values{
@@ -41,33 +20,7 @@ inline std::string anthropicBudget(const std::string &key) {
   return it == values.end() ? std::string() : it->second;
 }
 inline Json anthropicReasoning(const Json &model) {
-  const auto caps = objectField(model, "capabilities_json");
-  if (caps.contains("reasoning") && caps["reasoning"].is_object()) return caps["reasoning"];
-  const auto name = model.value("name", std::string());
-  Json out = {{"mode", "off"}, {"levels", Json::object()}, {"summary", false}, {"disable", false}};
-  for (const auto &family : {"claude-3-7-sonnet", "claude-sonnet-4", "claude-sonnet-4-5",
-                             "claude-haiku-4-5", "claude-opus-4", "claude-opus-4-1", "claude-opus-4-5"})
-    if (anthropicFamily(name, family)) {
-      out = {{"mode", "budget"}, {"levels", {{"none", "disabled"}, {"medium", "4096"}, {"high", "8192"}}},
-             {"summary", true}, {"disable", true}, {"display_supported", false}};
-      return out;
-    }
-  for (const auto &family : {"claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7",
-                             "claude-opus-4-8", "claude-opus-5", "claude-opus-5-5",
-                             "claude-sonnet-5", "claude-sonnet-5-5", "claude-haiku-5-5",
-                             "claude-fable-5", "claude-fable-5-1", "claude-mythos-5", "claude-mythos-5-1"})
-    if (anthropicFamily(name, family)) {
-      const bool modern = !anthropicFamily(name, "claude-sonnet-4-6") && !anthropicFamily(name, "claude-opus-4-6");
-      const bool always = name.find("claude-fable-") == 0 || name.find("claude-mythos-") == 0 ||
-                          anthropicFamily(name, "claude-opus-5-5");
-      const bool between = anthropicFamily(name, "claude-sonnet-5-5");
-      out = {{"mode", "adaptive"}, {"levels", {{"low", "low"}, {"medium", "medium"}, {"high", "high"}, {"max", "max"}}},
-             {"summary", true}, {"disable", !always && !between}, {"display_supported", true}};
-      if (modern) out["levels"]["xhigh"] = "xhigh";
-      if (!always && !between) out["levels"]["none"] = "disabled";
-      return out;
-    }
-  return out;
+  return catalogReasoning(model);
 }
 inline void validateAnthropic(const Json &model, const Json &reasoning) {
   const auto maximum = anthropicMaxOutput(model);

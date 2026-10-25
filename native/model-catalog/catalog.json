@@ -1,0 +1,3434 @@
+{
+  "format": 1,
+  "revision": "2026-10-25.1",
+  "workbook_sha256": "3ae65a479a94dd53687cc8a3bf49e6c0095e6b880e7bdd0d67333bfbdafb88f5",
+  "rules": [
+    {
+      "id": "openai",
+      "parent": "",
+      "vendor": "openai",
+      "pattern": "",
+      "priority": 100,
+      "canonical": "",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.openai.com/docs/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic",
+      "parent": "",
+      "vendor": "anthropic",
+      "pattern": "",
+      "priority": 100,
+      "canonical": "",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "deepseek",
+      "parent": "",
+      "vendor": "deepseek",
+      "pattern": "",
+      "priority": 100,
+      "canonical": "",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://api-docs.deepseek.com/quick_start/pricing/"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "kimi",
+      "parent": "",
+      "vendor": "kimi",
+      "pattern": "",
+      "priority": 100,
+      "canonical": "",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.kimi.ai/docs/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "minimax",
+      "parent": "",
+      "vendor": "minimax",
+      "pattern": "",
+      "priority": 100,
+      "canonical": "",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.minimax.io/docs/guides/text-generation"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "glm",
+      "parent": "",
+      "vendor": "glm",
+      "pattern": "",
+      "priority": 100,
+      "canonical": "",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://docs.z.ai/guides/overview/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen",
+      "parent": "",
+      "vendor": "qwen",
+      "pattern": "",
+      "priority": 100,
+      "canonical": "",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "deepseek:v4",
+      "parent": "deepseek",
+      "vendor": "deepseek",
+      "pattern": "^deepseek\\-v4$",
+      "priority": 200,
+      "canonical": "",
+      "facts": {
+        "context_tokens": 1000000,
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "Chat Completions 支持 tools、tool_choice；Chat Completions 与 Responses 支持自定义 function calling；Responses 的 custom 工具仅支持 apply_patch。特定 Agent 集成中，V4 思考模式不接受 tool_choice；多轮工具调用需保留 reasoning_content。内置工具按具体型号。",
+        "lifecycle": "当前",
+        "notes": "输入 deepseek-v4 停在本层；不自动选择 Flash 或 Pro。历史别名 deepseek-v4-flash 会路由至当前 V4.1 Flash。"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "high": "high",
+            "max": "max",
+            "none": "disabled"
+          },
+          "summary": false,
+          "disable": true,
+          "adapter": "deepseek",
+          "wire": "thinking_effort"
+        },
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "high": "high",
+            "max": "max",
+            "none": "none"
+          },
+          "summary": false,
+          "disable": true,
+          "adapter": "deepseek",
+          "wire": "standard"
+        },
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "high": "high",
+            "max": "max",
+            "none": "disabled"
+          },
+          "summary": false,
+          "disable": true,
+          "adapter": "deepseek",
+          "wire": "anthropic_switch"
+        }
+      },
+      "sources": [
+        "https://api-docs.deepseek.com/quick_start/pricing/",
+        "https://api-docs.deepseek.com/api/create-chat-completion/",
+        "https://api-docs.deepseek.com/guides/responses_api/",
+        "https://api-docs.deepseek.com/api/create-response/",
+        "https://api-docs.deepseek.com/quick_start/agent_integrations/oh_my_pi/"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-5",
+      "parent": "anthropic",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-5$",
+      "priority": 200,
+      "canonical": "",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "tool_support": "supported",
+        "tool_notes": "Messages API 支持自定义 tool use；内置工具按接口与平台。",
+        "lifecycle": "当前",
+        "notes": "输入 claude-5 停在本层；不自动选择 Opus、Sonnet、Fable 或 Haiku。"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/models/overview"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-5.6",
+      "parent": "openai",
+      "vendor": "openai",
+      "pattern": "^gpt\\-5\\.6$",
+      "priority": 200,
+      "canonical": "",
+      "facts": {
+        "context_tokens": 1050000,
+        "reasoning_supported": true,
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-6",
+      "parent": "openai",
+      "vendor": "openai",
+      "pattern": "^gpt\\-6$",
+      "priority": 200,
+      "canonical": "",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.openai.com/docs/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-5",
+      "parent": "openai",
+      "vendor": "openai",
+      "pattern": "^gpt\\-5$",
+      "priority": 200,
+      "canonical": "",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.openai.com/docs/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-4",
+      "parent": "openai",
+      "vendor": "openai",
+      "pattern": "^gpt\\-4$",
+      "priority": 200,
+      "canonical": "",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.openai.com/docs/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:o-series",
+      "parent": "openai",
+      "vendor": "openai",
+      "pattern": "^o3\\-series$",
+      "priority": 200,
+      "canonical": "",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.openai.com/docs/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-6:astra",
+      "parent": "openai:gpt-6",
+      "vendor": "openai",
+      "pattern": "^gpt\\-6\\-astra$",
+      "priority": 300,
+      "canonical": "gpt-6-astra",
+      "facts": {
+        "context_tokens": 1050000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "官方模型页列 Function calling 支持；内置工具按 Responses API 与具体模型页。",
+        "lifecycle": "当前",
+        "notes": "不支持 reasoning.effort=none。"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": false
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": false
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-6-astra"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-6:sol-6.1",
+      "parent": "openai:gpt-6",
+      "vendor": "openai",
+      "pattern": "^gpt\\-6\\.1\\-sol$",
+      "priority": 300,
+      "canonical": "gpt-6.1-sol",
+      "facts": {
+        "context_tokens": 1050000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "conditional",
+        "tool_notes": "Responses 支持工具调用；Chat Completions 不支持工具调用。",
+        "lifecycle": "当前",
+        "notes": "不支持 none 或 minimal；Responses 支持工具调用，Chat Completions 不支持工具调用。"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": false
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": false
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-6.1-sol"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-6:luna",
+      "parent": "openai:gpt-6",
+      "vendor": "openai",
+      "pattern": "^gpt\\-6\\-luna$",
+      "priority": 300,
+      "canonical": "gpt-6-luna",
+      "facts": {
+        "context_tokens": 1050000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "conditional",
+        "tool_notes": "Responses 支持内置工具和 function calling；Chat Completions 仅在 reasoning_effort=none 时支持 function calling。",
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-6-luna"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-5.6:sol",
+      "parent": "openai:gpt-5.6",
+      "vendor": "openai",
+      "pattern": "^gpt\\-5\\.6\\-sol$",
+      "priority": 300,
+      "canonical": "gpt-5.6-sol",
+      "facts": {
+        "context_tokens": 1050000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "官方模型页列 Function calling 支持；内置工具按 Responses API 与具体模型页。",
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-5.6-sol"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-5.6:terra",
+      "parent": "openai:gpt-5.6",
+      "vendor": "openai",
+      "pattern": "^gpt\\-5\\.6\\-terra$",
+      "priority": 300,
+      "canonical": "gpt-5.6-terra",
+      "facts": {
+        "context_tokens": 1050000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "官方模型页列 Function calling 支持；内置工具按 Responses API 与具体模型页。",
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-5.6-terra"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-5.6:luna",
+      "parent": "openai:gpt-5.6",
+      "vendor": "openai",
+      "pattern": "^gpt\\-5\\.6\\-luna$",
+      "priority": 300,
+      "canonical": "gpt-5.6-luna",
+      "facts": {
+        "context_tokens": 1050000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "官方模型页列 Function calling 支持；内置工具按 Responses API 与具体模型页。",
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-5.6-luna"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-5.6:alias",
+      "parent": "openai:gpt-5.6:sol",
+      "vendor": "openai",
+      "pattern": "^gpt\\-5\\.6$",
+      "priority": 300,
+      "canonical": "gpt-5.6",
+      "facts": {
+        "lifecycle": "当前",
+        "notes": "官方别名路由到 GPT-5.6 Sol；不得据此猜成 Terra 或 Luna。"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-5.6-sol"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-5:gpt-5.4",
+      "parent": "openai:gpt-5",
+      "vendor": "openai",
+      "pattern": "^gpt\\-5\\.4$",
+      "priority": 300,
+      "canonical": "gpt-5.4",
+      "facts": {
+        "context_tokens": 1050000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "官方模型页列 Function calling 支持；内置工具按 Responses API 与具体模型页。",
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-5.4"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-5:gpt-5.4:gpt-5.4-2026-03-05",
+      "parent": "openai:gpt-5:gpt-5.4",
+      "vendor": "openai",
+      "pattern": "^gpt\\-5\\.4\\-2026\\-03\\-05$",
+      "priority": 400,
+      "canonical": "gpt-5.4-2026-03-05",
+      "facts": {
+        "context_tokens": 1050000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-5.4"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-5:gpt-5.2",
+      "parent": "openai:gpt-5",
+      "vendor": "openai",
+      "pattern": "^gpt\\-5\\.2$",
+      "priority": 300,
+      "canonical": "gpt-5.2",
+      "facts": {
+        "context_tokens": 400000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "官方模型页列 Function calling 支持；内置工具按 Responses API 与具体模型页。",
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-5.2"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-5:gpt-5.2:gpt-5.2-2025-12-11",
+      "parent": "openai:gpt-5:gpt-5.2",
+      "vendor": "openai",
+      "pattern": "^gpt\\-5\\.2\\-2025\\-12\\-11$",
+      "priority": 400,
+      "canonical": "gpt-5.2-2025-12-11",
+      "facts": {
+        "context_tokens": 400000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-5.2"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-5:gpt-5.1",
+      "parent": "openai:gpt-5",
+      "vendor": "openai",
+      "pattern": "^gpt\\-5\\.1$",
+      "priority": 300,
+      "canonical": "gpt-5.1",
+      "facts": {
+        "context_tokens": 400000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "官方模型页列 Function calling 支持；内置工具按 Responses API 与具体模型页。",
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-5.1"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-5:gpt-5.1:gpt-5.1-2025-11-13",
+      "parent": "openai:gpt-5:gpt-5.1",
+      "vendor": "openai",
+      "pattern": "^gpt\\-5\\.1\\-2025\\-11\\-13$",
+      "priority": 400,
+      "canonical": "gpt-5.1-2025-11-13",
+      "facts": {
+        "context_tokens": 400000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "high": "high"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": true
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-5.1"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-5:gpt-5",
+      "parent": "openai:gpt-5",
+      "vendor": "openai",
+      "pattern": "^gpt\\-5$",
+      "priority": 300,
+      "canonical": "gpt-5",
+      "facts": {
+        "context_tokens": 400000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "官方模型页列 Function calling 支持；内置工具按 Responses API 与具体模型页。",
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "minimal": "minimal",
+            "low": "low",
+            "medium": "medium",
+            "high": "high"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": false
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "minimal": "minimal",
+            "low": "low",
+            "medium": "medium",
+            "high": "high"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": false
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-5"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-5:gpt-5:gpt-5-2025-08-07",
+      "parent": "openai:gpt-5:gpt-5",
+      "vendor": "openai",
+      "pattern": "^gpt\\-5\\-2025\\-08\\-07$",
+      "priority": 400,
+      "canonical": "gpt-5-2025-08-07",
+      "facts": {
+        "context_tokens": 400000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "minimal": "minimal",
+            "low": "low",
+            "medium": "medium",
+            "high": "high"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": false
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "minimal": "minimal",
+            "low": "low",
+            "medium": "medium",
+            "high": "high"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": false
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-5"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-4:gpt-4.1",
+      "parent": "openai:gpt-4",
+      "vendor": "openai",
+      "pattern": "^gpt\\-4\\.1$",
+      "priority": 300,
+      "canonical": "gpt-4.1",
+      "facts": {
+        "context_tokens": 1047576,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": false,
+        "tool_support": "supported",
+        "tool_notes": "官方模型页列 Function calling 支持；内置工具按 Responses API 与具体模型页。",
+        "lifecycle": "Deprecated"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {},
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "system",
+          "disable": false
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {},
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "system",
+          "disable": false
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-4.1"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-4:gpt-4o",
+      "parent": "openai:gpt-4",
+      "vendor": "openai",
+      "pattern": "^gpt\\-4o$",
+      "priority": 300,
+      "canonical": "gpt-4o",
+      "facts": {
+        "context_tokens": 128000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": false,
+        "tool_support": "supported",
+        "tool_notes": "官方模型页列 Function calling 支持；内置工具按 Responses API 与具体模型页。",
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {},
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "system",
+          "disable": false
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {},
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "system",
+          "disable": false
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-4o"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-4:gpt-4.1:gpt-4.1-2025-04-14",
+      "parent": "openai:gpt-4:gpt-4.1",
+      "vendor": "openai",
+      "pattern": "^gpt\\-4\\.1\\-2025\\-04\\-14$",
+      "priority": 400,
+      "canonical": "gpt-4.1-2025-04-14",
+      "facts": {
+        "lifecycle": "Deprecated"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-4.1"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-4:gpt-4o:gpt-4o-2024-08-06",
+      "parent": "openai:gpt-4:gpt-4o",
+      "vendor": "openai",
+      "pattern": "^gpt\\-4o\\-2024\\-08\\-06$",
+      "priority": 400,
+      "canonical": "gpt-4o-2024-08-06",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-4o"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-4:gpt-4o:gpt-4o-2024-11-20",
+      "parent": "openai:gpt-4:gpt-4o",
+      "vendor": "openai",
+      "pattern": "^gpt\\-4o\\-2024\\-11\\-20$",
+      "priority": 400,
+      "canonical": "gpt-4o-2024-11-20",
+      "facts": {
+        "lifecycle": "Deprecated"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-4o"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:gpt-4:gpt-4o:gpt-4o-2024-05-13",
+      "parent": "openai:gpt-4:gpt-4o",
+      "vendor": "openai",
+      "pattern": "^gpt\\-4o\\-2024\\-05\\-13$",
+      "priority": 400,
+      "canonical": "gpt-4o-2024-05-13",
+      "facts": {
+        "lifecycle": "Shut down"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.openai.com/docs/models/gpt-4o"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:o-series:o3",
+      "parent": "openai:o-series",
+      "vendor": "openai",
+      "pattern": "^o3$",
+      "priority": 300,
+      "canonical": "o3",
+      "facts": {
+        "context_tokens": 200000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "官方模型页列 Function calling 支持；内置工具按 Responses API 与具体模型页。",
+        "lifecycle": "Deprecated",
+        "notes": "修正原表：支持推理；low/medium/high 按官方 reasoning 指南。"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": false
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": false
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/o3",
+        "https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.4"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:o-series:o3:o3-2025-04-16",
+      "parent": "openai:o-series:o3",
+      "vendor": "openai",
+      "pattern": "^o3\\-2025\\-04\\-16$",
+      "priority": 400,
+      "canonical": "o3-2025-04-16",
+      "facts": {
+        "lifecycle": "Deprecated"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.openai.com/docs/models/o3"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:o-series:o4-mini",
+      "parent": "openai:o-series",
+      "vendor": "openai",
+      "pattern": "^o4\\-mini$",
+      "priority": 300,
+      "canonical": "o4-mini",
+      "facts": {
+        "context_tokens": 200000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "官方模型页列 Function calling 支持；内置工具按 Responses API 与具体模型页。",
+        "lifecycle": "Shut down",
+        "notes": "修正原表：支持推理；low/medium/high 按官方 reasoning 指南。"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high"
+          },
+          "summary": true,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": false
+        },
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high"
+          },
+          "summary": false,
+          "adapter": "standard",
+          "instruction_role": "developer",
+          "disable": false
+        }
+      },
+      "sources": [
+        "https://platform.openai.com/docs/models/o4-mini",
+        "https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.4"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "openai:o-series:o4-mini:o4-mini-2025-04-16",
+      "parent": "openai:o-series:o4-mini",
+      "vendor": "openai",
+      "pattern": "^o4\\-mini\\-2025\\-04\\-16$",
+      "priority": 400,
+      "canonical": "o4-mini-2025-04-16",
+      "facts": {
+        "lifecycle": "Deprecated"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.openai.com/docs/models/o4-mini"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-4",
+      "parent": "anthropic",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-4$",
+      "priority": 200,
+      "canonical": "",
+      "facts": {
+        "tool_support": "supported",
+        "tool_notes": "Messages API 支持自定义 tool use；内置工具按接口与平台。",
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/models/overview"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-fable-5-1",
+      "parent": "anthropic:claude-5",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-fable\\-5\\-1$",
+      "priority": 300,
+      "canonical": "claude-fable-5-1",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": true,
+          "disable": false,
+          "display_supported": true,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://platform.claude.com/docs/en/build-with-claude/thinking"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-opus-5-5",
+      "parent": "anthropic:claude-5",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-opus\\-5\\-5$",
+      "priority": 300,
+      "canonical": "claude-opus-5-5",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": true,
+          "disable": false,
+          "display_supported": true,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://platform.claude.com/docs/en/build-with-claude/thinking"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-sonnet-5-5",
+      "parent": "anthropic:claude-5",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-sonnet\\-5\\-5$",
+      "priority": 300,
+      "canonical": "claude-sonnet-5-5",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": true,
+          "disable": false,
+          "display_supported": true,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://platform.claude.com/docs/en/build-with-claude/thinking"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-haiku-5-5",
+      "parent": "anthropic:claude-5",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-haiku\\-5\\-5$",
+      "priority": 300,
+      "canonical": "claude-haiku-5-5",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max",
+            "none": "disabled"
+          },
+          "summary": true,
+          "disable": true,
+          "display_supported": true,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://platform.claude.com/docs/en/build-with-claude/thinking"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-opus-5",
+      "parent": "anthropic:claude-5",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-opus\\-5$",
+      "priority": 300,
+      "canonical": "claude-opus-5",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max",
+            "none": "disabled"
+          },
+          "summary": true,
+          "disable": true,
+          "display_supported": true,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://platform.claude.com/docs/en/build-with-claude/thinking"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-sonnet-5",
+      "parent": "anthropic:claude-5",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-sonnet\\-5$",
+      "priority": 300,
+      "canonical": "claude-sonnet-5",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max",
+            "none": "disabled"
+          },
+          "summary": true,
+          "disable": true,
+          "display_supported": true,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://platform.claude.com/docs/en/build-with-claude/thinking"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-fable-5",
+      "parent": "anthropic:claude-5",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-fable\\-5$",
+      "priority": 300,
+      "canonical": "claude-fable-5",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": true,
+          "disable": false,
+          "display_supported": true,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://platform.claude.com/docs/en/build-with-claude/thinking"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-opus-4-8",
+      "parent": "anthropic:claude-4",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-opus\\-4\\-8$",
+      "priority": 300,
+      "canonical": "claude-opus-4-8",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "Legacy"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max",
+            "none": "disabled"
+          },
+          "summary": true,
+          "disable": true,
+          "display_supported": true,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://platform.claude.com/docs/en/build-with-claude/thinking"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-opus-4-7",
+      "parent": "anthropic:claude-4",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-opus\\-4\\-7$",
+      "priority": 300,
+      "canonical": "claude-opus-4-7",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "Legacy"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max",
+            "none": "disabled"
+          },
+          "summary": true,
+          "disable": true,
+          "display_supported": true,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://platform.claude.com/docs/en/build-with-claude/thinking"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-opus-4-6",
+      "parent": "anthropic:claude-4",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-opus\\-4\\-6$",
+      "priority": 300,
+      "canonical": "claude-opus-4-6",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "Legacy",
+        "notes": "官方 xhigh 可用列表不含此型号；不套用完整五档。"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "max": "max",
+            "none": "disabled"
+          },
+          "summary": true,
+          "disable": true,
+          "display_supported": true,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://platform.claude.com/docs/en/build-with-claude/thinking"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-sonnet-4-6",
+      "parent": "anthropic:claude-4",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-sonnet\\-4\\-6$",
+      "priority": 300,
+      "canonical": "claude-sonnet-4-6",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "Legacy",
+        "notes": "官方 xhigh 可用列表不含此型号；不套用完整五档。"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "max": "max",
+            "none": "disabled"
+          },
+          "summary": true,
+          "disable": true,
+          "display_supported": true,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://platform.claude.com/docs/en/build-with-claude/thinking"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-opus-4-5",
+      "parent": "anthropic:claude-5",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-opus\\-4\\-5$",
+      "priority": 300,
+      "canonical": "claude-opus-4-5",
+      "facts": {
+        "context_tokens": 200000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "Legacy",
+        "notes": "完整 effort 档位留待官方明确列表；不套用新模型五档。"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "budget",
+          "levels": {
+            "low": "1024",
+            "medium": "4096",
+            "high": "8192",
+            "xhigh": "12288",
+            "max": "14336",
+            "none": "disabled"
+          },
+          "summary": true,
+          "disable": true,
+          "display_supported": false,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://platform.claude.com/docs/en/build-with-claude/thinking"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-sonnet-4-5",
+      "parent": "anthropic:claude-5",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-sonnet\\-4\\-5$",
+      "priority": 300,
+      "canonical": "claude-sonnet-4-5",
+      "facts": {
+        "context_tokens": 200000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "Deprecated；计划 2026-11-30 退役"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "budget",
+          "levels": {
+            "low": "1024",
+            "medium": "4096",
+            "high": "8192",
+            "xhigh": "12288",
+            "max": "14336",
+            "none": "disabled"
+          },
+          "summary": true,
+          "disable": true,
+          "display_supported": false,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://platform.claude.com/docs/en/build-with-claude/thinking"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-haiku-4-5",
+      "parent": "anthropic:claude-5",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-haiku\\-4\\-5$",
+      "priority": 300,
+      "canonical": "claude-haiku-4-5",
+      "facts": {
+        "context_tokens": 200000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "Legacy"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "budget",
+          "levels": {
+            "low": "1024",
+            "medium": "4096",
+            "high": "8192",
+            "xhigh": "12288",
+            "max": "14336",
+            "none": "disabled"
+          },
+          "summary": true,
+          "disable": true,
+          "display_supported": false,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://platform.claude.com/docs/en/build-with-claude/thinking"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-sonnet-4-5:claude-sonnet-4-5-20250929",
+      "parent": "anthropic:claude-sonnet-4-5",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-sonnet\\-4\\-5\\-20250929$",
+      "priority": 400,
+      "canonical": "claude-sonnet-4-5-20250929",
+      "facts": {
+        "lifecycle": "继承父节点"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-haiku-4-5:claude-haiku-4-5-20251001",
+      "parent": "anthropic:claude-haiku-4-5",
+      "vendor": "anthropic",
+      "pattern": "^claude\\-haiku\\-4\\-5\\-20251001$",
+      "priority": 400,
+      "canonical": "claude-haiku-4-5-20251001",
+      "facts": {
+        "lifecycle": "继承父节点"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "deepseek:v4:flash",
+      "parent": "deepseek:v4",
+      "vendor": "deepseek",
+      "pattern": "^deepseek\\-flash$",
+      "priority": 300,
+      "canonical": "deepseek-flash",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 function calling；Responses 忽略 web_search、file_search、code_interpreter、computer_use、MCP 等未支持的内置工具；custom 仅支持 apply_patch。特定 Agent 集成中，V4 思考模式不接受 tool_choice；多轮工具调用需保留 reasoning_content。",
+        "lifecycle": "当前",
+        "notes": "当前别名。effort 别名映射：minimal→low，medium→high，xhigh→high，ultra→max。"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "high": "high",
+            "max": "max",
+            "none": "disabled"
+          },
+          "summary": false,
+          "disable": true,
+          "adapter": "deepseek",
+          "wire": "thinking_effort"
+        },
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "high": "high",
+            "max": "max",
+            "none": "none"
+          },
+          "summary": false,
+          "disable": true,
+          "adapter": "deepseek",
+          "wire": "standard"
+        },
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "high": "high",
+            "max": "max",
+            "none": "disabled"
+          },
+          "summary": false,
+          "disable": true,
+          "adapter": "deepseek",
+          "wire": "anthropic_switch"
+        }
+      },
+      "sources": [
+        "https://api-docs.deepseek.com/quick_start/pricing/",
+        "https://api-docs.deepseek.com/guides/thinking_mode/",
+        "https://api-docs.deepseek.com/api/create-chat-completion/",
+        "https://api-docs.deepseek.com/guides/responses_api/",
+        "https://api-docs.deepseek.com/api/create-response/",
+        "https://api-docs.deepseek.com/quick_start/agent_integrations/oh_my_pi/"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "deepseek:v4:pro",
+      "parent": "deepseek:v4",
+      "vendor": "deepseek",
+      "pattern": "^deepseek\\-v4\\-pro$",
+      "priority": 300,
+      "canonical": "deepseek-v4-pro",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 function calling；Responses 支持内置 web_search；custom 仅支持 apply_patch；file_search、code_interpreter、computer_use、MCP 等未列内置工具会被忽略。特定 Agent 集成中，V4 思考模式不接受 tool_choice；多轮工具调用需保留 reasoning_content。",
+        "lifecycle": "当前",
+        "notes": "当前 Pro 别名；不支持视觉输入。effort 别名映射同官方思考文档。"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "high": "high",
+            "max": "max",
+            "none": "disabled"
+          },
+          "summary": false,
+          "disable": true,
+          "adapter": "deepseek",
+          "wire": "thinking_effort"
+        },
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "high": "high",
+            "max": "max",
+            "none": "none"
+          },
+          "summary": false,
+          "disable": true,
+          "adapter": "deepseek",
+          "wire": "standard"
+        },
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "high": "high",
+            "max": "max",
+            "none": "disabled"
+          },
+          "summary": false,
+          "disable": true,
+          "adapter": "deepseek",
+          "wire": "anthropic_switch"
+        }
+      },
+      "sources": [
+        "https://api-docs.deepseek.com/quick_start/pricing/",
+        "https://api-docs.deepseek.com/guides/thinking_mode/",
+        "https://api-docs.deepseek.com/api/create-chat-completion/",
+        "https://api-docs.deepseek.com/guides/responses_api/",
+        "https://api-docs.deepseek.com/api/create-response/",
+        "https://api-docs.deepseek.com/quick_start/agent_integrations/oh_my_pi/"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "deepseek:v4:flash:deepseek-v4-flash",
+      "parent": "deepseek:v4:flash",
+      "vendor": "deepseek",
+      "pattern": "^deepseek\\-v4\\-flash$",
+      "priority": 300,
+      "canonical": "deepseek-v4-flash",
+      "facts": {
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "lifecycle": "历史别名；由当前 V4.1 Flash 提供"
+      },
+      "profiles": {},
+      "sources": [
+        "https://api-docs.deepseek.com/quick_start/pricing/"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "deepseek:v4:flash:deepseek-v4-flash-vision-exp",
+      "parent": "deepseek:v4:flash",
+      "vendor": "deepseek",
+      "pattern": "^deepseek\\-v4\\-flash\\-vision\\-exp$",
+      "priority": 300,
+      "canonical": "deepseek-v4-flash-vision-exp",
+      "facts": {
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "lifecycle": "历史别名；由当前 V4.1 Flash 提供"
+      },
+      "profiles": {},
+      "sources": [
+        "https://api-docs.deepseek.com/quick_start/pricing/"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "kimi:k3",
+      "parent": "kimi",
+      "vendor": "kimi",
+      "pattern": "",
+      "priority": 200,
+      "canonical": "",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 tools；tool_choice、动态工具和官方工具的支持范围按具体模型。",
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "high": "high",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.kimi.ai/docs/models",
+        "https://platform.kimi.ai/docs/guide/kimi-k3-quickstart",
+        "https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "kimi:k2",
+      "parent": "kimi",
+      "vendor": "kimi",
+      "pattern": "^kimi\\-k2\\-series$",
+      "priority": 200,
+      "canonical": "",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.kimi.ai/docs/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "kimi:k3:k3.1-pro",
+      "parent": "kimi:k3",
+      "vendor": "kimi",
+      "pattern": "^kimi\\-k3\\.1\\-pro$",
+      "priority": 300,
+      "canonical": "kimi-k3.1-pro",
+      "facts": {
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 tools；tool_choice 支持 none/auto/required/null。",
+        "lifecycle": "当前",
+        "notes": "官方示例 max_tokens=65536 不等于模型最大输出，故最大输出留空。"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart",
+        "https://platform.kimi.ai/docs/guide/use-reasoning-effort"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "kimi:k3:k3.1-pro-highspeed",
+      "parent": "kimi:k3:k3.1-pro",
+      "vendor": "kimi",
+      "pattern": "^kimi\\-k3\\.1\\-pro\\-highspeed$",
+      "priority": 350,
+      "canonical": "kimi-k3.1-pro-highspeed",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.kimi.ai/docs/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "kimi:k3:k3",
+      "parent": "kimi:k3",
+      "vendor": "kimi",
+      "pattern": "^kimi\\-k3$",
+      "priority": 300,
+      "canonical": "kimi-k3",
+      "facts": {
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 tools、tool_choice（auto/none/required）、动态工具加载和官方工具。",
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.kimi.ai/docs/guide/kimi-k3-quickstart"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "kimi:k2:k2.6",
+      "parent": "kimi:k2",
+      "vendor": "kimi",
+      "pattern": "^kimi\\-k2\\.6$",
+      "priority": 300,
+      "canonical": "kimi-k2.6",
+      "facts": {
+        "context_tokens": 256000,
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持工具调用和多模态工具结果；tool_choice 不支持 required；思考开启时仅 auto/none；官方 $web_search 与思考模式暂不兼容。",
+        "lifecycle": "当前",
+        "notes": "不使用 K3 的 reasoning_effort。"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "toggle",
+          "levels": {},
+          "summary": false,
+          "adapter": "kimi",
+          "wire": "thinking_toggle",
+          "disable": true
+        }
+      },
+      "sources": [
+        "https://platform.kimi.ai/docs/guide/kimi-k2-6-quickstart",
+        "https://platform.kimi.ai/docs/guide/use-thinking-models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "kimi:k2:k2.7-code",
+      "parent": "kimi:k2",
+      "vendor": "kimi",
+      "pattern": "^kimi\\-k2\\.7\\-code$",
+      "priority": 300,
+      "canonical": "kimi-k2.7-code",
+      "facts": {
+        "context_tokens": 256000,
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持多步工具调用；tool_choice 不支持 required，使用 auto/none。",
+        "lifecycle": "当前",
+        "notes": "代码专用模型，不混入通用模型口径；只接受 enabled / keep all。"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "toggle",
+          "levels": {},
+          "summary": false,
+          "adapter": "kimi",
+          "wire": "thinking_toggle",
+          "disable": false
+        }
+      },
+      "sources": [
+        "https://platform.kimi.ai/docs/guide/kimi-k2-7-code-quickstart"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "kimi:retired:kimi-k2.5",
+      "parent": "kimi:k2",
+      "vendor": "kimi",
+      "pattern": "^kimi\\-k2\\.5$",
+      "priority": 300,
+      "canonical": "kimi-k2.5",
+      "facts": {
+        "lifecycle": "已于 2026-08-31 停用"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.kimi.ai/docs/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "kimi:retired:moonshot-v1",
+      "parent": "kimi",
+      "vendor": "kimi",
+      "pattern": "^moonshot\\-v1$",
+      "priority": 300,
+      "canonical": "moonshot-v1",
+      "facts": {
+        "lifecycle": "已于 2026-08-31 停用"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.kimi.ai/docs/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "kimi:retired:kimi-k2",
+      "parent": "kimi:k2",
+      "vendor": "kimi",
+      "pattern": "^kimi\\-k2$",
+      "priority": 300,
+      "canonical": "kimi-k2",
+      "facts": {
+        "lifecycle": "已于 2026-05-25 停用"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.kimi.ai/docs/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "kimi:retired:kimi-latest",
+      "parent": "kimi",
+      "vendor": "kimi",
+      "pattern": "^kimi\\-latest$",
+      "priority": 300,
+      "canonical": "kimi-latest",
+      "facts": {
+        "lifecycle": "已于 2026-01-28 停用"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.kimi.ai/docs/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "kimi:retired:kimi-thinking-preview",
+      "parent": "kimi",
+      "vendor": "kimi",
+      "pattern": "^kimi\\-thinking\\-preview$",
+      "priority": 300,
+      "canonical": "kimi-thinking-preview",
+      "facts": {
+        "lifecycle": "已于 2025-11-11 停用"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.kimi.ai/docs/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "minimax:m3",
+      "parent": "minimax",
+      "vendor": "minimax",
+      "pattern": "",
+      "priority": 200,
+      "canonical": "",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "tool_support": "supported",
+        "tool_notes": "支持 tool calls；HTTP / Anthropic SDK / OpenAI SDK 可用；Anthropic 兼容接口 tools 与 tool_choice 完全支持。",
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://platform.minimax.io/docs/guides/text-generation",
+        "https://platform.minimax.io/docs/api-reference/api-overview",
+        "https://platform.minimax.io/docs/api-reference/text-anthropic-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "minimax:m3:m3.1-flash",
+      "parent": "minimax:m3",
+      "vendor": "minimax",
+      "pattern": "^minimax\\-m3\\.1\\-flash$",
+      "priority": 300,
+      "canonical": "MiniMax-M3.1-Flash",
+      "facts": {
+        "reasoning_supported": true,
+        "lifecycle": "当前",
+        "notes": "none 或 thinking.disabled 返回 400。"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "minimax",
+          "wire": "standard",
+          "disable": false
+        },
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "minimax",
+          "wire": "standard",
+          "disable": false
+        },
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "minimax",
+          "wire": "standard",
+          "disable": false
+        }
+      },
+      "sources": [
+        "https://platform.minimax.io/docs/guides/text-generation"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "minimax:m3:m3",
+      "parent": "minimax:m3",
+      "vendor": "minimax",
+      "pattern": "^minimax\\-m3$",
+      "priority": 300,
+      "canonical": "MiniMax-M3",
+      "facts": {
+        "reasoning_supported": true,
+        "lifecycle": "当前",
+        "notes": "Anthropic 兼容页称默认关闭，OpenAI 兼容页称省略 thinking 时默认开启；不静默合并。"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "adaptive",
+          "levels": {
+            "none": "disabled"
+          },
+          "summary": false,
+          "disable": true,
+          "adapter": "minimax",
+          "wire": "anthropic_switch"
+        }
+      },
+      "sources": [
+        "https://platform.minimax.io/docs/guides/text-generation"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "glm:5",
+      "parent": "glm",
+      "vendor": "glm",
+      "pattern": "^glm\\-5\\-series$",
+      "priority": 200,
+      "canonical": "",
+      "facts": {
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://docs.z.ai/guides/overview/models"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "glm:glm-5",
+      "parent": "glm:5",
+      "vendor": "glm",
+      "pattern": "^glm\\-5$",
+      "priority": 300,
+      "canonical": "glm-5",
+      "facts": {
+        "context_tokens": 200000,
+        "input_modalities": [
+          "text"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持 Function Calling；具体内置工具、MCP 和接口参数按模型文档。",
+        "lifecycle": "当前",
+        "notes": "上下文与最大输出已核实；完整思考强度未在该模型页明确列出。"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "toggle",
+          "levels": {},
+          "summary": false,
+          "adapter": "glm",
+          "wire": "thinking_toggle",
+          "disable": true
+        }
+      },
+      "sources": [
+        "https://docs.z.ai/guides/llm/glm-5",
+        "https://docs.z.ai/guides/overview/concept-param"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "glm:glm-5.2",
+      "parent": "glm:5",
+      "vendor": "glm",
+      "pattern": "^glm\\-5\\.2$",
+      "priority": 300,
+      "canonical": "glm-5.2",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持 Function Calling；具体内置工具、MCP 和接口参数按模型文档。",
+        "lifecycle": "当前",
+        "notes": "none/minimal 跳过思考；low/medium 映射 high；xhigh 映射 max。"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "minimal": "minimal",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "glm",
+          "wire": "thinking_effort",
+          "disable": true
+        }
+      },
+      "sources": [
+        "https://docs.z.ai/guides/llm/glm-5.2",
+        "https://docs.z.ai/guides/overview/concept-param"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "glm:glm-5.3",
+      "parent": "glm:5",
+      "vendor": "glm",
+      "pattern": "^glm\\-5\\.3$",
+      "priority": 300,
+      "canonical": "glm-5.3",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持 Function Calling；具体内置工具、MCP 和接口参数按模型文档。",
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "high": "high",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "glm",
+          "wire": "thinking_effort",
+          "disable": false
+        }
+      },
+      "sources": [
+        "https://docs.z.ai/guides/llm/glm-5.3",
+        "https://docs.z.ai/guides/overview/concept-param"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "glm:glm-5.3-flash",
+      "parent": "glm:5",
+      "vendor": "glm",
+      "pattern": "^glm\\-5\\.3\\-flash$",
+      "priority": 300,
+      "canonical": "glm-5.3-flash",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "video",
+          "image",
+          "text",
+          "file"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持 Function Calling；具体内置工具、MCP 和接口参数按模型文档。",
+        "lifecycle": "当前",
+        "notes": "官方推荐 reasoning_effort=max；参数文档列默认 max。"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "high": "high",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "glm",
+          "wire": "thinking_effort",
+          "disable": false
+        }
+      },
+      "sources": [
+        "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+        "https://docs.z.ai/guides/overview/concept-param"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "glm:glm-5.3-flashx",
+      "parent": "glm:5",
+      "vendor": "glm",
+      "pattern": "^glm\\-5\\.3\\-flashx$",
+      "priority": 300,
+      "canonical": "glm-5.3-flashx",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "video",
+          "image",
+          "text",
+          "file"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持 Function Calling；具体内置工具、MCP 和接口参数按模型文档。",
+        "lifecycle": "当前",
+        "notes": "官方推荐 reasoning_effort=max；参数文档列默认 max。"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "effort",
+          "levels": {
+            "low": "low",
+            "high": "high",
+            "max": "max"
+          },
+          "summary": false,
+          "adapter": "glm",
+          "wire": "thinking_effort",
+          "disable": false
+        }
+      },
+      "sources": [
+        "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+        "https://docs.z.ai/guides/overview/concept-param"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen:3.8",
+      "parent": "qwen",
+      "vendor": "qwen",
+      "pattern": "^qwen3\\.8$",
+      "priority": 200,
+      "canonical": "",
+      "facts": {
+        "context_tokens": 1000000,
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 function calling；Chat Completions、Responses、DashScope 支持 tools/tool_choice，parallel_tool_calls 按接口；内置工具仅特定型号或快照。",
+        "lifecycle": "当前",
+        "notes": "Batch 场景部分 Qwen3.8/3.7/3.6/3.5 型号单请求上下文上限 256K；不覆盖实时接口规则。"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "toggle",
+          "levels": {},
+          "summary": false,
+          "adapter": "qwen",
+          "wire": "qwen_toggle",
+          "disable": true,
+          "budget_supported": true
+        }
+      },
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/models",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling",
+        "https://www.alibabacloud.com/help/en/model-studio/vision-model/",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen:3.7",
+      "parent": "qwen",
+      "vendor": "qwen",
+      "pattern": "^qwen3\\.7$",
+      "priority": 200,
+      "canonical": "",
+      "facts": {
+        "context_tokens": 1000000,
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 function calling；Chat Completions、Responses、DashScope 支持 tools/tool_choice，parallel_tool_calls 按接口；内置工具仅特定型号或快照。",
+        "lifecycle": "当前",
+        "notes": "Batch 场景部分 Qwen3.8/3.7/3.6/3.5 型号单请求上下文上限 256K；不覆盖实时接口规则。"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "toggle",
+          "levels": {},
+          "summary": false,
+          "adapter": "qwen",
+          "wire": "qwen_toggle",
+          "disable": true,
+          "budget_supported": true
+        }
+      },
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/models",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling",
+        "https://www.alibabacloud.com/help/en/model-studio/vision-model/",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen:qwen3.8-max",
+      "parent": "qwen:3.8",
+      "vendor": "qwen",
+      "pattern": "^qwen3\\.8\\-max$",
+      "priority": 300,
+      "canonical": "qwen3.8-max",
+      "facts": {
+        "context_tokens": 1000000,
+        "max_input_tokens": 991808,
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 function calling；当前别名支持官方文档列明的内置工具；其他快照不得据此反推。",
+        "lifecycle": "当前",
+        "notes": "思考模式最大输入 983616；思考模式最大输出仍为 131072；最大思维链 262144。"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "toggle",
+          "levels": {},
+          "summary": false,
+          "adapter": "qwen",
+          "wire": "qwen_toggle",
+          "disable": true,
+          "budget_supported": true
+        },
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "xhigh": "xhigh"
+          },
+          "summary": false,
+          "disable": true,
+          "adapter": "qwen",
+          "wire": "standard",
+          "max_input_tokens": 800000
+        }
+      },
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/qwen3-8-max",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling",
+        "https://www.alibabacloud.com/help/en/model-studio/vision-model/",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen:qwen3.8-flash",
+      "parent": "qwen:3.8",
+      "vendor": "qwen",
+      "pattern": "^qwen3\\.8\\-flash$",
+      "priority": 300,
+      "canonical": "qwen3.8-flash",
+      "facts": {
+        "context_tokens": 1000000,
+        "max_input_tokens": 991808,
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 function calling；官方文档将该型号或快照列入内置工具支持范围。",
+        "lifecycle": "当前",
+        "notes": "思考模式最大输入 983616；思考模式最大输出仍为 131072；最大思维链 262144。"
+      },
+      "profiles": {
+        "chat": {
+          "mode": "toggle",
+          "levels": {},
+          "summary": false,
+          "adapter": "qwen",
+          "wire": "qwen_toggle",
+          "disable": true,
+          "budget_supported": true
+        },
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "xhigh": "xhigh"
+          },
+          "summary": false,
+          "disable": true,
+          "adapter": "qwen",
+          "wire": "standard",
+          "max_input_tokens": 800000
+        }
+      },
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/qwen3-8-flash",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling",
+        "https://www.alibabacloud.com/help/en/model-studio/vision-model/",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen:qwen3.8-max:qwen3.8-max-0902",
+      "parent": "qwen:qwen3.8-max",
+      "vendor": "qwen",
+      "pattern": "^qwen3\\.8\\-max\\-0902$",
+      "priority": 400,
+      "canonical": "qwen3.8-max-0902",
+      "facts": {
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 function calling；官方文档将该型号或快照列入内置工具支持范围。",
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "xhigh": "xhigh"
+          },
+          "summary": false,
+          "disable": true,
+          "adapter": "qwen",
+          "wire": "standard",
+          "max_input_tokens": 800000
+        }
+      },
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/qwen3-8-max",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling",
+        "https://www.alibabacloud.com/help/en/model-studio/vision-model/",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen:qwen3.8-max:qwen3.8-max-2026-09-02",
+      "parent": "qwen:qwen3.8-max",
+      "vendor": "qwen",
+      "pattern": "^qwen3\\.8\\-max\\-2026\\-09\\-02$",
+      "priority": 400,
+      "canonical": "qwen3.8-max-2026-09-02",
+      "facts": {
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 function calling；Chat Completions、Responses、DashScope 支持 tools/tool_choice，parallel_tool_calls 按接口；内置工具仅特定型号或快照。",
+        "lifecycle": "当前"
+      },
+      "profiles": {
+        "responses": {
+          "mode": "effort",
+          "levels": {
+            "none": "none",
+            "low": "low",
+            "medium": "medium",
+            "xhigh": "xhigh"
+          },
+          "summary": false,
+          "disable": true,
+          "adapter": "qwen",
+          "wire": "standard",
+          "max_input_tokens": 800000
+        }
+      },
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/qwen3-8-max",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling",
+        "https://www.alibabacloud.com/help/en/model-studio/vision-model/",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen:qwen3.7-max",
+      "parent": "qwen:3.7",
+      "vendor": "qwen",
+      "pattern": "^qwen3\\.7\\-max$",
+      "priority": 300,
+      "canonical": "qwen3.7-max",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前",
+        "notes": "当前别名功能等同 qwen3.7-max-2026-05-20；不得把当前纯文本模态套到全部快照。",
+        "max_input_tokens": 991808,
+        "thinking_max_input_tokens": 983616
+      },
+      "profiles": {
+        "chat": {
+          "mode": "toggle",
+          "levels": {},
+          "summary": false,
+          "adapter": "qwen",
+          "wire": "qwen_toggle",
+          "disable": true,
+          "budget_supported": true
+        }
+      },
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/qwen3-7-max",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen:qwen3.7-max:qwen3.7-max-preview",
+      "parent": "qwen:qwen3.7-max",
+      "vendor": "qwen",
+      "pattern": "^qwen3\\.7\\-max\\-preview$",
+      "priority": 400,
+      "canonical": "qwen3.7-max-preview",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前",
+        "notes": "预览快照；只支持思考。",
+        "max_input_tokens": 991808,
+        "thinking_max_input_tokens": 983616
+      },
+      "profiles": {
+        "chat": {
+          "mode": "toggle",
+          "levels": {},
+          "summary": false,
+          "adapter": "qwen",
+          "wire": "qwen_toggle",
+          "disable": false,
+          "budget_supported": true
+        }
+      },
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/qwen3-7-max",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen:qwen3.7-max:qwen3.7-max-2026-05-17",
+      "parent": "qwen:qwen3.7-max",
+      "vendor": "qwen",
+      "pattern": "^qwen3\\.7\\-max\\-2026\\-05\\-17$",
+      "priority": 400,
+      "canonical": "qwen3.7-max-2026-05-17",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前",
+        "notes": "日期快照；只支持思考。",
+        "max_input_tokens": 991808,
+        "thinking_max_input_tokens": 983616
+      },
+      "profiles": {
+        "chat": {
+          "mode": "toggle",
+          "levels": {},
+          "summary": false,
+          "adapter": "qwen",
+          "wire": "qwen_toggle",
+          "disable": false,
+          "budget_supported": true
+        }
+      },
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/qwen3-7-max",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen:qwen3.7-max:qwen3.7-max-2026-05-20",
+      "parent": "qwen:qwen3.7-max",
+      "vendor": "qwen",
+      "pattern": "^qwen3\\.7\\-max\\-2026\\-05\\-20$",
+      "priority": 400,
+      "canonical": "qwen3.7-max-2026-05-20",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text"
+        ],
+        "reasoning_supported": true,
+        "lifecycle": "当前",
+        "notes": "当前别名等同于此快照。",
+        "max_input_tokens": 991808,
+        "thinking_max_input_tokens": 983616
+      },
+      "profiles": {
+        "chat": {
+          "mode": "toggle",
+          "levels": {},
+          "summary": false,
+          "adapter": "qwen",
+          "wire": "qwen_toggle",
+          "disable": true,
+          "budget_supported": true
+        }
+      },
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/qwen3-7-max",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen:qwen3.7-max:qwen3.7-max-2026-06-08",
+      "parent": "qwen:qwen3.7-max",
+      "vendor": "qwen",
+      "pattern": "^qwen3\\.7\\-max\\-2026\\-06\\-08$",
+      "priority": 400,
+      "canonical": "qwen3.7-max-2026-06-08",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 function calling；官方文档将该型号或快照列入内置工具支持范围。",
+        "lifecycle": "当前",
+        "notes": "多模态快照；不得继承当前别名的纯文本模态。",
+        "max_input_tokens": 991808,
+        "thinking_max_input_tokens": 983616
+      },
+      "profiles": {
+        "chat": {
+          "mode": "toggle",
+          "levels": {},
+          "summary": false,
+          "adapter": "qwen",
+          "wire": "qwen_toggle",
+          "disable": true,
+          "budget_supported": true
+        }
+      },
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/qwen3-7-max",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling",
+        "https://www.alibabacloud.com/help/en/model-studio/vision-model/",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen:qwen3.7-plus",
+      "parent": "qwen:3.7",
+      "vendor": "qwen",
+      "pattern": "^qwen3\\.7\\-plus$",
+      "priority": 300,
+      "canonical": "qwen3.7-plus",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 function calling；官方文档将该型号或快照列入内置工具支持范围。",
+        "lifecycle": "当前",
+        "notes": "当前别名等同 qwen3.7-plus-2026-05-26。",
+        "max_input_tokens": 991808,
+        "thinking_max_input_tokens": 983616
+      },
+      "profiles": {
+        "chat": {
+          "mode": "toggle",
+          "levels": {},
+          "summary": false,
+          "adapter": "qwen",
+          "wire": "qwen_toggle",
+          "disable": true,
+          "budget_supported": true
+        }
+      },
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/qwen3-7-plus",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling",
+        "https://www.alibabacloud.com/help/en/model-studio/vision-model/",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen:qwen3.7-flash",
+      "parent": "qwen:3.7",
+      "vendor": "qwen",
+      "pattern": "^qwen3\\.7\\-flash$",
+      "priority": 300,
+      "canonical": "qwen3.7-flash",
+      "facts": {
+        "context_tokens": 1000000,
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 function calling；官方文档将该型号或快照列入内置工具支持范围。",
+        "lifecycle": "当前",
+        "max_input_tokens": 991808,
+        "thinking_max_input_tokens": 983616
+      },
+      "profiles": {
+        "chat": {
+          "mode": "toggle",
+          "levels": {},
+          "summary": false,
+          "adapter": "qwen",
+          "wire": "qwen_toggle",
+          "disable": true,
+          "budget_supported": true
+        }
+      },
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/qwen3-7-flash",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling",
+        "https://www.alibabacloud.com/help/en/model-studio/vision-model/",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "qwen:qwen3.7-flash:qwen3.7-flash-2026-07-15",
+      "parent": "qwen:qwen3.7-flash",
+      "vendor": "qwen",
+      "pattern": "^qwen3\\.7\\-flash\\-2026\\-07\\-15$",
+      "priority": 400,
+      "canonical": "qwen3.7-flash-2026-07-15",
+      "facts": {
+        "tool_support": "supported",
+        "tool_notes": "支持自定义 function calling；Chat Completions、Responses、DashScope 支持 tools/tool_choice，parallel_tool_calls 按接口；内置工具仅特定型号或快照。",
+        "lifecycle": "当前"
+      },
+      "profiles": {},
+      "sources": [
+        "https://www.alibabacloud.com/help/en/model-studio/qwen3-7-flash",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling",
+        "https://www.alibabacloud.com/help/en/model-studio/vision-model/",
+        "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api"
+      ],
+      "reviewed": "2026-10-25"
+    },
+    {
+      "id": "anthropic:claude-3-7-sonnet",
+      "parent": "anthropic",
+      "vendor": "anthropic",
+      "pattern": "^claude-3-7-sonnet(?:-20250219|-latest)?$",
+      "priority": 300,
+      "canonical": "claude-3-7-sonnet-20250219",
+      "facts": {
+        "context_tokens": 200000,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "reasoning_supported": true,
+        "tool_support": "supported"
+      },
+      "profiles": {
+        "anthropic": {
+          "mode": "budget",
+          "levels": {
+            "none": "disabled",
+            "low": "1024",
+            "medium": "4096",
+            "high": "8192",
+            "xhigh": "12288",
+            "max": "14336"
+          },
+          "summary": true,
+          "disable": true,
+          "display_supported": false,
+          "adapter": "standard"
+        }
+      },
+      "sources": [
+        "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+      ],
+      "reviewed": "2026-10-25"
+    }
+  ],
+  "tests": [
+    {
+      "input": "deepseek-v4",
+      "rule": "deepseek:v4",
+      "context": 1000000,
+      "modalities": null
+    },
+    {
+      "input": "DeepSeek_V4",
+      "rule": "deepseek:v4",
+      "context": 1000000,
+      "modalities": null
+    },
+    {
+      "input": "deepseek-v4-pro",
+      "rule": "deepseek:v4:pro",
+      "context": 1000000,
+      "modalities": "文本"
+    },
+    {
+      "input": "deepseek-flash",
+      "rule": "deepseek:v4:flash",
+      "context": 1000000,
+      "modalities": "文本、图片"
+    },
+    {
+      "input": "deepseek-v4-flash",
+      "rule": "deepseek:v4:flash:deepseek-v4-flash",
+      "context": 1000000,
+      "modalities": "文本、图片"
+    },
+    {
+      "input": "claude-5",
+      "rule": "anthropic:claude-5",
+      "context": 1000000,
+      "modalities": "文本、图片"
+    },
+    {
+      "input": "claude-opus-5-5",
+      "rule": "anthropic:claude-opus-5-5",
+      "context": 1000000,
+      "modalities": "文本、图片"
+    },
+    {
+      "input": "gpt-5.6",
+      "rule": "openai:gpt-5.6:alias",
+      "context": 1050000,
+      "modalities": "文本、图片"
+    },
+    {
+      "input": "gpt-5.4-2026-03-05",
+      "rule": "openai:gpt-5:gpt-5.4:gpt-5.4-2026-03-05",
+      "context": 1050000,
+      "modalities": "文本、图片"
+    },
+    {
+      "input": "qwen3.7-max-2026-06-08",
+      "rule": "qwen:qwen3.7-max:qwen3.7-max-2026-06-08",
+      "context": 1000000,
+      "modalities": "文本、图片、视频"
+    },
+    {
+      "input": "qwen3.7-max-preview",
+      "rule": "qwen:qwen3.7-max:qwen3.7-max-preview",
+      "context": 1000000,
+      "modalities": "文本"
+    },
+    {
+      "input": "kimi-k3",
+      "rule": "kimi:k3:k3",
+      "context": 1000000,
+      "modalities": "文本、图片"
+    },
+    {
+      "input": "glm-5.2",
+      "rule": "glm:glm-5.2",
+      "context": 1000000,
+      "modalities": "文本"
+    },
+    {
+      "input": "MiniMax-M3.1-Flash",
+      "rule": "minimax:m3:m3.1-flash",
+      "context": 1000000,
+      "modalities": "文本、图片、视频"
+    },
+    {
+      "input": "openai/gpt-5.2",
+      "rule": "openai:gpt-5:gpt-5.2",
+      "context": 400000,
+      "modalities": "文本、图片"
+    },
+    {
+      "input": "not-a-model",
+      "rule": null,
+      "context": null,
+      "modalities": null
+    },
+    {
+      "input": "gpt-6.1-sol",
+      "rule": "openai:gpt-6:sol-6.1",
+      "context": 1050000,
+      "modalities": "文本、图片"
+    },
+    {
+      "input": "gpt-6-luna",
+      "rule": "openai:gpt-6:luna",
+      "context": 1050000,
+      "modalities": "文本、图片"
+    },
+    {
+      "input": "kimi-k2.6",
+      "rule": "kimi:k2:k2.6",
+      "context": 256000,
+      "modalities": null
+    },
+    {
+      "input": "qwen3.8-max-0902",
+      "rule": "qwen:qwen3.8-max:qwen3.8-max-0902",
+      "context": 1000000,
+      "modalities": "文本、图片、视频"
+    }
+  ],
+  "prefixes": [
+    "openai/",
+    "anthropic/",
+    "deepseek/",
+    "moonshotai/",
+    "kimi/",
+    "minimax/",
+    "z-ai/",
+    "zhipuai/",
+    "qwen/",
+    "alibaba/"
+  ]
+}

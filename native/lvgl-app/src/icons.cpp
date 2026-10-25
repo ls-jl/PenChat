@@ -198,6 +198,11 @@ void paint(lv_event_t *event) {
     const int y = bounds.y1 + (lv_obj_get_height(object) - mask.header.h) / 2;
     lv_area_t area{x, y, x + int(mask.header.w) - 1, y + int(mask.header.h) - 1};
     lv_draw_image(layer, &d, &area);
+  } else if (k == "autofill") {
+    rect(-9, -7, 14, 16, 2);
+    line(-6, -2, 0, -2); line(-6, 3, -1, 3);
+    line(7, -10, 7, -2); line(3, -6, 11, -6);
+    line(5, -8, 9, -4); line(5, -4, 9, -8);
   } else if (k == "camera") {
     rect(-10, -6, 20, 15, 3);
     line(-5, -6, -3, -9);

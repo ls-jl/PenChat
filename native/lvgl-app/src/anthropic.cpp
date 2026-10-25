@@ -37,6 +37,7 @@ void sensitive(const Json &value, std::vector<std::string> &out) {
 }
 }
 Json anthropicRequestBody(const Json &model, const Json &input, bool streaming) {
+  validateModelImages(model, input);
   const auto caps = reasoningCapabilities(model);
   validateAnthropic(model, caps);
   Json messages = Json::array();
@@ -100,6 +101,7 @@ Json anthropicRequestBody(const Json &model, const Json &input, bool streaming) 
     if (body["thinking"]["type"] != "disabled" && caps.value("display_supported", false))
       body["thinking"]["display"] = apiOptions(model).summary && model.value("reasoning_summary", false) ? "summarized" : "omitted";
   }
+  applyModelParameters(body, model);
   return body;
 }
 void streamAnthropic(const Json &model, Json input, std::atomic<bool> &cancel,

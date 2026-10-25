@@ -30,7 +30,7 @@ inline Json replayIdentity(const Json &model) {
   Json identity = {{"provider", model.value("provider_id", std::string())},
           {"model", model.value("name", std::string())},
           {"endpoint", model.value("base_url", std::string())},
-          {"protocol", protocolName(apiProtocol(model))}};
+          {"protocol", protocolName(apiProtocol(model))}, {"model_adapter", modelAdapter(model)}};
   if (anthropicProtocol(model)) {
     identity["endpoint"] = protocolRoot(model);
     identity["version"] = anthropicVersion(model);

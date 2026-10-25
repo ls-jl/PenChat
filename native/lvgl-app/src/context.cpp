@@ -15,6 +15,16 @@ int contextBudget(const Json &model) {
     return 16384;
   return std::max(1024, std::min(2097152, value.get<int>()));
 }
+int compressionPercent(const Json &settings) {
+  const auto value = settings.value("context_compression_percent", Json(75));
+  return value.is_number_integer() ? int(std::max(10.0, std::min(95.0, value.get<double>()))) : 75;
+}
+size_t compressionTrigger(const Json &model) {
+  return size_t(contextBudget(model)) * compressionPercent(model) / 100;
+}
+size_t compressionTarget(const Json &model) {
+  return size_t(contextBudget(model)) * std::min(150, compressionPercent(model) * 2) / 300;
+}
 void checkContextResources(const Json &input) {
   uint64_t bytes = input.dump().size();
   for (const auto &m : input) {
@@ -253,8 +263,7 @@ Json compressContext(Database &db, const Json &snapshot, Json model,
       ends.push_back(m.at("seq").get<int64_t>());
   if (ends.empty())
     throw std::runtime_error("没有可压缩的完整历史，未调用模型");
-  const auto chatBudget = size_t(contextBudget(chatModel));
-  const auto target = chatBudget / 2;
+  const auto target = compressionTarget(chatModel);
   const auto fixed =
       estimatedContext(pending, chatModel.value("system_prompt", std::string()));
   if (fixed >= target)
@@ -277,6 +286,7 @@ Json compressContext(Database &db, const Json &snapshot, Json model,
   model["system_prompt"] =
       std::string(Instruction) + "\n摘要估算预算：" + std::to_string(summaryBudget);
   model["effort_value"] = "";
+  model["effective_effort"] = "api_default";
   model["reasoning_summary"] = false;
   if (!model.contains("api_key"))
     model = db.requestModel(model);
@@ -365,6 +375,10 @@ Json compressContext(Database &db, const Json &snapshot, Json model,
   if (estimatedContext(effective, chatModel.value("system_prompt", std::string())) >
       target)
     throw std::runtime_error("压缩后仍超出目标预算，原上下文保持不变");
+  validateModelImages(chatModel, effective);
+  const auto inputLimit = objectField(chatModel, "capabilities_json").value("max_input_tokens", Json());
+  if (inputLimit.is_number_integer() && estimatedContext(effective, chatModel.value("system_prompt", std::string())) > inputLimit.get<size_t>())
+    throw std::runtime_error("压缩后仍超过模型最大输入，原上下文保持不变");
   checkContextResources(effective);
   return {{"version", 1},
           {"enabled", true},
