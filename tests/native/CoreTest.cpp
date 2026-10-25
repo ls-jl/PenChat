@@ -442,6 +442,28 @@ int main(int argc, char **argv) {
   assert(rotatePhoto(turned,3,2,270)==pixels);
   assert(rotatePhoto(rotatePhoto(pixels,2,3,180),2,3,180)==pixels);
   RichText renderer(argv[1], argv[2], argv[3]);
+  {
+    auto heading = parseMarkdown("# 阅读字号 Aa").blocks.front();
+    const auto small = renderer.layout(heading, 780, 16);
+    const auto normal = renderer.layout(heading, 780, 21);
+    const auto large = renderer.layout(heading, 780, 42);
+    assert(small.height < normal.height && large.height > normal.height * 1.5);
+    const auto smallMath = renderer.formula("\\frac{1}{2}", 16);
+    const auto normalMath = renderer.formula("\\frac{1}{2}", 21);
+    const auto largeMath = renderer.formula("\\frac{1}{2}", 42);
+    assert(smallMath.height < normalMath.height && largeMath.height > normalMath.height * 1.7);
+    Block link;
+    link.runs = {{"Chinese 中文 English words", "font-size-link", 0}};
+    for (int size : {16, 21, 42}) {
+      const auto layout = renderer.layout(link, 220, size);
+      assert(!layout.links.empty());
+      for (const auto &hit : layout.links)
+        assert(hit.x >= 0 && hit.x + hit.w <= layout.width &&
+               hit.y >= 0 && hit.y + hit.h <= layout.height);
+      const auto pixels = renderer.paint(link, 220, 0, layout.height, size);
+      assert(pixels.height == layout.height && !pixels.pixels.empty());
+    }
+  }
   // Mixed styles within a word must not create new wrap opportunities.
   Block words;
   words.runs = {{"中文中文中 ", "", 0}, {"hel", "word", Bold},

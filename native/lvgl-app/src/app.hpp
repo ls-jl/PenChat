@@ -23,7 +23,7 @@ class App {
   struct Raster {
     lv_obj_t *holder, *owner;
     Block block;
-    int width, height, contentWidth;
+    int width, height, contentWidth, fontSize;
     bool subdued;
     int tableId;
     std::string tableKey;
@@ -230,6 +230,11 @@ class App {
   int chatScroll_ = 0, chatControlsTarget_ = -1;
   std::string builtView_;
   int settingsScroll_ = 0;
+  int readingFontPercent_ = 100, readingFontDraft_ = 100;
+  int readingFontSize() const { return (21 * readingFontPercent_ + 50) / 100; }
+  void fontSizePage();
+  void updateFontPreview(int percent);
+  lv_obj_t *fontSlider_ = nullptr, *fontPercentLabel_ = nullptr, *fontPreview_ = nullptr;
   lv_obj_t *settingsHeading_ = nullptr;
   lv_obj_t *pageHeading_ = nullptr, *pageHeader_ = nullptr, *pageContent_ = nullptr;
   std::string builtPageKey_;

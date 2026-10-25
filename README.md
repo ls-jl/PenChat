@@ -3,6 +3,8 @@
 独立的 ORANGE 原生 LVGL 聊天应用，版本与 AppID 以 `package.json` 为准。
 
 作者：ls-jl；AI 协作：Codex（OpenAI）。项目地址：<https://github.com/ls-jl/PenChat>。
+“设置 → 字体大小”可将聊天正文、思考过程及公式调整为原字号的 75%～200%，支持实时预览、恢复默认和重启记忆；菜单与键盘保持原大小。
+
 软件内可在“设置 → 关于 PenChat”查看署名、版本和项目地址；信息来自 `package.json`。
 
 ## 许可证

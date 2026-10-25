@@ -73,6 +73,9 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   transfer_->start("init");
   clearCrop();
   auto config = db_.settings();
+  const auto savedFont = config.value("reading_font_percent", Json());
+  if (savedFont.is_number_integer())
+    readingFontPercent_ = int(std::max<int64_t>(75, std::min<int64_t>(200, savedFont.get<int64_t>())));
   cameraAngle_ = config.value("camera_orientation",0);
   if (cameraAngle_!=0 && cameraAngle_!=90 && cameraAngle_!=180 && cameraAngle_!=270) cameraAngle_=0;
   cameraAutomatic_ = config.value("camera_auto_orientation",true);
@@ -923,6 +926,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  fontSlider_ = fontPercentLabel_ = fontPreview_ = nullptr;
   cropActions_.clear();cropViewport_=cropBitmap_=cropSelection_=nullptr;
   if(!imageViewer_)imageGesture_={};
   settingsControls_.clear();
@@ -1007,6 +1011,8 @@ void App::build() {
     chat();
   else if (view_ == "settings")
     settingsPage();
+  else if (view_ == "font_size")
+    fontSizePage();
   else if (view_ == "transfer")
     transferPage();
   else if (view_ == "presets")
@@ -1324,11 +1330,12 @@ void App::newChat(bool inherit) {
 void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
                       bool subdued, const std::string &context) {
   auto doc = parseMarkdown(text, generating_ && parent == liveContent_);
-  rich_.prepare(doc, width - 4);
+  const int size = readingFontSize();
+  rich_.prepare(doc, width - 4, size);
   auto appendText = [&](const Block &b) {
     if (b.runs.empty() && b.cells.empty() && b.kind != "hr")
       return;
-    auto layout = rich_.layout(b, width - 4);
+    auto layout = rich_.layout(b, width - 4, size);
     auto holder = box(parent, 0, 0, width, layout.height, theme::background);
     lv_obj_set_scroll_dir(holder, LV_DIR_HOR);
     if (b.tableId)
@@ -1350,6 +1357,7 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
          width - 4,
          layout.height,
          layout.width,
+         size,
          subdued,
          b.tableId,
          b.tableId ? context + ":table:" + std::to_string(b.tableId) : "",
@@ -1423,7 +1431,7 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
         stringValue(m, "original_path").empty()) {
       lv_point_t measured;
       const auto text = stringValue(m, "output_text");
-      lv_text_get_size(&measured, text.c_str(), font(21), 0, 0, LV_COORD_MAX,
+      lv_text_get_size(&measured, text.c_str(), font(readingFontSize()), 0, 0, LV_COORD_MAX,
                        LV_TEXT_FLAG_NONE);
       contentWidth = std::min(contentWidth, std::max(48, int(measured.x) + 24));
     }
@@ -1516,7 +1524,7 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
     }
     if (!content.empty()) {
       if (user)
-        label(wrap, content, 0, 0, textWidth, 21);
+        label(wrap, content, 0, 0, textWidth, readingFontSize());
       else {
         auto contentBox =
             box(wrap, 0, 0, textWidth, LV_SIZE_CONTENT, theme::background);
@@ -1694,7 +1702,7 @@ void App::paintVisible() {
       if (!r.tiles.count(position)) {
         int x = position.first, y = position.second;
         auto bitmap =
-            rich_.paint(r.block, r.width, y, std::min(128, r.height - y), 21, x,
+            rich_.paint(r.block, r.width, y, std::min(128, r.height - y), r.fontSize, x,
                         512, r.subdued);
         auto frame = std::make_shared<ImageFrame>();
         frame->width = bitmap.width;
@@ -1704,7 +1712,7 @@ void App::paintVisible() {
         lv_obj_set_pos(object, x, y);
         texture(object, frame, true);
         r.tiles[position] = object;
-        auto hits = rich_.layout(r.block, r.width).links;
+        auto hits = rich_.layout(r.block, r.width, r.fontSize).links;
         onClick(object, [this, object, hits, x, y] {
           lv_point_t point;
           auto indev = lv_indev_active();
@@ -1923,17 +1931,23 @@ void App::settingsPage() {
   const auto editDefault=config.value("message_edit_default",std::string("ask"));
   settingsRow("message_edit","编辑消息",editDefault=="archive"?"发送时先归档":editDefault=="overwrite"?"发送时直接覆盖":"每次询问",right,284,column,[this]{messageEditDefaultPicker();});
   settingsRow("history_time","历史时间显示",historyMode=="title"?"会话标题优先":historyMode=="off"?"关闭时间显示":"时间显示优先",left,284,column,[this]{historyTimePicker();});
-  label(pageContent_, "数据与应用", left, 356, width, 16, theme::muted);
-  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 380, column,
+  label(pageContent_, "阅读与显示", left, 356, width, 16, theme::muted);
+  settingsRow("font_size", "字体大小", std::to_string(readingFontPercent_) + "% · 聊天、思考和公式",
+              left, 380, width, [this] {
+                readingFontDraft_ = readingFontPercent_;
+                show("font_size");
+              });
+  label(pageContent_, "数据与应用", left, 452, width, 16, theme::muted);
+  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 476, column,
               [this] { openTransfer(); });
   const bool persistentExports = config.value("persistent_export_directory", true);
   settingsRow("persistent_exports", "持久化导出目录",
               persistentExports ? "关闭应用后保留导出文件" : "关闭应用时清理导出文件",
-              right, 380, column, [this, persistentExports] {
+              right, 476, column, [this, persistentExports] {
                 db_.setting("persistent_export_directory", !persistentExports);
                 build();
               }, persistentExports);
-  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", left, 444, width,
+  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", left, 540, width,
               [this] {
                 const auto summary = db_.summary();
                 modal("关于 " PENCHAT_NAME,
@@ -1944,6 +1958,48 @@ void App::settingsPage() {
                       "AI 协作：" PENCHAT_AI_CONTRIBUTOR "\n"
                       "项目地址：" PENCHAT_PROJECT_URL);
               });
+}
+void App::updateFontPreview(int percent) {
+  readingFontDraft_ = std::max(75, std::min(200, percent));
+  if (fontSlider_)
+    lv_slider_set_value(fontSlider_, (readingFontDraft_ + 2) / 5, LV_ANIM_OFF);
+  if (fontPercentLabel_)
+    lv_label_set_text(fontPercentLabel_, (std::to_string(readingFontDraft_) + "%").c_str());
+  if (fontPreview_)
+    lv_obj_set_style_text_font(fontPreview_, font((21 * readingFontDraft_ + 50) / 100), 0);
+}
+void App::fontSizePage() {
+  pageHeader("字体大小");
+  pageAction("恢复默认", 96, 120, [this] { updateFontPreview(100); });
+  pageAction("保存", 0, 84, [this] { events_.push("reading_font_apply"); });
+  const int width = screen_.width - 118;
+  label(pageContent_, "聊天正文、思考过程与公式同步缩放；菜单和键盘保持原大小。",
+        10, 4, width - 20, 16, theme::muted);
+  fontPercentLabel_ = label(pageContent_, "", 10, 29, width - 20, 20);
+  lv_obj_set_style_text_align(fontPercentLabel_, LV_TEXT_ALIGN_CENTER, 0);
+  label(pageContent_, "75%", 10, 59, 70, 18, theme::muted);
+  auto maximum = label(pageContent_, "200%", width - 80, 59, 70, 18, theme::muted);
+  lv_obj_set_style_text_align(maximum, LV_TEXT_ALIGN_RIGHT, 0);
+  fontSlider_ = lv_slider_create(pageContent_);
+  lv_obj_remove_style_all(fontSlider_);
+  lv_obj_set_pos(fontSlider_, 100, 64);
+  lv_obj_set_size(fontSlider_, width - 200, 16);
+  lv_obj_set_ext_click_area(fontSlider_, 16);
+  lv_slider_set_range(fontSlider_, 15, 40);
+  for (auto part : {LV_PART_MAIN, LV_PART_INDICATOR, LV_PART_KNOB}) {
+    lv_obj_set_style_bg_opa(fontSlider_, LV_OPA_COVER, part);
+    lv_obj_set_style_radius(fontSlider_, LV_RADIUS_CIRCLE, part);
+    lv_obj_set_style_bg_color(fontSlider_, lv_color_hex(part == LV_PART_MAIN ? theme::border :
+                                                     part == LV_PART_KNOB ? theme::text : theme::accent), part);
+  }
+  lv_obj_set_style_pad_all(fontSlider_, 7, LV_PART_KNOB);
+  lv_obj_add_event_cb(fontSlider_, [](lv_event_t *event) {
+    auto app = static_cast<App *>(lv_event_get_user_data(event));
+    app->updateFontPreview(lv_slider_get_value(app->fontSlider_) * 5);
+  }, LV_EVENT_VALUE_CHANGED, this);
+  fontPreview_ = label(pageContent_, "文字大小预览 Aa 123\n让阅读更轻松，按自己的习惯调整。",
+                        10, 104, width - 20, 21);
+  updateFontPreview(readingFontDraft_);
 }
 void App::reasoningDisplayPicker() {
   modal("自动展开思考过程", "");
@@ -2160,7 +2216,9 @@ void App::goBack() {
     transferBack();
     return;
   }
-  if (view_ == "presets")
+  if (view_ == "font_size")
+    show("settings");
+  else if (view_ == "presets")
     show("settings");
   else if (view_ == "preset_edit") {
     presetForm_ = Json::object();
@@ -2997,6 +3055,13 @@ void App::tick() {
       db_.setting("reasoning_display", e.data.at("mode"));
       reasoningOverrides_.clear();
       build();
+    } else if (e.type == "reading_font_apply" && view_ == "font_size") {
+      input_.cancel();
+      db_.setting("reading_font_percent", readingFontDraft_);
+      readingFontPercent_ = readingFontDraft_;
+      rich_.clearCache();
+      tableScrolls_.clear();
+      show("settings");
     } else if(e.type=="archive_page"&&view_=="archive_chat"&&e.data.value("id",std::string())==archiveReaderId_) {
       input_.cancel();archiveReaderOffset_=std::max(0,e.data.value("offset",0));build();
     } else if(e.type=="archive_open"&&view_=="archives") {
@@ -3332,6 +3397,9 @@ Json App::diagnostics() const {
            : 0},
       {"scroll_y", body_ ? lv_obj_get_scroll_y(body_) : 0},
       {"settings", settingsDiagnostic()},
+      {"reading_font", {{"percent", readingFontPercent_}, {"size", readingFontSize()},
+                        {"draft", readingFontDraft_}, {"slider", bounds(fontSlider_)},
+                        {"preview", bounds(fontPreview_)}}},
       {"page", pageDiagnostic()},
       {"image_viewer", imageViewerDiagnostic()},
       {"back_navigation", {{"root",navigationRoot()},{"sequence",backPolicySequence_},{"policy_ok",backPolicyOk_},{"blocked",backPolicyBlocked_},{"claimed",backClaimed_}}},

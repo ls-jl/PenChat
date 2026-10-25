@@ -544,7 +544,7 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
     return result;
   }
   int actualSize =
-      block.kind == "h" ? std::max(size, 31 - block.level * 2) : size;
+      block.kind == "h" ? std::max(size, ((31 - block.level * 2) * size + 10) / 21) : size;
   auto surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
   auto c = cairo_create(surf);
   float left = block.quote * 12 + std::max(0, block.indent - 1) * 20 + 6;
@@ -739,7 +739,7 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
     cairo_rectangle(c, 3, 5, width - 6, 1);
     cairo_fill(c);
   }
-  int actual = block.kind == "h" ? std::max(size, 31 - block.level * 2) : size;
+  int actual = block.kind == "h" ? std::max(size, ((31 - block.level * 2) * size + 10) / 21) : size;
   for (auto &p : p_->pieces) {
     if (p.y + p.height < top || p.y > top + height || p.x + p.width < left ||
         p.x > left + b.width)
