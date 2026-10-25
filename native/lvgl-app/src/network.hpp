@@ -27,6 +27,11 @@ HttpResult http(const std::string &url, const std::string &method,
                 const ApiOptions &options = {},
                 std::function<bool()> complete = {});
 Json requestBody(const Json &model, Json input, bool streaming);
+Json anthropicRequestBody(const Json &model, const Json &input, bool streaming);
+void streamAnthropic(const Json &model, Json input, std::atomic<bool> &cancel,
+                     Events &events, int generation);
+std::string redactApiError(const std::string &error, const Json &model);
+Json fetchModelList(const Json &model, std::atomic<bool> &cancel);
 std::string apiRoot(const Json &model);
 Json apiHeaders(const Json &model);
 HttpResult apiRequest(const Json &model, const std::string &resource,

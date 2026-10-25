@@ -171,10 +171,15 @@ void App::sessionInfoPage() {
   metric("上下文摘要", data.value("editing", false) ? "编辑预览 · 不沿用旧摘要" :
          data.value("compressed", false) ? "已使用有效摘要" :
          data.value("compression_invalid", false) ? "摘要已失效 · 按全文估算" : "未压缩", 1, 584);
+  const bool uncached = latest.contains("uncached_input_tokens");
+  if (uncached) {
+    metric("未缓存输入 token", tokenValue(latest, "uncached_input_tokens"), 0, 642);
+    metric("输入总计", "未缓存 + 缓存读取 + 缓存写入", 1, 642);
+  }
   label(pageContent_,
         "上下文按当前模型、系统提示词、有效摘要、历史和待发送内容估算；图片单独估算，非精确分词。发送时的自动压缩或重试会改变上下文。\n\n"
         "用量来自接口，不回填旧消息；各指标只累计已返回该字段的回复。缓存命中率＝已缓存输入 token ÷ 对应输入 token，不是请求成功率。\n\n"
         "累计仅统计当前保留回复，不包含被覆盖回复、自动命名和压缩请求；推理 token 已包含在输出中，不再重复相加。这里不是账单或费用统计。",
-        10, 654, width, 17, theme::muted);
+        10, uncached ? 712 : 654, width, 17, theme::muted);
 }
 } // namespace penchat

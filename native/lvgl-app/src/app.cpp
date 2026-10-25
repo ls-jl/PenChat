@@ -630,6 +630,7 @@ void App::effortPicker() {
   }
 }
 void App::modelPage() {
+  if (anthropicProtocol(modelForm_)) { anthropicModelPage(); return; }
   pageHeader("模型设置");
   const int width = screen_.width - 118, column = (width - 14) / 2;
   const auto id = modelForm_.value("id", std::string());
@@ -1024,6 +1025,8 @@ void App::build() {
     providerPage();
   else if (view_ == "api_compatibility")
     apiCompatibilityPage();
+  else if (view_ == "anthropic_connection")
+    anthropicConnectionPage();
   else if (view_ == "archives")
     archivesPage();
   else if (view_ == "archive_chat")
@@ -1096,8 +1099,8 @@ void App::show(const std::string &view) {
   closeNavigation(false);
   closeAttachments();
   resetPull();
-  if ((view_ == "provider" || view_ == "api_compatibility") &&
-      view != "provider" && view != "api_compatibility") {
+  if ((view_ == "provider" || view_ == "api_compatibility" || view_ == "anthropic_connection") &&
+      view != "provider" && view != "api_compatibility" && view != "anthropic_connection") {
     providerForm_ = Json::object();
     modelNames_.clear();
     ++modelGeneration_;
@@ -2109,16 +2112,10 @@ void App::providerPage() {
   field("name", "名称", 10, 4, columnWidth);
   field("baseURL", "Base URL", right, 4, columnWidth);
   field("apiKey", "API Key", 10, 58, columnWidth, true);
-  button(pageContent_,
-         providerForm_.value("api", std::string()) == "chat"
-             ? "接口：Chat Completions"
-             : "接口：Responses",
-         right, 58, columnWidth, 48, [this] {
-           providerForm_["api"] =
-               providerForm_.value("api", std::string()) == "chat" ? "responses"
-                                                                   : "chat";
-           build();
-         });
+  const auto api = providerForm_.value("api", std::string("responses"));
+  button(pageContent_, api == "chat" ? "接口：Chat Completions" :
+                       api == "anthropic" ? "接口：Anthropic Messages" : "接口：Responses",
+         right, 58, columnWidth, 48, [this] { protocolPicker(); });
   field("model", "手动模型（逗号分隔）", 10, 112, w - 20);
   button(pageContent_, "自动获取模型", 10, 166, columnWidth, 48,
          [this] { fetchModels(); });
@@ -2145,8 +2142,13 @@ void App::providerPage() {
                 providerScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
                 show("api_compatibility");
               });
-  status_ = label(pageContent_, notice_, 10, 292, w, 17, theme::muted);
-  int y = 318;
+  const bool anthropic = api == "anthropic";
+  if (anthropic)
+    settingsRow("anthropic_connection", "Anthropic 连接设置", "鉴权、API 版本与自定义请求头", 10, 288, w - 20, [this] {
+      providerScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_))); show("anthropic_connection");
+    });
+  status_ = label(pageContent_, notice_, 10, anthropic ? 356 : 292, w, 17, theme::muted);
+  int y = anthropic ? 382 : 318;
   for (auto &name : modelNames_) {
     auto nameLabel = label(pageContent_, name, 15, y, w, 20);
     lv_label_set_long_mode(nameLabel, LV_LABEL_LONG_MODE_DOTS);
@@ -2171,21 +2173,16 @@ void App::fetchModels() {
                 {"api_key", providerForm_.value("apiKey", std::string())},
                 {"headers_json", providerForm_.value("headers", Json::object()).dump()},
                 {"provider_metadata", Json({{"api", providerForm_.value("api", std::string("responses"))},
-                                           {"compatibility", objectField(providerForm_, "compatibility")}}).dump()}};
+                                           {"compatibility", objectField(providerForm_, "compatibility")},
+                                           {"anthropic", objectField(providerForm_, "anthropic")}}).dump()}};
   notice_ = "正在拉取模型…";
   build();
   modelCancel_ = false;
   const int generation = ++modelGeneration_;
   modelWorker_ = std::thread([this, model, generation] {
-    HttpResult result;
-    try { result = apiRequest(model, "/models", "GET", "", modelCancel_); }
-    catch (const std::exception &e) { result.error = e.what(); }
-    Json data = {{"error", result.error},
-                 {"status", result.status},
-                 {"generation", generation}};
-    auto body = Json::parse(result.body, nullptr, false);
-    if (!body.is_discarded())
-      data["body"] = body;
+    Json data = {{"generation", generation}};
+    try { data["body"] = fetchModelList(model, modelCancel_); data["status"] = 200; }
+    catch (const std::exception &e) { data["error"] = redactApiError(e.what(), model); data["status"] = 0; }
     events_.push("models", data);
     modelsBusy_ = false;
   });
@@ -2199,7 +2196,12 @@ void App::saveProvider() {
     modal("请检查连接配置", "请填写名称、Base URL 和 API Key；地址需以 http:// 或 https:// 开头。");
     return;
   }
-  try { apiRoot({{"base_url", base}, {"provider_metadata", Json({{"api", providerForm_.value("api", std::string("responses"))}}).dump()}}); }
+  try {
+    Json model = {{"base_url", base}, {"api_key", key}, {"headers_json", providerForm_.value("headers", Json::object())},
+                  {"provider_metadata", {{"api", providerForm_.value("api", std::string("responses"))},
+                                         {"anthropic", objectField(providerForm_, "anthropic")}}}};
+    apiRoot(model); apiHeaders(model);
+  }
   catch (const std::exception &e) { modal("请检查接口地址", e.what()); return; }
   auto manual = providerForm_.value("model", std::string());
   std::vector<std::string> names;
@@ -2235,7 +2237,7 @@ void App::goBack() {
     transferBack();
     return;
   }
-  if (view_ == "api_compatibility") {
+  if (view_ == "api_compatibility" || view_ == "anthropic_connection") {
     show("provider"); lv_obj_scroll_to_y(body_, providerScroll_, LV_ANIM_OFF);
   } else if (view_ == "font_size" || view_ == "keyboard_settings")
     show("settings");
@@ -3343,6 +3345,10 @@ Json App::diagnostics() const {
       {"pid", getpid()},
       {"touch", lastTouch_},
       {"view", view_},
+      {"provider_protocol", providerForm_.is_object() ? providerForm_.value("api", std::string()) : std::string()},
+      {"anthropic_connection", view_ == "anthropic_connection" ? objectField(providerForm_, "anthropic") : Json::object()},
+      {"model_parameters", view_ == "model" && anthropicProtocol(modelForm_) ?
+          Json({{"reasoning", modelForm_["reasoning"]}, {"maximum", modelForm_.value("max_output_tokens", anthropicMaxOutput(modelForm_))}}) : Json::object()},
       {"transfer_screen", transferScreen_},
       {"transfer_busy", transfer_ && transfer_->busy()},
       {"transfer_error", transferError_},

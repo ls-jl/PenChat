@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-PenChat 0.2.3 is a native LVGL app for ORANGE (RK3562/AArch64, 960×266).
+PenChat 0.2.4 is a native LVGL app for ORANGE (RK3562/AArch64, 960×266).
 The Falcon AMR is a thin launcher with a full-screen hole, system IME, touch and
 lifecycle forwarding. Do not put business UI or networking back into Vue.
 Scanning uses the source-pinned Stream32 backend in native/scanner, with a
@@ -188,3 +188,5 @@ follow credential-bearing redirects. Use apiRequest for models/chat/title/compre
 Responses output replay requires matching provider/model/endpoint/protocol identity;
 retain completed output order and assistant phase. Unknown counts stay unknown.
 Coalesced stream states must also flush while the peer is idle, not only on new bytes.
+
+Anthropic Messages is a separate protocol, never an OpenAI payload fallback. Keep signed/redacted blocks private and replay only completed same-identity messages; include API version and credential revision in that identity. Preserve cumulative usage without double counting and account for uncached/cache-read/cache-write input separately. Auxiliary compaction material is user reference data with original role/status labels, never assistant prefill or elevated system instructions. Unknown model thinking capabilities must remain opt-in.

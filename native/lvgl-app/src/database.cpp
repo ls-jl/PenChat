@@ -733,7 +733,8 @@ Json Database::providerForm(const std::string &id) {
                                        : "responses"},
           {"model", names},
           {"default_effort", metadata.value("default_effort", std::string())},
-          {"compatibility", objectField(metadata, "compatibility")}};
+          {"compatibility", objectField(metadata, "compatibility")},
+          {"anthropic", objectField(metadata, "anthropic")}};
 }
 Json Database::models() {
   if (!onWorker()) {
@@ -794,10 +795,10 @@ void Database::saveSessionPreferences(const std::string &session,
            model.empty() ? Json() : model[0]["provider_id"], metadata.dump(), session});
 }
 void Database::saveModelCapabilities(const std::string &id, const Json &reasoning,
-                                     int budget) {
+                                     int budget, int maxOutput) {
   if (!onWorker()) {
     perform([=] {
-      saveModelCapabilities(id, reasoning, budget);
+      saveModelCapabilities(id, reasoning, budget, maxOutput);
       return Json();
     });
     return;
@@ -807,6 +808,7 @@ void Database::saveModelCapabilities(const std::string &id, const Json &reasonin
     throw std::runtime_error("Model no longer exists");
   auto caps = objectField(rows[0], "capabilities_json");
   caps["reasoning"] = reasoning;
+  if (maxOutput > 0) caps["max_output_tokens"] = maxOutput;
   if (budget > 0)
     caps["context_budget"] = std::max(1024, std::min(2097152, budget));
   execute("UPDATE model_configs SET capabilities_json=?,updated_at=? WHERE id=?",
@@ -835,6 +837,18 @@ void Database::recordRequest(const std::string &message, const Json &model,int64
                      {"system_prompt", model.value("system_prompt", std::string())}};
   parameters["api"] = objectField(model, "provider_metadata").value("api", std::string("responses"));
   parameters["compatibility"] = objectField(objectField(model, "provider_metadata"), "compatibility");
+  if (anthropicProtocol(model)) {
+    parameters["max_output_tokens"] = anthropicMaxOutput(model);
+    const auto caps = reasoningCapabilities(model);
+    const auto effort = model.value("effort_value", std::string());
+    const auto mode = effort.empty() ? std::string("api_default") : effort == "disabled" ||
+        model.value("effective_effort", std::string()) == "none" ? std::string("disabled") :
+        caps.value("mode", std::string("off")) == "budget" ? std::string("enabled") : std::string("adaptive");
+    parameters["thinking_mode"] = mode;
+    parameters["summary"] = parameters["summary"].get<bool>() && mode != "api_default" &&
+        mode != "disabled" && caps.value("display_supported", false);
+    parameters["api_version"] = anthropicVersion(model);
+  }
   execute("BEGIN IMMEDIATE");
   try {
     auto rows=query("SELECT session_id,seq,metadata_json FROM chat_messages WHERE id=?",{message});
@@ -875,7 +889,7 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
   execute("BEGIN IMMEDIATE");
   try {
     if (editing) {
-      auto old = query("SELECT metadata_json,headers_json FROM providers WHERE "
+      auto old = query("SELECT metadata_json,headers_json,api_key FROM providers WHERE "
                        "id=? AND enabled=1",
                        {id});
       if (old.empty())
@@ -887,6 +901,10 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
       metadata["api"] = f.value("api", std::string("responses"));
       metadata["default_effort"] = f.value("default_effort", std::string());
       if (f.contains("compatibility")) metadata["compatibility"] = objectField(f, "compatibility");
+      if (f.contains("anthropic")) metadata["anthropic"] = objectField(f, "anthropic");
+      if (old[0]["api_key"] != f.value("apiKey", std::string()) ||
+          (f.contains("headers") && objectField(old[0], "headers_json") != f["headers"]))
+        metadata["credential_revision"] = uid("credentials");
       execute("UPDATE providers SET "
               "name=?,base_url=?,api_key=?,headers_json=?,metadata_json=?,updated_"
               "at=? WHERE id=?",
@@ -905,7 +923,9 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
                f.value("headers", Json::object()).dump(),
                Json({{"api", f.value("api", std::string("responses"))},
                      {"default_effort", f.value("default_effort", std::string())},
-                     {"compatibility", objectField(f, "compatibility")}})
+                     {"compatibility", objectField(f, "compatibility")},
+                     {"anthropic", objectField(f, "anthropic")},
+                     {"credential_revision", uid("credentials")}})
                    .dump(),
                nowMs(), nowMs(), first ? 1 : 0});
     }

@@ -233,7 +233,7 @@ std::string endpoint(std::string url) {
 }
 Json descriptor(const Json &m) {
   return {{"provider", m.value("provider_name", std::string())},
-          {"endpoint", endpoint(m.value("base_url", std::string()))},
+          {"endpoint", endpoint(anthropicProtocol(m) ? protocolRoot(m) : m.value("base_url", std::string()))},
           {"api",
            objectField(m, "provider_metadata").value("api", std::string("responses"))},
           {"name", m.value("name", std::string())}};
@@ -247,7 +247,9 @@ Json cleanDescriptor(const Json &d) {
           "模型描述无效");
   Json out = kept(d, {"provider", "endpoint", "api", "name"});
   out["endpoint"] = endpoint(d.at("endpoint").get<std::string>());
-  require(out["api"] == "responses" || out["api"] == "chat", "模型接口类型无效");
+  require(out["api"] == "responses" || out["api"] == "chat" || out["api"] == "anthropic", "模型接口类型无效");
+  if (out["api"] == "anthropic")
+    out["endpoint"] = protocolRoot({{"base_url", out["endpoint"]}, {"provider_metadata", {{"api", "anthropic"}}}});
   require(out["endpoint"].get<std::string>().size() <= 2048 &&
               out["name"].get<std::string>().size() <= 256,
           "模型描述过长");

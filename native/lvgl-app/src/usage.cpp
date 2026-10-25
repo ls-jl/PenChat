@@ -24,6 +24,7 @@ Json normalizedUsage(const Json &raw) {
   copyCount(out, "input_tokens", raw, chat ? "prompt_tokens" : "input_tokens");
   copyCount(out, "output_tokens", raw, chat ? "completion_tokens" : "output_tokens");
   copyCount(out, "total_tokens", raw, "total_tokens");
+  copyCount(out, "uncached_input_tokens", raw, "uncached_input_tokens");
   auto input = objectField(raw, chat ? "prompt_tokens_details" : "input_tokens_details");
   auto output = objectField(raw, chat ? "completion_tokens_details" : "output_tokens_details");
   copyCount(out, "cached_tokens", input, "cached_tokens");
@@ -35,6 +36,23 @@ Json normalizedUsage(const Json &raw) {
     out.erase("cached_tokens");
   if (out.contains("reasoning_tokens") && out.contains("output_tokens") && out["reasoning_tokens"] > out["output_tokens"])
     out.erase("reasoning_tokens");
+  return out;
+}
+Json normalizedAnthropicUsage(const Json &raw) {
+  Json out = Json::object();
+  if (!raw.is_object()) return out;
+  copyCount(out, "uncached_input_tokens", raw, "input_tokens");
+  copyCount(out, "cached_tokens", raw, "cache_read_input_tokens");
+  copyCount(out, "cache_write_tokens", raw, "cache_creation_input_tokens");
+  copyCount(out, "output_tokens", raw, "output_tokens");
+  copyCount(out, "reasoning_tokens", objectField(raw, "output_tokens_details"), "thinking_tokens");
+  if (out.contains("uncached_input_tokens") &&
+      ((!out.contains("cached_tokens") && !out.contains("cache_write_tokens")) ||
+       (out.contains("cached_tokens") && out.contains("cache_write_tokens"))))
+    out["input_tokens"] = out["uncached_input_tokens"].get<int64_t>() +
+        out.value("cached_tokens", int64_t(0)) + out.value("cache_write_tokens", int64_t(0));
+  if (out.contains("input_tokens") && out.contains("output_tokens"))
+    out["total_tokens"] = out["input_tokens"].get<int64_t>() + out["output_tokens"].get<int64_t>();
   return out;
 }
 Json sessionMetrics(Json snapshot, const Json &model, const Json &pending) {

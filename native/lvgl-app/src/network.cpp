@@ -5,6 +5,7 @@
 #include <curl/curl.h>
 #include <cctype>
 #include <stdexcept>
+#include <set>
 namespace penchat {
 namespace {
 constexpr size_t EventLimit = 4 * 1024 * 1024;
@@ -103,7 +104,7 @@ static size_t receiveHeader(char *p, size_t a, size_t b, void *user) {
         while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) value.erase(0, 1);
         auto key = lower(line.substr(0, colon));
         if (key == "content-type") t.result.contentType = value.substr(0, 256);
-        if (key == "x-request-id") t.result.requestId = safeError(value.substr(0, 256));
+        if (key == "x-request-id" || key == "request-id") t.result.requestId = safeError(value.substr(0, 256));
       }
     }
     return n;
@@ -205,29 +206,66 @@ HttpResult http(const std::string &url, const std::string &method,
   return transfer.result;
 }
 std::string apiRoot(const Json &m) {
-  auto root = m.value("base_url", std::string("https://api.openai.com/v1"));
-  while (!root.empty() && root.back() == '/') root.pop_back();
-  if (root.find_first_of("\r\n?#") != std::string::npos ||
-      (root.find("https://") != 0 && root.find("http://") != 0))
-    throw std::runtime_error("Base URL 需为 HTTP(S) API 地址，不含查询或片段");
-  for (const auto &suffix : {std::string("/chat/completions"), std::string("/responses")})
-    if (root.size() >= suffix.size() && root.compare(root.size() - suffix.size(), suffix.size(), suffix) == 0) {
-      if ((suffix == "/chat/completions") != chatProtocol(m)) throw std::runtime_error("Base URL 后缀与所选接口不一致");
-      root.resize(root.size() - suffix.size()); break;
-    }
-  return root;
+  return protocolRoot(m);
 }
 Json apiHeaders(const Json &m) {
-  Json h = {{"Content-Type", "application/json"}, {"Authorization", "Bearer " + m.value("api_key", std::string())}};
+  Json h = {{"Content-Type", "application/json"}};
+  const bool anthropic = anthropicProtocol(m);
+  std::string auth = "bearer";
+  if (anthropic) {
+    auth = anthropicConnection(m).value("auth", std::string("x-api-key"));
+    const auto version = anthropicVersion(m);
+    if (auth != "x-api-key" && auth != "bearer") throw std::runtime_error("Anthropic 鉴权方式无效");
+    if (version != "2023-06-01" && version != "2026-10-21") throw std::runtime_error("Anthropic API 版本无效");
+    h["anthropic-version"] = version;
+  }
+  h[auth == "x-api-key" ? "x-api-key" : "Authorization"] =
+      (auth == "x-api-key" ? "" : "Bearer ") + m.value("api_key", std::string());
   const auto custom = objectField(m, "headers_json");
   for (auto i = custom.begin(); i != custom.end(); ++i) {
     if (!i.value().is_string()) throw std::runtime_error("HTTP header values must be strings");
+    if (anthropic && ((auth == "x-api-key" && lower(i.key()) == "authorization") ||
+                      (auth == "bearer" && lower(i.key()) == "x-api-key")))
+      throw std::runtime_error("两种鉴权不能同时发送，请删除冲突的自定义请求头");
+    if (anthropic && lower(i.key()) == "anthropic-version" && i->get<std::string>() != anthropicVersion(m))
+      throw std::runtime_error("自定义版本头与所选 API 版本不一致");
     std::vector<std::string> old;
     for (auto j = h.begin(); j != h.end(); ++j) if (lower(j.key()) == lower(i.key())) old.push_back(j.key());
     for (const auto &key : old) h.erase(key);
     h[i.key()] = i.value();
   }
   return h;
+}
+std::string redactApiError(const std::string &error, const Json &model) { return redact(error, model); }
+Json fetchModelList(const Json &model, std::atomic<bool> &cancel) {
+  Json models = Json::array(); std::set<std::string> cursors, ids;
+  std::string resource = "/models";
+  for (int page = 0; page < 100; ++page) {
+    if (cancel) throw std::runtime_error("cancelled");
+    const auto result = apiRequest(model, resource, "GET", "", cancel);
+    if (!result.error.empty()) throw std::runtime_error(result.error);
+    const auto body = Json::parse(result.body, nullptr, false);
+    if (!body.is_object() || !body.contains("data") || !body["data"].is_array())
+      throw std::runtime_error("模型列表格式无效，可手动填写模型名称");
+    for (const auto &item : body["data"]) {
+      if (!item.is_object() || !item.contains("id") || !item["id"].is_string()) throw std::runtime_error("模型列表包含无效记录");
+      const auto id = item["id"].get<std::string>();
+      if (id.empty() || id.size() > 256) throw std::runtime_error("模型名称无效");
+      if (ids.insert(id).second) models.push_back({{"id", id}});
+      if (models.size() > 10000) throw std::runtime_error("模型列表过大，请手动选择");
+    }
+    if (!anthropicProtocol(model) || !body.value("has_more", false)) return {{"data", models}};
+    const auto cursor = body.value("last_id", std::string());
+    if (cursor.empty() || cursor.size() > 256 || !cursors.insert(cursor).second)
+      throw std::runtime_error("模型列表分页游标无效");
+    std::string escaped;
+    for (unsigned char c : cursor) {
+      if (std::isalnum(c) || c == '-' || c == '_' || c == '.') escaped += char(c);
+      else { const char *hex = "0123456789ABCDEF"; escaped += '%'; escaped += hex[c >> 4]; escaped += hex[c & 15]; }
+    }
+    resource = "/models?after_id=" + escaped;
+  }
+  throw std::runtime_error("模型列表分页过多，请手动选择");
 }
 HttpResult apiRequest(const Json &model, const std::string &resource,
                       const std::string &method, const std::string &body,
@@ -253,6 +291,7 @@ HttpResult apiRequest(const Json &model, const std::string &resource,
   return result;
 }
 Json requestBody(const Json &m, Json input, bool streaming) {
+  if (anthropicProtocol(m)) return anthropicRequestBody(m, input, streaming);
   const auto options = apiOptions(m); const bool chat = chatProtocol(m);
   Json body = {{"model", m.value("name", std::string())}, {"stream", streaming}};
   if (chat) {
@@ -306,6 +345,7 @@ Json requestBody(const Json &m, Json input, bool streaming) {
   return body;
 }
 void streamChat(const Json &m, Json input, std::atomic<bool> &cancel, Events &events, int generation) {
+  if (anthropicProtocol(m)) { streamAnthropic(m, std::move(input), cancel, events, generation); return; }
   const auto options = apiOptions(m); const bool chat = chatProtocol(m);
   Json tag = {{"generation", generation}};
   bool ended = false, doneMarker = false, stateChanged = false;

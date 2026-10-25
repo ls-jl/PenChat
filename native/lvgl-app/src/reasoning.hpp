@@ -1,15 +1,7 @@
 #pragma once
-#include "common.hpp"
+#include "anthropic_config.hpp"
 #include <map>
 namespace penchat {
-inline Json objectField(const Json &j, const char *key) {
-  auto i = j.find(key);
-  if (i == j.end())
-    return Json::object();
-  auto value =
-      i->is_string() ? Json::parse(i->get<std::string>(), nullptr, false) : *i;
-  return value.is_object() ? value : Json::object();
-}
 inline const std::vector<std::string> &effortOrder() {
   static const std::vector<std::string> values{"none", "low",   "medium",
                                                "high", "xhigh", "max"};
@@ -24,6 +16,7 @@ inline std::string effortLabel(const std::string &value) {
   return i == labels.end() ? "API 默认" : i->second;
 }
 inline Json reasoningCapabilities(const Json &model) {
+  if (anthropicProtocol(model)) return anthropicReasoning(model);
   auto caps = objectField(model, "capabilities_json");
   if (caps.contains("reasoning") && caps["reasoning"].is_object())
     return caps["reasoning"];

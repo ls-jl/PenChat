@@ -6,6 +6,7 @@ void App::apiCompatibilityPage() {
   const int column = (width - 36) / 2;
   const int right = 26 + column;
   const auto config = objectField(providerForm_, "compatibility");
+  const bool anthropic = providerForm_.value("api", std::string()) == "anthropic";
   const bool enabled = config.value("enabled", false);
   auto toggle = [&](const char *key, const char *title, const char *detail,
                     int x, int y, int span, bool fallback) {
@@ -19,8 +20,9 @@ void App::apiCompatibilityPage() {
   int timeoutY = 76;
   if (enabled) {
     toggle("streaming", "流式输出", "关闭后等待完整回复", 10, 76, column, true);
-    toggle("usage", "流式用量统计", "不支持 stream_options 时关闭", right, 76, column, true);
-    toggle("summary", "公开思考摘要", "关闭后不请求公开总结", 10, 140, column, true);
+    if (!anthropic) toggle("usage", "流式用量统计", "不支持 stream_options 时关闭", right, 76, column, true);
+    toggle("summary", anthropic ? "请求可读思考" : "公开思考摘要",
+           anthropic ? "支持 display 参数时请求总结" : "关闭后不请求公开总结", 10, 140, column, true);
     toggle("replay", "加密思考续传", "关闭后仅用历史正文继续", right, 140, column, true);
     toggle("http1", "强制 HTTP/1.1", "仅在代理连接不良时启用", 10, 204, column, false);
     timeoutY = 204;

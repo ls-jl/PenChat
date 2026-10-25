@@ -436,13 +436,18 @@ Json Database::requestModel(const Json &model) {
   return perform([this, model] {
     Json result = model;
     auto rows = query(
-        "SELECT api_key,base_url,headers_json FROM providers WHERE id=? AND enabled=1",
+        "SELECT api_key,base_url,headers_json,metadata_json FROM providers WHERE id=? AND enabled=1",
         {model.value("provider_id", std::string())});
     if (rows.empty())
       return Json::object();
     result["api_key"] = rows[0]["api_key"];
     result["base_url"] = rows[0]["base_url"];
     result["headers_json"] = rows[0]["headers_json"];
+    if (anthropicProtocol(result)) {
+      auto metadata = objectField(result, "provider_metadata");
+      metadata["credential_revision"] = objectField(rows[0], "metadata_json").value("credential_revision", std::string());
+      result["provider_metadata"] = metadata;
+    }
     return result;
   });
 }

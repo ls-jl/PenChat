@@ -13,6 +13,8 @@ int main() {
     if(request.value("task",std::string())=="title") {
       const auto result=generateTitle(model,"question","answer",20,cancel);
       events.push("title",{{"text",result}});
+    } else if(request.value("task",std::string())=="models_pages") {
+      events.push("models_list",{{"body",fetchModelList(model,cancel)}});
     } else if(request.value("task",std::string())=="models") {
       const auto result=apiRequest(model,"/models","GET","",cancel);
       events.push("http",{{"status",result.status},{"error",result.error},{"body",result.body}});

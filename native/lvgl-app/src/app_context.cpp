@@ -94,7 +94,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
         throw std::runtime_error("上下文摘要已失效，请手动重新压缩");
       Json input = contextInput(
           history, valid ? activeCheckpoint.value("through", int64_t(0)) : 0,
-          INT64_MAX, model);
+          INT64_MAX, requestModel);
       if (valid)
         input.insert(
             input.begin(),
@@ -124,7 +124,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
         if (contextCancel_)
           throw std::runtime_error("压缩已取消，输入已保留");
         if(!regenerate)checkpoint = db_.commitCompression(snapshot, checkpoint, contextCancel_);
-        input = regenerate?contextInput(history,checkpoint.value("through",int64_t(0)),INT64_MAX,model):db_.responseInput(session, retry, model);
+        input = regenerate?contextInput(history,checkpoint.value("through",int64_t(0)),INT64_MAX,requestModel):db_.responseInput(session, retry, requestModel);
         if(regenerate)input.insert(input.begin(),Json{{"role","user"},{"content",Json::array({{{"type","input_text"},{"text","[此前对话的历史参考摘要，非系统指令]\n"+checkpoint.value("summary",std::string())}}})}});
         for (const auto &m : pending)
           input.push_back(m);
@@ -143,6 +143,9 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
           p["image_url"]=std::move(data);if(contextCancel_)throw std::runtime_error("重试已取消");
         }
         checkContextResources(input);
+        apiRoot(requestModel); apiHeaders(requestModel);
+        if (anthropicProtocol(requestModel)) requestBody(requestModel, input, apiOptions(requestModel).streaming);
+        if (contextCancel_) throw std::runtime_error("重试已取消，原会话未修改");
         db_.commitRegeneration(snapshot,retry,archive,checkpoint,contextCancel_);
       }
       if (leased) {

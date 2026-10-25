@@ -67,6 +67,8 @@ size_t estimatedContext(const Json &input, const std::string &prompt) {
       for (const auto &p : content) {
         if (p.value("type", std::string()) == "input_image")
           total += 2048;
+        else if (p.value("type", std::string()) == "thinking" || p.value("type", std::string()) == "redacted_thinking")
+          total += 1024 + estimatedText(p.value("thinking", std::string()));
         else
           total += estimatedText(p.value("text", std::string()));
       }
@@ -118,6 +120,13 @@ Json contextInput(const Json &rows, int64_t after, int64_t through, const Json &
         m.value("model_config_id", Json()) == model.value("id", Json("")) &&
         metadata.value("replay_identity", Json()) == replayIdentity(model);
     if (replay) {
+      if (anthropicProtocol(model)) {
+        const auto content = metadata.value("anthropic_content", Json::array());
+        if (m.value("status", std::string("complete")) == "complete" && content.is_array() && !content.empty()) {
+          input.push_back({{"role", "assistant"}, {"content", content}});
+          continue;
+        }
+      } else {
       const auto output = metadata.value("response_output_items", Json::array());
       bool hasMessage = false;
       if (output.is_array()) for (const auto &item : output)
@@ -137,6 +146,7 @@ Json contextInput(const Json &rows, int64_t after, int64_t through, const Json &
       if (reasoning.is_array()) for (const auto &item : reasoning)
         if (item.is_object() && item.value("type", std::string()) == "reasoning" &&
             item.value("status", std::string("completed")) == "completed") input.push_back(item);
+      }
     }
     auto text = textOf(m);
     if (role == "system" && !states)
@@ -274,6 +284,10 @@ Json compressContext(Database &db, const Json &snapshot, Json model,
     throw std::runtime_error("上下文压缩模型已不可用");
   const auto batchLimit = size_t(contextBudget(model)) * 3 / 4;
   auto material = contextInput(rows, after, through, Json::object(), true);
+  // These are archival source records, not turns for Claude to continue.
+  // contextInput(states=true) already embeds original role/status in each text.
+  if (anthropicProtocol(model))
+    for (auto &entry : material) entry["role"] = "user";
   const auto caps = objectField(model, "capabilities_json");
   if (caps.value("vision", Json(true)) == Json(false))
     for (const auto &m : material)

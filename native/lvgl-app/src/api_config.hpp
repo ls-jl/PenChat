@@ -25,14 +25,17 @@ inline ApiOptions apiOptions(const Json &model) {
   }
   return out;
 }
-inline bool chatProtocol(const Json &model) {
-  return objectField(model, "provider_metadata").value("api", std::string()) == "chat";
-}
 // Deliberately excludes credentials; changing an endpoint/model invalidates replay.
 inline Json replayIdentity(const Json &model) {
-  return {{"provider", model.value("provider_id", std::string())},
+  Json identity = {{"provider", model.value("provider_id", std::string())},
           {"model", model.value("name", std::string())},
           {"endpoint", model.value("base_url", std::string())},
-          {"protocol", chatProtocol(model) ? "chat" : "responses"}};
+          {"protocol", protocolName(apiProtocol(model))}};
+  if (anthropicProtocol(model)) {
+    identity["endpoint"] = protocolRoot(model);
+    identity["version"] = anthropicVersion(model);
+    identity["credential_revision"] = objectField(model, "provider_metadata").value("credential_revision", std::string());
+  }
+  return identity;
 }
 } // namespace penchat

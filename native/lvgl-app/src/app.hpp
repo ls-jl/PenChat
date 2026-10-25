@@ -316,6 +316,9 @@ class App {
   Json settingsDiagnostic() const;
   void providerPage();
   void apiCompatibilityPage();
+  void protocolPicker();
+  void anthropicConnectionPage();
+  void anthropicModelPage();
   int providerScroll_ = 0;
   void editProvider(const std::string &id);
   void historyDrawer();
