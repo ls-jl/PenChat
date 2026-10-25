@@ -1158,17 +1158,20 @@ void App::chat() {
       box(screenObj_, 106, screen_.height - 58, composerWidth, 48, theme::surface);
   lv_obj_set_scrollable(chatControls_, false);
   lv_obj_set_style_radius(chatControls_, 24, 0);
-  icon(
+  auto attachment = icon(
       chatControls_, "plus", 2, 2, 44, 44, [this] { toggleAttachments(); },
       theme::surface);
+  // Keep the glyph in place; near-edge taps belong to attachments, not IME.
+  lv_obj_set_ext_click_area(attachment, 8);
+  const int entryLeft = 62;
   const bool gauge = sessionPreferences_.value("gauge", !effortMemory_.empty());
   if (gauge)
     icon(
         chatControls_, "gauge", composerWidth - 100, 2, 44, 44, [this] { effortPicker(); },
         theme::surface, theme::muted);
   composer_ = button(
-      chatControls_, draft_.empty() ? "询问 " PENCHAT_NAME : draft_, 50, 2,
-      composerWidth - (gauge ? 156 : 104), 44,
+      chatControls_, draft_.empty() ? "询问 " PENCHAT_NAME : draft_, entryLeft, 2,
+      composerWidth - entryLeft - (gauge ? 106 : 54), 44,
       [this] {
         if (contextBusy_ || !composerTapAllowed_)
           return;

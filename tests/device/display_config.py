@@ -5,13 +5,14 @@ ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text())
 parser=argparse.ArgumentParser();parser.add_argument('--serial',required=True)
 parser.add_argument('--back-navigation',action='store_true')
+parser.add_argument('--composer-touch',action='store_true',help='Check expanded attachment target and neighboring text entry')
 parser.add_argument('--history-time',action='store_true')
 parser.add_argument('--message-edit',action='store_true')
 parser.add_argument('--reply-actions',action='store_true')
 parser.add_argument('--session-info',action='store_true',help='Run focused conversation statistics acceptance')
 parser.add_argument('--archive-reader',action='store_true',help='Run focused archive-reader acceptance, with normal data isolation/restoration')
 args=parser.parse_args();SERIAL=args.serial
-assert sum((args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info))<=1,'Run isolated feature fixtures separately'
+assert sum((args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch))<=1,'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 class FeatureComplete(Exception):
@@ -181,6 +182,21 @@ try:
             p=state()['touch']
             return p if abs(p.get('x',-100)-x)<=1 and abs(p.get('y',-100)-y)<=1 else None
         p=wait(mapped);result['corners'].append([p['x'],p['y']])
+    # Near the former plus/editor boundary, real taps must open attachments.
+    for x,y in [(154,H-34),(158,H-34),(154,H-12),(108,H-56)]:
+        tap(x,y);s=state()
+        assert s['attachments'] and not s['editor']['active'],(x,y,s['view'])
+        if x==158:capture('attachment-expanded-target')
+        tap(W-30,80);assert not state()['attachments']
+    result['attachment_expanded_hit_target']=True
+    if args.composer_touch:
+        capture('composer-hit-layout')
+        tap(180,H-34);wait(lambda:state()['editor']['active'])
+        b=state()['editor']['actions']['cancel'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+        wait(lambda:not state()['editor']['active'])
+        assert not state()['draft_length'] and shell('pidof miniapp')==host
+        result['adjacent_composer_entry']=True;result['host_unchanged']=True
+        raise FeatureComplete()
     tap(40,32);assert state()['navigation_open'];capture('drawer')
     # Check the pixels captured from the real LVGL page, not just constants.
     pixel_probe=ROOT/'build/host/penchat-icon-pixel-tests'

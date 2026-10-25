@@ -362,3 +362,16 @@ ORANGE与113设备使用隔离数据及本地模拟接口完成真实触摸，�
 真机截图`.work/device-display-<serial>/context-summary-new-icon.png`及`context-summary-menu-details.png`
 已查看。AArch64、生产AMR身份/内容/许可/strip检查通过；环境检查仅有可选cnpm建议。
 完整`npm test`回归通过，覆盖聊天、存储、导入导出、压缩、键盘、图片、内容排版及扫描链路。
+
+## 加号触摸容错（0.1.54）
+
+聊天胶囊加号保留原44px图标位置与视觉尺寸，使用LVGL的8px扩展点击区域；
+触摸范围仍受胶囊父区域约束。文字入口左边界右移12px，右边界、发送/停止及推理图标不变，
+留出不重叠的触摸间隔，避免靠近加号右缘时打开编辑器。胶囊、图标与菜单外观沿用原设计。
+
+主机真实进程覆盖两种屏幕尺寸下的右缘、底缘和左上缘点击，以及相邻正文点按；
+原有横向/往返滑动、取消触摸、正文上拉新建与聊天交互回归通过。原生8项测试与JS桥接测试通过。
+ORANGE和113均使用隔离数据验证扩大区域、相邻输入入口及四角映射，截图已检查，用户数据恢复，
+未重启MiniApp宿主。截图位于忽略目录`.work/device-display-<serial>/composer-hit-layout.png`
+及`attachment-expanded-target.png`。AArch64和生产AMR校验通过；环境检查仅有可选cnpm建议。
+针对性ASAN/UBSAN与泄漏检查通过，覆盖扩展热区、相邻输入、触摸取消和上拉新建。
