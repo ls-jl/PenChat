@@ -75,7 +75,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   auto config = db_.settings();
   const auto savedFont = config.value("reading_font_percent", Json());
   if (savedFont.is_number_integer())
-    readingFontPercent_ = int(std::max<int64_t>(75, std::min<int64_t>(200, savedFont.get<int64_t>())));
+    readingFontPercent_ = int(std::max<int64_t>(75, std::min<int64_t>(150, savedFont.get<int64_t>())));
   cameraAngle_ = config.value("camera_orientation",0);
   if (cameraAngle_!=0 && cameraAngle_!=90 && cameraAngle_!=180 && cameraAngle_!=270) cameraAngle_=0;
   cameraAutomatic_ = config.value("camera_auto_orientation",true);
@@ -1960,7 +1960,7 @@ void App::settingsPage() {
               });
 }
 void App::updateFontPreview(int percent) {
-  readingFontDraft_ = std::max(75, std::min(200, percent));
+  readingFontDraft_ = std::max(75, std::min(150, percent));
   if (fontSlider_)
     lv_slider_set_value(fontSlider_, (readingFontDraft_ + 2) / 5, LV_ANIM_OFF);
   if (fontPercentLabel_)
@@ -1978,14 +1978,14 @@ void App::fontSizePage() {
   fontPercentLabel_ = label(pageContent_, "", 10, 29, width - 20, 20);
   lv_obj_set_style_text_align(fontPercentLabel_, LV_TEXT_ALIGN_CENTER, 0);
   label(pageContent_, "75%", 10, 59, 70, 18, theme::muted);
-  auto maximum = label(pageContent_, "200%", width - 80, 59, 70, 18, theme::muted);
+  auto maximum = label(pageContent_, "150%", width - 80, 59, 70, 18, theme::muted);
   lv_obj_set_style_text_align(maximum, LV_TEXT_ALIGN_RIGHT, 0);
   fontSlider_ = lv_slider_create(pageContent_);
   lv_obj_remove_style_all(fontSlider_);
   lv_obj_set_pos(fontSlider_, 100, 64);
   lv_obj_set_size(fontSlider_, width - 200, 16);
   lv_obj_set_ext_click_area(fontSlider_, 16);
-  lv_slider_set_range(fontSlider_, 15, 40);
+  lv_slider_set_range(fontSlider_, 15, 30);
   for (auto part : {LV_PART_MAIN, LV_PART_INDICATOR, LV_PART_KNOB}) {
     lv_obj_set_style_bg_opa(fontSlider_, LV_OPA_COVER, part);
     lv_obj_set_style_radius(fontSlider_, LV_RADIUS_CIRCLE, part);

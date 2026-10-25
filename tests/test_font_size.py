@@ -27,7 +27,7 @@ def fixture(folder):
 
 def slider(a, percent, drag=False):
     x1,y1,x2,y2 = a.diag()['reading_font']['slider']
-    x = x1 + round((percent-75)/125 * (x2-x1)); y=(y1+y2)//2
+    x = x1 + round((percent-75)/75 * (x2-x1)); y=(y1+y2)//2
     if drag:
         start = x1 + (x2-x1)//2
         for i in range(7):
@@ -43,11 +43,11 @@ def run(w,h):
         heights={}
         try:
             a.edit('字号调整时保留草稿')
-            for percent in (75,100,150,200):
+            for percent in (75,100,125,150):
                 a.open_settings();locate(a.diag,a.settings_swipe,'font_size')
                 scroll=a.diag()['scroll_y'];a.setting('font_size')
                 assert a.diag()['view']=='font_size'
-                slider(a,percent,drag=percent==200)
+                slider(a,percent,drag=percent==150)
                 capture(a, OUT/f'{w}-preview-{percent}.png')
                 assert a.diag()['reading_font']['percent']==(100 if not heights else list(heights)[-1])
                 a.page_action('保存');t.wait_for(lambda:a.diag()['view']=='settings')
@@ -69,31 +69,31 @@ def run(w,h):
                     if 25<=y<=100:break
                     a.settings_swipe(max(-120,min(120,90-y)))
                 capture(a,OUT/f'{w}-rich-{percent}.png')
-            assert heights[75]<heights[100]<heights[150]<heights[200],heights
+            assert heights[75]<heights[100]<heights[125]<heights[150],heights
             a.open_settings();a.setting('font_size');slider(a,75)
             a.tap(40,32);assert a.diag()['view']=='settings'
-            assert a.diag()['reading_font']['percent']==200
+            assert a.diag()['reading_font']['percent']==150
             a.setting('font_size');a.page_action('恢复默认')
             assert a.diag()['reading_font']['draft']==100
-            a.tap(40,32);assert a.diag()['reading_font']['percent']==200
+            a.tap(40,32);assert a.diag()['reading_font']['percent']==150
         finally:a.close()
         a=t.Native(BINARY,folder,screen={'width':w,'height':h,'direction':0})
         try:
-            assert a.diag()['reading_font']['percent']==200
+            assert a.diag()['reading_font']['percent']==150
             a.open_settings();a.setting('archives')
             b=a.diag()['archive_views']['archive'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
-            assert a.diag()['view']=='archive_chat' and a.diag()['reading_font']['size']==42
-            capture(a,OUT/f'{w}-archive-200.png')
+            assert a.diag()['view']=='archive_chat' and a.diag()['reading_font']['size']==32
+            capture(a,OUT/f'{w}-archive-150.png')
             a.open_settings();a.setting('font_size');a.page_action('恢复默认');a.page_action('保存')
             assert a.diag()['reading_font']['percent']==100
         finally:a.close()
-        for raw,expected in [('null',100),('"large"',100),('false',100),('-50',75),('900',200)]:
+        for raw,expected in [('null',100),('"large"',100),('false',100),('-50',75),('200',150),('900',150)]:
             with sqlite3.connect(folder/'penchat.db') as db:
                 db.execute("update app_settings set value_json=? where key='reading_font_percent'",(raw,))
             a=t.Native(BINARY,folder,screen={'width':w,'height':h,'direction':0})
             try:assert a.diag()['reading_font']['percent']==expected
             finally:a.close()
-    print(f'Font size {w}x{h}: 75–200%, preview, reflow, draft, cancel/reset, archive and restart passed.',flush=True)
+    print(f'Font size {w}x{h}: 75–150%, preview, reflow, draft, cancel/reset, archive and restart passed.',flush=True)
 
 def stream():
     with http.server.ThreadingHTTPServer(('127.0.0.1',0),t.Server) as server:
@@ -105,13 +105,13 @@ def stream():
                     with sqlite3.connect(folder/'penchat.db') as db:
                         db.execute("update providers set metadata_json=?",(json.dumps({'api':api}),))
                         db.execute("update model_configs set name='scroll' where id='a'")
-                        db.execute("insert into app_settings values('reading_font_percent','200',1)")
+                        db.execute("insert into app_settings values('reading_font_percent','150',1)")
                         db.execute("insert into app_settings values('auto_title_enabled','false',1)")
                     a=t.Native(BINARY,folder)
                     try:
                         a.edit('流式输出时调整字号');a.tap(908,232)
                         t.wait_for(lambda:a.diag()['generating'])
-                        time.sleep(.2);capture(a,OUT/f'stream-{api}-200.png')
+                        time.sleep(.2);capture(a,OUT/f'stream-{api}-150.png')
                         a.open_settings();a.setting('font_size');slider(a,75)
                         a.page_action('保存');a.to_chat()
                         t.wait_for(lambda:not a.diag()['generating'],timeout=15)

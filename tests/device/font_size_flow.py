@@ -26,25 +26,25 @@ def run(ctx):
             time.sleep(.4)
         assert state()['scroll_y']==0
     def choose(percent):
-        b=state()['reading_font']['slider'];x=b[0]+round((b[2]-b[0])*(percent-75)/125)
+        b=state()['reading_font']['slider'];x=b[0]+round((b[2]-b[0])*(percent-75)/75)
         tap(x,(b[1]+b[3])//2)
         ctx['wait'](lambda:state()['reading_font']['draft']==percent)
     settings();setting('font_size');assert state()['view']=='font_size'
-    choose(200);capture('font-preview-200')
+    choose(150);capture('font-preview-150')
     action('保存');assert state()['view']=='settings'
-    chat();assert state()['reading_font']['size']==42
+    chat();assert state()['reading_font']['size']==32
     reader_top()
-    capture('font-chat-200')
+    capture('font-chat-150')
     settings();setting('font_size');choose(75);capture('font-preview-75')
-    tap(40,32);assert state()['reading_font']['percent']==200
+    tap(40,32);assert state()['reading_font']['percent']==150
     # Save survives actual process exit and launch, not merely a settings rebuild.
     chat();ctx['close']();ctx['shell']('miniapp_cli start '+ctx['APP']['appid'])
     ctx['wait'](ctx['pid']);ctx['wait'](lambda:state()['visible']);time.sleep(.4)
-    assert state()['reading_font']['percent']==200
+    assert state()['reading_font']['percent']==150
     settings();setting('archives')
     box(state()['archive_views']['archive'])
-    assert state()['view']=='archive_chat' and state()['reading_font']['size']==42
-    capture('font-archive-200')
+    assert state()['view']=='archive_chat' and state()['reading_font']['size']==32
+    capture('font-archive-150')
     tap(40,32);tap(40,32);assert state()['view']=='settings'
     setting('font_size');choose(75);action('保存');chat()
     assert state()['reading_font']['size']==16
@@ -52,5 +52,5 @@ def run(ctx):
     settings();setting('font_size');action('恢复默认')
     assert state()['reading_font']['draft']==100
     action('保存');chat();assert state()['reading_font']['size']==21
-    ctx['result']['font_size']={'range':[75,200],'touch_slider':True,'cancel':True,
+    ctx['result']['font_size']={'range':[75,150],'touch_slider':True,'cancel':True,
         'restart':True,'archive':True,'reset':True}
