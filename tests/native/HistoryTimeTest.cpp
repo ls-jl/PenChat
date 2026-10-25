@@ -1,3 +1,4 @@
+#include "TestFiles.hpp"
 #include "chat_time.hpp"
 #include "database.hpp"
 #include <cassert>
@@ -48,6 +49,6 @@ int main() {
     assert(db.settings()["history_time_display"]=="off");
     (void)newMessage;
   }
-  std::string cleanup="rm -rf "+std::string(dir);assert(system(cleanup.c_str())==0);
+  test::removeTree(dir);
   std::cout<<"History time: local calendar formatting, absent legacy times, explicit send/completion, retries, hidden-display recording and metadata-only edits passed.\n";
 }

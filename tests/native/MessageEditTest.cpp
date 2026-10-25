@@ -1,3 +1,4 @@
+#include "TestFiles.hpp"
 #include "database.hpp"
 #include "reasoning.hpp"
 #include <cassert>
@@ -51,6 +52,6 @@ int main() {
     assert(db.query("PRAGMA foreign_key_check").empty());
     (void)later;(void)pending;(void)image;
   }
-  assert(system(("rm -rf "+std::string(dir)).c_str())==0);
+  test::removeTree(dir);
   std::cout<<"Message editing: read-only preparation, logical image turn, atomic archive/rewrite, rollback, stale snapshot, shared asset safety, private recycling and ownership passed.\n";
 }

@@ -1,3 +1,4 @@
+#include "TestFiles.hpp"
 #include "database.hpp"
 #include "reasoning.hpp"
 #include <cassert>
@@ -66,6 +67,6 @@ int main() {
     assert(db.query("PRAGMA foreign_key_check").empty());
     db.removeSession(id);assert(fileText(photo)=="image fixture");
   }
-  assert(system(("rm -rf "+std::string(dir)).c_str())==0);
+  test::removeTree(dir);
   std::cout<<"Reply actions: prefix cloning, shared assets, pending move, numbering, archive/truncate, rollback, cancellation, stale data, soft settings and ownership passed.\n";
 }

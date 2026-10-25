@@ -3,18 +3,15 @@
 #include "camera_logic.h"
 
 #include <cerrno>
-#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <poll.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 #include <sstream>
@@ -223,17 +220,6 @@ int clampi(int value, int lo, int hi)
     return value;
 }
 
-std::string findFfmpeg()
-{
-    static const char* kCandidates[] = {
-        "/usr/bin/ffmpeg", "/system/bin/ffmpeg", "/usr/local/bin/ffmpeg", 0
-    };
-    for (int i = 0; kCandidates[i]; ++i) {
-        if (fileExists(kCandidates[i])) return kCandidates[i];
-    }
-    return "";
-}
-
 bool pathHasParentRef(const std::string& path)
 {
     return path.find("..") != std::string::npos;
@@ -250,114 +236,6 @@ std::vector<std::string> listDir(const std::string& path)
     }
     closedir(dir);
     return out;
-}
-
-int runCommand(const std::vector<std::string>& args, std::string* output, int timeoutMs)
-{
-    if (args.empty() || timeoutMs < 1) return -1;
-    int fds[2] = {-1, -1};
-    if (pipe(fds) != 0) return -1;
-    const int flags = fcntl(fds[0], F_GETFL, 0);
-    if (flags >= 0) fcntl(fds[0], F_SETFL, flags | O_NONBLOCK);
-    const pid_t pid = fork();
-    if (pid < 0) {
-        close(fds[0]);
-        close(fds[1]);
-        return -1;
-    }
-    if (pid == 0) {
-        signal(SIGPIPE, SIG_DFL);
-        dup2(fds[1], STDOUT_FILENO);
-        dup2(fds[1], STDERR_FILENO);
-        close(fds[0]);
-        close(fds[1]);
-        std::vector<char*> argv;
-        for (size_t i = 0; i < args.size(); ++i)
-            argv.push_back(const_cast<char*>(args[i].c_str()));
-        argv.push_back(0);
-        execv(args[0].c_str(), argv.data());
-        _exit(127);
-    }
-    close(fds[1]);
-    const size_t kCap = 65536;
-    std::string collected;
-    timespec start;
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    int status = 0;
-    bool reaped = false;
-    while (!reaped) {
-        timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        const int elapsed = static_cast<int>((now.tv_sec - start.tv_sec) * 1000 +
-            (now.tv_nsec - start.tv_nsec) / 1000000);
-        if (elapsed >= timeoutMs) break;
-        pollfd pfd;
-        pfd.fd = fds[0];
-        pfd.events = POLLIN;
-        int waitMs = timeoutMs - elapsed;
-        if (waitMs > 100) waitMs = 100;
-        const int pr = poll(&pfd, 1, waitMs);
-        if (pr < 0) {
-            if (errno == EINTR) continue;
-            break;
-        }
-        if (pr > 0) {
-            char buf[1024];
-            while (collected.size() < kCap) {
-                const ssize_t n = read(fds[0], buf, sizeof(buf));
-                if (n > 0) {
-                    size_t take = static_cast<size_t>(n);
-                    if (collected.size() + take > kCap) take = kCap - collected.size();
-                    collected.append(buf, take);
-                    continue;
-                }
-                if (n == 0) break;
-                if (errno == EINTR) continue;
-                if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-                break;
-            }
-        }
-        const pid_t wr = waitpid(pid, &status, WNOHANG);
-        if (wr == pid) reaped = true;
-    }
-    char buf[1024];
-    while (collected.size() < kCap) {
-        const ssize_t n = read(fds[0], buf, sizeof(buf));
-        if (n > 0) {
-            size_t take = static_cast<size_t>(n);
-            if (collected.size() + take > kCap) take = kCap - collected.size();
-            collected.append(buf, take);
-            continue;
-        }
-        break;
-    }
-    close(fds[0]);
-    if (!reaped) {
-        kill(pid, SIGTERM);
-        timespec killStart;
-        clock_gettime(CLOCK_MONOTONIC, &killStart);
-        while (!reaped) {
-            if (waitpid(pid, &status, WNOHANG) == pid) {
-                reaped = true;
-                break;
-            }
-            timespec now;
-            clock_gettime(CLOCK_MONOTONIC, &now);
-            const int waited = static_cast<int>((now.tv_sec - killStart.tv_sec) * 1000 +
-                (now.tv_nsec - killStart.tv_nsec) / 1000000);
-            if (waited > 300) break;
-            usleep(10000);
-        }
-        if (!reaped) {
-            kill(pid, SIGKILL);
-            waitpid(pid, &status, 0);
-        }
-        if (output) *output = collected;
-        return -1;
-    }
-    if (output) *output = collected;
-    if (WIFEXITED(status)) return WEXITSTATUS(status);
-    return -1;
 }
 
 int64_t fileSize64(const std::string& path)

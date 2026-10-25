@@ -30,6 +30,8 @@ PenChat 自有代码采用 [Apache-2.0](LICENSE)，第三方材料保留原许�
 ## 构建
 
 需要 CMake、主机 C/C++ 工具链、aiot-cli、ORANGE AArch64 工具链及扫描资源包。
+
+应用运行不依赖 shell 命令；原生子进程与包内检查约定见[运行时命令检查](docs/RUNTIME-COMMANDS.md)。
 运行 `npm run build:host`、`npm test`、`npm run test:sanitize`；生产构建使用 `npm run build:native`、`npm run build:prod`、`npm run check:package`。
 依赖来源和摘要见 native 下的锁文件；扫描资源准备见 `native/scanner/README.md`。构建脚本重新获取锁定依赖，不提交下载内容或二进制。
 

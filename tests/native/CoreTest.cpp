@@ -1,4 +1,5 @@
 #include "image_input.hpp"
+#include "TestFiles.hpp"
 #include "accelerometer.h"
 #include "editor.hpp"
 #include "editor_layout.hpp"
@@ -23,6 +24,19 @@
 using namespace penchat;
 int main(int argc, char **argv) {
   assert(argc == 4);
+  {
+    char root[] = "/tmp/penchat-files-XXXXXX";
+    char outside[] = "/tmp/penchat-outside-XXXXXX";
+    assert(mkdtemp(root) && mkdtemp(outside));
+    ensureDirectory(join(root, "nested"));
+    atomicText(join(root, "nested/quote' ; $()\n"), "literal filename");
+    atomicText(join(outside, "keep"), "outside fixture");
+    assert(symlink(outside, join(root, "link").c_str()) == 0);
+    test::removeTree(root);
+    assert(access(root, F_OK) != 0);
+    assert(fileText(join(outside, "keep")) == "outside fixture");
+    test::removeTree(outside);
+  }
   {
     for (const auto size : {std::make_pair(960,266), std::make_pair(936,280), std::make_pair(1024,320)}) {
       const auto cfg = Json{{"screen", {{"width",size.first},{"height",size.second},{"direction",270},{"yoffset",107}}}};

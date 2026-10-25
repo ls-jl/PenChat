@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check the production AMR against staged, locked native resources."""
 import hashlib, json, pathlib, re, struct, zipfile, subprocess, sys
+from runtime_policy import check_native_payload
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 APP=json.loads((ROOT/'package.json').read_text())
 path = ROOT / ('dist/'+APP['appid']+'.'+APP['version'].replace('.', '_')+'.amr')
@@ -53,6 +54,10 @@ with zipfile.ZipFile(path) as archive:
     assert len(bridges) == 2 and all('libjsapi_penchat_launcher' in n for n in bridges)
     bridge = (ROOT / 'native/prebuilt/arm64-orange/libjsapi_penchat_launcher.so').read_bytes()
     assert all(archive.read(n) == bridge for n in bridges)
+    for name, payload in [('penchat-lvgl', binary), ('penchat-scanner', scanner),
+                          ('penchat-sensor-guard', guard), ('launcher', bridge)]:
+        check_native_payload(payload, name)
+    assert not any(n.endswith(('.sh', '.bash')) for n in names), 'Shell script in production package'
     obsolete = [b'im_search', b'im_get_candidate', b'im_reset_search', b'ime.request', b'ime.result', b'imeReset']
     assert not any(symbol in bridge or symbol in binary for symbol in obsolete), 'Obsolete shared pinyin adapter in production binary'
     assert b'libpinyinime.so' not in binary, 'Pinyin must be built statically from locked sources'
@@ -83,6 +88,7 @@ with zipfile.ZipFile(path) as archive:
         data=archive.read(member)
         if not data.startswith(b'\x7fELF'):continue
         elf_count+=1
+        check_native_payload(data, member)
         assert data[4:6]==b'\x02\x01',member
         offset=struct.unpack_from('<Q',data,40)[0]
         entry_size,count,names_index=struct.unpack_from('<HHH',data,58)

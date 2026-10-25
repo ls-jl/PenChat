@@ -1,3 +1,4 @@
+#include "TestFiles.hpp"
 #include "pinyin.hpp"
 #include "editor.hpp"
 #include "database.hpp"
@@ -33,7 +34,7 @@ struct Fixture {
     assert(service->request(request));return await(sequence);
   }
   void restart(){service.reset();service.reset(new PinyinService(events,resources,root));}
-  ~Fixture(){service.reset();auto command="rm -rf "+root;assert(system(command.c_str())==0);}
+  ~Fixture(){service.reset();test::removeTree(root);}
 };
 int main(int argc,char **argv) {
   assert(argc==2);

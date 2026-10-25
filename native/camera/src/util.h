@@ -28,10 +28,8 @@ bool unlinkMediaAt(const std::string& root, const std::string& input, int* errOu
 std::string sha256Hex(const void* data, size_t size);
 std::string sha256File(const std::string& path);
 int clampi(int value, int lo, int hi);
-std::string findFfmpeg();
 bool pathHasParentRef(const std::string& path);
 std::vector<std::string> listDir(const std::string& path);
-int runCommand(const std::vector<std::string>& args, std::string* output = 0, int timeoutMs = 8000);
 std::string readSys(const std::string& path);
 
 }  // namespace camera
