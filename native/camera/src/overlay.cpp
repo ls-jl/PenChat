@@ -153,7 +153,7 @@ Overlay::Overlay()
     , propCrtcH_(0)
     , propZpos_(0)
 {
-    memset(&hole_, 0, sizeof(hole_));
+    hole_ = {};
     memset(bufs_, 0, sizeof(bufs_));
     hole_.rotation = 0;
     pthread_mutexattr_t attr;

@@ -9,7 +9,6 @@
 #include <dirent.h>
 #include <iostream>
 #include <sys/stat.h>
-#include <sys/stat.h>
 #include <unistd.h>
 namespace penchat {
 namespace {
@@ -21,11 +20,6 @@ void onClick(lv_obj_t *object, std::function<void()> action) {
   lv_obj_add_event_cb(
       object,
       [](lv_event_t *e) {
-        if (lv_event_get_code(e) == LV_EVENT_DELETE) {
-          delete static_cast<std::function<void()> *>(
-              lv_event_get_user_data(e));
-          return;
-        }
         try {
           auto callback =
               *static_cast<std::function<void()> *>(lv_event_get_user_data(e));
@@ -1025,6 +1019,8 @@ void App::build() {
     presetEditor();
   else if (view_ == "provider")
     providerPage();
+  else if (view_ == "api_compatibility")
+    apiCompatibilityPage();
   else if (view_ == "archives")
     archivesPage();
   else if (view_ == "archive_chat")
@@ -1097,7 +1093,8 @@ void App::show(const std::string &view) {
   closeNavigation(false);
   closeAttachments();
   resetPull();
-  if (view_ == "provider" && view != "provider") {
+  if ((view_ == "provider" || view_ == "api_compatibility") &&
+      view != "provider" && view != "api_compatibility") {
     providerForm_ = Json::object();
     modelNames_.clear();
     ++modelGeneration_;
@@ -2136,8 +2133,14 @@ void App::providerPage() {
         build();
       },
       theme::surface, LV_TEXT_ALIGN_LEFT);
-  status_ = label(pageContent_, notice_, 10, 224, w, 17, theme::muted);
-  int y = 250;
+  const bool compatible = objectField(providerForm_, "compatibility").value("enabled", false);
+  settingsRow("api_compatibility", "API 兼容模式", compatible ? "已启用 · 按需调整连接与扩展" : "标准模式 · 不自动重发请求",
+              10, 224, w - 20, [this] {
+                providerScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
+                show("api_compatibility");
+              });
+  status_ = label(pageContent_, notice_, 10, 292, w, 17, theme::muted);
+  int y = 318;
   for (auto &name : modelNames_) {
     auto nameLabel = label(pageContent_, name, 15, y, w, 20);
     lv_label_set_long_mode(nameLabel, LV_LABEL_LONG_MODE_DOTS);
@@ -2160,14 +2163,17 @@ void App::fetchModels() {
     modelWorker_.join();
   Json model = {{"base_url", providerForm_.value("baseURL", std::string())},
                 {"api_key", providerForm_.value("apiKey", std::string())},
-                {"headers_json", "{}"}};
+                {"headers_json", providerForm_.value("headers", Json::object()).dump()},
+                {"provider_metadata", Json({{"api", providerForm_.value("api", std::string("responses"))},
+                                           {"compatibility", objectField(providerForm_, "compatibility")}}).dump()}};
   notice_ = "正在拉取模型…";
   build();
   modelCancel_ = false;
   const int generation = ++modelGeneration_;
   modelWorker_ = std::thread([this, model, generation] {
-    auto result = http(apiRoot(model) + "/models", "GET", apiHeaders(model), "",
-                       modelCancel_);
+    HttpResult result;
+    try { result = apiRequest(model, "/models", "GET", "", modelCancel_); }
+    catch (const std::exception &e) { result.error = e.what(); }
     Json data = {{"error", result.error},
                  {"status", result.status},
                  {"generation", generation}};
@@ -2187,6 +2193,8 @@ void App::saveProvider() {
     modal("请检查连接配置", "请填写名称、Base URL 和 API Key；地址需以 http:// 或 https:// 开头。");
     return;
   }
+  try { apiRoot({{"base_url", base}, {"provider_metadata", Json({{"api", providerForm_.value("api", std::string("responses"))}}).dump()}}); }
+  catch (const std::exception &e) { modal("请检查接口地址", e.what()); return; }
   auto manual = providerForm_.value("model", std::string());
   std::vector<std::string> names;
   std::replace(manual.begin(), manual.end(), '\n', ',');
@@ -2221,7 +2229,9 @@ void App::goBack() {
     transferBack();
     return;
   }
-  if (view_ == "font_size" || view_ == "keyboard_settings")
+  if (view_ == "api_compatibility") {
+    show("provider"); lv_obj_scroll_to_y(body_, providerScroll_, LV_ANIM_OFF);
+  } else if (view_ == "font_size" || view_ == "keyboard_settings")
     show("settings");
   else if (view_ == "presets")
     show("settings");
@@ -2746,7 +2756,7 @@ void App::routeTouch(const Json &m) {
     composerTouchY_ = y;
     composerTapAllowed_ = false;
     if (view_ == "chat" && composer_ && !modal_ && !navigationOpen_ &&
-        !attachments_ && !lv_obj_has_flag(chatControls_, LV_OBJ_FLAG_HIDDEN)) {
+        !attachments_ && !lv_obj_is_hidden(chatControls_)) {
       lv_area_t bounds;
       lv_obj_get_coords(composer_, &bounds);
       composerTapAllowed_ = x >= bounds.x1 && x <= bounds.x2 &&
@@ -3095,8 +3105,7 @@ void App::tick() {
                        : std::string();
       if (db_.finishTitle(e.data["session"], e.data["token"], title))
         historyDirty_ = true;
-    } else if (e.type == "response_state" || e.type == "delta" ||
-               e.type == "reasoning" || e.type == "done" ||
+    } else if (e.type == "response_state" || e.type == "done" ||
                e.type == "cancelled" || e.type == "network_error") {
       if (e.data.value("generation", -1) != networkGeneration_ || !generating_)
         continue;
@@ -3105,10 +3114,6 @@ void App::tick() {
         reasoning_ = e.data.value("reasoning", std::string());
         reasoningMetadata_ = e.data.value("metadata", Json::object());
       }
-      if (e.type == "delta")
-        output_ += e.data.value("text", std::string());
-      if (e.type == "reasoning")
-        reasoning_ += e.data.value("text", std::string());
       dirty_ = true;
       persistDirty_ = true;
       if (e.type == "done" || e.type == "cancelled" ||
@@ -3128,7 +3133,8 @@ void App::tick() {
         continue;
       modelNames_.clear();
       if (e.data.value("status", 0) >= 200 && e.data.value("status", 0) < 300 &&
-          e.data.contains("body") && e.data["body"].contains("data")) {
+          e.data.contains("body") && e.data["body"].is_object() &&
+          e.data["body"].contains("data") && e.data["body"]["data"].is_array()) {
         for (auto &m : e.data["body"]["data"])
           if (m.contains("id") && m["id"].is_string())
             modelNames_.push_back(m["id"]);

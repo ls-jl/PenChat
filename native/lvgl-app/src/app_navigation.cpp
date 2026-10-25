@@ -15,7 +15,7 @@ void App::syncBackPolicy() {
   const auto generation = bridge_.generation();
   const bool root = navigationRoot();
   const auto context = backContext();
-  if (!generation || (backPolicyGeneration_ == generation && backPolicyRoot_ == root && backPolicyContext_ == context)) return;
+  if (!generation || (backPolicyGeneration_ == uint64_t(generation) && backPolicyRoot_ == root && backPolicyContext_ == context)) return;
   backPolicyGeneration_ = generation; backPolicyRoot_ = root; backPolicyContext_ = context;
   backPolicyOk_ = false;
   bridge_.send("navigation.state", {{"sequence", ++backPolicySequence_}, {"root", root}, {"imageWorkspace", bool(imageViewer_) || view_=="crop"}});

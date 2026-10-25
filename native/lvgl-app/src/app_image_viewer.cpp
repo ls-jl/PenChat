@@ -91,7 +91,8 @@ void App::zoomImageViewer(double zoom,int x,int y) {
   viewerReturnAt_=0;
   zoom=std::max(1.,std::min(std::max(1.,std::min(16.,255./fit)),zoom));
   const double ratio=zoom/viewerZoom_;
-  if(x<0)x=vw/2;if(y<0)y=vh/2;
+  if (x < 0) x = vw / 2;
+  if (y < 0) y = vh / 2;
   viewerPanX_=x-(x-viewerPanX_)*ratio;viewerPanY_=y-(y-viewerPanY_)*ratio;
   viewerZoom_=zoom;viewerLastTap_=0;
   updateImageViewer();

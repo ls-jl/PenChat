@@ -376,7 +376,8 @@ int main(int argc, char **argv) {
       reply, "正文", "", "complete", Json(),
       {{"reasoning_observed", true},
        {"reasoning_duration_ms", 3000},
-       {"response_reasoning_items", Json::array({reasoningItem})}});
+       {"response_reasoning_items", Json::array({reasoningItem})},
+       {"replay_identity", replayIdentity(boundModel)}});
   auto replay = db.responseInput(pending, "", boundModel);
   assert(replay.size() == 3 &&
          replay[1]["encrypted_content"] == "opaque-test-only");

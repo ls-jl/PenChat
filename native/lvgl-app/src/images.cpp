@@ -26,12 +26,27 @@ Images::~Images() {
   if (worker_.joinable())
     worker_.join();
 }
+void Images::trimCache(size_t incoming) {
+  while (!order_.empty() && (cache_.size() >= 128 || bytes_ + incoming > 32 * 1024 * 1024)) {
+    const auto old = order_.front(); order_.pop_front();
+    const auto found = cache_.find(old);
+    if (found != cache_.end()) {
+      if (found->second) bytes_ -= found->second->pixels.size();
+      cache_.erase(found);
+    }
+  }
+}
 std::string Images::request(const std::string &path, int w, int h,
                             bool upscale, bool detail) {
   auto key = path + ":" + std::to_string(w) + "x" + std::to_string(h) +
              (upscale ? ":up" : "") + (detail ? ":detail" : "");
   std::lock_guard<std::mutex> lock(mutex_);
   if (!cache_.count(key) && pending_.insert(key).second) {
+    if (queue_.size() >= 64) {
+      pending_.erase(key); trimCache(0); cache_[key] = nullptr; order_.push_back(key);
+      events_.pushLatest("image_error", {{"key", key}, {"error", "图片队列已满，请稍后重新打开"}});
+      return key;
+    }
     queue_.push_back({path, key, w, h, upscale, detail});
     condition_.notify_one();
   }
@@ -61,7 +76,8 @@ void Images::work() {
     try {
       std::string bytes;
       if (r.path.find("https://") == 0 || r.path.find("http://") == 0) {
-        auto response = http(r.path, "GET", Json::object(), "", cancel_);
+        ApiOptions options; options.timeout = 60;
+        auto response = http(r.path, "GET", Json::object(), "", cancel_, {}, options);
         if (response.status < 200 || response.status >= 300 ||
             !response.error.empty())
           throw std::runtime_error("Image download failed");
@@ -125,6 +141,7 @@ void Images::work() {
         // full-resolution bitmap. A detailed cached frame is at most 16 MiB.
         scale = std::min(scale, float(std::sqrt(4000000.0 / (double(w)*h))));
       }
+      scale = std::min(scale, float(std::sqrt(4000000.0 / (double(w) * h))));
       if (!r.upscale)
         scale = std::min(1.f, scale);
       auto image = std::make_shared<ImageFrame>();
@@ -146,12 +163,7 @@ void Images::work() {
       {
         std::lock_guard<std::mutex> lock(mutex_);
         auto size = image->pixels.size();
-        while (!order_.empty() && bytes_ + size > 32 * 1024 * 1024) {
-          auto old = order_.front();
-          order_.pop_front();
-          bytes_ -= cache_[old]->pixels.size();
-          cache_.erase(old);
-        }
+        trimCache(size);
         cache_[r.key] = image;
         order_.push_back(r.key);
         bytes_ += size;
@@ -160,7 +172,8 @@ void Images::work() {
       events_.push("image_ready", {{"key", r.key}});
     } catch (const std::exception &e) {
       std::lock_guard<std::mutex> lock(mutex_);
-      cache_[r.key] = nullptr;
+      trimCache(0);
+      cache_[r.key] = nullptr; order_.push_back(r.key);
       pending_.erase(r.key);
       events_.push("image_error", {{"key", r.key}, {"error", e.what()}});
     }

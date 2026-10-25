@@ -2,6 +2,7 @@
 #include "chat_time.hpp"
 #include "context.hpp"
 #include "reasoning.hpp"
+#include "api_config.hpp"
 #include "schema.hpp"
 #include "titles.hpp"
 #include "util.h"
@@ -731,7 +732,8 @@ Json Database::providerForm(const std::string &id) {
           {"api", metadata.is_object() ? metadata.value("api", std::string("responses"))
                                        : "responses"},
           {"model", names},
-          {"default_effort", metadata.value("default_effort", std::string())}};
+          {"default_effort", metadata.value("default_effort", std::string())},
+          {"compatibility", objectField(metadata, "compatibility")}};
 }
 Json Database::models() {
   if (!onWorker()) {
@@ -829,8 +831,10 @@ void Database::recordRequest(const std::string &message, const Json &model,int64
   Json parameters = {{"model", model.value("name", std::string())},
                      {"effort", model.value("effective_effort", std::string())},
                      {"effort_value", model.value("effort_value", std::string())},
-                     {"summary", model.value("reasoning_summary", false)},
+                     {"summary", model.value("reasoning_summary", false) && apiOptions(model).summary},
                      {"system_prompt", model.value("system_prompt", std::string())}};
+  parameters["api"] = objectField(model, "provider_metadata").value("api", std::string("responses"));
+  parameters["compatibility"] = objectField(objectField(model, "provider_metadata"), "compatibility");
   execute("BEGIN IMMEDIATE");
   try {
     auto rows=query("SELECT session_id,seq,metadata_json FROM chat_messages WHERE id=?",{message});
@@ -882,6 +886,7 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
         metadata = Json::object();
       metadata["api"] = f.value("api", std::string("responses"));
       metadata["default_effort"] = f.value("default_effort", std::string());
+      if (f.contains("compatibility")) metadata["compatibility"] = objectField(f, "compatibility");
       execute("UPDATE providers SET "
               "name=?,base_url=?,api_key=?,headers_json=?,metadata_json=?,updated_"
               "at=? WHERE id=?",
@@ -899,7 +904,8 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
                f.value("baseURL", std::string()), f.value("apiKey", std::string()),
                f.value("headers", Json::object()).dump(),
                Json({{"api", f.value("api", std::string("responses"))},
-                     {"default_effort", f.value("default_effort", std::string())}})
+                     {"default_effort", f.value("default_effort", std::string())},
+                     {"compatibility", objectField(f, "compatibility")}})
                    .dump(),
                nowMs(), nowMs(), first ? 1 : 0});
     }

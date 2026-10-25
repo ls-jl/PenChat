@@ -93,8 +93,8 @@ void paint(lv_event_t *event) {
     lv_draw_rect_dsc_init(&d);
     d.radius = radius;
     d.bg_color = d.border_color = ink;
-    d.bg_opa = fill ? opacity : LV_OPA_TRANSP;
-    d.border_opa = fill ? LV_OPA_TRANSP : opacity;
+    d.bg_opa = fill ? opacity : lv_opa_t(LV_OPA_TRANSP);
+    d.border_opa = fill ? lv_opa_t(LV_OPA_TRANSP) : opacity;
     d.border_width = 2;
     lv_area_t a{int32_t(std::lround(cx + x * scale)),
                 int32_t(std::lround(cy + y * scale)),

@@ -9,6 +9,8 @@
 
 软件内可在“设置 → 关于 PenChat”查看署名、版本和项目地址；信息来自 `package.json`。
 
+Provider 可按需启用 API 兼容模式，调整流式、用量统计、公开思考摘要、加密续传、HTTP/1.1和超时。配置需保存 Provider 后生效；失败不自动重发。详见[API 核查、兼容设置与性能对比](docs/API-COMPATIBILITY.md)。
+
 ## 许可证
 
 PenChat 自有代码采用 [Apache-2.0](LICENSE)，第三方材料保留原许可，详见

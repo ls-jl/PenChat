@@ -18,6 +18,7 @@ int main(int argc, char **argv) {
       screenConfig = "/etc/miniapp/resources/cfg.json";
   int fd = -1, frames = 0;
   bool headless = false;
+  try {
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     auto value = [&]() {
@@ -46,7 +47,6 @@ int main(int argc, char **argv) {
     else if (arg == "--frames")
       frames = std::stoi(value());
   }
-  try {
     if (data.empty())
       throw std::runtime_error("Missing data directory");
     ensureDirectory(data);

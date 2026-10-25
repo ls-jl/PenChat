@@ -3,303 +3,432 @@
 #include "reasoning_stream.hpp"
 #include "titles.hpp"
 #include <curl/curl.h>
+#include <cctype>
 #include <stdexcept>
 namespace penchat {
 namespace {
+constexpr size_t EventLimit = 4 * 1024 * 1024;
+constexpr size_t ResponseLimit = 32 * 1024 * 1024;
 std::string safeError(const std::string &text) {
-  // Error bodies may be non-UTF-8, or truncated in the middle of a codepoint.
-  return Json::parse(Json(text).dump(-1, ' ', false, Json::error_handler_t::replace))
-      .get<std::string>();
+  return Json::parse(Json(text).dump(-1, ' ', false, Json::error_handler_t::replace)).get<std::string>();
+}
+std::string lower(std::string value) {
+  for (auto &c : value) c = std::tolower(static_cast<unsigned char>(c));
+  return value;
+}
+std::string messageError(const Json &value) {
+  if (value.is_string()) return value.get<std::string>();
+  if (value.is_object()) {
+    auto it = value.find("message");
+    if (it != value.end() && it->is_string()) return it->get<std::string>();
+    it = value.find("code");
+    if (it != value.end() && it->is_string()) return it->get<std::string>();
+  }
+  return "服务返回了错误，请检查接口配置后手动重试";
+}
+std::string redact(std::string error, const Json &model) {
+  auto remove = [&](const std::string &secret) {
+    if (secret.empty()) return;
+    size_t p = 0;
+    while ((p = error.find(secret, p)) != std::string::npos) {
+      error.replace(p, secret.size(), "[已隐藏]"); p += std::string("[已隐藏]").size();
+    }
+  };
+  remove(model.value("api_key", std::string()));
+  const auto headers = objectField(model, "headers_json");
+  for (auto it = headers.begin(); it != headers.end(); ++it)
+    if (it->is_string()) remove(it->get<std::string>());
+  return safeError(error.substr(0, 2000));
 }
 }
-
 void SseParser::line(std::string value) {
-  if (!value.empty() && value.back() == '\r')
-    value.pop_back();
+  if (first_) {
+    first_ = false;
+    if (value.compare(0, 3, "\xef\xbb\xbf") == 0) value.erase(0, 3);
+  }
   if (value.empty()) {
     if (!data_.empty()) {
-      data_.pop_back();
-      callback_(event_, data_);
+      data_.pop_back(); callback_(event_, data_);
     }
-    data_.clear();
-    event_.clear();
-    return;
+    data_.clear(); event_.clear(); return;
   }
-  if (value[0] == ':')
-    return;
-  auto colon = value.find(':');
-  auto key = value.substr(0, colon);
-  auto content =
-      colon == std::string::npos ? std::string() : value.substr(colon + 1);
-  if (!content.empty() && content[0] == ' ')
-    content.erase(0, 1);
-  if (key == "data")
-    data_ += content + '\n';
-  else if (key == "event")
-    event_ = content;
+  if (value[0] == ':') return;
+  const auto colon = value.find(':');
+  const auto key = value.substr(0, colon);
+  auto content = colon == std::string::npos ? std::string() : value.substr(colon + 1);
+  if (!content.empty() && content[0] == ' ') content.erase(0, 1);
+  if (key == "data") {
+    if (data_.size() + content.size() + 1 > EventLimit) throw std::runtime_error("SSE event too large");
+    data_ += content; data_ += '\n';
+  } else if (key == "event") event_ = content;
 }
 void SseParser::feed(const char *p, size_t n) {
-  buffer_.append(p, n);
-  if (buffer_.size() > 4 * 1024 * 1024)
-    throw std::runtime_error("SSE event too large");
-  size_t end;
-  while ((end = buffer_.find('\n')) != std::string::npos) {
-    auto value = buffer_.substr(0, end);
-    buffer_.erase(0, end + 1);
-    line(value);
+  // Consume once; avoid repeated prefix erases for streams with many short lines.
+  for (size_t i = 0; i < n; ++i) {
+    const auto c = p[i];
+    if (carriage_ && c == '\n') { carriage_ = false; continue; }
+    carriage_ = c == '\r';
+    if (c == '\r' || c == '\n') { line(std::move(buffer_)); buffer_.clear(); }
+    else {
+      if (buffer_.size() >= EventLimit) throw std::runtime_error("SSE line too large");
+      buffer_ += c;
+    }
   }
 }
 void SseParser::finish() {
-  if (!buffer_.empty()) {
-    line(buffer_);
-    buffer_.clear();
-  }
+  if (!buffer_.empty()) { line(std::move(buffer_)); buffer_.clear(); }
   line("");
 }
 struct Transfer {
   HttpResult result;
   std::atomic<bool> *cancel;
   std::function<void(const char *, size_t)> chunks;
+  std::function<bool()> complete;
+  size_t bytes = 0;
 };
-static size_t receive(char *p, size_t a, size_t b, void *user) {
+static size_t receiveHeader(char *p, size_t a, size_t b, void *user) {
   auto &t = *static_cast<Transfer *>(user);
-  auto n = a * b;
-  if (t.cancel->load())
-    return 0;
+  const auto n = a * b;
   try {
-    if (t.chunks) {
-      t.chunks(p, n);
-      if (t.result.body.size() < 65536)
-        t.result.body.append(p,
-                             std::min(n, size_t(65536) - t.result.body.size()));
+    std::string line(p, n);
+    if (line.find("HTTP/") == 0) {
+      const auto space = line.find(' ');
+      if (space != std::string::npos) t.result.status = std::strtol(line.c_str() + space + 1, nullptr, 10);
+      t.result.contentType.clear(); t.result.requestId.clear();
     } else {
-      if (t.result.body.size() + n > 32 * 1024 * 1024)
-        return 0;
-      t.result.body.append(p, n);
+      const auto colon = line.find(':');
+      if (colon != std::string::npos) {
+        auto value = line.substr(colon + 1);
+        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) value.pop_back();
+        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) value.erase(0, 1);
+        auto key = lower(line.substr(0, colon));
+        if (key == "content-type") t.result.contentType = value.substr(0, 256);
+        if (key == "x-request-id") t.result.requestId = safeError(value.substr(0, 256));
+      }
     }
     return n;
-  } catch (const std::exception &e) {
-    t.result.error = e.what();
-    return 0;
-  }
+  } catch (...) { return 0; }
+}
+static size_t receive(char *p, size_t a, size_t b, void *user) {
+  auto &t = *static_cast<Transfer *>(user);
+  const auto n = a * b;
+  if (t.cancel->load()) return 0;
+  try {
+    if (t.bytes + n > ResponseLimit) throw std::runtime_error("Response size limit exceeded");
+    t.bytes += n;
+    if (t.chunks && t.result.status >= 200 && t.result.status < 300) {
+      if (!t.complete || !t.complete()) t.chunks(p, n);
+    } else if (t.result.status >= 200 && t.result.status < 300) t.result.body.append(p, n);
+    else if (t.result.body.size() < 65536)
+      t.result.body.append(p, std::min(n, size_t(65536) - t.result.body.size()));
+    return n;
+  } catch (const std::exception &e) { t.result.error = e.what(); return 0; }
 }
 static int progress(void *p, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
-  return static_cast<std::atomic<bool> *>(p)->load() ? 1 : 0;
+  auto &t = *static_cast<Transfer *>(p);
+  try { return t.cancel->load() || (t.complete && t.complete()) ? 1 : 0; }
+  catch (const std::exception &e) { t.result.error = e.what(); return 1; }
 }
 HttpResult http(const std::string &url, const std::string &method,
-                const Json &headers, const std::string &body,
-                std::atomic<bool> &cancel,
-                std::function<void(const char *, size_t)> chunks) {
+                const Json &headers, const std::string &body, std::atomic<bool> &cancel,
+                std::function<void(const char *, size_t)> chunks,
+                const ApiOptions &options, std::function<bool()> complete) {
+  if (url.find("https://") != 0 && url.find("http://") != 0) {
+    HttpResult invalid; invalid.error = "Only HTTP(S) URLs are supported"; return invalid;
+  }
   static std::once_flag init;
   std::call_once(init, [] { curl_global_init(CURL_GLOBAL_DEFAULT); });
-  Transfer transfer{{}, &cancel, std::move(chunks)};
+  Transfer transfer{{}, &cancel, std::move(chunks), std::move(complete), 0};
   CURL *h = curl_easy_init();
-  if (!h) {
-    transfer.result.error = "Cannot initialize HTTP";
-    return transfer.result;
-  }
+  if (!h) { transfer.result.error = "Cannot initialize HTTP"; return transfer.result; }
   curl_slist *list = nullptr;
-  for (auto i = headers.begin(); i != headers.end(); ++i) {
-    auto line = i.key() + ": " + i.value().get<std::string>();
-    list = curl_slist_append(list, line.c_str());
-  }
-  curl_easy_setopt(h, CURLOPT_URL, url.c_str());
-  curl_easy_setopt(h, CURLOPT_HTTPHEADER, list);
-  curl_easy_setopt(h, CURLOPT_NOSIGNAL, 1L);
-  curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS, 15000L);
-  curl_easy_setopt(h, CURLOPT_TIMEOUT_MS, 120000L);
-  curl_easy_setopt(h, CURLOPT_SSL_VERIFYPEER, 1L);
-  curl_easy_setopt(h, CURLOPT_SSL_VERIFYHOST, 2L);
-  curl_easy_setopt(h, CURLOPT_FOLLOWLOCATION, 0L);
-  curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, receive);
-  curl_easy_setopt(h, CURLOPT_WRITEDATA, &transfer);
-  curl_easy_setopt(h, CURLOPT_NOPROGRESS, 0L);
-  curl_easy_setopt(h, CURLOPT_XFERINFOFUNCTION, progress);
-  curl_easy_setopt(h, CURLOPT_XFERINFODATA, &cancel);
-  if (method != "GET") {
-    curl_easy_setopt(h, CURLOPT_CUSTOMREQUEST, method.c_str());
-    curl_easy_setopt(h, CURLOPT_POSTFIELDS, body.data());
-    curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE_LARGE, curl_off_t(body.size()));
-  }
-  auto code = curl_easy_perform(h);
-  curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &transfer.result.status);
-  if (code != CURLE_OK && transfer.result.error.empty())
-    transfer.result.error = cancel ? "cancelled" : curl_easy_strerror(code);
-  curl_slist_free_all(list);
-  curl_easy_cleanup(h);
+  try {
+    for (auto i = headers.begin(); i != headers.end(); ++i) {
+      if (!i.value().is_string() || i.key().find_first_of("\r\n:") != std::string::npos ||
+          i.value().get<std::string>().find_first_of("\r\n") != std::string::npos)
+        throw std::runtime_error("Invalid HTTP header");
+      const auto line = i.key() + ": " + i.value().get<std::string>();
+      auto appended = curl_slist_append(list, line.c_str());
+      if (!appended) throw std::runtime_error("Cannot allocate HTTP headers");
+      list = appended;
+    }
+    curl_easy_setopt(h, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(h, CURLOPT_HTTPHEADER, list);
+    curl_easy_setopt(h, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS, 15000L);
+    curl_easy_setopt(h, CURLOPT_TIMEOUT_MS, long(options.timeout) * 1000);
+    curl_easy_setopt(h, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(h, CURLOPT_SSL_VERIFYHOST, 2L);
+    curl_easy_setopt(h, CURLOPT_FOLLOWLOCATION, 0L);
+    if (options.http1) curl_easy_setopt(h, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, receive);
+    curl_easy_setopt(h, CURLOPT_WRITEDATA, &transfer);
+    curl_easy_setopt(h, CURLOPT_HEADERFUNCTION, receiveHeader);
+    curl_easy_setopt(h, CURLOPT_HEADERDATA, &transfer);
+    curl_easy_setopt(h, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(h, CURLOPT_XFERINFOFUNCTION, progress);
+    curl_easy_setopt(h, CURLOPT_XFERINFODATA, &transfer);
+    if (method != "GET") {
+      curl_easy_setopt(h, CURLOPT_CUSTOMREQUEST, method.c_str());
+      curl_easy_setopt(h, CURLOPT_POSTFIELDS, body.data());
+      curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE_LARGE, curl_off_t(body.size()));
+    }
+    const auto started = ticks();
+    // Poll the existing transfer; never resend. A bounded wait also flushes the
+    // latest coalesced state when the peer pauses after a short delta.
+    CURLcode code = CURLE_OK;
+    auto cleanup = [h](CURLM *multi) { curl_multi_remove_handle(multi, h); curl_multi_cleanup(multi); };
+    std::unique_ptr<CURLM, decltype(cleanup)> multi(curl_multi_init(), cleanup);
+    if (!multi) throw std::runtime_error("Cannot initialize HTTP transfer");
+    auto status = curl_multi_add_handle(multi.get(), h);
+    int running = 0;
+    if (status == CURLM_OK) status = curl_multi_perform(multi.get(), &running);
+    while (status == CURLM_OK && running && !cancel && !(transfer.complete && transfer.complete())) {
+      int descriptors = 0;
+      status = curl_multi_wait(multi.get(), nullptr, 0, 50, &descriptors);
+      if (!descriptors) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      if (status == CURLM_OK) status = curl_multi_perform(multi.get(), &running);
+    }
+    int remaining = 0;
+    while (auto message = curl_multi_info_read(multi.get(), &remaining))
+      if (message->msg == CURLMSG_DONE) code = message->data.result;
+    if (status != CURLM_OK) transfer.result.error = curl_multi_strerror(status);
+    multi.reset();
+    transfer.result.elapsedMs = ticks() - started;
+    curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &transfer.result.status);
+    const bool finished = transfer.complete && transfer.complete();
+    if (cancel) transfer.result.error = "cancelled";
+    else if (code != CURLE_OK && transfer.result.error.empty() && !(code == CURLE_ABORTED_BY_CALLBACK && finished))
+      transfer.result.error = code == CURLE_OPERATION_TIMEDOUT ? "请求超时，请检查连接或增加请求超时后手动重试" : curl_easy_strerror(code);
+  } catch (const std::exception &e) { transfer.result.error = e.what(); }
+  curl_slist_free_all(list); curl_easy_cleanup(h);
   return transfer.result;
 }
 std::string apiRoot(const Json &m) {
   auto root = m.value("base_url", std::string("https://api.openai.com/v1"));
-  while (!root.empty() && root.back() == '/')
-    root.pop_back();
+  while (!root.empty() && root.back() == '/') root.pop_back();
+  if (root.find_first_of("\r\n?#") != std::string::npos ||
+      (root.find("https://") != 0 && root.find("http://") != 0))
+    throw std::runtime_error("Base URL 需为 HTTP(S) API 地址，不含查询或片段");
+  for (const auto &suffix : {std::string("/chat/completions"), std::string("/responses")})
+    if (root.size() >= suffix.size() && root.compare(root.size() - suffix.size(), suffix.size(), suffix) == 0) {
+      if ((suffix == "/chat/completions") != chatProtocol(m)) throw std::runtime_error("Base URL 后缀与所选接口不一致");
+      root.resize(root.size() - suffix.size()); break;
+    }
   return root;
 }
 Json apiHeaders(const Json &m) {
-  Json h = {{"Content-Type", "application/json"},
-            {"Authorization", "Bearer " + m.value("api_key", std::string())}};
-  try {
-    auto custom = Json::parse(m.value("headers_json", std::string("{}")));
-    for (auto i = custom.begin(); i != custom.end(); ++i)
-      if (i.value().is_string())
-        h[i.key()] = i.value();
-  } catch (...) {
+  Json h = {{"Content-Type", "application/json"}, {"Authorization", "Bearer " + m.value("api_key", std::string())}};
+  const auto custom = objectField(m, "headers_json");
+  for (auto i = custom.begin(); i != custom.end(); ++i) {
+    if (!i.value().is_string()) throw std::runtime_error("HTTP header values must be strings");
+    std::vector<std::string> old;
+    for (auto j = h.begin(); j != h.end(); ++j) if (lower(j.key()) == lower(i.key())) old.push_back(j.key());
+    for (const auto &key : old) h.erase(key);
+    h[i.key()] = i.value();
   }
   return h;
 }
-static bool completions(const Json &m) {
-  try {
-    return Json::parse(m.value("provider_metadata", std::string("{}")))
-               .value("api", std::string()) == "chat";
-  } catch (...) {
-    return false;
+HttpResult apiRequest(const Json &model, const std::string &resource,
+                      const std::string &method, const std::string &body,
+                      std::atomic<bool> &cancel, std::function<void(const char *, size_t)> chunks,
+                      std::function<bool()> complete) {
+  auto headers = apiHeaders(model);
+  bool hasAccept = false;
+  for (auto it = headers.begin(); it != headers.end(); ++it)
+    if (lower(it.key()) == "accept") hasAccept = true;
+  if (chunks && !hasAccept) headers["Accept"] = "text/event-stream, application/json";
+  auto result = http(apiRoot(model) + resource, method, headers, body, cancel,
+                     std::move(chunks), apiOptions(model), std::move(complete));
+  if (!cancel && (result.status < 200 || result.status >= 300)) {
+    auto parsed = Json::parse(result.body, nullptr, false);
+    const auto detail = parsed.is_object() && parsed.contains("error") ? messageError(parsed["error"]) : safeError(result.body.substr(0, 1500));
+    result.error = result.status ? "HTTP " + std::to_string(result.status) + ": " + detail : result.error;
+    if (result.status == 401 || result.status == 403) result.error += "（检查密钥和权限）";
+    if (result.status == 429) result.error += "（检查额度或稍后手动重试）";
+    if (result.status >= 300 && result.status < 400) result.error += "（请填写最终 API 地址）";
   }
+  result.error = redact(result.error, model);
+  result.requestId = redact(result.requestId, model);
+  return result;
 }
 Json requestBody(const Json &m, Json input, bool streaming) {
-  Json body = {{"model", m.value("name", std::string())},
-               {"stream", streaming}};
-  if (completions(m)) {
-    if (streaming) body["stream_options"] = {{"include_usage", true}};
+  const auto options = apiOptions(m); const bool chat = chatProtocol(m);
+  Json body = {{"model", m.value("name", std::string())}, {"stream", streaming}};
+  if (chat) {
+    if (streaming && options.usage) body["stream_options"] = {{"include_usage", true}};
     Json messages = Json::array();
-    auto prompt = m.value("system_prompt", std::string());
-    if (!prompt.empty()) messages.push_back({{"role", "system"}, {"content", prompt}});
-    for (auto &item : input) {
-      if (!item.contains("role"))
-        continue;
-      Json content = Json::array();
-      for (auto &p : item["content"]) {
-        auto type = p.value("type", std::string());
-        if (type == "input_image")
-          content.push_back({{"type", "image_url"},
-                             {"image_url", {{"url", p["image_url"]}}}});
-        else
-          content.push_back(
-              {{"type", "text"}, {"text", p.value("text", std::string())}});
-      }
-      messages.push_back({{"role", item["role"]}, {"content", content}});
+    const auto prompt = m.value("system_prompt", std::string());
+    const auto caps = objectField(m, "capabilities_json");
+    const auto name = m.value("name", std::string());
+    const bool modern = name.find("gpt-5") == 0 || name.find("gpt-6") == 0 ||
+                        name.find("o1") == 0 || name.find("o3") == 0 || name.find("o4") == 0;
+    const auto instructionRole = caps.value("instruction_role", std::string(modern ? "developer" : "system"));
+    if (instructionRole != "system" && instructionRole != "developer") throw std::runtime_error("Invalid instruction role");
+    if (!prompt.empty()) messages.push_back({{"role", instructionRole}, {"content", prompt}});
+    for (const auto &item : input) {
+      if (!item.is_object() || !item.contains("role")) continue;
+      auto role = item.at("role").get<std::string>();
+      if (role == "system") role = instructionRole;
+      Json content = Json::array(); std::string text;
+      const auto &parts = item.at("content");
+      if (parts.is_string()) text = parts.get<std::string>();
+      else if (parts.is_array()) for (const auto &p : parts) {
+        const auto type = p.at("type").get<std::string>();
+        if (type == "input_image") {
+          if (role != "user") throw std::runtime_error("Images require user messages");
+          content.push_back({{"type", "image_url"}, {"image_url", {{"url", p.at("image_url")}}}});
+        } else if (type == "input_text" || type == "output_text") {
+          const auto part = p.at("text").get<std::string>(); text += part;
+          content.push_back({{"type", "text"}, {"text", part}});
+        } else if (type == "refusal" && role == "assistant") {
+          content.push_back({{"type", "refusal"}, {"refusal", p.at("refusal")}});
+        } else throw std::runtime_error("Unsupported message content type");
+      } else throw std::runtime_error("Invalid message content");
+      const bool textOnly = std::all_of(content.begin(), content.end(), [](const Json &part) { return part.at("type") == "text"; });
+      const bool scalar = parts.is_string() || (options.compatible && textOnly);
+      messages.push_back({{"role", role}, {"content", scalar ? Json(text) : content}});
     }
     body["messages"] = messages;
   } else {
-    body["input"] = input;
-    auto prompt = m.value("system_prompt", std::string());
+    if (!options.replay) input.erase(std::remove_if(input.begin(), input.end(), [](const Json &item) {return item.value("type", std::string()) == "reasoning";}), input.end());
+    body["input"] = input; body["store"] = false;
+    const auto prompt = m.value("system_prompt", std::string());
     if (!prompt.empty()) body["instructions"] = prompt;
   }
-  auto effort = m.value("effort_value", std::string());
+  if (!chat && options.replay) body["include"] = Json::array({"reasoning.encrypted_content"});
+  const auto effort = m.value("effort_value", std::string());
   if (!effort.empty()) {
-    if (completions(m))
-      body["reasoning_effort"] = effort;
-    else
-      body["reasoning"]["effort"] = effort;
+    if (chat) body["reasoning_effort"] = effort;
+    else body["reasoning"]["effort"] = effort;
   }
-  if (!completions(m) && m.value("reasoning_summary", false)) {
-    body["reasoning"]["summary"] = "auto";
-    body["include"] = Json::array({"reasoning.encrypted_content"});
-  }
+  if (!chat && options.summary && m.value("reasoning_summary", false)) body["reasoning"]["summary"] = "auto";
   return body;
 }
-void streamChat(const Json &m, Json input, std::atomic<bool> &cancel,
-                Events &events, int generation) {
+void streamChat(const Json &m, Json input, std::atomic<bool> &cancel, Events &events, int generation) {
+  const auto options = apiOptions(m); const bool chat = chatProtocol(m);
   Json tag = {{"generation", generation}};
-  bool ended = false, stateChanged = false;
-  std::string protocolError;
-  ReasoningStream state(ticks());
+  bool ended = false, doneMarker = false, stateChanged = false;
+  std::string protocolError, finishReason;
+  Json diagnostic = Json::object();
+  ReasoningStream state(ticks()); int64_t lastPublish = 0; size_t publications = 0;
   auto publish = [&] {
-    const auto published = ticks();
-    auto snapshot = state.snapshot(published);
+    const auto now = ticks();
+    auto snapshot = state.snapshot(now);
     snapshot["generation"] = generation;
-    events.pushLatest("response_state", snapshot);
+    snapshot["metadata"]["replay_identity"] = replayIdentity(m);
+    if (!diagnostic.empty()) snapshot["metadata"]["http"] = diagnostic;
+    if (!options.replay) { snapshot["metadata"].erase("response_output_items"); snapshot["metadata"].erase("response_reasoning_items"); }
+    events.pushLatest("response_state", std::move(snapshot));
+    lastPublish = now; ++publications; stateChanged = false;
   };
   try {
-    for (auto &item : input)
-      if (item.contains("content") && item["content"].is_array())
-        for (auto &p : item["content"])
-          if (p.value("type", std::string()) == "input_image") {
-            auto path = p["image_url"].get<std::string>();
-            if (path.find("data:image/") != 0) {
-              if (path.find("file://") == 0)
-                path = path.substr(7);
-              std::string out, error;
-              if (!camera::imageDataUrl(path, &out, &error))
-                throw std::runtime_error(error);
-              p["image_url"] = out;
-            }
+    for (auto &item : input) if (item.contains("content") && item["content"].is_array())
+      for (auto &p : item["content"]) if (p.value("type", std::string()) == "input_image") {
+        auto path = p.at("image_url").get<std::string>();
+        if (path.find("data:image/") != 0) {
+          if (path.find("file://") == 0) path = path.substr(7);
+          std::string out, error;
+          if (!camera::imageDataUrl(path, &out, &error)) throw std::runtime_error(error);
+          p["image_url"] = out;
+        }
+      }
+    auto consume = [&](const Json &j, std::string type) {
+      if (!j.is_object()) throw std::runtime_error("Invalid API response object");
+      if (j.contains("type")) type = j.at("type").get<std::string>();
+      if (j.contains("error") && !j["error"].is_null()) protocolError = messageError(j["error"]);
+      const auto response = j.contains("response") ? j.at("response") : j;
+      if (!chat && response.is_object()) {
+        const auto status = response.value("status", std::string());
+        if (type == "response.failed" || status == "failed") protocolError = messageError(response.value("error", Json()));
+        if (type == "response.incomplete" || status == "incomplete") {
+          const auto details = objectField(response, "incomplete_details");
+          protocolError = "回复未完成：" + details.value("reason", std::string("unknown"));
+        }
+        if (type == "response.completed" || status == "completed") ended = true;
+      }
+      state.consume(j, type, ticks()); stateChanged = true;
+      if (!chat) {
+        Json items = Json::array();
+        if (j.contains("item") && j["item"].is_object()) items.push_back(j["item"]);
+        if (response.is_object() && response.contains("output") && response["output"].is_array()) items = response["output"];
+        for (const auto &item : items) {
+          const auto kind = item.value("type", std::string());
+          if (kind.size() >= 5 && kind.compare(kind.size() - 5, 5, "_call") == 0)
+            protocolError = "暂不支持工具调用：" + kind;
+        }
+      }
+      if (chat && j.contains("choices")) {
+        if (!j["choices"].is_array()) throw std::runtime_error("Invalid choices");
+        for (const auto &c : j["choices"]) {
+          if (!c.is_object()) throw std::runtime_error("Invalid choice");
+          if (c.value("index", 0) != 0) continue;
+          if (c.contains("finish_reason") && !c["finish_reason"].is_null()) {
+            finishReason = c.at("finish_reason").get<std::string>();
+            if (finishReason != "stop") protocolError = "回复未完成：" + finishReason +
+                (finishReason == "tool_calls" || finishReason == "function_call" ? "（暂不支持工具调用）" : "");
           }
+        }
+      }
+      if (!protocolError.empty()) ended = true;
+    };
     SseParser parser([&](const std::string &event, const std::string &data) {
-      if (data == "[DONE]") {
-        ended = true;
-        return;
-      }
-      auto j = Json::parse(data, nullptr, false);
-      if (j.is_discarded())
-        throw std::runtime_error("Invalid SSE JSON");
-      auto type = j.value("type", event);
-      if (type == "error" || type == "response.failed" ||
-          type == "response.incomplete") {
-        auto error = j.value("error", Json::object());
-        if (j.contains("response"))
-          error = j["response"].value("error", Json::object());
-        protocolError =
-            error.empty() ? "Response did not complete" : error.dump();
-      }
-      state.consume(j, type, ticks());
-      stateChanged = true;
-      if (type == "response.completed")
-        ended = true;
-      if (j.contains("choices") && !j["choices"].empty()) {
-        auto c = j["choices"][0];
-        if (c.contains("finish_reason") && !c["finish_reason"].is_null())
-          ended = true;
-      }
+      if (doneMarker || (!chat && ended)) return;
+      if (data == "[DONE]") { doneMarker = true; return; }
+      const auto j = Json::parse(data, nullptr, false);
+      if (j.is_discarded()) throw std::runtime_error("Invalid SSE JSON");
+      consume(j, event);
     });
-    auto headers = apiHeaders(m);
-    headers["Accept"] = "text/event-stream";
-    auto result =
-        http(apiRoot(m) + (completions(m) ? "/chat/completions" : "/responses"),
-             "POST", headers, requestBody(m, input, true).dump(), cancel,
-             [&](const char *p, size_t n) {
-               parser.feed(p, n);
-               // Publish the tail of each received chunk, even if the server
-               // pauses after the first reasoning delta. UI painting remains
-               // throttled; only the latest pending snapshot is retained.
-               if (stateChanged) {
-                 publish();
-                 stateChanged = false;
-               }
-             });
-    if (!cancel)
-      parser.finish();
-    state.finish(ticks());
-    publish();
-    Json out = tag;
-    if (cancel) {
-      events.push("cancelled", out);
-      return;
+    enum class Format { Unknown, Sse, Json };
+    auto format = Format::Unknown; std::string pending;
+    auto result = apiRequest(m, chat ? "/chat/completions" : "/responses", "POST",
+        requestBody(m, input, options.streaming).dump(), cancel,
+        [&](const char *p, size_t n) {
+          if (format == Format::Unknown) {
+            pending.append(p, n);
+            size_t first = pending.compare(0, 3, "\xef\xbb\xbf") == 0 ? 3 : 0;
+            while (first < pending.size() && std::isspace(static_cast<unsigned char>(pending[first]))) ++first;
+            if (first == pending.size() || (static_cast<unsigned char>(pending[0]) == 0xef && pending.size() < 3)) return;
+            format = pending[first] == '{' || pending[first] == '[' ? Format::Json : Format::Sse;
+            if (format == Format::Json && options.streaming && !options.compatible) throw std::runtime_error("服务器未返回流式响应，请显式启用 API 兼容模式");
+            if (format == Format::Sse) { parser.feed(pending.data(), pending.size()); pending.clear(); }
+          } else if (format == Format::Sse) parser.feed(p, n);
+          else pending.append(p, n);
+          if (stateChanged && (!lastPublish || ticks() - lastPublish >= 100)) publish();
+        }, [&] {
+          if (stateChanged && (!lastPublish || ticks() - lastPublish >= 100)) publish();
+          return !chat ? ended : doneMarker || !protocolError.empty();
+        });
+    if (!cancel && result.error.empty()) {
+      if (format == Format::Sse) parser.finish();
+      else if (format == Format::Json) {
+        if (pending.compare(0, 3, "\xef\xbb\xbf") == 0) pending.erase(0, 3);
+        const auto j = Json::parse(pending, nullptr, false);
+        if (j.is_discarded()) throw std::runtime_error("Invalid API JSON");
+        consume(j, "");
+        if (chat) doneMarker = !finishReason.empty();
+      }
     }
-    if (result.status < 200 || result.status >= 300) {
-      out["error"] = "HTTP " + std::to_string(result.status) + ": " +
-                     result.body.substr(0, 2000);
-      out["error"] = safeError(out["error"].get<std::string>());
-      events.push("network_error", out);
-    } else if (!result.error.empty() || !protocolError.empty() || !ended) {
-      out["error"] = !protocolError.empty()  ? protocolError
-                     : !result.error.empty() ? result.error
-                                             : "Stream ended before completion";
-      out["error"] = safeError(out["error"].get<std::string>());
-      events.push("network_error", out);
-    } else
-      events.push("done", out);
+    diagnostic = {{"status", result.status}, {"request_id", result.requestId}, {"elapsed_ms", result.elapsedMs},
+                  {"outcome", cancel ? "cancelled" : !result.error.empty() ? "transport_or_http_error" : !protocolError.empty() ? "api_error" : "response"}};
+    state.finish(ticks()); publish();
+    tag["http_status"] = result.status; tag["request_id"] = result.requestId;
+    tag["elapsed_ms"] = result.elapsedMs; tag["snapshots"] = publications;
+    if (cancel) { events.push("cancelled", tag); return; }
+    const bool complete = chat ? (finishReason == "stop" && (doneMarker || (options.compatible && result.error.empty()))) : ended;
+    std::string error = !result.error.empty() ? result.error : !protocolError.empty() ? protocolError : !complete ? "Stream ended before completion" : "";
+    if (!error.empty()) { tag["error"] = redact(error, m); events.push("network_error", tag); }
+    else events.push("done", tag);
   } catch (const std::exception &e) {
-    state.finish(ticks());
-    publish();
-    Json out = tag;
-    out["error"] = e.what();
-    out["error"] = safeError(out["error"].get<std::string>());
-      events.push("network_error", out);
+    state.finish(ticks()); publish();
+    if (cancel) events.push("cancelled", tag);
+    else { tag["error"] = redact(e.what(), m); events.push("network_error", tag); }
   }
 }
 std::string generateTitle(Json model, const std::string &question,
                           const std::string &answer, int maxCharacters,
                           std::atomic<bool> &cancel) {
+  model.erase("system_prompt");
   model["effort_value"] = "";
   model["reasoning_summary"] = false;
   Json input = Json::array(

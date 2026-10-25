@@ -43,7 +43,8 @@ inline Json reasoningCapabilities(const Json &model) {
       model.value("base_url", std::string()).find("https://api.openai.com/") ==
       0;
   const bool summaryKnown =
-      standard("gpt-5.1") || standard("gpt-5.2") || standard("gpt-5.4");
+      standard("gpt-5.1") || standard("gpt-5.2") || standard("gpt-5.4") ||
+      standard("o3") || standard("o4-mini");
   return {{"levels", levels}, {"summary", official && summaryKnown}};
 }
 inline std::vector<std::string> supportedEfforts(const Json &model) {

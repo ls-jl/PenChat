@@ -15,6 +15,7 @@ class Server(http.server.BaseHTTPRequestHandler):
         if '[penchat-title]' in json.dumps(body):
             self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Connection','close');self.end_headers()
             payload={'choices':[{'delta':{'content':'ORANGE 会话'}}]} if self.path.endswith('/chat/completions') else {'type':'response.output_text.delta','delta':'ORANGE 会话'}
+            if self.path.endswith('/chat/completions'): payload['choices'][0]['finish_reason']='stop'
             self.wfile.write(('data: '+json.dumps(payload)+'\n\ndata: '+('[DONE]' if self.path.endswith('/chat/completions') else '{"type":"response.completed"}')+'\n\n').encode());self.wfile.flush();self.close_connection=True;return
         self.requests.append((self.path, body))
         model = body['model']
@@ -31,6 +32,8 @@ class Server(http.server.BaseHTTPRequestHandler):
                 for i in range(0, len(wire), 7): self.wfile.write(wire[i:i+7]); self.wfile.flush()
                 time.sleep(1.5 if model == 'scroll' else .12 if model == 'cancel' else .04)
             if model != 'cut':
+                if self.path.endswith('/chat/completions'):
+                    self.wfile.write(b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n')
                 final = '[DONE]' if self.path.endswith('/chat/completions') else json.dumps({'type': 'response.completed'})
                 self.wfile.write(('data: ' + final + '\n\n').encode()); self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError): pass

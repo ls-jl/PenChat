@@ -30,6 +30,7 @@ class Server(http.server.BaseHTTPRequestHandler):
             # Exercise fragmented multibyte SSE for the separate compression reader too.
             wire=('data: '+json.dumps(payload,ensure_ascii=False)+'\n\n').encode()
             for i in range(0,len(wire),7):self.wfile.write(wire[i:i+7])
+            if chat:self.wfile.write(b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n')
             final='[DONE]' if chat else '{"type":"response.completed"}'
             self.wfile.write(('data: '+final+'\n\n').encode());self.wfile.flush()
         except (BrokenPipeError,ConnectionResetError): pass

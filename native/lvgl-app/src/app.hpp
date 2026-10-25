@@ -312,6 +312,8 @@ class App {
                    bool unavailable = false);
   Json settingsDiagnostic() const;
   void providerPage();
+  void apiCompatibilityPage();
+  int providerScroll_ = 0;
   void editProvider(const std::string &id);
   void historyDrawer();
   void toggleNavigation();

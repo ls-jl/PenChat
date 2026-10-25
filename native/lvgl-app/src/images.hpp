@@ -26,6 +26,7 @@ class Images {
   std::thread worker_;
   Events &events_;
   void work();
+  void trimCache(size_t incoming);
 
 public:
   explicit Images(Events &events);

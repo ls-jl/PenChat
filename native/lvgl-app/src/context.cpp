@@ -1,4 +1,5 @@
 #include "context.hpp"
+#include "api_config.hpp"
 #include "network.hpp"
 #include "reasoning.hpp"
 #include <iomanip>
@@ -110,15 +111,32 @@ Json contextInput(const Json &rows, int64_t after, int64_t through, const Json &
     if (role != "user" && role != "assistant" && role != "system")
       continue;
     const auto wireRole = role == "assistant" ? "assistant" : "user";
-    if (!states && role == "assistant" && !model.empty() &&
-        objectField(model, "provider_metadata").value("api", std::string()) != "chat" &&
+    const auto metadata = objectField(m, "metadata_json");
+    const bool replay = !states && role == "assistant" && !model.empty() &&
+        !chatProtocol(model) && apiOptions(model).replay &&
         m.value("provider_id", Json()) == model.value("provider_id", Json("")) &&
-        m.value("model_config_id", Json()) == model.value("id", Json(""))) {
-      for (const auto &item : objectField(m, "metadata_json")
-                                  .value("response_reasoning_items", Json::array()))
+        m.value("model_config_id", Json()) == model.value("id", Json("")) &&
+        metadata.value("replay_identity", Json()) == replayIdentity(model);
+    if (replay) {
+      const auto output = metadata.value("response_output_items", Json::array());
+      bool hasMessage = false;
+      if (output.is_array()) for (const auto &item : output)
+        if (item.is_object() && item.value("type", std::string()) == "message" &&
+            item.value("status", std::string("completed")) == "completed") hasMessage = true;
+      if (hasMessage) {
+        for (const auto &item : output) {
+          const auto type = item.value("type", std::string());
+          if ((type == "reasoning" || type == "message") &&
+              item.value("status", std::string("completed")) == "completed") input.push_back(item);
+        }
+        continue;
+      }
+      // Older snapshots may contain only reasoning items; never replay without
+      // a matching endpoint/model identity.
+      const auto reasoning = metadata.value("response_reasoning_items", Json::array());
+      if (reasoning.is_array()) for (const auto &item : reasoning)
         if (item.is_object() && item.value("type", std::string()) == "reasoning" &&
-            item.value("status", std::string("completed")) == "completed")
-          input.push_back(item);
+            item.value("status", std::string("completed")) == "completed") input.push_back(item);
     }
     auto text = textOf(m);
     if (role == "system" && !states)

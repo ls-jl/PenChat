@@ -151,7 +151,8 @@ Json App::editedMessages() {
 }
 bool App::messageEvent(const Event &e) {
   if(e.type=="message_prepared") {
-    if(messageEditWorker_.joinable())messageEditWorker_.join();messageEditBusy_=false;
+    if (messageEditWorker_.joinable()) messageEditWorker_.join();
+    messageEditBusy_ = false;
     if(e.data.value("token",std::string())!=messageEditToken_||e.data.value("session",std::string())!=session_||!messagePrepareModal_||modal_!=messagePrepareModal_||!visible_||editor_.active) {
       if(e.data.contains("snapshot")&&e.data["snapshot"].value("leased",false))db_.releaseTransferSnapshot();
       if(messagePrepareModal_&&modal_==messagePrepareModal_)lv_obj_delete(modal_);
@@ -166,7 +167,8 @@ bool App::messageEvent(const Event &e) {
     return true;
   }
   if(e.type=="message_committed") {
-    if(messageEditWorker_.joinable())messageEditWorker_.join();messageEditBusy_=false;
+    if (messageEditWorker_.joinable()) messageEditWorker_.join();
+    messageEditBusy_ = false;
     if(e.data.value("token",std::string())!=messageEditToken_)return true;
     if(e.data.contains("error")){modal("修改未保存",e.data["error"]);return true;}
     const auto prefs=sessionPreferences_;const auto memory=effortMemory_;
@@ -177,7 +179,8 @@ bool App::messageEvent(const Event &e) {
   }
   if(e.type=="message_menu") {
     if(view_=="chat"&&visible_&&!keyboard_&&!editor_.active&&!modal_&&!navigationOpen_&&!imageViewer_&&!messageEditBusy_&&e.data.value("session",std::string())==session_)
-      messageMenu(e.data.value("id",std::string()));return true;
+      messageMenu(e.data.value("id",std::string()));
+    return true;
   }
   if(e.type=="message_action") {
     const auto id=e.data.value("id",std::string());
@@ -198,7 +201,8 @@ bool App::messageEvent(const Event &e) {
   }
   if(e.type=="message_begin") {
     if(visible_&&modal_&&e.data.value("session",std::string())==session_)
-      beginMessageEdit(e.data.value("id",std::string()),e.data.value("archive",false));return true;
+      beginMessageEdit(e.data.value("id",std::string()),e.data.value("archive",false));
+    return true;
   }
   return false;
 }

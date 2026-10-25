@@ -334,7 +334,8 @@ void App::editorFinish(bool confirmed) {
   editorLearning_=editorExact_=Json::array();editorPinyinPending_=Json();editorLocalActions_.clear();
   editorLayoutMenu_=editorPunctuation_=false;
   editorInterrupt(); editor_.active=false; keyboard_=false;
-  if (editorRoot_) lv_obj_delete(editorRoot_); editorRoot_=editorText_=nullptr; editorHandles_[0]=editorHandles_[1]=nullptr;editorKeys_.clear();
+  if (editorRoot_) lv_obj_delete(editorRoot_);
+  editorRoot_=editorText_=nullptr; editorHandles_[0]=editorHandles_[1]=nullptr;editorKeys_.clear();
   auto done=std::move(editCompletion_); auto cancel=std::move(editCancellation_);
   editCompletion_={}; editCancellation_={};
   if (confirmed && done) done(editor_.text); else if (!confirmed && cancel) cancel();
@@ -432,22 +433,12 @@ void App::editorAction(const std::string &a) {
     if(editor_.mode) return;
     auto now=ticks(); editor_.shift=editor_.shift==2?0:editor_.shift==1?(now-editorShiftTime_<400?2:0):1; editorShiftTime_=now;
   } else if (a=="delete") { editor_.erase(); editorChanged(); }
-  else if (a=="tools") editorMenu_=!editorMenu_;
   else if (a=="expand") editorExpanded_=!editorExpanded_;
   else if (a=="reveal") { editor_.reveal=!editor_.reveal; editorMenu_=false; }
   else if (a=="undo") { editor_.revert(); editorChanged(); editorMenu_=editorUndoMenu_=false; }
   else if (a=="all") { if(editor_.raw()) { editor_.all=true; editorMenu_=false; editorChanged(); } }
   else if (a.find("cursor:")==0) { if(editor_.raw()) { editor_.position(std::min(size_t(std::stoul(a.substr(7))),editLength(editor_.text))); editorChanged(); } }
-  else if (a=="left" || a=="right" || a=="home" || a=="end") {
-    if (editor_.raw()) {
-      editor_.all=false;
-      if(a=="left" && editor_.cursor) --editor_.cursor;
-      if(a=="right") editor_.cursor=std::min(editor_.cursor+1,editLength(editor_.text));
-      if(a=="home") { auto b=editByte(editor_.text,editor_.cursor); auto pos=b?editor_.text.rfind('\n',b-1):std::string::npos; editor_.cursor=pos==std::string::npos?0:editLength(editor_.text.substr(0,pos+1)); }
-      if(a=="end") { auto pos=editor_.text.find('\n',editByte(editor_.text,editor_.cursor)); editor_.cursor=pos==std::string::npos?editLength(editor_.text):editLength(editor_.text.substr(0,pos)); }
-      editorMenu_=false; editorChanged();
-    }
-  } else if (a.size()==1) {
+  else if (a.size()==1) {
     std::string letter=keyboardPunctuation(a,editor_.chinese&&!editor_.secret);
     if(editor_.mode==0 && std::isalpha(static_cast<unsigned char>(letter[0])))
       letter[0]=editor_.shift?std::toupper(letter[0]):std::tolower(letter[0]);
@@ -690,15 +681,15 @@ void App::editorTick() {
   }
   if (!editorChoosing_ && !editorDeferred_.empty()) { auto pending=std::move(editorDeferred_); editorDeferred_.clear(); for(const auto &a:pending) { if(!editor_.active) break; editorAction(a); } }
   if (!editor_.active || keyboard_) return;
-  if(editorHeld_>=0&&editorRepeat_&&ticks()>=editorRepeat_&&editorPress_.value=="language"&&!editorSlid_&&!editorRepeats_) {
+  if(editorHeld_>=0&&editorRepeat_&&uint64_t(ticks())>=editorRepeat_&&editorPress_.value=="language"&&!editorSlid_&&!editorRepeats_) {
     ++editorRepeats_;editorRepeat_=0;editorLayoutMenu_=true;editorBuild();
   }
-  if(editorHeld_>=0 && editorRepeat_ && ticks()>=editorRepeat_ && editorPress_.value=="delete") {
+  if(editorHeld_>=0 && editorRepeat_ && uint64_t(ticks())>=editorRepeat_ && editorPress_.value=="delete") {
     const int held=editorHeld_; ++editorRepeats_; editorAction("delete"); editorHeld_=held;
     editorRepeat_=ticks()+std::max(60,180-editorRepeats_*20);
   }
   if(editorInFlight_ && ticks()-editorSent_>1500) { editorInFlight_=0; editorChoosing_=false; editor_.notice="本地拼音查询超时，可重试或使用官方键盘"; editorBuild(); }
-  if(editorDue_ && ticks()>=editorDue_ && !editorInFlight_) {
+  if(editorDue_ && uint64_t(ticks())>=editorDue_ && !editorInFlight_) {
     if(editor_.preedit.empty()||editor_.layout==1||editor_.secret) { editorDue_=0; }
     else editorQuery();
   }

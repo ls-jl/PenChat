@@ -14,6 +14,7 @@ class Server(BasicServer):
         if '[penchat-title]' in json.dumps(body):
             self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Connection','close');self.end_headers()
             payload={'choices':[{'delta':{'content':'推理会话'}}]} if self.path.endswith('/chat/completions') else {'type':'response.output_text.delta','delta':'推理会话'}
+            if self.path.endswith('/chat/completions'): payload['choices'][0]['finish_reason']='stop'
             self.wfile.write(('data: '+json.dumps(payload)+'\n\ndata: '+('[DONE]' if self.path.endswith('/chat/completions') else '{"type":"response.completed"}')+'\n\n').encode());self.wfile.flush();self.close_connection=True;return
         self.requests.append((self.path,body))
         mode=self.mode

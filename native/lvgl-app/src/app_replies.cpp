@@ -110,7 +110,8 @@ void App::branchReply(const std::string &id) {
 bool App::replyEvent(const Event &e) {
   if(e.type=="reply_branch_done") {
     if(e.data.value("token",std::string())!=replyToken_)return true;
-    if(replyWorker_.joinable())replyWorker_.join();replyBusy_=false;
+    if (replyWorker_.joinable()) replyWorker_.join();
+    replyBusy_ = false;
     if(e.data.value("session",std::string())!=session_)return true;
     if(e.data.contains("error")){build();if(!e.data.value("cancelled",false))modal("无法创建分支",e.data["error"]);return true;}
     sessionDrafts_.erase(session_);
@@ -136,7 +137,8 @@ bool App::replyEvent(const Event &e) {
     input_.cancel();
     if(action=="copy") {
       auto rows=db_.query("SELECT output_text FROM chat_messages WHERE id=? AND session_id=? AND role='assistant'",{id,session_});
-      if(rows.empty())return true;auto text=id==assistant_?output_:replyText(rows[0]);
+      if (rows.empty()) return true;
+      auto text=id==assistant_?output_:replyText(rows[0]);
       if(!text.empty()){if(editorClipboard_.copy(text))replyToast("已复制");else modal("无法复制","回复超过剪贴板容量，可通过导出聊天保存完整内容。");}
     }else if(action=="retry")retryWarning(id);
     else if(action=="branch")branchReply(id);
