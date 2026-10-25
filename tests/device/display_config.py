@@ -8,10 +8,14 @@ parser.add_argument('--back-navigation',action='store_true')
 parser.add_argument('--history-time',action='store_true')
 parser.add_argument('--message-edit',action='store_true')
 parser.add_argument('--reply-actions',action='store_true')
+parser.add_argument('--archive-reader',action='store_true',help='Run focused archive-reader acceptance, with normal data isolation/restoration')
 args=parser.parse_args();SERIAL=args.serial
-assert sum((args.back_navigation,args.history_time,args.message_edit,args.reply_actions))<=1,'Run isolated feature fixtures separately'
+assert sum((args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader))<=1,'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
+class ArchiveReaderComplete(Exception):
+    """Successful scoped run; shared finally still restores both user directories."""
+
 def shell(command):return subprocess.check_output(['adb','-s',SERIAL,'shell',command],text=True).replace('\r','').strip()
 def wait(fn,timeout=8):
     end=time.monotonic()+timeout
@@ -127,6 +131,18 @@ try:
         messageServer,messageHandler,files=message_edit_flow.prepare(ROOT,OUT/'fixture',DATA,SERIAL)
         shell('mkdir -p '+DATA+'/assets')
         for source,target in files:subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
+    if args.archive_reader:
+        import shutil
+        sys.path.insert(0,str(ROOT/'tests'))
+        from test_archive_reader import fixture
+        sample=OUT/'fixture'
+        if sample.exists():shutil.rmtree(sample)
+        sample.mkdir();fixture(sample)
+        with sqlite3.connect(sample/'penchat.db') as db:
+            db.execute('update message_assets set stored_path=?,original_path=?',(DATA+'/assets/original.png',)*2)
+        shell('mkdir -p '+DATA+'/assets')
+        for source,target in [(sample/'penchat.db',DATA+'/penchat.db'),(sample/'assets/original.png',DATA+'/assets/original.png')]:
+            subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
     if args.back_navigation or args.history_time:
         sys.path.insert(0,str(ROOT/'tests'))
         from test_image_viewer import fixture
@@ -170,6 +186,11 @@ try:
     shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --drag-hold '+str(sx)+' '+str(sy)+' '+str(ex)+' '+str(ey)+' 450 200 2>/dev/null')
     wait(lambda:not state()['settings']['scrolling'])
     assert state()['settings']['heading'][3]<0;capture('settings-scrolled')
+    if args.archive_reader:
+        import archive_reader_flow
+        archive_reader_flow.run(globals())
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise ArchiveReaderComplete()
     if args.reply_actions:
         tap(40,32)
         if state()['navigation_open']:tap(W-30,100)
@@ -328,6 +349,8 @@ try:
         blocked(False);side_back();wait(lambda:not pid() or not state()['visible'])
         result['root_system_exit']=True
     assert shell('pidof miniapp')==host;result['host_unchanged']=True
+except ArchiveReaderComplete:
+    pass
 except BaseException:
     if pid():
         (OUT/'failure.json').write_text(json.dumps(state(),ensure_ascii=False,indent=2))

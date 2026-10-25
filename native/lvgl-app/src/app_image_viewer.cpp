@@ -3,14 +3,14 @@
 #include <cmath>
 namespace penchat {
 void App::requestImageViewer(const std::string &path) {
-  events_.push("image_view_request",{{"session",session_},{"path",path}});
+  events_.push("image_view_request",{{"session",view_=="archive_chat"?archiveReaderId_:session_},{"path",path}});
 }
 void App::openImageViewer(const std::string &path) {
   if (path.empty() || imageViewer_) return;
   closeAttachments();resetPull();input_.cancel();touchDown_=false;
   lv_obj_stop_scroll_anim(body_);
   viewerScroll_=std::max(0,int(lv_obj_get_scroll_y(body_)));
-  chatFollowing_=false;
+  if(view_=="chat")chatFollowing_=false;
   viewerPointer_=viewerCanvasTouch_=false;viewerLastTap_=0;
   viewerFailed_=false;viewerZoom_=1;viewerPanX_=viewerPanY_=0;viewerFrame_.reset();
   imageViewer_=box(lv_screen_active(),0,0,screen_.width,screen_.height,theme::sidebar);
@@ -46,6 +46,7 @@ void App::closeImageViewer(bool restore) {
   // of chat rebuilds and the chat thumbnail texture map.
   lv_obj_delete(root);viewerFrame_.reset();
   input_.cancel();composerTapAllowed_=false;
+  if(restore&&view_=="archive_chat"&&body_){lv_obj_update_layout(body_);lv_obj_scroll_to_y(body_,viewerScroll_,LV_ANIM_OFF);paintVisible();}
   if(restore && view_=="chat" && body_) {
     const bool previous=chatLayout_;chatLayout_=true;
     lv_obj_update_layout(body_);lv_obj_scroll_to_y(body_,viewerScroll_,LV_ANIM_OFF);

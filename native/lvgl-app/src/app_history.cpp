@@ -342,7 +342,7 @@ void App::retireSession(const std::string &id, bool archive) {
 }
 void App::archivesPage() {
   pageHeader("归档会话");
-  historyRows_.clear();historyCaptions_.clear();
+  historyRows_.clear();historyCaptions_.clear();archiveViewButtons_.clear();
   auto sessions = db_.sessions(archiveOffset_, true);
   if (sessions.empty())
     emptyState("没有归档会话", "长按历史对话可归档，在这里还原或删除。");
@@ -350,16 +350,23 @@ void App::archivesPage() {
   for (const auto &session : sessions) {
     auto id = session["id"].get<std::string>();
     const int width=screen_.width-118;
-    auto holder=box(pageContent_,10,y,width-240,44);
+    auto holder=box(pageContent_,10,y,width-350,44);
     lv_obj_set_scrollable(holder,false);lv_obj_set_clickable(holder,true);
-    historyCaption(holder,session,0,9,width-240);
+    historyCaption(holder,session,0,9,width-350);
     auto title=historyCaptions_[id].title;
-    auto data=new std::pair<App *,std::string>(this,id);
+    struct Press {App *app;std::string id;lv_point_t start{};int distance=0;bool held=false;};
+    auto data=new Press{this,id};
     lv_obj_add_event_cb(holder,[](lv_event_t *e) {
-      auto data=static_cast<std::pair<App *,std::string> *>(lv_event_get_user_data(e));
-      if(lv_event_get_code(e)==LV_EVENT_DELETE){delete data;return;}
-      if(lv_event_get_code(e)==LV_EVENT_LONG_PRESSED)data->first->events_.push("history_details",{{"id",data->second}});
+      auto p=static_cast<Press *>(lv_event_get_user_data(e));const auto code=lv_event_get_code(e);
+      if(code==LV_EVENT_DELETE){delete p;return;}
+      if(code!=LV_EVENT_PRESSED&&code!=LV_EVENT_PRESSING&&code!=LV_EVENT_LONG_PRESSED&&code!=LV_EVENT_CLICKED)return;
+      auto indev=lv_indev_active();if(!indev)return;lv_point_t point;lv_indev_get_point(indev,&point);
+      if(code==LV_EVENT_PRESSED){p->start=point;p->distance=0;p->held=false;}
+      const int dx=point.x-p->start.x,dy=point.y-p->start.y;p->distance=std::max(p->distance,dx*dx+dy*dy);
+      if(code==LV_EVENT_LONG_PRESSED&&!p->held&&p->distance<=144){p->held=true;p->app->events_.push("history_details",{{"id",p->id}});}
+      if(code==LV_EVENT_CLICKED&&!p->held&&p->distance<=144)p->app->events_.push("archive_open",{{"id",p->id}});
     },LV_EVENT_ALL,data);
+    archiveViewButtons_[id]=button(pageContent_,"查看",width-330,y,100,44,[this,id]{events_.push("archive_open",{{"id",id}});});
     if (id == archiveHighlight_)
       lv_obj_set_style_text_color(title, lv_color_hex(theme::link), 0);
     historyRows_.push_back({id, title});
@@ -384,5 +391,38 @@ void App::archivesPage() {
       archiveOffset_ += 30;
       build();
     });
+}
+void App::openArchiveReader(const std::string &id) {
+  auto session=db_.sessionInfo(id);
+  if(session.empty()||session.value("status",std::string())!="archived") {
+    error("归档会话已不存在，请刷新列表。");return;
+  }
+  archiveListScroll_=body_?std::max(0,int(lv_obj_get_scroll_y(body_))):0;
+  archiveReaderId_=id;archiveReaderOffset_=0;archiveReaderMessages_.clear();archiveReasoningOverrides_.clear();
+  show("archive_chat");
+}
+void App::archiveReaderPage() {
+  auto session=db_.sessionInfo(archiveReaderId_);
+  pageHeader(session.empty()?"归档会话":session.value("title",std::string("归档会话")));
+  reasoningHeaders_.clear();expandedReasoning_.clear();archiveReaderMessages_.clear();
+  lv_obj_set_flex_flow(pageContent_,LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_all(pageContent_,8,0);
+  lv_obj_set_style_pad_row(pageContent_,8,0);
+  const int width=screen_.width-112;
+  label(pageContent_,"已归档 · 仅浏览",0,0,width,17,theme::muted);
+  if(session.empty()||session.value("status",std::string())!="archived") {
+    label(pageContent_,"归档会话已不存在",0,0,width,21);return;
+  }
+  const auto messages=db_.messages(archiveReaderId_,archiveReaderOffset_,30);
+  for(const auto &m:messages)archiveReaderMessages_.push_back(m["id"].get<std::string>());
+  reasoningDisplay_=db_.settings().value("reasoning_display",std::string("collapsed"));
+  if(!messages.empty()&&!db_.query("SELECT id FROM chat_messages WHERE session_id=? AND seq<? LIMIT 1",{archiveReaderId_,messages.front()["seq"]}).empty())
+    pageActions_["加载更早消息"]=button(pageContent_,"加载更早消息",0,0,width,44,[this]{events_.push("archive_page",{{"id",archiveReaderId_},{"offset",archiveReaderOffset_+30}});});
+  if(messages.empty())label(pageContent_,"没有聊天内容",0,0,width,21,theme::muted);
+  renderMessageRows(pageContent_,messages,archiveReaderId_,width,true,0,INT64_MAX);
+  if(archiveReaderOffset_>0)
+    pageActions_["加载较新消息"]=button(pageContent_,"加载较新消息",0,0,width,44,[this]{events_.push("archive_page",{{"id",archiveReaderId_},{"offset",std::max(0,archiveReaderOffset_-30)}});});
+  lv_obj_add_event_cb(body_,[](lv_event_t *e){static_cast<App *>(lv_event_get_user_data(e))->paintVisible();},LV_EVENT_SCROLL,this);
+  lv_obj_update_layout(body_);paintVisible();
 }
 } // namespace penchat

@@ -170,6 +170,13 @@ class App {
   void scheduleTitle(const std::string &session, const std::string &assistant);
   void tickTitles();
   void archivesPage();
+  void openArchiveReader(const std::string &id);
+  void archiveReaderPage();
+  std::string archiveReaderId_;
+  int archiveReaderOffset_=0, archiveListScroll_=0;
+  std::vector<std::string> archiveReaderMessages_;
+  std::map<std::string,bool> archiveReasoningOverrides_;
+  std::map<std::string,lv_obj_t *> archiveViewButtons_;
   void historyContext(const std::string &id);
   void closeHistoryContext();
   void retireSession(const std::string &id, bool archive);
@@ -333,6 +340,8 @@ class App {
 
   void albumPage();
   void renderMessages(bool bottom, bool cached = false);
+  void renderMessageRows(lv_obj_t *parent,const Json &messages,const std::string &source,
+                         int width,bool readOnly,int lastAssistant,int64_t questionSeq);
   void richMessage(lv_obj_t *parent, const std::string &text, int width,
                    bool subdued = false, const std::string &context = "");
   void paintVisible();

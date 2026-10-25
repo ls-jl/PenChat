@@ -912,6 +912,7 @@ void App::clear() {
   chatControls_ = toBottom_ = nullptr;
   chatControlsTarget_ = -1;
   rasters_.clear();
+  archiveViewButtons_.clear();
   imageRequests_.clear();
   placeholders_.clear();
   if (screenObj_) {
@@ -975,6 +976,8 @@ void App::build() {
     providerPage();
   else if (view_ == "archives")
     archivesPage();
+  else if (view_ == "archive_chat")
+    archiveReaderPage();
   else if (view_ == "model")
     modelPage();
   else if (view_ == "scan")
@@ -1025,11 +1028,13 @@ void App::build() {
   builtView_ = view_;
   chatLayout_ = false;
   syncScanner();
+  if (view_=="archive_chat")paintVisible();
   if (editorRoot_) lv_obj_move_foreground(editorRoot_);
   if (imageViewer_) lv_obj_move_foreground(imageViewer_);
 }
 void App::show(const std::string &view) {
   closeImageViewer(false);
+  if(view_=="archive_chat"&&view!="archive_chat"){archiveReaderId_.clear();archiveReaderMessages_.clear();archiveReasoningOverrides_.clear();}
   if (view_ == "settings" && body_)
     settingsScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
   if (view == "settings" && view_ == "chat") settingsScroll_ = 0;
@@ -1338,58 +1343,9 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
       appendText(b);
   }
 }
-void App::renderMessages(bool bottom, bool cached) {
-  if (!messageContent_)
-    return;
-  const int scroll = chatScroll_;
-  const bool follow = messageOffset_ == 0 && (bottom || chatFollowing_);
-  const bool previousLayout = chatLayout_;
-  chatLayout_ = true;
-  rasters_.clear();
-  liveContent_ = nullptr;
-  reasoningHeaders_.clear();
-  lv_obj_clean(messageContent_);
-  auto messages = cached ? rows_ : messageEdit_.empty()?db_.messages(session_, messageOffset_, 30):editedMessages();
-  lv_obj_set_style_pad_top(messageContent_, messages.empty() ? 0 : 8, 0);
-  if (!cached)
-    reasoningDisplay_ =
-        db_.settings().value("reasoning_display", std::string("collapsed"));
-  const auto reasoningMode = reasoningDisplay_;
-  expandedReasoning_.clear();
-  rows_ = messages;
-  if (!cached)
-    hasConversationContent_ =
-        !db_.query("SELECT id FROM chat_messages WHERE session_id=? AND "
-                   "(length(trim(coalesce(output_text,'')))>0 OR "
-                   "message_type='image') LIMIT 1",
-                   {session_})
-             .empty();
-  int width = screen_.width - 112;
-  const auto questionSeq=db_.query("SELECT coalesce(min(seq),?) seq FROM chat_messages WHERE session_id=? AND role='user' AND (length(trim(coalesce(output_text,'')))>0 OR message_type='image')",{INT64_MAX,session_})[0]["seq"].get<int64_t>();
-  bool more = int(messages.size()) >= 30;
-  if (more)
-    button(messageContent_, "加载更早消息", 0, 0, width, 35, [this] {
-      messageOffset_ += 30;
-      renderMessages(true);
-    });
-  if (messages.empty()) {
-    auto welcome = box(messageContent_, 0, 0, width, 166);
-    lv_obj_set_scrollable(welcome, false);
-    auto title = label(welcome, PENCHAT_NAME, 0, 42, width, 30);
-    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-    auto hint = label(welcome,
-                      db_.models().empty() ? "请在设置中添加 Provider 和模型"
-                                           : "有什么可以帮你？",
-                      0, 86, width, 23, theme::muted);
-    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
-  }
-  if (!cached)
-    lastAssistantSeq_ =
-        db_.query("SELECT coalesce(max(seq),0) AS seq FROM chat_messages WHERE "
-                  "session_id=? AND role='assistant' AND seq<?",
-                  {session_,messageEdit_.value("pivot",INT64_MAX)})[0]["seq"]
-            .get<int>();
-  const auto lastAssistant = lastAssistantSeq_;
+void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::string &source,
+                            int width,bool readOnly,int lastAssistant,int64_t questionSeq) {
+  const auto reasoningMode=reasoningDisplay_;
   lv_obj_t *photoGroup = nullptr;
   for (const auto &m : messages) {
     bool user = m.value("role", std::string()) == "user";
@@ -1399,7 +1355,7 @@ void App::renderMessages(bool bottom, bool cached) {
     // database rows and request order unchanged; never group across a reply.
     if (user && hasImage && stringValue(m, "output_text").empty()) {
       if (!photoGroup) {
-        photoGroup = box(messageContent_, 0, 0, width, LV_SIZE_CONTENT);
+        photoGroup = box(parent, 0, 0, width, LV_SIZE_CONTENT);
         lv_obj_set_scrollable(photoGroup, false);
         lv_obj_set_flex_flow(photoGroup, LV_FLEX_FLOW_ROW_WRAP);
         lv_obj_set_flex_align(photoGroup, LV_FLEX_ALIGN_END,
@@ -1417,7 +1373,7 @@ void App::renderMessages(bool bottom, bool cached) {
       if (original.empty()) original = path;
       image(photoGroup, path, 0, 0, width, 140,
             [this,original] { requestImageViewer(original); }, false, true,
-            m["seq"].get<int>() > lastAssistant ? m["id"].get<std::string>() : "",m.value("edit_virtual",false)?"":m["id"].get<std::string>());
+            !readOnly&&m["seq"].get<int>() > lastAssistant ? m["id"].get<std::string>() : "",readOnly||m.value("edit_virtual",false)?"":m["id"].get<std::string>());
       continue;
     }
     photoGroup = nullptr;
@@ -1430,7 +1386,7 @@ void App::renderMessages(bool bottom, bool cached) {
                        LV_TEXT_FLAG_NONE);
       contentWidth = std::min(contentWidth, std::max(48, int(measured.x) + 24));
     }
-    auto row = box(messageContent_, 0, 0, width, LV_SIZE_CONTENT);
+    auto row = box(parent, 0, 0, width, LV_SIZE_CONTENT);
     lv_obj_set_scrollable(row, false);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, user ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START,
@@ -1441,23 +1397,24 @@ void App::renderMessages(bool bottom, bool cached) {
     lv_obj_set_scrollable(wrap, false);
     lv_obj_set_style_pad_all(wrap, hasImage ? 0 : (user ? 12 : 8), 0);
     lv_obj_set_style_radius(wrap, user ? 18 : 0, 0);
-    if(user)messageLongPress(wrap,m["id"].get<std::string>());
+    if(user&&!readOnly)messageLongPress(wrap,m["id"].get<std::string>());
     const int textWidth = contentWidth - (hasImage ? 0 : (user ? 24 : 16));
     auto id = m["id"].get<std::string>();
+    const bool live=!readOnly&&id==assistant_;
     std::string content =
-        id == assistant_ ? output_ : stringValue(m, "output_text");
-    if (id == assistant_ && content.empty() && generating_)
+        live ? output_ : stringValue(m, "output_text");
+    if (live && content.empty() && generating_)
       content = "正在生成…";
     auto reason =
-        id == assistant_ ? reasoning_ : stringValue(m, "reasoning_text");
+        live ? reasoning_ : stringValue(m, "reasoning_text");
     auto metadata =
-        id == assistant_ ? reasoningMetadata_ : objectField(m, "metadata_json");
+        live ? reasoningMetadata_ : objectField(m, "metadata_json");
     if (metadata.value("imported_reference", false))
       label(wrap, "导入的参考内容", 0, 0, textWidth, 17, theme::muted);
     if (!user &&
         (!reason.empty() || metadata.value("reasoning_observed", false))) {
       std::string title = "思考过程";
-      if (id == assistant_ && generating_ &&
+      if (live && generating_ &&
           !metadata.value("reasoning_complete", false))
         title = "正在思考…";
       else if (metadata.contains("reasoning_duration_ms")) {
@@ -1473,17 +1430,18 @@ void App::renderMessages(bool bottom, bool cached) {
       if (!reason.empty()) {
         bool expanded =
             reasoningMode == "always" ||
-            (reasoningMode == "during" && id == assistant_ && generating_ &&
+            (reasoningMode == "during" && live && generating_ &&
              !metadata.value("reasoning_complete", false));
-        auto manual = reasoningOverrides_.find(id);
-        if (manual != reasoningOverrides_.end())
+        auto &overrides=readOnly?archiveReasoningOverrides_:reasoningOverrides_;
+        auto manual = overrides.find(id);
+        if (manual != overrides.end())
           expanded = manual->second;
         if (expanded)
           expandedReasoning_.insert(id);
-        auto toggle = [this, id, expanded] {
+        auto toggle = [this, id, expanded, source] {
           events_.push(
               "reasoning_toggle",
-              {{"id", id}, {"expanded", !expanded}, {"session", session_}});
+              {{"id", id}, {"expanded", !expanded}, {"session", source}});
         };
         icon(header,
              expandedReasoning_.count(id) ? "chevron-down" : "chevron-right", 0,
@@ -1523,7 +1481,7 @@ void App::renderMessages(bool bottom, bool cached) {
             box(wrap, 0, 0, textWidth, LV_SIZE_CONTENT, theme::background);
         lv_obj_set_flex_flow(contentBox, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_scrollable(contentBox, false);
-        if (id == assistant_)
+        if (live)
           liveContent_ = contentBox;
         richMessage(contentBox, content, textWidth, false, id);
       }
@@ -1533,8 +1491,61 @@ void App::renderMessages(bool bottom, bool cached) {
             (stringValue(m, "status") == "interrupted" ? "上次生成已中断" : "已停止生成"),
             0, 0, textWidth, 17, theme::danger);
     }
-    if(stringValue(m,"role")=="assistant")replyBar(wrap,m,textWidth,m["seq"].get<int64_t>()>questionSeq);
+    if(!readOnly&&stringValue(m,"role")=="assistant")replyBar(wrap,m,textWidth,m["seq"].get<int64_t>()>questionSeq);
   }
+}
+void App::renderMessages(bool bottom, bool cached) {
+  if (!messageContent_)
+    return;
+  const int scroll = chatScroll_;
+  const bool follow = messageOffset_ == 0 && (bottom || chatFollowing_);
+  const bool previousLayout = chatLayout_;
+  chatLayout_ = true;
+  rasters_.clear();
+  liveContent_ = nullptr;
+  reasoningHeaders_.clear();
+  lv_obj_clean(messageContent_);
+  auto messages = cached ? rows_ : messageEdit_.empty()?db_.messages(session_, messageOffset_, 30):editedMessages();
+  lv_obj_set_style_pad_top(messageContent_, messages.empty() ? 0 : 8, 0);
+  if (!cached)
+    reasoningDisplay_ =
+        db_.settings().value("reasoning_display", std::string("collapsed"));
+  expandedReasoning_.clear();
+  rows_ = messages;
+  if (!cached)
+    hasConversationContent_ =
+        !db_.query("SELECT id FROM chat_messages WHERE session_id=? AND "
+                   "(length(trim(coalesce(output_text,'')))>0 OR "
+                   "message_type='image') LIMIT 1",
+                   {session_})
+             .empty();
+  int width = screen_.width - 112;
+  const auto questionSeq=db_.query("SELECT coalesce(min(seq),?) seq FROM chat_messages WHERE session_id=? AND role='user' AND (length(trim(coalesce(output_text,'')))>0 OR message_type='image')",{INT64_MAX,session_})[0]["seq"].get<int64_t>();
+  bool more = int(messages.size()) >= 30;
+  if (more)
+    button(messageContent_, "加载更早消息", 0, 0, width, 35, [this] {
+      messageOffset_ += 30;
+      renderMessages(true);
+    });
+  if (messages.empty()) {
+    auto welcome = box(messageContent_, 0, 0, width, 166);
+    lv_obj_set_scrollable(welcome, false);
+    auto title = label(welcome, PENCHAT_NAME, 0, 42, width, 30);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+    auto hint = label(welcome,
+                      db_.models().empty() ? "请在设置中添加 Provider 和模型"
+                                           : "有什么可以帮你？",
+                      0, 86, width, 23, theme::muted);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+  }
+  if (!cached)
+    lastAssistantSeq_ =
+        db_.query("SELECT coalesce(max(seq),0) AS seq FROM chat_messages WHERE "
+                  "session_id=? AND role='assistant' AND seq<?",
+                  {session_,messageEdit_.value("pivot",INT64_MAX)})[0]["seq"]
+            .get<int>();
+  const auto lastAssistant = lastAssistantSeq_;
+  renderMessageRows(messageContent_,messages,session_,width,false,lastAssistant,questionSeq);
   syncReplyControls();
   if(!messageEdit_.empty()) {
     auto banner=box(messageContent_,0,0,width,44,theme::background);
@@ -1696,6 +1707,10 @@ void App::refreshImages() {
       lv_label_set_text(placeholders_[request.first], "图片读取失败");
   }
   if (view_ == "crop") updateCrop();
+  if(resized&&view_=="archive_chat"&&body_){
+    const int scroll=lv_obj_get_scroll_y(body_);lv_obj_update_layout(body_);
+    lv_obj_scroll_to_y(body_,scroll,LV_ANIM_OFF);paintVisible();
+  }
   if (resized && view_ == "chat" && body_ && messageContent_) {
     const bool previous = chatLayout_;
     chatLayout_ = true;
@@ -1717,6 +1732,7 @@ std::string App::pageKey() const {
   if (view_ == "preset_edit") return view_ + ":" + presetForm_.value("id",std::string());
   if (view_ == "album") return view_ + ":" + std::to_string(albumPage_);
   if (view_ == "archives") return view_ + ":" + std::to_string(archiveOffset_);
+  if (view_ == "archive_chat")return view_+":"+archiveReaderId_+":"+std::to_string(archiveReaderOffset_);
   return view_;
 }
 void App::pageHeader(const std::string &title, int top) {
@@ -2108,6 +2124,8 @@ void App::goBack() {
   else if (view_ == "preset_edit") {
     presetForm_ = Json::object();
     show("presets");
+  } else if(view_=="archive_chat") {
+    show("archives");lv_obj_scroll_to_y(body_,archiveListScroll_,LV_ANIM_OFF);
   } else if (view_ == "archives")
     show("settings");
   else if (view_ == "model")
@@ -2824,8 +2842,8 @@ void App::tick() {
     if(messageEvent(e))continue;
     if (e.type == "image_view_close") {closeImageViewer();continue;}
     if (e.type == "image_view_request") {
-      if (view_ == "chat" && visible_ && !keyboard_ && !editor_.active && !modal_ &&
-          !navigationOpen_ && !imageViewer_ && e.data.value("session",std::string()) == session_)
+      if ((view_ == "chat"||view_=="archive_chat") && visible_ && !keyboard_ && !editor_.active && !modal_ &&
+          !navigationOpen_ && !imageViewer_ && e.data.value("session",std::string()) == (view_=="archive_chat"?archiveReaderId_:session_))
         openImageViewer(e.data.value("path",std::string()));
       continue;
     }
@@ -2880,7 +2898,11 @@ void App::tick() {
         retryWarning(e.data.value("id", std::string()));
       }
     } else if (e.type == "reasoning_toggle") {
-      if (view_ == "chat" &&
+      if(view_=="archive_chat"&&e.data.value("session",std::string())==archiveReaderId_) {
+        input_.cancel();lv_obj_stop_scroll_anim(body_);
+        archiveReasoningOverrides_[e.data["id"].get<std::string>()]=e.data["expanded"].get<bool>();
+        build();
+      } else if (view_ == "chat" &&
           e.data.value("session", std::string()) == session_) {
         input_.cancel();
         lv_obj_stop_scroll_anim(body_);
@@ -2906,6 +2928,10 @@ void App::tick() {
       db_.setting("reasoning_display", e.data.at("mode"));
       reasoningOverrides_.clear();
       build();
+    } else if(e.type=="archive_page"&&view_=="archive_chat"&&e.data.value("id",std::string())==archiveReaderId_) {
+      input_.cancel();archiveReaderOffset_=std::max(0,e.data.value("offset",0));build();
+    } else if(e.type=="archive_open"&&view_=="archives") {
+      input_.cancel();openArchiveReader(e.data.value("id",std::string()));
     } else if (e.type == "history_details" && view_=="archives") {
       input_.cancel();auto session=db_.sessionInfo(e.data.value("id",std::string()));
       if(!session.empty())modal("会话详情",session.value("title",std::string())+"\n\n"+
@@ -3128,6 +3154,9 @@ Json App::diagnostics() const {
        {"time",time?lv_label_get_text(time):""}};
   }
   for(const auto &entry:historyActions_)historyActions[entry.first]=bounds(entry.second);
+  Json archiveViews=Json::object();
+  for(const auto &entry:archiveViewButtons_){lv_area_t a;lv_obj_get_coords(entry.second,&a);archiveViews[entry.first]={a.x1,a.y1,a.x2,a.y2};}
+
   return {
       {"editor", editorDiagnostic()},
       {"draft_length", editLength(draft_)},
@@ -3158,6 +3187,8 @@ Json App::diagnostics() const {
       {"capsule_endcap_x2", 2 * capsule.x2 - (capsule.y2 - capsule.y1)},
       {"capsule_center_y2", capsule.y1 + capsule.y2},
       {"navigation_open", navigationOpen_},
+      {"archive_views",archiveViews},
+      {"archive_reader",{{"id",archiveReaderId_},{"offset",archiveReaderOffset_},{"messages",archiveReaderMessages_}}},
       {"navigation_active_x", navigationActive_ ? (active.x1 + active.x2) / 2 : -1},
       {"navigation_active_y", navigationActive_ ? (active.y1 + active.y2) / 2 : -1},
       {"navigation_scroll", navigationList_ ? lv_obj_get_scroll_y(navigationList_) : 0},
