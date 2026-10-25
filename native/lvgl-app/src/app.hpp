@@ -263,6 +263,9 @@ class App {
   int64_t pullLastActivity_ = 0, pullMotionTime_ = 0, pullSlowTime_ = 0;
   int pullMotionY_ = 0, pullSlowDistance_ = 0;
   PullGeometry pullGeometry_;
+  int pullSensitivityOffset_ = 0;
+  lv_obj_t *pullSlider_ = nullptr;
+  void pullSensitivityPicker();
   int pullStartX_ = 0, pullStartY_ = 0, pullProgress_ = 0,
       pullVisualOrigin_ = 0;
   int albumPage_ = 0;

@@ -45,7 +45,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-presets-') as directory:
         # Pull inherits the applied snapshot, including system instructions.
         app.to_chat();app.tap(521,174) if not app.diag()['following_latest'] else None
         time.sleep(.7);old=app.diag()['session']
-        drag(app,[195,180,155,125,95,65,40])
+        drag(app,[195,180,155,125,95,65,20])
         assert app.diag()['session']!=old
         assert app.diag()['session_preferences']['system_prompt']=='EXPERT SYSTEM'
         assert app.diag()['session_preferences']['model_id']=='b'

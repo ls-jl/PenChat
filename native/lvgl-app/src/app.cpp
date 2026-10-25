@@ -69,6 +69,9 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   clearCrop();
   auto config = db_.settings();
   editor_.preferredChinese=config.value("pinyin_chinese_layout",std::string("zh26"))=="zh9"?2:0;
+  const auto savedPull = config.value("pull_sensitivity_offset", Json());
+  if (savedPull.is_number_integer())
+    pullSensitivityOffset_ = int(std::max(-25.0, std::min(25.0, savedPull.get<double>())));
   const auto savedFont = config.value("reading_font_percent", Json());
   if (savedFont.is_number_integer())
     readingFontPercent_ = int(std::max<int64_t>(75, std::min<int64_t>(150, savedFont.get<int64_t>())));
@@ -772,7 +775,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
           pullGeometry({bounds.x1 - tx, bounds.y1 - ty, bounds.x2 + 1 - tx,
                         bounds.y2 + 1 - ty},
                        screen_.width, screen_.height,
-                       screen_.height - lv_obj_get_height(chatControls_) - 10);
+                       screen_.height - lv_obj_get_height(chatControls_) - 10, pullSensitivityOffset_);
     }
     const bool inReader = pullGeometry_.contains(x, y);
     bool inComposer = false;
@@ -1932,24 +1935,27 @@ void App::settingsPage() {
   const auto editDefault=config.value("message_edit_default",std::string("ask"));
   settingsRow("message_edit","编辑消息",editDefault=="archive"?"发送时先归档":editDefault=="overwrite"?"发送时直接覆盖":"每次询问",right,284,column,[this]{messageEditDefaultPicker();});
   settingsRow("history_time","历史时间显示",historyMode=="title"?"会话标题优先":historyMode=="off"?"关闭时间显示":"时间显示优先",left,284,column,[this]{historyTimePicker();});
-  label(pageContent_, "阅读与显示", left, 356, width, 16, theme::muted);
+  label(pageContent_, "阅读与交互", left, 356, width, 16, theme::muted);
   settingsRow("font_size", "字体大小", std::to_string(readingFontPercent_) + "% · 聊天、思考和公式",
               left, 380, column, [this] {
                 readingFontDraft_ = readingFontPercent_;
                 show("font_size");
               });
   settingsRow("keyboard", "键盘与输入", "独立拼音与学习记忆", right, 380, column, [this] { show("keyboard_settings"); });
-  label(pageContent_, "数据与应用", left, 452, width, 16, theme::muted);
-  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 476, column,
+  const auto offset = (pullSensitivityOffset_ > 0 ? "+" : "") + std::to_string(pullSensitivityOffset_) + "%";
+  settingsRow("pull_sensitivity", "上滑新建灵敏度", "偏移 " + offset + (pullSensitivityOffset_ ? " · 相对新版基准" : " · 新版基准"),
+              left, 444, column, [this] { pullSensitivityPicker(); });
+  label(pageContent_, "数据与应用", left, 516, width, 16, theme::muted);
+  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 540, column,
               [this] { openTransfer(); });
   const bool persistentExports = config.value("persistent_export_directory", true);
   settingsRow("persistent_exports", "持久化导出目录",
               persistentExports ? "关闭应用后保留导出文件" : "关闭应用时清理导出文件",
-              right, 476, column, [this, persistentExports] {
+              right, 540, column, [this, persistentExports] {
                 db_.setting("persistent_export_directory", !persistentExports);
                 build();
               }, persistentExports);
-  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", left, 540, width,
+  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", left, 604, width,
               [this] {
                 const auto summary = db_.summary();
                 modal("关于 " PENCHAT_NAME,
@@ -3076,6 +3082,14 @@ void App::tick() {
       db_.setting("reasoning_display", e.data.at("mode"));
       reasoningOverrides_.clear();
       build();
+    } else if (e.type == "pull_sensitivity_apply" && view_ == "settings" && visible_) {
+      input_.cancel();
+      const auto offset = pullSensitivityOffset(e.data.value("offset", 0));
+      try {
+        db_.setting("pull_sensitivity_offset", offset);
+        pullSensitivityOffset_ = offset;
+        build();
+      } catch (...) { modal("未能保存灵敏度", "本次调整未生效，请检查存储空间后重试。"); }
     } else if (e.type == "reading_font_apply" && view_ == "font_size") {
       input_.cancel();
       db_.setting("reading_font_percent", readingFontDraft_);
@@ -3404,6 +3418,11 @@ Json App::diagnostics() const {
       {"pull_create_allowed", pulling_ && pullCreateAllowed_},
       {"pull_progress", pullProgress_},
       {"pull_fill_distance", pullGeometry_.fill},
+      {"pull_sensitivity_offset", pullSensitivityOffset_},
+      {"pull_frozen_offset", pullGeometry_.sensitivityOffset},
+      {"pull_preferences", {{"slider", bounds(pullSlider_)},
+                            {"draft", pullSlider_ ? Json(lv_slider_get_value(pullSlider_)) : Json()},
+                            {"minimum", -25}, {"maximum", 25}}},
       {"pull_start_distance", pullGeometry_.start},
       {"pull_full_distance", pullGeometry_.start + pullGeometry_.fill},
       {"pull_reader_height", pullGeometry_.reader.bottom - pullGeometry_.reader.top},

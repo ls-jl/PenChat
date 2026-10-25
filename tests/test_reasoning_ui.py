@@ -82,8 +82,8 @@ def run():
         app=Native(binary,pathlib.Path(directory))
         try:
             first=app.diag()['session']
-            drag(app,[190,170,140,110,80,50,38]);assert app.diag()['session']==first and not app.diag()['pull_active']
-            app.edit('未发送草稿');drag(app,[190,170,140,110,80,50,38]);assert app.diag()['session']==first
+            drag(app,[190,170,140,110,80,50,15]);assert app.diag()['session']==first and not app.diag()['pull_active']
+            app.edit('未发送草稿');drag(app,[190,170,140,110,80,50,15]);assert app.diag()['session']==first
             app.open_navigation()
             for points in [[(800,100),(800,50),(800,100)],[(800,100),(900,100),(800,100)]]:
                 for x,y in points:app.send('touch',x=x,y=y,pressed=True);time.sleep(.03)

@@ -7,6 +7,7 @@ parser=argparse.ArgumentParser();parser.add_argument('--serial',required=True)
 parser.add_argument('--back-navigation',action='store_true')
 parser.add_argument('--api-compatibility',action='store_true',help='Local API fixture and Provider settings with physical touches')
 parser.add_argument('--pinyin',action='store_true',help='Owned pinyin, learning and nine-key real-touch acceptance')
+parser.add_argument('--pull-sensitivity',action='store_true',help='Saved pull sensitivity and mapped gesture boundary acceptance')
 parser.add_argument('--font-size',action='store_true',help='Reading font size settings and native layout acceptance')
 parser.add_argument('--photo-gestures',action='store_true',help='Real multitouch viewer and ORANGE camera/crop acceptance')
 parser.add_argument('--composer-touch',action='store_true',help='Check expanded attachment target and neighboring text entry')
@@ -16,7 +17,7 @@ parser.add_argument('--reply-actions',action='store_true')
 parser.add_argument('--session-info',action='store_true',help='Run focused conversation statistics acceptance')
 parser.add_argument('--archive-reader',action='store_true',help='Run focused archive-reader acceptance, with normal data isolation/restoration')
 args=parser.parse_args();SERIAL=args.serial
-assert sum((args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin))<=1,'Run isolated feature fixtures separately'
+assert sum((args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin))<=1,'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 class FeatureComplete(Exception):
@@ -125,6 +126,14 @@ try:
     shell('mkdir -p '+DATA);privateIsolated=True
     if hasPublic:shell('mv '+public+' '+publicSaved)
     publicIsolated=True
+    if args.pull_sensitivity:
+        import shutil
+        sys.path.insert(0,str(ROOT/'tests'))
+        from test_chat_style import seed
+        sample=OUT/'pull-fixture'
+        if sample.exists():shutil.rmtree(sample)
+        sample.mkdir();seed(sample,'灵敏度验收：有内容的会话，可从阅读区和输入框上拉新建。')
+        subprocess.run(['adb','-s',SERIAL,'push',str(sample/'penchat.db'),DATA+'/penchat.db'],check=True,capture_output=True)
     if args.font_size:
         import shutil
         sys.path.insert(0,str(ROOT/'tests'))
@@ -201,6 +210,11 @@ try:
             p=state()['touch']
             return p if abs(p.get('x',-100)-x)<=1 and abs(p.get('y',-100)-y)<=1 else None
         p=wait(mapped);result['corners'].append([p['x'],p['y']])
+    if args.pull_sensitivity:
+        import pull_sensitivity_flow
+        pull_sensitivity_flow.run(globals())
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
     if args.api_compatibility:
         api_flow.run(globals(),messageHandler)
         assert shell('pidof miniapp')==host;result['host_unchanged']=True

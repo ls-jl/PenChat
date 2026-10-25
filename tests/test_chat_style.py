@@ -61,9 +61,9 @@ def run():
             app.tap(128,232);app.tap(200,82);assert app.diag()['view']=='album';snapshot(app,'album')
             app.tap(40,44)
             # Empty conversations, including unsent drafts, never enter pull-to-create.
-            drag(app,[190,170,140,110,80,50,38],False)
+            drag(app,[190,170,140,110,80,50,15],False)
             assert not app.diag()['pull_active'] and app.diag()['pull_progress']==0
-            app.send('touch',x=500,y=38,pressed=False)
+            app.send('touch',x=500,y=15,pressed=False)
             assert app.diag()['session']==first
             app.edit('草稿内容保持，' * 50)
             drag(app,[190,160,130,90,145])
@@ -113,12 +113,12 @@ def run():
             first=app.diag()['session']
             # The old 92px stroke is below the raised threshold.
             drag(app,[190,170,140,110,98]);assert app.diag()['session']==first
-            # The 142px stroke requires a release at full progress; 141px stays partial.
-            drag(app,[190,170,140,110,80,49],False)
+            # The 167px stroke requires a release at full progress; 166px stays partial.
+            drag(app,[190,170,140,110,80,24],False)
             assert app.diag()['pull_progress']==99
-            assert app.diag()['pull_full_distance']==142
+            assert app.diag()['pull_full_distance']==167
             assert app.diag()['pull_reader_height']==208
-            drag(app,[48],False)
+            drag(app,[23],False)
             assert app.diag()['pull_progress']==100
             assert app.diag()['pull_indicator_y']==168 and app.diag()['pull_content_y']==-110
             snapshot(app,'pull-full')
@@ -140,16 +140,16 @@ def run():
             drag(app,[190,184]);assert app.diag()['session']==first
             drag(app,[190,220]);assert app.diag()['session']==first
             # Full release creates once, repeated release cannot create again.
-            drag(app,[190,170,140,110,80,50,38]);second=app.diag()['session'];assert second!=first
+            drag(app,[190,170,140,110,80,50,15]);second=app.diag()['session'];assert second!=first
             app.send('touch',x=500,y=90,pressed=False)
             assert app.diag()['summary']['sessions']==1
-            drag(app,[190,170,140,110,80,50,38])
+            drag(app,[190,170,140,110,80,50,15])
             assert app.diag()['session']==second and not app.diag()['pull_active']
             app.open_navigation();app.tap(200,30);second=app.diag()['session']
             assert second==first
             # System pointer cancel and background transitions never commit a full ring.
             for kind in ['cancel','background']:
-                drag(app,[190,170,140,110,80,50,38],False)
+                drag(app,[190,170,140,110,80,50,15],False)
                 assert app.diag()['pull_progress']==100
                 if kind=='cancel':app.send('touch',x=500,y=90,pressed=False,cancelled=True)
                 else:
@@ -199,7 +199,7 @@ def run():
             assert app.diag()['pull_pause_ms']==500
             for _ in range(3):
                 previous=None
-                for y in [190,170,140,110,80,110,140,110,80,50,38]:
+                for y in [190,170,140,110,80,110,140,110,80,50,15]:
                     app.send('touch',x=500,y=y,pressed=True);time.sleep(.025)
                     guarded=app.diag()
                     assert guarded['scroll_y']==stable_bottom and guarded['scroll_bottom']==0
@@ -210,14 +210,14 @@ def run():
                         else:assert guarded['pull_content_y']>=last_offset
                     previous=(y,guarded['pull_content_y'])
                 assert app.diag()['pull_content_y']<0
-                app.send('touch',x=500,y=38,pressed=False);time.sleep(.08)
+                app.send('touch',x=500,y=15,pressed=False);time.sleep(.08)
                 assert app.diag()['session']==session and not app.diag()['pull_active']
                 assert app.diag()['pull_guard_remaining_ms']>0
             # Holding a fast pull beyond the quiet interval cannot qualify it.
-            drag(app,[190,170,140,110,80,50,38],False)
+            drag(app,[190,170,140,110,80,50,15],False)
             time.sleep(.6)
             assert not app.diag()['pull_create_allowed'] and app.diag()['pull_progress']==0
-            app.send('touch',x=500,y=38,pressed=False);time.sleep(.02)
+            app.send('touch',x=500,y=15,pressed=False);time.sleep(.02)
             assert app.diag()['session']==session and app.diag()['pull_guard_remaining_ms']>0
             # Slow deliberate movement bypasses the guard before a quiet gap.
             for y in range(190,119,-10):
@@ -229,9 +229,9 @@ def run():
             app.send('touch',x=500,y=120,pressed=False);time.sleep(.025)
             assert app.diag()['session']==session and app.diag()['pull_guard_remaining_ms']==0
             # Once progress was visible, release/cancellation adds no 500ms wait.
-            drag(app,[190,170,140,110,80,50,38],False)
+            drag(app,[190,170,140,110,80,50,15],False)
             assert app.diag()['pull_progress']==100 and app.diag()['pull_guard_remaining_ms']==0
-            app.send('touch',x=500,y=38,pressed=False);time.sleep(.2)
+            app.send('touch',x=500,y=15,pressed=False);time.sleep(.2)
             assert app.diag()['session']!=session
             # Slow movement delivered in batches still qualifies (Falcon/DRM).
             app.open_navigation();app.tap(200,30)
@@ -245,7 +245,7 @@ def run():
             assert batched['pull_create_allowed'] and 0<batched['pull_progress']<100
             assert batched['pull_guard_remaining_ms']==0
             app.send('touch',x=500,y=100,pressed=False);time.sleep(.02)
-            drag(app,[190,170,140,110,80,50,38])
+            drag(app,[190,170,140,110,80,50,15])
             assert app.diag()['session']!=session
             # A quiet 500ms also permits a fast full pull after returning to bottom.
             app.open_navigation();app.tap(200,30)
@@ -253,12 +253,12 @@ def run():
             app.tap(521,174)
             assert app.diag()['pull_guard_remaining_ms']>0
             wait_for(lambda:app.diag()['pull_guard_remaining_ms']==0,timeout=2)
-            drag(app,[190,170,140,110,80,50,38])
+            drag(app,[190,170,140,110,80,50,15])
             assert app.diag()['session']!=session
             # Entering a saved chat at its bottom bypasses that guard.
             app.open_navigation();app.tap(200,30)
             assert app.diag()['session']==session and app.diag()['pull_guard_remaining_ms']==0
-            drag(app,[190,170,140,110,80,50,38])
+            drag(app,[190,170,140,110,80,50,15])
             assert app.diag()['session']!=session
             app.open_navigation();app.tap(200,30)
             assert app.diag()['session']==session
@@ -281,7 +281,7 @@ def run():
             try:
                 app.edit('新建时保留已收到的回复');app.tap(908,232)
                 wait_for(lambda:any(row[0]=='assistant' and row[2] for row in app.read_messages()))
-                drag(app,[190,170,140,110,80,50,38])
+                drag(app,[190,170,140,110,80,50,15])
                 assert app.diag()['summary']['sessions']==1 and not app.diag()['generating']
                 replies=[row for row in app.read_messages() if row[0]=='assistant']
                 assert replies[-1][1]=='cancelled' and replies[-1][2]

@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-PenChat 0.2.2 is a native LVGL app for ORANGE (RK3562/AArch64, 960×266).
+PenChat 0.2.3 is a native LVGL app for ORANGE (RK3562/AArch64, 960×266).
 The Falcon AMR is a thin launcher with a full-screen hole, system IME, touch and
 lifecycle forwarding. Do not put business UI or networking back into Vue.
 Scanning uses the source-pinned Stream32 backend in native/scanner, with a
@@ -58,7 +58,9 @@ retract the viewport, with smooth handoff into a 160ms return. Disable LVGL elas
 overscroll so it cannot compete with that controlled visual movement.
 Freshly entered conversations with content bypass this guard. Empty conversations
 and unsent drafts never enter pull-to-create. The ORANGE pull uses 12px slop plus
-130px fill distance (142px total). Pulls may start in the composer text entry,
+155px fill distance (167px total), with 0% sensitivity offset. The new baseline
+is 85% of the prior sensitivity; app-global offsets range from -25% to +25%,
+positive means more responsive. Freeze the offset with geometry at pointer-down. Pulls may start in the composer text entry,
 but never its attachment or send controls. Scale spatial
 thresholds, slow-motion speed and stretch by the unobstructed logical reader
 height relative to 208px. Freeze geometry at pointer-down, excluding resting
