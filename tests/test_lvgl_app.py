@@ -90,6 +90,19 @@ class Native:
             self.pending.append(value)
     def tap(self,x,y):
         self.send('touch',x=x,y=y,pressed=True);time.sleep(.06);self.send('touch',x=x,y=y,pressed=False);time.sleep(.08)
+    def attachment_action(self,key):
+        state=self.diag()
+        if not state['attachments']:self.tap(128,state['height']-34)
+        for _ in range(15):
+            state=self.diag();b=state['attachment_actions'][key];v=state['attachment_viewport']
+            if b[1]>=v[1] and b[3]<=v[3]:
+                self.tap((b[0]+b[2])//2,(b[1]+b[3])//2);return
+            start=v[3]-10 if b[3]>v[3] else v[1]+10
+            end=max(v[1]+10,start-100) if b[3]>v[3] else min(v[3]-10,start+100)
+            for i in range(7):
+                self.send('touch',x=220,y=start+(end-start)*i//6,pressed=True);time.sleep(.025)
+            time.sleep(.15);self.send('touch',x=220,y=end,pressed=False);time.sleep(.1)
+        raise AssertionError('Attachment item unreachable: '+key)
     def editor_action(self,key):
         x1,y1,x2,y2=self.diag()['editor']['actions'][key]
         self.tap((x1+x2)//2,(y1+y2)//2)

@@ -79,6 +79,17 @@ def page_action(title):
             tap((x1+x2)//2,(y1+y2)//2);return
         settings_swipe(120 if y1<viewport[1] else -120)
     raise AssertionError('Page action is not reachable: '+title)
+def attachment_action(key,swipe):
+    current=state()
+    if not current['attachments']:tap(128,current['height']-34)
+    for _ in range(15):
+        current=state();b=current['attachment_actions'][key];v=current['attachment_viewport']
+        if b[1]>=v[1] and b[3]<=v[3]:
+            tap((b[0]+b[2])//2,(b[1]+b[3])//2);return
+        start=v[3]-10 if b[3]>v[3] else v[1]+10
+        end=max(v[1]+10,start-100) if b[3]>v[3] else min(v[3]-10,start+100)
+        swipe(220,start,end);time.sleep(.15)
+    raise AssertionError('Attachment item is not reachable: '+key)
 def history_action(key):
     x1,y1,x2,y2=state()["history_actions"][key]
     tap((x1+x2)//2,(y1+y2)//2)

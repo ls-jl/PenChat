@@ -8,12 +8,13 @@ parser.add_argument('--back-navigation',action='store_true')
 parser.add_argument('--history-time',action='store_true')
 parser.add_argument('--message-edit',action='store_true')
 parser.add_argument('--reply-actions',action='store_true')
+parser.add_argument('--session-info',action='store_true',help='Run focused conversation statistics acceptance')
 parser.add_argument('--archive-reader',action='store_true',help='Run focused archive-reader acceptance, with normal data isolation/restoration')
 args=parser.parse_args();SERIAL=args.serial
-assert sum((args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader))<=1,'Run isolated feature fixtures separately'
+assert sum((args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info))<=1,'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
-class ArchiveReaderComplete(Exception):
+class FeatureComplete(Exception):
     """Successful scoped run; shared finally still restores both user directories."""
 
 def shell(command):return subprocess.check_output(['adb','-s',SERIAL,'shell',command],text=True).replace('\r','').strip()
@@ -131,6 +132,12 @@ try:
         messageServer,messageHandler,files=message_edit_flow.prepare(ROOT,OUT/'fixture',DATA,SERIAL)
         shell('mkdir -p '+DATA+'/assets')
         for source,target in files:subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
+    if args.session_info:
+        import session_info_flow
+        messageServer,messageHandler,files=session_info_flow.prepare(ROOT,OUT/'fixture',DATA,SERIAL)
+        shell('mkdir -p '+DATA+'/assets')
+        for source,target in files:
+            subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
     if args.archive_reader:
         import shutil
         sys.path.insert(0,str(ROOT/'tests'))
@@ -186,11 +193,15 @@ try:
     shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --drag-hold '+str(sx)+' '+str(sy)+' '+str(ex)+' '+str(ey)+' 450 200 2>/dev/null')
     wait(lambda:not state()['settings']['scrolling'])
     assert state()['settings']['heading'][3]<0;capture('settings-scrolled')
+    if args.session_info:
+        session_info_flow.run(globals(),messageHandler)
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
     if args.archive_reader:
         import archive_reader_flow
         archive_reader_flow.run(globals())
         assert shell('pidof miniapp')==host;result['host_unchanged']=True
-        raise ArchiveReaderComplete()
+        raise FeatureComplete()
     if args.reply_actions:
         tap(40,32)
         if state()['navigation_open']:tap(W-30,100)
@@ -349,7 +360,7 @@ try:
         blocked(False);side_back();wait(lambda:not pid() or not state()['visible'])
         result['root_system_exit']=True
     assert shell('pidof miniapp')==host;result['host_unchanged']=True
-except ArchiveReaderComplete:
+except FeatureComplete:
     pass
 except BaseException:
     if pid():

@@ -119,7 +119,9 @@ void paint(lv_event_t *event) {
     lv_draw_arc(layer, &d);
   };
   const auto &k = icon->name;
-  if(k=="copy") {
+  if(k=="info") {
+    circle(0,0,10);line(0,-1,0,6);rect(-1,-7,2,2,LV_RADIUS_CIRCLE,true);
+  } else if(k=="copy") {
     rect(-4,-5,13,15,2);line(-8,5,-8,-9);line(-8,-9,4,-9);
   } else if(k=="retry") {
     arc(35,320,9);line(7,-6,7,-12);line(7,-6,1,-6);

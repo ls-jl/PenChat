@@ -288,6 +288,7 @@ lv_obj_t *App::icon(lv_obj_t *parent, const std::string &kind, int x, int y,
   return object;
 }
 void App::closeAttachments() {
+  attachmentEntries_.clear();
   popupKind_.clear();
   if (!attachments_)
     return;
@@ -318,16 +319,23 @@ void App::toggleAttachments() {
   lv_obj_set_scroll_momentum(menu, false);
   std::vector<std::string> names{"拍照", "相册", "模型", "推理强度"};
   std::vector<std::string> icons{"camera", "album", "settings", "gauge"};
+  std::vector<std::string> ids{"camera", "album", "models", "effort", "compress", "summary"};
   names.push_back("压缩上下文");
   icons.push_back("history");
   names.push_back("查看上下文摘要");
   icons.push_back("history");
   if (db_.settings().value("presets_enabled", false)) {
+    ids.push_back("presets");
     names.push_back("预设");
     icons.push_back("settings");
   }
+  const int infoIndex = int(names.size());
+  ids.push_back("session_info");
+  names.push_back("会话信息");
+  icons.push_back("info");
   for (int i = 0; i < int(names.size()); ++i) {
-    auto action = [this, i] {
+    auto action = [this, i, infoIndex] {
+      if (i == infoIndex) { openSessionInfo(); return; }
       if (i == 0)
         show("camera");
       else if (i == 1)
@@ -351,8 +359,9 @@ void App::toggleAttachments() {
       }
     };
     icon(menu, icons[i], 4, 4 + i * 44, 44, 44, action, theme::surface);
-    button(menu, names[i], 48, 4 + i * 44, 208, 44, action, theme::surface,
-           LV_TEXT_ALIGN_LEFT);
+    auto entry = button(menu, names[i], 48, 4 + i * 44, 208, 44, action, theme::surface,
+                        LV_TEXT_ALIGN_LEFT);
+    attachmentEntries_[ids[i]] = entry;
   }
 }
 Json App::currentModel() {
@@ -903,6 +912,7 @@ void App::clear() {
   resetPull();
   if (touchDown_)
     input_.cancel();
+  attachmentEntries_.clear();
   attachments_ = modal_ = nullptr;
   popupKind_.clear();
   if (chatControls_)
@@ -978,6 +988,8 @@ void App::build() {
     archivesPage();
   else if (view_ == "archive_chat")
     archiveReaderPage();
+  else if (view_ == "session_info")
+    sessionInfoPage();
   else if (view_ == "model")
     modelPage();
   else if (view_ == "scan")
@@ -1033,6 +1045,9 @@ void App::build() {
   if (imageViewer_) lv_obj_move_foreground(imageViewer_);
 }
 void App::show(const std::string &view) {
+  if (view_ == "session_info" && view != view_) {
+    ++sessionInfoGeneration_; sessionInfoPending_ = false;
+  }
   closeImageViewer(false);
   if(view_=="archive_chat"&&view!="archive_chat"){archiveReaderId_.clear();archiveReaderMessages_.clear();archiveReasoningOverrides_.clear();}
   if (view_ == "settings" && body_)
@@ -2569,6 +2584,7 @@ void App::shutdown() {
   resetBack();
   closeImageViewer(false);
   cancelContext();
+  if (sessionInfoWorker_.joinable()) sessionInfoWorker_.join();
   replyCancel_=true;if(replyWorker_.joinable())replyWorker_.join();replyBusy_=false;
   if (transfer_)
     transfer_->stop();
@@ -2764,6 +2780,7 @@ void App::tick() {
     if (saved.type == "message_saved") {
       const auto session = saved.data.value("session", std::string());
       const auto message = saved.data.value("message", std::string());
+      if (view_ == "session_info" && sessionInfoSession_ == session) refreshSessionInfo();
       if (saved.data.value("status", std::string()) == "complete") {
         historyDirty_=true; scheduleTitle(session, message);
       }
@@ -2839,6 +2856,7 @@ void App::tick() {
       continue;
     }
     if(replyEvent(e))continue;
+    if (sessionInfoEvent(e)) continue;
     if(messageEvent(e))continue;
     if (e.type == "image_view_close") {closeImageViewer();continue;}
     if (e.type == "image_view_request") {
@@ -3154,6 +3172,8 @@ Json App::diagnostics() const {
        {"time",time?lv_label_get_text(time):""}};
   }
   for(const auto &entry:historyActions_)historyActions[entry.first]=bounds(entry.second);
+  Json attachmentActions = Json::object();
+  for (const auto &entry : attachmentEntries_) attachmentActions[entry.first] = bounds(entry.second);
   Json archiveViews=Json::object();
   for(const auto &entry:archiveViewButtons_){lv_area_t a;lv_obj_get_coords(entry.second,&a);archiveViews[entry.first]={a.x1,a.y1,a.x2,a.y2};}
 
@@ -3187,6 +3207,10 @@ Json App::diagnostics() const {
       {"capsule_endcap_x2", 2 * capsule.x2 - (capsule.y2 - capsule.y1)},
       {"capsule_center_y2", capsule.y1 + capsule.y2},
       {"navigation_open", navigationOpen_},
+      {"session_info", view_ == "session_info" ? sessionInfoData_ : Json::object()},
+      {"session_info_busy", sessionInfoBusy_},
+      {"attachment_actions", attachmentActions},
+      {"attachment_viewport", attachmentEntries_.empty() ? Json() : bounds(lv_obj_get_parent(attachmentEntries_.begin()->second))},
       {"archive_views",archiveViews},
       {"archive_reader",{{"id",archiveReaderId_},{"offset",archiveReaderOffset_},{"messages",archiveReaderMessages_}}},
       {"navigation_active_x", navigationActive_ ? (active.x1 + active.x2) / 2 : -1},

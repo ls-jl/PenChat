@@ -159,6 +159,7 @@ Json requestBody(const Json &m, Json input, bool streaming) {
   Json body = {{"model", m.value("name", std::string())},
                {"stream", streaming}};
   if (completions(m)) {
+    if (streaming) body["stream_options"] = {{"include_usage", true}};
     Json messages = Json::array();
     auto prompt = m.value("system_prompt", std::string());
     if (!prompt.empty()) messages.push_back({{"role", "system"}, {"content", prompt}});

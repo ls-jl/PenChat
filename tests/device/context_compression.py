@@ -54,7 +54,7 @@ def type_draft(text):
     d.tap(880,236);d.wait(lambda:not d.state()['editor']['active'])
     assert d.state()['draft_length']==len(text)
 def manual():
-    d.to_chat();d.tap(128,232);swipe(250,190,35);d.tap(240,86)
+    d.to_chat();d.attachment_action("compress",swipe)
 def seed(api='responses',following=False,rounds=40,budget=16384):
     close_app()
     # DATA is a disposable directory; originals are moved intact to SAVED.
@@ -193,7 +193,7 @@ def run():
         d.tap(300,166);d.tap(300,192);d.tap(300,64);d.page_action("保存");d.view('presets')
         d.to_chat()
         for y,expected in [(138,'b'),(66,'')]:
-            d.tap(128,232);swipe(250,190,35);d.tap(240,174);d.wait(lambda:d.state()['popup']=='presets')
+            d.attachment_action('presets',swipe);d.wait(lambda:d.state()['popup']=='presets')
             d.tap(350,y);assert d.state()['session_preferences']['compression_model_id']==expected
             assert d.state()['active_model']=='a' and d.state()['draft_length']==4
         RESULTS.append('preset-explicit-model-and-clear-to-follow')

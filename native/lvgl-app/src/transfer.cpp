@@ -1,6 +1,7 @@
 #include "transfer.hpp"
 #include "chat_time.hpp"
 #include "context.hpp"
+#include "usage.hpp"
 #include "presets.hpp"
 #include <cstdio>
 #include <cstring>
@@ -291,6 +292,8 @@ Json portableContextRows(const Json &conversation) {
 Json publicMetadata(const Json &o) {
   auto out=kept(o, {"reasoning_observed", "reasoning_duration_ms", "reasoning_complete",
                   "reasoning_timing_source", "imported_reference"});
+  const auto usage = normalizedUsage(o.value("usage", Json::object()));
+  if (!usage.empty()) out["usage"] = usage;
   auto time=publicTimeline(o.value("timeline",Json::object()));
   if(!time.empty())out["timeline"]=time;
   return out;

@@ -20,10 +20,8 @@ with tempfile.TemporaryDirectory(prefix='penchat-presets-') as directory:
             db.execute('insert into app_settings(key,value_json,updated_at) values(?,?,1)',(key,json.dumps(value)))
     app=Native(binary,p)
     def picker():
-        app.tap(128,232)
-        drag(app,[190,150,110,70,20],x=250)
+        app.attachment_action('presets')
         snapshot(app,'preset-menu-scroll')
-        app.tap(220,174)
         assert app.diag()['popup']=='presets',app.diag()['popup']
     def choose(row):
         picker();app.tap(350,66+row*72)

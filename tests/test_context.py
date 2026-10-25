@@ -60,10 +60,7 @@ def wait_idle(app):
     wait_for(lambda:not app.diag()['compressing'] and not app.diag()['generating'],30)
 
 def manual(app):
-    app.to_chat();app.tap(128,232)
-    drag(app,[190,155,125,95,65,35],x=250)
-    # Six rows, scroll bottom 84px: compression is second to last.
-    app.tap(240,124)
+    app.to_chat();app.attachment_action("compress")
 
 def checkpoint(p,s='s'):
     with sqlite3.connect(p/'penchat.db') as db:

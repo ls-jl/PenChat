@@ -32,7 +32,7 @@ if __name__=='__main__':
                     db.execute('insert into app_settings(key,value_json,updated_at) values(?,?,1)',(key,json.dumps(value)))
             push(p/'penchat.db',d.DATA+'/penchat.db')
         start();assert d.state()['effective_effort']=='api_default'
-        d.tap(128,232);move(250,182,0,-72,0);time.sleep(.3);d.capture('presets-plus-scroll');d.tap(220,174);d.capture('presets-after-tap')
+        d.attachment_action('presets',lambda x,start,end:move(x,start,0,end-start,0));d.capture('presets-after-tap')
         assert d.state()['popup']=='presets'
         d.capture('presets-menu')
         d.tap(350,138)

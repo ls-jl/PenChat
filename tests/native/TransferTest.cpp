@@ -87,6 +87,7 @@ int main(int argc, char **argv) {
                    "complete", Json(),
                    {{"reasoning_observed", true},
                     {"reasoning_duration_ms", 4500},
+                    {"usage", {{"input_tokens", 1000}, {"output_tokens", 100}, {"total_tokens", 1100}, {"cached_tokens", 700}, {"reasoning_tokens", 30}, {"private", "MUST_NOT_EXPORT_USAGE"}}},
                     {"reasoning_complete", true},
                     {"response_reasoning_items",
                      Json::array({{{"encrypted_content", "OPAQUE_DO_NOT_EXPORT"}}})}});
@@ -134,6 +135,9 @@ int main(int argc, char **argv) {
       db.query("SELECT * FROM chat_messages WHERE session_id=? ORDER BY seq", {other});
   assert(rows.size() == 4);
   assert(rows[1]["reasoning_text"] == "公开思考");
+  const auto importedUsage = objectField(rows[1], "metadata_json")["usage"];
+  assert(importedUsage["cached_tokens"] == 700 && importedUsage["total_tokens"] == 1100);
+  assert(!importedUsage.contains("private"));
   assert(objectField(rows[1], "metadata_json")["reasoning_duration_ms"] == 4500);
   assert(!objectField(rows[1], "metadata_json").contains("response_reasoning_items"));
   assert(db.sessionPreferences(other)["system_prompt"] == "系统提示词");

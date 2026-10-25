@@ -433,6 +433,16 @@ class App {
   void contextProgress(const std::string &text);
   void contextEvent(Event &event);
   void contextDetails();
+  void openSessionInfo();
+  void refreshSessionInfo();
+  void sessionInfoPage();
+  bool sessionInfoEvent(const Event &);
+  std::thread sessionInfoWorker_;
+  bool sessionInfoBusy_ = false, sessionInfoPending_ = false;
+  uint64_t sessionInfoGeneration_ = 0;
+  std::string sessionInfoSession_;
+  Json sessionInfoData_ = Json::object();
+  std::map<std::string, lv_obj_t *> attachmentEntries_;
   void sendPrepared(Json model, Json input, const std::string &retryId,
                     const std::string &draft);
   void stopNetwork();

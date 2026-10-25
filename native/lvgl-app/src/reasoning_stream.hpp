@@ -1,5 +1,6 @@
 #pragma once
 #include "common.hpp"
+#include "usage.hpp"
 #include <algorithm>
 #include <map>
 namespace penchat {
@@ -10,6 +11,7 @@ class ReasoningStream {
   bool observed_ = false, finished_ = false;
   std::map<std::pair<int, int>, std::string> text_, reasoning_;
   std::map<int, Json> items_;
+  Json usage_ = Json::object();
   static std::string
   flatten(const std::map<std::pair<int, int>, std::string> &parts) {
     std::string out;
@@ -62,6 +64,11 @@ class ReasoningStream {
 public:
   explicit ReasoningStream(int64_t requested) : requested_(requested) {}
   void consume(const Json &j, const std::string &type, int64_t now) {
+    auto rawUsage = j.value("usage", Json());
+    if (j.contains("response") && j["response"].is_object() && j["response"].contains("usage"))
+      rawUsage = j["response"]["usage"];
+    const auto usage = normalizedUsage(rawUsage);
+    for (auto it = usage.begin(); it != usage.end(); ++it) usage_[it.key()] = it.value();
     int index = j.value("output_index", 0);
     if (type == "response.output_item.added" ||
         type == "response.output_item.done") {
@@ -153,6 +160,7 @@ public:
     for (const auto &entry : items_)
       items.push_back(entry.second);
     metadata["response_reasoning_items"] = items;
+    if (!usage_.empty()) metadata["usage"] = usage_;
     return {{"output", flatten(text_)},
             {"reasoning", flatten(reasoning_)},
             {"metadata", metadata}};
