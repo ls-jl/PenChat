@@ -5,6 +5,7 @@ ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text())
 parser=argparse.ArgumentParser();parser.add_argument('--serial',required=True)
 parser.add_argument('--back-navigation',action='store_true')
+parser.add_argument('--photo-gestures',action='store_true',help='Real multitouch viewer and ORANGE camera/crop acceptance')
 parser.add_argument('--composer-touch',action='store_true',help='Check expanded attachment target and neighboring text entry')
 parser.add_argument('--history-time',action='store_true')
 parser.add_argument('--message-edit',action='store_true')
@@ -12,7 +13,7 @@ parser.add_argument('--reply-actions',action='store_true')
 parser.add_argument('--session-info',action='store_true',help='Run focused conversation statistics acceptance')
 parser.add_argument('--archive-reader',action='store_true',help='Run focused archive-reader acceptance, with normal data isolation/restoration')
 args=parser.parse_args();SERIAL=args.serial
-assert sum((args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch))<=1,'Run isolated feature fixtures separately'
+assert sum((args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures))<=1,'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 class FeatureComplete(Exception):
@@ -151,7 +152,7 @@ try:
         shell('mkdir -p '+DATA+'/assets')
         for source,target in [(sample/'penchat.db',DATA+'/penchat.db'),(sample/'assets/original.png',DATA+'/assets/original.png')]:
             subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
-    if args.back_navigation or args.history_time:
+    if args.back_navigation or args.history_time or args.photo_gestures:
         sys.path.insert(0,str(ROOT/'tests'))
         from test_image_viewer import fixture
         from test_history_time import seed_history
@@ -162,8 +163,10 @@ try:
         if args.history_time:seed_history(sample,1)
         else:fixture(sample)
         files=[(sample/'penchat.db',DATA+'/penchat.db')]
-        if args.back_navigation:
+        if args.back_navigation or args.photo_gestures:
             with sqlite3.connect(sample/'penchat.db') as db:
+                if args.photo_gestures:
+                    for key,value in [('camera_auto_orientation','false'),('camera_orientation','0')]:db.execute('insert or replace into app_settings values(?,?,1)',(key,value))
                 db.execute('update message_assets set stored_path=?,original_path=?',(DATA+'/assets/original.png',)*2)
             shell('mkdir -p '+DATA+'/assets');files.append((sample/'assets/original.png',DATA+'/assets/original.png'))
         for source,target in files:
@@ -182,6 +185,11 @@ try:
             p=state()['touch']
             return p if abs(p.get('x',-100)-x)<=1 and abs(p.get('y',-100)-y)<=1 else None
         p=wait(mapped);result['corners'].append([p['x'],p['y']])
+    if args.photo_gestures:
+        import photo_gestures_flow
+        photo_gestures_flow.run(globals())
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
     # Near the former plus/editor boundary, real taps must open attachments.
     for x,y in [(154,H-34),(158,H-34),(154,H-12),(108,H-56)]:
         tap(x,y);s=state()
@@ -264,7 +272,9 @@ try:
         assert photo
         before=state();tap(photo['x']+photo['width']//2,photo['y']+photo['height']//2)
         wait(lambda:state()['image_viewer'].get('loaded'));blocked(True);capture('back-image-fit')
-        tap(W-40,114);tap(W-40,114);pan=state()['image_viewer']['pan']
+        sx,sy=raw(W//2,H//2)
+        shell('for i in 1 2; do PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap '+str(sx)+' '+str(sy)+' 2>/dev/null; done')
+        pan=state()['image_viewer']['pan']
         drag(W//3,H//2,W//3+W//5,H//2)
         assert state()['image_viewer']['open'] and state()['image_viewer']['pan']!=pan
         capture('back-image-pan');side_back();wait(lambda:not state()['image_viewer']['open'])

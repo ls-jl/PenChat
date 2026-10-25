@@ -79,6 +79,7 @@ public:
 };
 struct Screen {
   int width = 0, height = 0, rotation = 0, xoffset = 0, yoffset = 0;
+  int touchRotation = 0, touchXoffset = 0, touchYoffset = 0;
   static Screen fromConfig(const Json &cfg);
   Json descriptor() const;
 };

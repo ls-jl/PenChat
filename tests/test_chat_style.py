@@ -6,11 +6,10 @@ import test_lvgl_app as transport
 
 
 def snapshot(app, name):
-    app.process.send_signal(signal.SIGUSR1)
-    time.sleep(.15)
+    from image_gestures import capture
     output = ROOT / '.work/chatgpt-style'
     output.mkdir(parents=True, exist_ok=True)
-    (output / (name + '.png')).write_bytes((app.directory / 'lvgl-diagnostic.png').read_bytes())
+    capture(app, output / (name + '.png'))
 
 
 def drag(app, ys, release=True, x=500):

@@ -1,3 +1,4 @@
+#include "image_input.hpp"
 #include "accelerometer.h"
 #include "editor.hpp"
 #include "editor_layout.hpp"
@@ -28,6 +29,14 @@ int main(int argc, char **argv) {
       const auto screen = Screen::fromConfig(cfg);
       assert(screen.width == size.first && screen.height == size.second && screen.rotation == 270);
       assert(screen.yoffset == 107 && screen.descriptor()["width"] == size.first);
+      assert(screen.touchRotation==270);
+      for(int rotation:{0,90,180,270}) {
+        auto touch=screen;touch.touchRotation=rotation;touch.touchXoffset=113;touch.touchYoffset=7;
+        const int x=37,y=49;
+        const int rx=rotation==270?y:rotation==180?touch.width-1-x:rotation==90?touch.height-1-y:x;
+        const int ry=rotation==270?touch.width-1-x:rotation==180?touch.height-1-y:rotation==90?x:y;
+        assert(logicalImageTouch(touch,rx+113,ry+7)==std::make_pair(x,y));
+      }
       const EditorLayout l(screen.width, screen.height);
       assert(l.textX+l.textWidth == screen.width-8 && l.actionsY+44 == screen.height-8);
       assert(l.textBottom()+6 == l.actionsY && l.keyWidth >= 44 && l.rowHeight >= 44);

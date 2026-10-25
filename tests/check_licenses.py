@@ -24,6 +24,8 @@ for item in json.loads((ROOT / 'licenses/manifest.json').read_text())['files']:
     source = item['source']
     if source.startswith('.deps/') and (ROOT / source).is_file():
         assert hashlib.sha256((ROOT / source).read_bytes()).hexdigest() == item['sha256'], source
+adaptation = json.loads((ROOT / 'native/camera/stb-adaptation.json').read_text())
+assert hashlib.sha256((ROOT / 'native/camera' / adaptation['file']).read_bytes()).hexdigest() == adaptation['adapted_sha256']
 if args.amr:
     with zipfile.ZipFile(args.amr) as archive:
         expected = {'assets/licenses/' + name for name in payload}

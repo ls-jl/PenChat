@@ -33,14 +33,23 @@ def exercise():
     before=open_photo();state=d.state();w=state['width']
     assert state['image_viewer']['frame']==[1024,768]
     d.capture('image-viewer-fit')
-    d.tap(w-40,114);d.tap(w-40,114)
-    assert d.state()['image_viewer']['zoom']==4
-    initial=d.state()['image_viewer']['pan']
-    d.adb('/tmp/penchat-ui-tap --drag-hold 243 559 193 759 450 200 2>/dev/null')
+    screen=json.loads(d.adb('cat /etc/miniapp/resources/cfg.json'))['screen'];h=screen['height']
+    def raw(x,y):
+        rot=screen.get('tp_direction',screen.get('direction',0))
+        rx,ry=(y,w-1-x) if rot==270 else (w-1-x,h-1-y) if rot==180 else (h-1-y,x) if rot==90 else (x,y)
+        return round(rx+screen.get('tp_xoffset',0)),round(ry+screen.get('tp_yoffset',0))
+    def pinch(scale):
+        args=[]
+        for x,y in [(w/2-50,h/2),(w/2+50,h/2),(w/2-50*scale,h/2),(w/2+50*scale,h/2)]:args.extend(raw(x,y))
+        d.adb('/tmp/penchat-ui-tap --pinch '+' '.join(map(str,args))+' 2>/dev/null');time.sleep(.25)
+    pinch(4);assert d.state()['image_viewer']['zoom']>3.8
+    assert d.state()['image_viewer']['touch_peak']==2
+    initial=d.state()['image_viewer']['pan'];p=raw(w//2,h//2);q=raw(w//2-40,h//2-25)
+    d.adb('/tmp/penchat-ui-tap --drag-hold '+' '.join(map(str,p+q))+' 450 200 2>/dev/null')
     assert d.state()['image_viewer']['pan']!=initial
     assert not d.state()['pull_active'] and not d.state()['editor']['active']
     d.capture('image-viewer-zoom-pan')
-    d.tap(w-70,166);assert d.state()['image_viewer']['zoom']==1
+    pinch(.12);d.wait(lambda:d.state()['image_viewer']['zoom']==1)
     # Keep the inter-tap interval on-device; two adb round trips can exceed
     # the double-tap window even though both individual taps are valid.
     d.adb('for i in 1 2; do /tmp/penchat-ui-tap 243 559 2>/dev/null; done')

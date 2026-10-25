@@ -3,6 +3,7 @@
 import http.server,json,os,pathlib,signal,sqlite3,struct,tempfile,threading,time,zlib
 import test_lvgl_app as t
 from test_reasoning_ui import seed
+from image_gestures import pinch,send,start,drag
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
 OUT=t.ROOT/'.work/image-viewer';OUT.mkdir(parents=True,exist_ok=True)
 t.port=1
@@ -29,10 +30,8 @@ def fixture(p,kind='photo',port=1):
         db.execute("insert into chat_messages(id,session_id,seq,role,status,message_type,output_text,created_at,updated_at) values('reply','fixture',2,'assistant','complete','text','已收到图片。',1,1)")
 
 def shot(a,name):
-    file=a.directory/'lvgl-diagnostic.png'
-    if file.exists():file.unlink()
-    a.process.send_signal(signal.SIGUSR1);t.wait_for(file.exists)
-    (OUT/(name+'.png')).write_bytes(file.read_bytes())
+    from image_gestures import capture
+    capture(a,OUT/(name+'.png'))
 
 def open_photo(a):
     def visible():
@@ -63,7 +62,9 @@ def run(w,h):
             clicked=open_photo(a);t.wait_for(lambda:a.diag()['image_viewer']['loaded'])
             assert a.diag()['image_viewer']['frame']==[1024,768]
             shot(a,f'{w}-fit')
-            a.tap(w-40,114);a.tap(w-40,114);assert a.diag()['image_viewer']['zoom']==4
+            pinch(a,w/2,h/2,scale=4);assert abs(a.diag()['image_viewer']['zoom']-4)<.01
+            assert a.diag()['image_viewer']['viewport']==[0,0,w,h]
+            assert a.diag()['image_viewer']['touch_peak']==2 and a.diag()['image_viewer']['pinch_updates']>=8
             pan=a.diag()['image_viewer']['pan']
             a.send('touch',x=400,y=130,pressed=True)
             for x,y in [(350,100),(280,80),(160,60)]:a.send('touch',x=x,y=y,pressed=True);time.sleep(.025)
@@ -71,7 +72,10 @@ def run(w,h):
             assert a.diag()['image_viewer']['pan']!=pan
             assert not a.diag()['pull_active'] and not a.diag()['editor']['active']
             shot(a,f'{w}-zoom-pan')
-            a.tap(w-70,166);assert a.diag()['image_viewer']['zoom']==1
+            pinch(a,w/2,h/2,scale=.12,release=False)
+            assert a.diag()['image_viewer']['zoom']==.75
+            shot(a,f'{w}-underscale');send(a,[]);t.wait_for(lambda:a.diag()['image_viewer']['zoom']==1)
+            shot(a,f'{w}-auto-fit')
             a.tap(400,130);a.tap(400,130);assert a.diag()['image_viewer']['zoom']==2
             a.send('touch',x=400,y=130,pressed=True);a.send('touch',x=200,y=80,pressed=True)
             a.send('touch',x=200,y=80,pressed=False,cancelled=True)
@@ -110,6 +114,33 @@ def stream_test():
             assert a.read_messages()[-1][1]=='complete'
         finally:Stream.release.set();a.close();server.shutdown()
 
+def guard_cases():
+    with tempfile.TemporaryDirectory(prefix='penchat-image-guards-') as folder:
+        p=pathlib.Path(folder);fixture(p);a=t.Native(BINARY,p,official_adapter=False)
+        try:
+            open_photo(a);t.wait_for(lambda:a.diag()['image_viewer']['loaded'])
+            pinch(a,480,133,scale=2,release=False);old=a.image_serial;zoom=a.diag()['image_viewer']['zoom']
+            for _ in range(3):a.send('visibility',visible=False);a.send('visibility',visible=True)
+            send(a,[(11,200,130),(22,700,130)],gesture=old);send(a,[],gesture=old)
+            assert a.diag()['image_viewer']['zoom']==zoom
+            pinch(a,480,133,scale=1.2)
+            assert a.diag()['image_viewer']['zoom']>zoom
+            start(a);send(a,[(1,400,130),(2,500,130),(3,600,130)])
+            send(a,[(1,922,30)]);send(a,[])
+            assert a.diag()['image_viewer']['open'] and a.diag()['image_touch']['mode']==0
+            a.tap(922,30);t.wait_for(lambda:not a.diag()['image_viewer']['open'])
+            s=a.diag()
+            if s['to_bottom_visible']:a.tap(s['to_bottom_x']+22,s['to_bottom_y']+22)
+            t.wait_for(lambda:a.diag()['toolbar_y']==s['height']-58)
+            a.tap(500,232);t.wait_for(lambda:a.diag()['editor']['active'])
+            if a.diag()['editor']['chinese']:
+                k=next(k for k in a.diag()['editor']['keys'] if k['key']=='language');a.tap(k['x'],k['y'])
+            k=next(k for k in a.diag()['editor']['keys'] if k['key']=='a');before=a.diag()['editor']['length']
+            start(a);send(a,[(1,k['x'],k['y']),(2,k['x']+50,k['y'])]);send(a,[(1,k['x'],k['y'])]);send(a,[])
+            assert a.diag()['editor']['length']==before
+            a.tap(k['x'],k['y']);assert a.diag()['editor']['length']==before+1
+        finally:a.close()
+
 if __name__=='__main__':
     for w,h in [(960,266),(936,280)]:run(w,h)
     for kind in ('scan','missing'):
@@ -120,10 +151,10 @@ if __name__=='__main__':
                 if kind=='scan':
                     t.wait_for(lambda:a.diag()['image_viewer']['loaded'])
                     assert a.diag()['image_viewer']['frame']==[12000,32]
-                    for _ in range(4):a.tap(920,114)
+                    for _ in range(4):pinch(a,480,133,scale=2)
                     assert a.diag()['image_viewer']['zoom']==16
                 else:t.wait_for(lambda:a.diag()['image_viewer']['failed'])
                 shot(a,kind);a.tap(922,30);t.wait_for(lambda:not a.diag()['image_viewer']['open'])
             finally:a.close()
-    stream_test()
-    print('Image viewer: original sources, full-screen fit, zoom/pan, double tap, cancellation, lifecycle, draft/scroll preservation, repeated close and streaming rebuilds passed.')
+    stream_test();guard_cases()
+    print('Image viewer: original sources, full-screen fit, pinch/pan, underscale auto-fit, double tap, cancellation, lifecycle, draft/scroll preservation, repeated close and streaming rebuilds passed.')

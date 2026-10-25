@@ -97,6 +97,11 @@ Screen Screen::fromConfig(const Json &cfg) {
   s.rotation = integer("direction", 0, 270, false);
   s.xoffset = integer("xoffset", -4096, 4096, false);
   s.yoffset = integer("yoffset", -4096, 4096, false);
+  s.touchRotation = c.contains("tp_direction") ? integer("tp_direction",0,270,false) : s.rotation;
+  s.touchXoffset = integer("tp_xoffset",-4096,4096,false);
+  s.touchYoffset = integer("tp_yoffset",-4096,4096,false);
+  if(s.touchRotation!=0 && s.touchRotation!=90 && s.touchRotation!=180 && s.touchRotation!=270)
+    throw std::runtime_error("Invalid touch rotation");
   if (s.rotation != 0 && s.rotation != 90 && s.rotation != 180 &&
       s.rotation != 270)
     throw std::runtime_error("Invalid screen rotation");

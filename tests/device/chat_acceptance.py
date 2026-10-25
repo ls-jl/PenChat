@@ -144,19 +144,26 @@ if __name__=='__main__':
         device.open_settings();device.setting("image_auto_send");device.to_chat()
         device.tap(128,232);device.tap(200,38);device.view('camera');time.sleep(.5);device.tap(888,133);device.view('crop')
         state=device.state();assert not state['crop_save_album']
-        w,h=state['crop_preview'];x=86+12+(630-w)//2+3;y=(266-h)//2+3
-        device.adb('/tmp/penchat-ui-tap '+str(y+113)+' '+str(959-x)+' '+str(y+153)+' '+str(909-x)+' 25 2>/dev/null')
-        state=device.state();rect=state['crop_rect'];assert rect[0]>=45 and rect[1]>=35,(rect,state['touch'])
+        device.wait(lambda:device.state()['crop_loaded'])
         def crop_drag(px,py,dx,dy):
-            device.adb('/tmp/penchat-ui-tap '+str(py+113)+' '+str(959-px)+' '+str(py+dy+113)+' '+str(959-px-dx)+' 25 2>/dev/null')
-        ox,oy=x-3,y-3;before=rect[:]
-        crop_drag(ox+rect[0]+2,oy+rect[1]+rect[3]//2,12,0)
-        rect=device.state()['crop_rect'];assert rect[0]==before[0]+12 and rect[2]==before[2]-12,rect
-        before=rect[:];crop_drag(ox+rect[0]+rect[2]//2,oy+rect[1]+rect[3]//2,-20,-15)
-        rect=device.state()['crop_rect'];assert rect==[before[0]-20,before[1]-15,before[2],before[3]],rect
+            cfg=json.loads(device.adb('cat /etc/miniapp/resources/cfg.json'))['screen'];W,H=cfg['width'],cfg['height']
+            def raw(x,y):
+                rot=cfg.get('tp_direction',cfg.get('direction',0))
+                a,b=(y,W-1-x) if rot==270 else (W-1-x,H-1-y) if rot==180 else (H-1-y,x) if rot==90 else (x,y)
+                return round(a+cfg.get('tp_xoffset',0)),round(b+cfg.get('tp_yoffset',0))
+            p=raw(px,py);q=raw(px+dx,py+dy)
+            device.adb('/tmp/penchat-ui-tap --drag-hold '+' '.join(map(str,p+q))+' 450 200 2>/dev/null')
+        state=device.state();x,y,w,h=state['crop_selection'];ox,oy=state['crop_viewport_bounds'][:2]
+        pan=state['crop_pan'];crop_drag(ox+x+2,oy+y+2,50,40)
+        state=device.state();assert state['crop_pan']==pan
+        frame=state['crop_selection'];x,y,w,h=frame
+        crop_drag(ox+x+w/2,oy+y+h/2,20,15)
+        assert device.state()['crop_selection']==frame and device.state()['crop_pan']!=pan
         device.capture('camera-crop')
-        # Save the confirmed crop to the shared album, but never auto-send it.
-        count=len(requests());device.tap(830,164);device.tap(794,230);device.view('chat')
+        count=len(requests())
+        for key in ['album','confirm']:
+            b=device.state()['crop_actions'][key];device.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+        device.view('chat')
         assert len(requests())==count
         mode('unicode');device.tap(908,232);wait_reply(5,'error');device.wait(lambda:device.state()['modal'])
         mode('ok');device.tap(770,225);wait_reply(5,'complete');assert requests()[-1]['has_image'];results.append('camera-crop-pending-and-album')

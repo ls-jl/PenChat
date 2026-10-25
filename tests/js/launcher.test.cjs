@@ -188,15 +188,29 @@ test('native IME rejects lifecycle-stale queries and propagates candidate revisi
   assert.equal(result.revision, 7); assert.equal(result.sequence, 3); assert.equal(result.session, 's')
   f.page.dispose()
 })
-test('multitouch cancels and suppresses all fingers until the last release', async () => {
+test('multitouch forwards active IDs, preserves a gesture through finger changes and ends once', async () => {
   const f = fixture(); await f.page.boot(); f.calls.length = 0
-  const finger = { pageX: 10, pageY: 20 }
-  f.page.touchStart({ touches: [finger, finger] })
-  f.page.touchEnd({ touches: [finger], changedTouches: [finger] })
-  f.page.touchMove({ touches: [finger] })
-  f.page.touchEnd({ touches: [], changedTouches: [finger] })
-  assert.equal(f.calls.length, 1); assert.equal(f.calls[0][1].cancelled, true)
-  f.page.touchStart({ touches: [finger] }); assert.equal(f.calls.length, 2)
+  const one = { identifier: 4, pageX: 10, pageY: 20 }, two = { identifier: 8, pageX: 90, pageY: 20 }
+  f.page.touchStart({ touches: [one] })
+  f.page.touchStart({ touches: [one, two] })
+  f.page.touchMove({ touches: [two, one] })
+  f.page.touchEnd({ touches: [one], changedTouches: [two] })
+  f.page.touchEnd({ touches: [], changedTouches: [one] })
+  const events=f.calls.map(c=>c[1])
+  assert.deepEqual(events.map(e=>e.points.length),[1,2,2,1,0])
+  assert(events.every(e=>e.gesture===events[0].gesture && !e.cancelled))
+  assert.equal(events[2].points[0].id,events[1].points[1].id)
+  assert.equal(events[3].pressed,true);assert.equal(events[4].pressed,false)
+  f.page.touchStart({touches:[one]});assert.equal(f.calls.at(-1)[1].gesture,events[0].gesture+1)
+  f.page.touchCancel({touches:[one]});assert(f.calls.at(-1)[1].cancelled);assert.equal(f.calls.at(-1)[1].points.length,0)
+  f.page.dispose()
+})
+test('coordinate-only firmware points keep synthetic identities on reorder', async () => {
+  const f=fixture();await f.page.boot();f.calls.length=0
+  f.page.touchStart({touches:[{pageX:20,pageY:30},{pageX:100,pageY:30}]})
+  const first=f.calls.at(-1)[1].points.map(p=>p.id)
+  f.page.touchMove({touches:[{pageX:110,pageY:30},{pageX:10,pageY:30}]})
+  assert.deepEqual(Array.from(f.calls.at(-1)[1].points,p=>p.id),[first[1],first[0]])
   f.page.dispose()
 })
 test('official fallback receives independent multiline and UTF-16 cursor configuration', async () => {
@@ -232,4 +246,19 @@ test('missing Falcon geometry fails instead of supplying a fixed resolution', as
   const f=fixture();await f.page.boot();f.native.poll=()=>[{type:'booted'}];f.page.poll()
   assert.equal(f.page.running,false)
   assert(!f.calls.some(c=>c[0]==='send'&&c[1].type==='display.area'))
+})
+
+test('image workspace blocks top panel for crop handles and restores it on close/hide/failure', async () => {
+  const f=fixture();await f.page.boot()
+  f.page.navigationState({sequence:1,root:false,imageWorkspace:true})
+  assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],false)
+  f.options.onHide.call(f.page)
+  assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],true)
+  f.options.onShow.call(f.page)
+  assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],false)
+  f.page.navigationState({sequence:2,root:true,imageWorkspace:false})
+  assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],true)
+  f.page.navigationState({sequence:3,root:false,imageWorkspace:true});f.page.fail('fixture')
+  assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],true)
+  f.page.dispose()
 })

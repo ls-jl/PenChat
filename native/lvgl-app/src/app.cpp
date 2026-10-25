@@ -62,7 +62,7 @@ std::string basename(const std::string &p) {
 App::App(Database &db, Bridge &bridge, Display &display, Input &input,
          const Screen &s, std::string workspace, std::string dataDir,
          const std::string &fontPath, const std::string &resources)
-    : db_(db), bridge_(bridge), display_(display), input_(input), screen_(s),
+    : db_(db), bridge_(bridge), display_(display), input_(input), screen_(s), imageInput_(s),
       images_(events_), camera_(events_, join(dataDir, "camera-tmp"), workspace),
       scanner_(events_, workspace, dataDir),
       rich_(fontPath, resources,
@@ -923,6 +923,8 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  cropActions_.clear();cropViewport_=cropBitmap_=cropSelection_=nullptr;
+  if(!imageViewer_)imageGesture_={};
   settingsControls_.clear();
   settingsHeading_ = nullptr;
   pageHeading_ = pageHeader_ = pageContent_ = nullptr;
@@ -989,7 +991,7 @@ void App::build() {
     lv_obj_set_style_transform_rotation(screenObj_,(360-cameraAngle_)*10,0);
   }
   lv_obj_set_scrollable(screenObj_, false);
-  icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", 16, 8, 48, 48, [this] {
+  if(view_!="crop") icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", 16, 8, 48, 48, [this] {
     if (view_ == "chat") {
       if(!messageEdit_.empty())cancelMessageEdit();else toggleNavigation();
     }
@@ -997,7 +999,7 @@ void App::build() {
       goBack();
   });
   int w = screen_.width - 90;
-  body_ = photo && cameraAngle_%180 ? box(screenObj_,0,56,canvasW,canvasH-56)
+  body_ = view_=="crop" ? box(screenObj_,0,0,canvasW,canvasH) : photo && cameraAngle_%180 ? box(screenObj_,0,56,canvasW,canvasH-56)
                                       : box(screenObj_,86,0,w,screen_.height);
   lv_obj_set_scroll_dir(body_, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(body_, LV_SCROLLBAR_MODE_AUTO);
@@ -2574,6 +2576,10 @@ void App::suspend(bool value) {
   resetBack();
   backGesture_ = 0; backStart_ = Json::object();
   viewerPointer_ = viewerCanvasTouch_ = false; viewerLastTap_ = 0;
+  finishImageGesture(false);nonImageMulti_=false;
+  if(imageViewer_ || view_=="crop")imageGesture_.mode=-2;
+  if(directImageInput_)imageInputExitDue_=ticks()+80;
+  imageInput_.close();directImageInput_=false;
   if (value && imageStoreWorker_.joinable())
     imageStoreWorker_.join();
   if (value) {replyCancel_=true;if(contextRegenerating_)cancelContext();editorInterrupt();}
@@ -2638,8 +2644,9 @@ void App::shutdown() {
     db_.setting("export_cleanup_failed", true);
 }
 void App::routeTouch(const Json &m) {
-  if (imageViewer_) {
-    imageViewerTouch(m.value("x",0),m.value("y",0),m.value("pressed",false),m.value("cancelled",false));return;
+  if (imageViewer_ || view_=="crop") {
+    if(!imageTouch(m))input_.touch(m.value("x",0),m.value("y",0),m.value("pressed",false));
+    return;
   }
   if (editor_.active) { editorTouch(m.value("x",0), m.value("y",0), m.value("pressed",false), m.value("cancelled",false)); return; }
   const int x = m.value("x", 0), y = m.value("y", 0);
@@ -2754,10 +2761,20 @@ void App::handle(const Json &m) {
   if (type == "touch.debug")
     lastTouch_ = m;
   if (type == "touch" && visible_ && !keyboard_) {
-    if (imageStoreBusy_)
+    if (imageStoreBusy_) return;
+    const bool direct=m.value("source",std::string())=="direct-image";
+    if(!direct && directImageInput_) {
+      if(m.value("cancelled",false)){imageInput_.cancel();finishImageGesture(false);input_.cancel();resetBack();}
       return;
+    }
+    if(!direct && ticks()<imageInputExitDue_)return;
     lastTouch_ = m;
-    if (!backTouch(m)) routeTouch(m);
+    const bool multi=m.contains("points") && m["points"].is_array() && m["points"].size()>1;
+    if(multi || nonImageMulti_ || imageGesture_.multi || imageGesture_.mode<0) {
+      resetBack();
+      if(imageViewer_ || view_=="crop") routeTouch(m);
+      else {nonImageMulti_=m.value("pressed",false);auto cancel=m;cancel["cancelled"]=true;cancel["pressed"]=false;routeTouch(cancel);}
+    } else if (!backTouch(m)) routeTouch(m);
   } else if (type == "visibility")
     suspend(!m.value("visible", false));
   else if (type == "ime.result") {
@@ -2800,6 +2817,15 @@ void App::handle(const Json &m) {
   syncScanner();
 }
 void App::tick() {
+  const bool wanted=visible_ && !keyboard_ && (imageViewer_ || view_=="crop");
+  auto touches=imageInput_.poll(wanted);
+  if(directImageInput_ && !imageInput_.active())imageInputExitDue_=ticks()+80;
+  directImageInput_=imageInput_.active();
+  for(const auto &touch:touches){
+    if(!visible_ || keyboard_ || (!imageViewer_ && view_!="crop"))break;
+    handle(touch);
+  }
+  imageReturnTick();
   for (const auto &saved : db_.saveEvents()) {
     if (saved.type == "message_saved") {
       const auto session = saved.data.value("session", std::string());
@@ -3044,6 +3070,8 @@ void App::tick() {
       pendingCameraAngle_ = e.data.value("angle",0);
     else if (e.type == "camera_sensor")
       cameraSensorAvailable_ = e.data.value("available",false);
+    else if (e.type == "crop_cancel" && view_=="crop" && !cropBusy_)
+      show("camera");
     else if (e.type == "crop_view" && view_ == "crop" && !cropBusy_)
       cropView(e.data.value("action",std::string()));
     else if (e.type == "camera_error" && view_ == "camera") {
@@ -3059,7 +3087,7 @@ void App::tick() {
         beginCrop(e.data);
       else
         unlink(e.data.value("path", std::string()).c_str());
-    } else if (e.type == "crop_confirm" && view_ == "crop" && !cropBusy_)
+    } else if (e.type == "crop_confirm" && view_ == "crop" && !cropBusy_ && cropLoaded_)
       confirmCrop();
     else if (e.type == "crop_done" && view_ == "crop" && cropBusy_ &&
              e.data.value("generation",-1)==cropGeneration_) {
@@ -3273,7 +3301,12 @@ Json App::diagnostics() const {
       {"crop_zoom", cropZoom_},
       {"crop_pan", {cropPanX_, cropPanY_}},
       {"crop_viewport", {cropViewportW_, cropViewportH_}},
-      {"crop_pan_mode", cropPanMode_},
+      {"crop_loaded", cropLoaded_},
+      {"crop_viewport_bounds", cropViewport_ ? bounds(cropViewport_) : Json()},
+      {"crop_actions", [&]{Json a=Json::object();for(const auto &i:cropActions_)a[i.first]=bounds(i.second);return a;}()},
+      {"crop_selection", {cropX_,cropY_,cropW_,cropH_}},
+      {"crop_source_rect", cropSourceRect()},
+      {"image_touch", {{"peak",imageTouchPeak_},{"pinch_updates",imagePinchUpdates_},{"mode",imageGesture_.mode},{"source",directImageInput_?"direct-read-only":"falcon"}}},
       {"crop_rect", {cropX_, cropY_, cropW_, cropH_}},
       {"crop_preview", {cropPreviewW_, cropPreviewH_}},
       {"crop_save_album", cropSaveAlbum_},

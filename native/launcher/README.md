@@ -64,3 +64,19 @@ validates the frozen edge target and deduplicates it against the raw release by
 physical gesture ID. Hide, disposal and bridge
 failure restore Falcon policy; resume reapplies native state. Sequence and process
 generation checks prevent stale permissions from re-enabling exit over a child page.
+
+
+Image workspaces also accept optional `points: [{id,x,y}]` in v1 touch packets.
+The launcher preserves one physical gesture through 1→2→1→0 fingers and forwards
+logical coordinates without another scale/rotation. Other pages cancel multi-touch
+until all contacts lift. On ORANGE and Y02 the firmware page callback only reports
+one contact despite hardware MT slots. In those image workspaces alone the native
+app opens a nonexclusive, read-only evdev descriptor, reconstructs complete MT
+frames, and maps raw coordinates once using Falcon's tp_direction/tp_xoffset/
+tp_yoffset. Duplicate page touches are suppressed while that source owns the image
+workspace; background/exit closes it. It never grabs the input device or changes
+its configuration. See docs/IMAGE-GESTURES.md.
+The optional navigation.state imageWorkspace flag temporarily disables the
+system top panel during image editing/viewing, so top crop handles remain usable.
+Editor and image policies are combined; hide, close, disposal and failure restore
+the top panel without changing system settings.

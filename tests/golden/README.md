@@ -12,3 +12,5 @@ cover all formula families, list/Markdown parsing and large horizontal tiles.
 and compares the exact PNG. Rendering dependencies are source-locked. A deliberate
 font or layout change requires visual review before updating this baseline.
 Do not copy private conversations or device screenshots into golden files.
+
+0.1.56 review includes the enlarged attachment target/text inset from 0.1.54 and the corrected retry arrow from 0.1.55; static Markdown content and fonts are unchanged.

@@ -18,7 +18,7 @@ void App::syncBackPolicy() {
   if (!generation || (backPolicyGeneration_ == generation && backPolicyRoot_ == root && backPolicyContext_ == context)) return;
   backPolicyGeneration_ = generation; backPolicyRoot_ = root; backPolicyContext_ = context;
   backPolicyOk_ = false;
-  bridge_.send("navigation.state", {{"sequence", ++backPolicySequence_}, {"root", root}});
+  bridge_.send("navigation.state", {{"sequence", ++backPolicySequence_}, {"root", root}, {"imageWorkspace", bool(imageViewer_) || view_=="crop"}});
 }
 void App::resetBack() {
   backDown_ = backCandidate_ = backClaimed_ = backAborted_ = false;
@@ -64,7 +64,12 @@ bool App::backTouch(const Json &m) {
     backGesture_=m.value("gesture",uint64_t(0));
     // Reserve only the logical left edge. Drawer dismissal stays tap-only;
     // image panning, text selection and horizontal content keep their gestures.
-    backCandidate_=!navigationRoot() && (!navigationOpen_ || modal_) && x>=0 && x<=edge;
+    bool cropHandle=false;
+    if(view_=="crop" && cropLoaded_ && cropViewport_ && !modal_) {
+      auto p=photoPoint({x,y});lv_area_t viewport;lv_obj_get_coords(cropViewport_,&viewport);
+      cropHandle=cropEdges(p.x-viewport.x1,p.y-viewport.y1)!=0;
+    }
+    backCandidate_=!cropHandle && !navigationRoot() && (!navigationOpen_ || modal_) && x>=0 && x<=edge;
     if (backCandidate_) { backStart_=m; backX_=x; backY_=y; backContext_=backContext(); }
   }
   if (!backCandidate_) { if(!down)backDown_=false; return false; }

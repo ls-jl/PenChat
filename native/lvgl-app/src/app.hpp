@@ -4,6 +4,7 @@
 #include "editor.hpp"
 #include "editor_layout.hpp"
 #include "images.hpp"
+#include "image_input.hpp"
 #include "network.hpp"
 #include "platform.hpp"
 #include "pull_geometry.hpp"
@@ -34,6 +35,9 @@ class App {
   Display &display_;
   Input &input_;
   Screen screen_;
+  DirectImageInput imageInput_;
+  bool directImageInput_ = false;
+  int64_t imageInputExitDue_ = 0;
   Events events_;
   std::unique_ptr<Transfer> transfer_;
   lv_obj_t *transferProgress_ = nullptr;
@@ -74,8 +78,7 @@ class App {
   std::map<std::string, bool> reasoningOverrides_;
   std::set<lv_obj_t *> chatPhotos_;
   lv_obj_t *imageViewer_ = nullptr, *viewerCanvas_ = nullptr, *viewerImage_ = nullptr,
-           *viewerStatus_ = nullptr, *viewerZoomLabel_ = nullptr,
-           *viewerPlus_ = nullptr, *viewerMinus_ = nullptr;
+           *viewerStatus_ = nullptr, *viewerClose_ = nullptr;
   std::string viewerKey_;
   std::shared_ptr<ImageFrame> viewerFrame_;
   double viewerZoom_ = 1, viewerPanX_ = 0, viewerPanY_ = 0,
@@ -91,7 +94,23 @@ class App {
   void refreshImageViewer();
   void updateImageViewer();
   void zoomImageViewer(double zoom, int x = -1, int y = -1);
-  void imageViewerTouch(int x, int y, bool pressed, bool cancelled);
+  void finishImageGesture(bool animate = true);
+  void imageReturnTick();
+  double imageViewerFit() const;
+  bool imageTouch(const Json &);
+  struct ImageGesture {
+    // 0 idle, 1 pan, 2 resize, 3 pinch, 4 controls, -1 cancelled until release.
+    int mode = 0, edges = 0, count = 0;
+    bool multi = false;
+    double x = 0, y = 0, distance = 0, zoom = 1, panX = 0, panY = 0;
+    double left = 0, top = 0, right = 0, bottom = 0;
+    std::string first, second;
+  } imageGesture_;
+  int imageTouchPeak_ = 0, imagePinchUpdates_ = 0;
+  uint64_t imageGestureSerial_ = 0;
+  bool nonImageMulti_ = false;
+  int64_t viewerReturnAt_ = 0;
+  double viewerReturnZoom_ = 1;
   Json imageViewerDiagnostic() const;
 
   std::map<std::string,std::string> sessionDrafts_;
@@ -322,8 +341,14 @@ class App {
   void updateCrop();
   void cropView(const std::string &action);
   double cropZoom_ = 1, cropPanX_ = 0, cropPanY_ = 0;
-  bool cropPanMode_ = false;
-  int cropViewportW_ = 630, cropViewportH_ = 178;
+  bool cropLoaded_ = false;
+  double cropBaseScale_ = 1;
+  int cropViewportW_ = 0, cropViewportH_ = 0;
+  lv_obj_t *cropViewport_ = nullptr;
+  std::map<std::string, lv_obj_t *> cropActions_;
+  void resetCrop();
+  Json cropSourceRect() const;
+  int cropEdges(double x,double y) const;
   lv_obj_t *cropBitmap_ = nullptr;
   std::string cropImageKey_;
   void beginCrop(const Json &photo);
@@ -333,8 +358,8 @@ class App {
   std::thread cropWorker_;
   int cropGeneration_ = 0;
   bool cropBusy_ = false, cropSaveAlbum_ = false;
-  int cropX_ = 0, cropY_ = 0, cropW_ = 0, cropH_ = 0;
-  int cropPreviewW_ = 0, cropPreviewH_ = 0;
+  double cropX_ = 0, cropY_ = 0, cropW_ = 0, cropH_ = 0;
+  double cropPreviewW_ = 0, cropPreviewH_ = 0;
   lv_obj_t *cropSelection_ = nullptr;
   lv_obj_t *cropShades_[4] = {};
 

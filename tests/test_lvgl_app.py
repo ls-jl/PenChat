@@ -253,7 +253,7 @@ if __name__ == '__main__':
         with tempfile.TemporaryDirectory(prefix='penchat-scroll-') as directory:
             app=Native(binary,pathlib.Path(directory),'scroll')
             try:
-                assert app.diag()['composer_width']==726
+                assert app.diag()['composer_width']==714
                 app.edit('滚动测试');app.tap(908,232)
                 wait_for(lambda:app.diag()['scroll_y']>400)
                 app.send('touch',x=500,y=55,pressed=True)
