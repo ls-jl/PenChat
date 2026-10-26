@@ -29,10 +29,20 @@ def run(ctx):
     open_editor();assert state()['layout']=='zh26';capture('pinyin-26')
     for wanted in ['en26','zh9','zh26']:
         key('language');assert state()['layout']==wanted
-    for c in 'nihao':key(c)
+    for c in 'nihoa':key(c)
+    ready();assert state()['corrected_count']>0;capture('pinyin-correction-candidates')
+    b=state()['actions'][f"choose:{state()['revision']}:0"];x,y=ctx['raw']((b[0]+b[2])//2,(b[1]+b[3])//2)
+    ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap --hold '+f'{x} {y} 650 2>/dev/null')
+    assert state()['length']==0 and state()['preedit_length']==5;capture('pinyin-correction-explanation')
+    key('enter');assert state()['length']==5 and state()['preedit_length']==0
+    action('cancel');wait(lambda:not state()['active']);open_editor()
+    for c in 'zhogn':key(c)
+    ready();key('space');wait(lambda:state()['length']==1 and not state()['preedit_length'])
+    capture('pinyin-single-correction');action('cancel');wait(lambda:not state()['active']);open_editor()
+    for c in 'nihoa':key(c)
     ready();capture('pinyin-26-candidates');key('space');wait(lambda:state()['preedit_length']==0 and state()['length']==2)
     action('done');wait(lambda:not state()['active']);wait(lambda:ctx['shell']('test -s '+ctx['DATA']+'/ime/user.json && echo yes')=='yes')
-    assert profile()['records']
+    assert any(r['word']=='你好' and r['pinyin']=="ni'hao" for r in profile()['records'])
     open_editor();choose_layout('zh9')
     for c in '64426':key('t9:'+c)
     ready();assert state()['preferred_layout']=='zh9'
@@ -50,6 +60,10 @@ def run(ctx):
     old=ctx['shell']('sha256sum '+ctx['DATA']+'/ime/user.json').split()[0]
     action('cancel');wait(lambda:not state()['active']);assert ctx['shell']('sha256sum '+ctx['DATA']+'/ime/user.json').split()[0]==old
     chat_settings();setting('keyboard');assert read()['view']=='keyboard_settings';capture('pinyin-settings')
+    b=read()['settings']['rows']['pinyin_correction']['bounds'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+    assert not read()['settings']['rows']['pinyin_correction']['checked'];capture('pinyin-correction-disabled')
+    b=read()['settings']['rows']['pinyin_correction']['bounds'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+    assert read()['settings']['rows']['pinyin_correction']['checked']
     b=read()['settings']['rows']['pinyin_learning']['bounds'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
     assert not read()['settings']['rows']['pinyin_learning']['checked']
     b=read()['settings']['rows']['clear_pinyin']['bounds'];tap((b[0]+b[2])//2,(b[1]+b[3])//2);wait(lambda:read()['modal']);capture('pinyin-clear-confirm')
@@ -77,6 +91,6 @@ def run(ctx):
     ctx['shell']('miniapp_cli start '+ctx['APP']['appid']);wait(lambda:read()['visible']);assert ctx['pid']()==p
     assert state()['active'] and state()['preedit_length']==before and state()['top_panel_blocked']
     action('cancel');wait(lambda:not state()['active'])
-    ctx['result']['pinyin']={'native_dictionary':True,'three_layouts':True,'globe_cycle_and_timeout':True,
+    ctx['result']['pinyin']={'native_dictionary':True,'typo_candidates_and_long_press':True,'single_character_correction':True,'original_raw_enter':True,'correction_switch':True,'canonical_correction_learning':True,'three_layouts':True,'globe_cycle_and_timeout':True,
         'exact_filter_and_raw_enter':True,'typing_under_right_panels':True,'deferred_learning':True,'clear_disable_restart':True,
         'official_cancel':True,'parked_compositions':True,'query_ms_samples':latencies,'editor_cycles':20,'fd_baseline':baseline,'lifecycle':True}

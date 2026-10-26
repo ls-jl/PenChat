@@ -150,7 +150,8 @@ struct PinyinService::Impl {
   Json query(const Json &request) {
     const auto raw=request.value("text",std::string()), fixed=request.value("fixed",std::string());
     const bool t9=request.value("layout",std::string())=="zh9";
-    Json result=request;result["ok"]=true;result["candidates"]=Json::array();result["exact"]=Json::array();
+    Json result=request;result["ok"]=true;result["candidates"]=Json::array();result["exact"]=Json::array();result["candidate_details"]=Json::array();
+    result["candidate_version"]=request.value("sequence",uint64_t(0));
     last=request;choices=Json::array();
     if(raw.empty())return result;
     if(raw.size()>128){result["ok"]=false;result["error"]="拼音过长，请分段选词或按回车保留原文。";return result;}
@@ -162,6 +163,7 @@ struct PinyinService::Impl {
       input=fixed+(prefix.size()<raw.size()?"'"+raw.substr(prefix.size()):"");
     }
     openEngine();
+    pinyin_ime_set_correction(engine,!t9&&request.value("correction",true));
     if(pinyin_ime_input(engine,input.c_str())!=PINYIN_IME_OK)return result;
     for(int i=0;i<std::min(48,pinyin_ime_get_candidate_count(engine));++i) {
       const auto *word=pinyin_ime_get_candidate(engine,i), *py=pinyin_ime_candidate_pinyin(engine,i);
@@ -170,6 +172,7 @@ struct PinyinService::Impl {
       if(consumed<=0||size_t(consumed)>raw.size())continue;
       choices.push_back({{"word",word},{"pinyin",py},{"consumed",consumed}});
       result["candidates"].push_back(word);
+      result["candidate_details"].push_back({{"corrected",bool(pinyin_ime_candidate_corrected(engine,i))},{"pinyin",py},{"consumed",consumed}});
     }
     for(int i=0;i<std::min(64,pinyin_ime_get_k9_exact_count(engine));++i) {
       const char *value=pinyin_ime_get_k9_exact(engine,i);if(value)result["exact"].push_back(value);
@@ -178,8 +181,9 @@ struct PinyinService::Impl {
   }
   Json choose(const Json &request) {
     Json result=request;result["ok"]=false;
-    for(const auto *key:{"session","revision","text","fixed","layout"})
+    for(const auto *key:{"session","revision","text","fixed","layout","correction"})
       if(request.value(key,Json())!=last.value(key,Json()))return result;
+    if(request.value("candidate_version",uint64_t(0))!=last.value("sequence",uint64_t(0)))return result;
     const int index=request.value("candidate",-1);
     if(index<0||size_t(index)>=choices.size())return result;
     auto chosen=choices[index];const auto raw=request.value("text",std::string());

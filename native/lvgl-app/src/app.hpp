@@ -437,7 +437,8 @@ class App {
   uint64_t editorLatency_ = 0;
   std::vector<std::string> editorDeferred_;
   Json editorCandidates_ = Json::array();
-  uint64_t editorRevision_ = 0, editorRequest_ = 0, editorInFlight_ = 0,
+  Json editorCandidateDetails_ = Json::array();
+  uint64_t editorCandidateVersion_ = 0, editorRevision_ = 0, editorRequest_ = 0, editorInFlight_ = 0,
            editorDue_ = 0, editorSent_ = 0, editorShiftTime_ = 0, editorRepeat_ = 0;
   int editorHeld_ = -1, editorRepeats_ = 0;
   bool editorPointer_ = false, editorSlid_ = false, editorExpanded_ = false, editorMenu_ = false;

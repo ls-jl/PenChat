@@ -1,6 +1,6 @@
 --- a/src/pinyin_ime.cpp
 +++ b/src/pinyin_ime.cpp
-@@ -1,961 +1,146 @@
+@@ -1,961 +1,216 @@
 +// PenChat indexed decoder, adapted from libpinyinime's C API (MIT).
 +// Copyright 2026 PenChat contributors. Own additions: Apache-2.0.
  #include "pinyin_ime.h"
@@ -42,7 +42,7 @@
 +struct Syllable { std::string letters, numbers; };
 +struct Node { std::vector<std::pair<uint16_t,uint32_t>> edges; std::vector<uint32_t> words; };
 +struct Word { std::string text, spelling; double frequency, rank; bool learned=false; };
-+struct Candidate { std::string text, spelling; size_t consumed=0; double cost=0, penalty=0; unsigned pieces=1; };
++struct Candidate { std::string text, spelling; size_t consumed=0; double cost=0, penalty=0; unsigned pieces=1; bool corrected=false; };
 +std::string numbers(const std::string &s) {
 +  static const char keys[]="22233344455566677778889999";
 +  std::string out; for(char c:s)if(c>='a'&&c<='z')out+=keys[c-'a']; return out;
@@ -64,7 +64,8 @@
 +  std::vector<uint32_t> dirtyNodes;
 +  mutable size_t emitted=0;
 +  void sortWords(uint32_t node){auto &v=nodes[node].words;std::sort(v.begin(),v.end(),[this](uint32_t a,uint32_t b){return words[a].rank!=words[b].rank?words[a].rank<words[b].rank:words[a].text<words[b].text;});}
-+  bool t9=false;
++  bool t9=false, correction=false;
++  size_t correctionStates=0;
 +  uint16_t syllable(const std::string &s) {
 +    auto it=syllableIds.find(s);if(it!=syllableIds.end())return it->second;
 +    auto id=uint16_t(syllables.size());syllableIds[s]=id;syllables.push_back({s,numbers(s)});return id;
@@ -100,11 +101,61 @@
 +      }
 +    }
 +  }
++  // QWERTY centre coordinates in half-key units, independent of display pixels.
++  static bool adjacent(char a,char b) {
++    const std::string rows[]={"qwertyuiop","asdfghjkl","zxcvbnm"};
++    int ax=-100,ay=0,bx=100,by=0;
++    for(int y=0;y<3;++y){auto x=rows[y].find(a);if(x!=std::string::npos){ax=int(x)*2+y;ay=y;}
++      x=rows[y].find(b);if(x!=std::string::npos){bx=int(x)*2+y;by=y;}}
++    return a!=b&&std::abs(ax-bx)<=2&&std::abs(ay-by)<=1;
++  }
++  bool correctionStep(size_t &budget) {
++    if(!budget)return false;--budget;++correctionStates;return true;
++  }
++  void correctedWord(uint32_t node,size_t at,bool edited,std::vector<Candidate> &out) const {
++    if(!edited||at<4||out.size()>=256)return;
++    for(size_t i=0;i<std::min<size_t>(8,nodes[node].words.size());++i){const auto &w=words[nodes[node].words[i]];
++      // A single character is only useful when it covers the entire raw input.
++      if(w.spelling.find('\'')==std::string::npos&&at!=raw.size())continue;
++      if(out.size()>=256)break;
++      out.push_back({w.text,w.spelling,at,cost(w),3.0,1,true});
++    }
++  }
++  void correctionEdge(uint32_t child,const std::string &key,size_t off,size_t at,bool edited,char pending,
++                      std::vector<Candidate> &out,size_t &budget,unsigned depth) {
++    if(!correctionStep(budget)||out.size()>=256)return;
++    if(off==key.size()){correct(child,at,edited,pending,out,budget,depth+1);return;}
++    if(pending){if(key[off]==pending)correctionEdge(child,key,off+1,at,true,0,out,budget,depth);return;}
++    if(at<raw.size()&&raw[at]==key[off])correctionEdge(child,key,off+1,at+1,edited,0,out,budget,depth);
++    if(edited||!budget)return;
++    // Apostrophes are hard user boundaries, never editable or transposable.
++    if(at<raw.size()&&raw[at]=='\'')return;
++    if(at+1<raw.size()&&raw[at+1]!='\''&&raw[at]!=raw[at+1]&&key[off]==raw[at+1])
++      correctionEdge(child,key,off+1,at+2,true,raw[at],out,budget,depth);
++    if(at<raw.size()&&adjacent(raw[at],key[off]))correctionEdge(child,key,off+1,at+1,true,0,out,budget,depth);
++    // Missing typed letter; or an extra typed letter. No recursive edit chaining.
++    correctionEdge(child,key,off+1,at,true,0,out,budget,depth);
++    if(at<raw.size())correctionEdge(child,key,off,at+1,true,0,out,budget,depth);
++  }
++  void correct(uint32_t node,size_t at,bool edited,char pending,std::vector<Candidate> &out,size_t &budget,unsigned depth=0) {
++    if(depth>32||!correctionStep(budget)||out.size()>=256)return;
++    if(at<raw.size()&&raw[at]=='\''){if(pending)return;++at;}
++    if(!pending)correctedWord(node,at,edited,out);
++    // Explore matching first letters before alternative initial letters. Every
++    // attempted edge counts against the same deterministic per-query bound.
++    for(int pass=0;pass<2&&budget;++pass)for(auto edge:nodes[node].edges){
++      const auto &key=syllables[edge.first].letters;
++      bool direct=(!pending&&at<raw.size()&&key[0]==raw[at])||(pending&&key[0]==pending);
++      if(direct!=(pass==0))continue;
++      correctionEdge(edge.second,key,0,at,edited,pending,out,budget,depth);
++      if(!budget)break;
++    }
++  }
 +  void search() {
 +    std::sort(dirtyNodes.begin(),dirtyNodes.end());dirtyNodes.erase(std::unique(dirtyNodes.begin(),dirtyNodes.end()),dirtyNodes.end());
 +    for(auto node:dirtyNodes)sortWords(node);dirtyNodes.clear();emitted=0;
 +    normalizer=std::log(total+words.size())+1.5;
-+    candidates.clear();exact.clear();segments=raw;t9=raw.find_first_of("23456789")!=std::string::npos;
++    candidates.clear();exact.clear();correctionStates=0;segments=raw;t9=raw.find_first_of("23456789")!=std::string::npos;
 +    if(raw.empty()||raw.size()>128)return;
 +    if(raw.find_first_not_of("abcdefghijklmnopqrstuvwxyz'23456789")!=std::string::npos)return;
 +    size_t budget=65536;
@@ -130,7 +181,23 @@
 +    for(const auto &c:beam.back())if(c.pieces>1)candidates.push_back(c);
 +    bool complete=false;for(const auto &c:candidates)if(c.consumed==raw.size()&&c.penalty==0){complete=true;break;}
 +    if((!complete||(raw.size()==1&&raw.find_first_of("aeo")==std::string::npos))&&!t9){std::vector<Candidate> fallback;match(0,0,0,fallback,budget,0,true);candidates.insert(candidates.end(),fallback.begin(),fallback.end());}
-+    std::sort(candidates.begin(),candidates.end(),[](const Candidate&a,const Candidate&b){
++    // A complete exact spelling already has a safe interpretation. Avoid both
++    // speculative alternatives and extra latency on ordinary correct typing.
++    const auto letters=raw.size()-std::count(raw.begin(),raw.end(),'\'');
++    if(correction&&!t9&&!complete&&letters>=4&&letters<=32){
++      size_t correctionBudget=16384;std::vector<Candidate> extra;
++      correct(0,0,false,0,extra,correctionBudget);
++      std::sort(extra.begin(),extra.end(),[](const Candidate&a,const Candidate&b){
++        if(a.consumed!=b.consumed)return a.consumed>b.consumed;
++        return a.cost!=b.cost?a.cost<b.cost:a.text<b.text;});
++      size_t added=0;for(auto &c:extra){bool duplicate=false;for(auto &old:candidates)if(old.text==c.text){
++          duplicate=true;if(c.consumed>old.consumed){old=std::move(c);++added;}break;}
++        if(!duplicate){candidates.push_back(std::move(c));++added;}if(added==8)break;}
++    }
++    std::sort(candidates.begin(),candidates.end(),[this](const Candidate&a,const Candidate&b){
++      // Full normal/abbreviated candidates, corrections, then partial matches.
++      const int acat=a.corrected?1:(a.consumed==raw.size()?0:2),bcat=b.corrected?1:(b.consumed==raw.size()?0:2);
++      if(acat!=bcat)return acat<bcat;
 +      if(a.consumed!=b.consumed)return a.consumed>b.consumed;
 +      const double ac=a.cost+a.penalty,bc=b.cost+b.penalty;if(ac!=bc)return ac<bc;return a.text<b.text;
 +    });
@@ -218,41 +285,11 @@
 -    auto now = system_clock::now();
 -    auto ms = duration_cast<milliseconds>(now.time_since_epoch());
 -    return ms.count();
-+extern "C" {
-+pinyin_ime_t* pinyin_ime_init(const char *table,const char *dictionary) {
-+  if(!table||!dictionary)return nullptr;
-+  try {for(auto path:{table,dictionary}){std::ifstream bound(path,std::ios::binary|std::ios::ate);if(!bound||bound.tellg()<=0||bound.tellg()>6*1024*1024)return nullptr;}std::unique_ptr<pinyin_ime_t> e(new pinyin_ime_t);std::ifstream p(table);std::string line;
-+    while(std::getline(p,line)){const auto comma=line.find(',');if(comma==std::string::npos)continue;const auto py=line.substr(0,comma);if(py.empty()||py.size()>6||py.find_first_not_of("abcdefghijklmnopqrstuvwxyz")!=std::string::npos)return nullptr;
-+      e->syllable(py);if(e->syllables.size()>512)return nullptr;
-+      for(wchar_t c:utf8_to_wstring(line.substr(comma+1)))if(c>0x3000)e->add(py,wstring_to_utf8(std::wstring(1,c)),0);
-+    }
-+    if(e->syllables.empty())return nullptr;
-+    std::ifstream d(dictionary);std::string py,text;size_t count=0,loaded=0;uint32_t weight;
-+    while(d>>py){if(!(d>>count)||count>65536||py.size()>128)return nullptr;for(size_t i=0;i<count;++i){if(!(d>>text>>weight)||text.size()>128)return nullptr;e->add(py,text,weight);if(++loaded>250000)return nullptr;}}
-+    if(!d.eof()||!loaded)return nullptr;
-+    for(uint32_t i=0;i<e->nodes.size();++i){std::sort(e->nodes[i].edges.begin(),e->nodes[i].edges.end());e->sortWords(i);}
-+    return e.release();
-+  }catch(...){return nullptr;}
- }
+-}
 -
 -void print_millis(const std::string& name) {
 -	std::cout<<"[pinyin_ime] "<<name<<" time="<<millis()<<std::endl;
-+void pinyin_ime_destroy(pinyin_ime_t *e){delete e;}
-+int pinyin_ime_input(pinyin_ime_t *e,const char *raw){if(!e||!raw)return PINYIN_IME_ERR_INVALID_ARG;try{e->raw=raw;e->result.clear();e->search();return e->raw.size()<=128?PINYIN_IME_OK:PINYIN_IME_ERR_BAD_PINYIN;}catch(...){return PINYIN_IME_ERR_INVALID_ARG;}}
-+int pinyin_ime_get_candidate_count(pinyin_ime_t *e){return e?int(e->candidates.size()):0;}
-+const char* pinyin_ime_get_candidate(pinyin_ime_t *e,uint32_t i){return e&&i<e->candidates.size()?e->candidates[i].text.c_str():nullptr;}
-+const char* pinyin_ime_candidate_pinyin(pinyin_ime_t *e,uint32_t i){return e&&i<e->candidates.size()?e->candidates[i].spelling.c_str():nullptr;}
-+int pinyin_ime_candidate_consumed(pinyin_ime_t *e,uint32_t i){if(!e||i>=e->candidates.size())return -1;auto n=e->candidates[i].consumed;if(!e->t9)return int(n);return int(n-std::count(e->raw.begin(),e->raw.begin()+n,'\''));}
-+int pinyin_ime_user_word(pinyin_ime_t *e,const char *py,const char *word,uint32_t frequency){if(!e||!py||!word)return PINYIN_IME_ERR_INVALID_ARG;try{return e->add(py,word,frequency,true)?PINYIN_IME_OK:PINYIN_IME_ERR_INVALID_ARG;}catch(...){return PINYIN_IME_ERR_INVALID_ARG;}}
-+const char* pinyin_ime_get_segments(pinyin_ime_t *e){return e?e->segments.c_str():nullptr;}
-+const char* pinyin_ime_get_result(pinyin_ime_t *e){return e?e->result.c_str():nullptr;}
-+int pinyin_ime_is_finished(pinyin_ime_t *e){return !e||e->raw.empty();}
-+int pinyin_ime_get_k9_exact_count(pinyin_ime_t *e){return e?int(e->exact.size()):0;}
-+const char* pinyin_ime_get_k9_exact(pinyin_ime_t *e,uint32_t i){return e&&i<e->exact.size()?e->exact[i].c_str():nullptr;}
-+int pinyin_ime_select(pinyin_ime_t *e,uint32_t i){if(!e||i>=e->candidates.size())return PINYIN_IME_ERR_INDEX;auto c=e->candidates[i];e->raw.erase(0,c.consumed);auto result=e->result+c.text;e->search();e->result=result;return PINYIN_IME_OK;}
-+int pinyin_ime_select_k9_exact(pinyin_ime_t *e,uint32_t i){if(!e||i>=e->exact.size())return PINYIN_IME_ERR_INDEX;auto py=e->exact[i];auto a=e->raw.find_first_of("23456789");e->raw.replace(a,py.size(),py+"'");e->search();return PINYIN_IME_OK;}
-+int pinyin_ime_save(pinyin_ime_t*,const char*){return PINYIN_IME_ERR_IO;} // Read-only base resources.
- }
+-}
 -
 -void timer_set() {
 -	timer = millis();
@@ -1097,6 +1134,41 @@
 -}
 -
 -} // extern "C"
++extern "C" {
++pinyin_ime_t* pinyin_ime_init(const char *table,const char *dictionary) {
++  if(!table||!dictionary)return nullptr;
++  try {for(auto path:{table,dictionary}){std::ifstream bound(path,std::ios::binary|std::ios::ate);if(!bound||bound.tellg()<=0||bound.tellg()>6*1024*1024)return nullptr;}std::unique_ptr<pinyin_ime_t> e(new pinyin_ime_t);std::ifstream p(table);std::string line;
++    while(std::getline(p,line)){const auto comma=line.find(',');if(comma==std::string::npos)continue;const auto py=line.substr(0,comma);if(py.empty()||py.size()>6||py.find_first_not_of("abcdefghijklmnopqrstuvwxyz")!=std::string::npos)return nullptr;
++      e->syllable(py);if(e->syllables.size()>512)return nullptr;
++      for(wchar_t c:utf8_to_wstring(line.substr(comma+1)))if(c>0x3000)e->add(py,wstring_to_utf8(std::wstring(1,c)),0);
++    }
++    if(e->syllables.empty())return nullptr;
++    std::ifstream d(dictionary);std::string py,text;size_t count=0,loaded=0;uint32_t weight;
++    while(d>>py){if(!(d>>count)||count>65536||py.size()>128)return nullptr;for(size_t i=0;i<count;++i){if(!(d>>text>>weight)||text.size()>128)return nullptr;e->add(py,text,weight);if(++loaded>250000)return nullptr;}}
++    if(!d.eof()||!loaded)return nullptr;
++    for(uint32_t i=0;i<e->nodes.size();++i){std::sort(e->nodes[i].edges.begin(),e->nodes[i].edges.end());e->sortWords(i);}
++    return e.release();
++  }catch(...){return nullptr;}
++}
++void pinyin_ime_destroy(pinyin_ime_t *e){delete e;}
++void pinyin_ime_set_correction(pinyin_ime_t *e,int enabled){if(e)e->correction=enabled!=0;}
++int pinyin_ime_candidate_corrected(pinyin_ime_t *e,uint32_t i){return e&&i<e->candidates.size()&&e->candidates[i].corrected;}
++uint32_t pinyin_ime_correction_states(pinyin_ime_t *e){return e?uint32_t(e->correctionStates):0;}
++int pinyin_ime_input(pinyin_ime_t *e,const char *raw){if(!e||!raw)return PINYIN_IME_ERR_INVALID_ARG;try{e->raw=raw;e->result.clear();e->search();return e->raw.size()<=128?PINYIN_IME_OK:PINYIN_IME_ERR_BAD_PINYIN;}catch(...){return PINYIN_IME_ERR_INVALID_ARG;}}
++int pinyin_ime_get_candidate_count(pinyin_ime_t *e){return e?int(e->candidates.size()):0;}
++const char* pinyin_ime_get_candidate(pinyin_ime_t *e,uint32_t i){return e&&i<e->candidates.size()?e->candidates[i].text.c_str():nullptr;}
++const char* pinyin_ime_candidate_pinyin(pinyin_ime_t *e,uint32_t i){return e&&i<e->candidates.size()?e->candidates[i].spelling.c_str():nullptr;}
++int pinyin_ime_candidate_consumed(pinyin_ime_t *e,uint32_t i){if(!e||i>=e->candidates.size())return -1;auto n=e->candidates[i].consumed;if(!e->t9)return int(n);return int(n-std::count(e->raw.begin(),e->raw.begin()+n,'\''));}
++int pinyin_ime_user_word(pinyin_ime_t *e,const char *py,const char *word,uint32_t frequency){if(!e||!py||!word)return PINYIN_IME_ERR_INVALID_ARG;try{return e->add(py,word,frequency,true)?PINYIN_IME_OK:PINYIN_IME_ERR_INVALID_ARG;}catch(...){return PINYIN_IME_ERR_INVALID_ARG;}}
++const char* pinyin_ime_get_segments(pinyin_ime_t *e){return e?e->segments.c_str():nullptr;}
++const char* pinyin_ime_get_result(pinyin_ime_t *e){return e?e->result.c_str():nullptr;}
++int pinyin_ime_is_finished(pinyin_ime_t *e){return !e||e->raw.empty();}
++int pinyin_ime_get_k9_exact_count(pinyin_ime_t *e){return e?int(e->exact.size()):0;}
++const char* pinyin_ime_get_k9_exact(pinyin_ime_t *e,uint32_t i){return e&&i<e->exact.size()?e->exact[i].c_str():nullptr;}
++int pinyin_ime_select(pinyin_ime_t *e,uint32_t i){if(!e||i>=e->candidates.size())return PINYIN_IME_ERR_INDEX;auto c=e->candidates[i];e->raw.erase(0,c.consumed);auto result=e->result+c.text;e->search();e->result=result;return PINYIN_IME_OK;}
++int pinyin_ime_select_k9_exact(pinyin_ime_t *e,uint32_t i){if(!e||i>=e->exact.size())return PINYIN_IME_ERR_INDEX;auto py=e->exact[i];auto a=e->raw.find_first_of("23456789");e->raw.replace(a,py.size(),py+"'");e->search();return PINYIN_IME_OK;}
++int pinyin_ime_save(pinyin_ime_t*,const char*){return PINYIN_IME_ERR_IO;} // Read-only base resources.
++}
 --- a/include/pinyin_ime.h
 +++ b/include/pinyin_ime.h
 @@ -42,12 +42,12 @@
@@ -1114,13 +1186,17 @@
   * 简拼/半简拼半全拼模式下，未完成时为原始输入串，完成后为空串。
   */
  const char* pinyin_ime_get_segments(pinyin_ime_t* ime);
-@@ -73,6 +73,11 @@
+@@ -73,6 +73,15 @@
  /* 是否已结束当前输入（无剩余分词） */
  int pinyin_ime_is_finished(pinyin_ime_t* ime);
  
 +const char* pinyin_ime_candidate_pinyin(pinyin_ime_t*, uint32_t index);
 +// Consumed raw positions; in nine-key mode, excludes filter apostrophes.
 +int pinyin_ime_candidate_consumed(pinyin_ime_t*, uint32_t index);
++// Opt-in per-query correction; original input and consumed offsets stay literal.
++void pinyin_ime_set_correction(pinyin_ime_t*, int enabled);
++int pinyin_ime_candidate_corrected(pinyin_ime_t*, uint32_t index);
++uint32_t pinyin_ime_correction_states(pinyin_ime_t*);
 +int pinyin_ime_user_word(pinyin_ime_t*, const char* pinyin, const char* word, uint32_t frequency);
 +
  #ifdef __cplusplus

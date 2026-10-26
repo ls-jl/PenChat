@@ -1,0 +1,202 @@
+[
+  {
+    "input": "niao",
+    "expected": "你好",
+    "kind": "missing"
+  },
+  {
+    "input": "nihhao",
+    "expected": "你好",
+    "kind": "extra"
+  },
+  {
+    "input": "nhiao",
+    "expected": "你好",
+    "kind": "transpose"
+  },
+  {
+    "input": "zhonwen",
+    "expected": "中文",
+    "kind": "missing"
+  },
+  {
+    "input": "zhonggwen",
+    "expected": "中文",
+    "kind": "extra"
+  },
+  {
+    "input": "zohngwen",
+    "expected": "中文",
+    "kind": "transpose"
+  },
+  {
+    "input": "shuufa",
+    "expected": "输入法",
+    "kind": "missing"
+  },
+  {
+    "input": "shurrufa",
+    "expected": "输入法",
+    "kind": "extra"
+  },
+  {
+    "input": "suhrufa",
+    "expected": "输入法",
+    "kind": "transpose"
+  },
+  {
+    "input": "tiajia",
+    "expected": "添加",
+    "kind": "missing"
+  },
+  {
+    "input": "tiannjia",
+    "expected": "添加",
+    "kind": "extra"
+  },
+  {
+    "input": "tainjia",
+    "expected": "添加",
+    "kind": "transpose"
+  },
+  {
+    "input": "shachu",
+    "expected": "删除",
+    "kind": "missing"
+  },
+  {
+    "input": "shannchu",
+    "expected": "删除",
+    "kind": "extra"
+  },
+  {
+    "input": "sahnchu",
+    "expected": "删除",
+    "kind": "transpose"
+  },
+  {
+    "input": "chonxin",
+    "expected": "重新",
+    "kind": "missing"
+  },
+  {
+    "input": "chonggxin",
+    "expected": "重新",
+    "kind": "extra"
+  },
+  {
+    "input": "cohngxin",
+    "expected": "重新",
+    "kind": "transpose"
+  },
+  {
+    "input": "chengong",
+    "expected": "成功",
+    "kind": "missing"
+  },
+  {
+    "input": "chengggong",
+    "expected": "成功",
+    "kind": "extra"
+  },
+  {
+    "input": "cehnggong",
+    "expected": "成功",
+    "kind": "transpose"
+  },
+  {
+    "input": "xiaohang",
+    "expected": "校长",
+    "kind": "missing"
+  },
+  {
+    "input": "xiaozzhang",
+    "expected": "校长",
+    "kind": "extra"
+  },
+  {
+    "input": "xaiozhang",
+    "expected": "校长",
+    "kind": "transpose"
+  },
+  {
+    "input": "jinian",
+    "expected": "今天",
+    "kind": "missing"
+  },
+  {
+    "input": "jinttian",
+    "expected": "今天",
+    "kind": "extra"
+  },
+  {
+    "input": "jnitian",
+    "expected": "今天",
+    "kind": "transpose"
+  },
+  {
+    "input": "mingian",
+    "expected": "明天",
+    "kind": "missing"
+  },
+  {
+    "input": "mingttian",
+    "expected": "明天",
+    "kind": "extra"
+  },
+  {
+    "input": "mnigtian",
+    "expected": "明天",
+    "kind": "transpose"
+  },
+  {
+    "input": "penyou",
+    "expected": "朋友",
+    "kind": "missing"
+  },
+  {
+    "input": "penggyou",
+    "expected": "朋友",
+    "kind": "extra"
+  },
+  {
+    "input": "pnegyou",
+    "expected": "朋友",
+    "kind": "transpose"
+  },
+  {
+    "input": "xuxi",
+    "expected": "学习",
+    "kind": "missing"
+  },
+  {
+    "input": "xueexi",
+    "expected": "学习",
+    "kind": "extra"
+  },
+  {
+    "input": "xeuxi",
+    "expected": "学习",
+    "kind": "transpose"
+  },
+  {
+    "input": "nihqo",
+    "expected": "你好",
+    "kind": "neighbor"
+  },
+  {
+    "input": "zhongwfn",
+    "expected": "中文",
+    "kind": "neighbor"
+  },
+  {
+    "input": "shurufs",
+    "expected": "输入法",
+    "kind": "neighbor"
+  },
+  {
+    "input": "pengyiu",
+    "expected": "朋友",
+    "kind": "neighbor"
+  }
+]

@@ -34,7 +34,7 @@ void App::edit(const std::string &text, const std::string &placeholder,
   editorOcrMulti_=editorOcrBusy_=editorOcrShown_=false; editorOcrCapture_=editorOcrInserted_=0;
   editorTextTouch_=editorCursorDrag_=false; editorHandle_=-1; editorLastTap_=0;editorTextScroll_=0;editorFollowCursor_=true;
   editorPolicy(!editorSelectionOnly_);
-  editorExpanded_ = editorMenu_ = false; editorCandidates_ = Json::array();
+  editorExpanded_ = editorMenu_ = false; editorCandidates_ = editorCandidateDetails_ = Json::array();
   const auto layout=editorLayout();
   editorMenuAnchor_={layout.textX+layout.textWidth/2,layout.textY+52};
   editorInFlight_ = editorDue_ = 0; editorChoosing_=false; editorDeferred_.clear();
@@ -178,10 +178,29 @@ void App::editorBuild() {
   lv_obj_set_scrollbar_mode(choices,LV_SCROLLBAR_MODE_AUTO);
   int cx=0,cy=0;
   for (size_t i=0;i<editorCandidates_.size();++i) {
-    std::string text=editorCandidates_[i].get<std::string>(); int w=std::max(52,std::min(layout.textWidth-8,int(editLength(text))*22+20));
+    const bool corrected=i<editorCandidateDetails_.size()&&editorCandidateDetails_[i].value("corrected",false);
+    std::string text=editorCandidates_[i].get<std::string>(); int w=std::max(52,std::min(layout.textWidth-8,int(editLength(text))*22+(corrected?34:20)));
     if (editorExpanded_ && cx+w>layout.textWidth) { cx=0; cy+=48; }
-    auto b=button(choices,text,cx,cy,w,44,[action,i,revision=editorRevision_] { action("choose:"+std::to_string(revision)+":"+std::to_string(i)); },theme::surface);
-    lv_obj_set_width(lv_obj_get_child(b,0),w-8); cx+=w+5;
+    auto held=corrected?std::make_shared<bool>(false):std::shared_ptr<bool>();
+    auto b=button(choices,text,cx,cy,w,44,[action,i,revision=editorRevision_,held] { if(!held||!*held)action("choose:"+std::to_string(revision)+":"+std::to_string(i)); },theme::surface);
+    lv_obj_set_width(lv_obj_get_child(b,0),w-(corrected?22:8));
+    if(corrected) {
+      auto mark=box(b,w-13,7,5,5,theme::accent);lv_obj_set_style_radius(mark,LV_RADIUS_CIRCLE,0);lv_obj_set_scrollable(mark,false);lv_obj_set_clickable(mark,false);
+      struct Hint { std::shared_ptr<bool> held; std::function<void()> show; lv_point_t start{}; int distance=0; };
+      auto hint=new Hint{held,[action,i,revision=editorRevision_]{action("correction-info:"+std::to_string(revision)+":"+std::to_string(i));}};
+      lv_obj_add_event_cb(b,[](lv_event_t *event){
+        auto h=static_cast<Hint*>(lv_event_get_user_data(event));const auto code=lv_event_get_code(event);
+        if(code==LV_EVENT_DELETE){delete h;return;}
+        if(code==LV_EVENT_PRESS_LOST){*h->held=true;return;}
+        if(code!=LV_EVENT_PRESSED&&code!=LV_EVENT_PRESSING&&code!=LV_EVENT_LONG_PRESSED)return;
+        auto input=lv_indev_active();if(!input)return;lv_point_t point;lv_indev_get_point(input,&point);
+        if(code==LV_EVENT_PRESSED){h->start=point;h->distance=0;*h->held=false;}
+        const int dx=point.x-h->start.x,dy=point.y-h->start.y;h->distance=std::max(h->distance,dx*dx+dy*dy);
+        if(code==LV_EVENT_LONG_PRESSED&&h->distance<=144){*h->held=true;h->show();}
+      },LV_EVENT_ALL,hint);
+    }
+    editorLocalActions_["choose:"+std::to_string(editorRevision_)+":"+std::to_string(i)]=b;
+    cx+=w+5;
   }
   if (editorCandidates_.empty()&&!editor_.preedit.empty()) {
     label(choices,editorInFlight_||editorDue_?"正在查询…":"无匹配候选",4,10,layout.textWidth-150,16,theme::muted);
@@ -282,7 +301,7 @@ void App::editorBuild() {
 }
 void App::editorChanged() {
   editorFollowCursor_=true;
-  ++editorRevision_; editorCandidates_=editorExact_=Json::array(); editorDue_=ticks()+35; editorExpanded_=false; editor_.notice.clear();
+  ++editorRevision_; editorCandidates_=editorExact_=editorCandidateDetails_=Json::array(); editorDue_=ticks()+35; editorExpanded_=false; editor_.notice.clear();
 }
 void App::editorRememberLayout() {
   if(editor_.secret||editor_.layout==1||editor_.preferredChinese==editor_.layout)return;
@@ -301,7 +320,7 @@ void App::editorQuery(const std::string &operation,int candidate) {
   editorInFlight_=++editorRequest_; editorSent_=ticks(); editorDue_=0;
   if(!pinyin_.request({{"session",editor_.id},{"sequence",editorInFlight_},{"revision",editorRevision_},
       {"operation",operation},{"text",editor_.preedit},{"fixed",editor_.fixed},
-      {"layout",editor_.layout==2?"zh9":"zh26"},{"candidate",candidate}})) {
+      {"layout",editor_.layout==2?"zh9":"zh26"},{"candidate",candidate},{"candidate_version",editorCandidateVersion_},{"correction",db_.settings().value("pinyin_correction",true)}})) {
     editorInFlight_=0;editorChoosing_=false;editor_.notice="本地拼音暂时繁忙，请重试";editorBuild();
   }
 }
@@ -326,7 +345,7 @@ void App::editorResult(const Json &m) {
       editor_.preedit=remaining;editor_.fixed=m.value("fixed",std::string());
       editor_.contentChanged();editorRememberLayout();editorChanged();
     } else if (text.empty()) editor_.notice="未能选词，请调整拼音或重试";
-  } else {editorCandidates_=m.value("candidates",Json::array());editorExact_=m.value("exact",Json::array());}
+  } else {editorCandidateVersion_=m.value("candidate_version",uint64_t(0));editorCandidates_=m.value("candidates",Json::array());editorCandidateDetails_=m.value("candidate_details",Json::array());editorExact_=m.value("exact",Json::array());}
   editorBuild();
 }
 void App::editorFinish(bool confirmed) {
@@ -367,6 +386,15 @@ void App::editorAction(const std::string &a) {
   if(a=="layout-menu") {editorLayoutMenu_=true;editorBuild();return;}
   if(a.find("layout:")==0) {editorUseLayout(std::stoi(a.substr(7)));return;}
   if(a=="language") {editorUseLayout(0,true);return;}
+  if(a.find("correction-info:")==0) {
+    auto split=a.find(':',16);
+    if(split!=std::string::npos&&std::stoull(a.substr(16,split-16))==editorRevision_&&!editorInFlight_) {
+      auto i=std::stoul(a.substr(split+1));if(i<editorCandidateDetails_.size()&&editorCandidateDetails_[i].value("corrected",false)) {
+        editor_.notice="纠错："+editorCandidateDetails_[i].value("pinyin",std::string());editorBuild();
+      }
+    }
+    return;
+  }
   if(a=="pinyin-retry") {editorInFlight_=0;editorChoosing_=false;editorChanged();editorBuild();return;}
   if(a=="punctuation") {editorPunctuation_=true;editorBuild();return;}
   if(a.find("punct:")==0) {if(editor_.commit(a.substr(6))) {editor_.contentChanged();editorChanged();}editorPunctuation_=false;editorBuild();return;}
@@ -744,7 +772,7 @@ Json App::editorDiagnostic() const {
     {"selection_start",editor_.range().first},{"selection_end",editor_.range().second},{"selected",editor_.selected()},
     {"clipboard_count",editorClipboard_.records.size()},{"clipboard_open",editorClipboardOpen_},{"menu",editorMenu_},{"undo_menu",editorUndoMenu_},{"undo_popup",undoPopup},{"text_bounds",textBounds},
     {"ocr_request",editorOcrId_},{"ocr_active",editorOcrActive_},{"ocr_multi",editorOcrMulti_},{"ocr_busy",editorOcrBusy_},{"top_panel_blocked",editorTopBlocked_},
-    {"query_ms",editorLatency_},{"candidate_count",editorCandidates_.size()},{"revision",editorRevision_},{"keys",keys}};
+    {"query_ms",editorLatency_},{"candidate_count",editorCandidates_.size()},{"corrected_count",std::count_if(editorCandidateDetails_.begin(),editorCandidateDetails_.end(),[](const Json &v){return v.value("corrected",false);})},{"revision",editorRevision_},{"keys",keys}};
 }
 } // namespace penchat
 
@@ -760,7 +788,9 @@ void App::keyboardSettingsPage() {
     auto confirm=button(modal_,"清除记忆",16,screen_.height-66,200,44,[this]{events_.push("pinyin_clear_confirm");});
     lv_obj_set_style_text_color(lv_obj_get_child(confirm,0),lv_color_hex(theme::danger),0);
   });
+  const bool correction=db_.settings().value("pinyin_correction",true);
+  settingsRow("pinyin_correction","拼音纠错","为26键拼音补充错键候选",10,92,column,[this,correction]{db_.setting("pinyin_correction",!correction);build();},correction);
   const auto preferred=editor_.preferredChinese==2?std::string("zh9"):std::string("zh26");
-  label(pageContent_,std::string("常用中文布局：")+(preferred=="zh9"?"九宫格拼音":"26键拼音")+"\n实际输入后自动记住；长按地球可直接选择布局。",10,104,width-20,18,theme::muted);
+  label(pageContent_,std::string("常用中文布局：")+(preferred=="zh9"?"九宫格拼音":"26键拼音")+"\n实际输入后自动记住；长按地球可直接选择布局。",10,168,width-20,18,theme::muted);
 }
 } // namespace penchat
