@@ -25,6 +25,7 @@ class Input {
 
 public:
   Input();
+  ~Input();
   void touch(int x, int y, bool down);
   void release();
   void cancel();
@@ -36,6 +37,9 @@ class Bridge {
 
 public:
   explicit Bridge(int fd) : fd_(fd) {}
+  ~Bridge();
+  Bridge(const Bridge &) = delete;
+  Bridge &operator=(const Bridge &) = delete;
   bool connected() const { return fd_ >= 0; }
   int generation() const { return generation_; }
   void generation(int n) { generation_ = n; }
@@ -44,4 +48,8 @@ public:
 };
 lv_font_t *font(int size, bool bold = false);
 void initializeFonts(const std::string &path, const std::string &fallbackPath);
+void shutdownFonts();
+// Call only after the display has finished drawing a frame, never from a glyph callback.
+void trimFontCache();
+Json fontCacheInfo();
 } // namespace penchat

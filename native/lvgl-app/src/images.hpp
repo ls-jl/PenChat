@@ -31,6 +31,7 @@ class Images {
 public:
   explicit Images(Events &events);
   ~Images();
+  void stop();
   std::string request(const std::string &path, int width, int height,
                       bool upscale = false, bool detail = false);
   std::shared_ptr<ImageFrame> get(const std::string &key);

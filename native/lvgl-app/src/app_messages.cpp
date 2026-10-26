@@ -12,18 +12,19 @@ std::string messageText(const Json &row) {
 }
 }
 void App::initializeMessageEdits() {
+  messageEditWorker_=std::thread([this]{cleanupMessageEdits();});
+}
+void App::cleanupMessageEdits() {
   const auto path=join(dataDir_,".message-edit");
-  messageEditWorker_=std::thread([path]{
-    struct stat st{};if(lstat(path.c_str(),&st)||!S_ISDIR(st.st_mode)||S_ISLNK(st.st_mode))return;
-    auto dir=opendir(path.c_str());if(!dir)return;
-    const std::regex owned("image_[0-9]+_[0-9]+\\.png(\\.part)?");
-    while(auto entry=readdir(dir)) {
-      const std::string name=entry->d_name;if(!std::regex_match(name,owned))continue;
-      const auto file=join(path,name);
-      if(!lstat(file.c_str(),&st)&&S_ISREG(st.st_mode)&&!S_ISLNK(st.st_mode))unlink(file.c_str());
-    }
-    closedir(dir);
-  });
+  struct stat st{};if(lstat(path.c_str(),&st)||!S_ISDIR(st.st_mode)||S_ISLNK(st.st_mode))return;
+  auto dir=opendir(path.c_str());if(!dir)return;
+  const std::regex owned("image_[0-9]+_[0-9]+\\.png(\\.part)?");
+  while(auto entry=readdir(dir)) {
+    const std::string name=entry->d_name;if(!std::regex_match(name,owned))continue;
+    const auto file=join(path,name);
+    if(!lstat(file.c_str(),&st)&&S_ISREG(st.st_mode)&&!S_ISLNK(st.st_mode))unlink(file.c_str());
+  }
+  closedir(dir);
 }
 void App::messageLongPress(lv_obj_t *object, const std::string &id) {
   struct Press {App *app; std::string session,id; lv_point_t start{}; int distance=0;};

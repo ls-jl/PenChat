@@ -108,8 +108,17 @@ The upstream repository declares MIT; exact notice: `licenses/libpinyinime.txt`.
 PenChat builds from locked source with a checksum-pinned adapter for read-only selection,
 explicit user deltas, bounded segmentation and exception cleanup. No upstream binary is reused.
 
-The upstream credits https://github.com/syhien/pinyin-IME and derives its dictionary from
-https://github.com/zispace/hanzi-words-cycb. Those source repositories do not supply separate
-license grants in their inspected roots; this inventory does not infer or certify those grants,
-or relicense their material under PenChat's Apache-2.0. The upstream dictionary and phonetic
-table hashes are recorded separately in `native/pinyin/source-lock.json`.
+The upstream credits https://github.com/syhien/pinyin-IME and derives its original dictionary from
+https://github.com/zispace/hanzi-words-cycb. Those roots did not supply separate grants at inspection;
+PenChat does not infer a grant. From 0.2.7 the original dictionary and phonetic table are NOT packaged;
+their hashes remain in the source lock for provenance. PenChat's indexed search/Viterbi adapter is
+recorded by checksum in the patch. User learning remains private and separate from base resources.
+
+## Rime simplified Pinyin dictionary
+
+Source: https://github.com/rime/rime-pinyin-simp, revision 0c6861ef7420ee780270ca6d993d18d4101049d0.
+License: Apache-2.0; exact notice: `licenses/rime-pinyin-simp.txt`. The dictionary header identifies
+Android Open Source Project PinyinIME as its origin. PenChat converts spelling/weights into its
+read-only runtime format without adding test-specific frequency weights. Source and generated
+resource hashes are in `native/pinyin/dictionary-lock.json`. No Rime engine or system word library
+is loaded; these are data resources used by the source-built native adapter.

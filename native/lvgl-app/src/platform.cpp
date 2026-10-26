@@ -43,6 +43,7 @@ void Display::flush(lv_display_t *d, const lv_area_t *, uint8_t *) {
   }
   if (shown_ && !headless_)
     overlay_.presentRgba(rgba_.data(), screen_.width, screen_.height);
+  if(lv_display_flush_is_last(d)) trimFontCache();
   lv_display_flush_ready(d);
 }
 void Display::visible(bool value) {
@@ -76,6 +77,8 @@ void Input::touch(int x, int y, bool down) {
   pressed_ = down;
   lv_indev_read(input_);
 }
+Input::~Input() { if(input_) lv_indev_delete(input_); }
+Bridge::~Bridge() { if(fd_>=0) close(fd_); }
 void Input::cancel() {
   pressed_ = false;
   lv_indev_reset(input_, nullptr);
@@ -123,15 +126,39 @@ std::vector<Json> Bridge::receive() {
 struct Glyph {
   lv_font_glyph_dsc_t metrics{};
   std::vector<uint8_t> pixels;
+  uint64_t used=0;
 };
 struct Typeface {
   lv_font_t font{};
   FT_Face face = nullptr, fallbackFace = nullptr;
   std::map<uint32_t, Glyph> glyphs;
+  ~Typeface() {
+    if(fallbackFace) FT_Done_Face(fallbackFace);
+    if(face) FT_Done_Face(face);
+  }
 };
 static FT_Library ft;
 static std::string fontPath, symbolFontPath;
 static std::map<int, std::unique_ptr<Typeface>> fonts;
+static size_t glyphBytes=0, glyphCount=0;
+static uint64_t glyphUse=0;
+Json fontCacheInfo() { return {{"bytes",glyphBytes},{"entries",glyphCount},{"faces",fonts.size()}}; }
+void trimFontCache() {
+  if(glyphBytes<=4*1024*1024 && glyphCount<=8192) return;
+  struct Item {Typeface *face; uint32_t cp; uint64_t used;};
+  std::vector<Item> items;items.reserve(glyphCount);
+  for(auto &font:fonts)for(const auto &g:font.second->glyphs)items.push_back({font.second.get(),g.first,g.second.used});
+  std::sort(items.begin(),items.end(),[](const Item&a,const Item&b){return a.used<b.used;});
+  for(const auto &item:items){
+    if(glyphBytes<=4*1024*1024 && glyphCount<=8192)break;
+    auto it=item.face->glyphs.find(item.cp);glyphBytes-=it->second.pixels.size();--glyphCount;item.face->glyphs.erase(it);
+  }
+}
+void shutdownFonts() {
+  fonts.clear();
+  glyphBytes=glyphCount=0;
+  if(ft) { FT_Done_FreeType(ft); ft=nullptr; }
+}
 void initializeFonts(const std::string &path, const std::string &fallbackPath) {
   symbolFontPath = fallbackPath;
   fontPath = path;
@@ -140,12 +167,16 @@ void initializeFonts(const std::string &path, const std::string &fallbackPath) {
 }
 static Glyph &glyph(Typeface *t, uint32_t cp) {
   auto found = t->glyphs.find(cp);
-  if (found != t->glyphs.end())
+  if (found != t->glyphs.end()) {
+    found->second.used=++glyphUse;
     return found->second;
+  }
   Glyph g;
   const auto face = !FT_Get_Char_Index(t->face, cp) && t->fallbackFace ? t->fallbackFace : t->face;
-  if (FT_Load_Char(face, cp, FT_LOAD_RENDER))
-    return t->glyphs[cp];
+  if (FT_Load_Char(face, cp, FT_LOAD_RENDER)) {
+    g.used=++glyphUse; ++glyphCount;
+    return t->glyphs.emplace(cp,std::move(g)).first->second;
+  }
   auto slot = face->glyph;
   auto &d = g.metrics;
   d.adv_w = std::max(0L, slot->advance.x / 64);
@@ -159,6 +190,7 @@ static Glyph &glyph(Typeface *t, uint32_t cp) {
   for (int y = 0; y < d.box_h; ++y)
     std::copy_n(slot->bitmap.buffer + y * slot->bitmap.pitch, d.box_w,
                 g.pixels.data() + size_t(y) * d.box_w);
+  g.used=++glyphUse;glyphBytes+=g.pixels.size();++glyphCount;
   return t->glyphs.emplace(cp, std::move(g)).first->second;
 }
 lv_font_t *font(int size, bool bold) {

@@ -10,6 +10,7 @@ class ScanService {
 public:
   ScanService(Events &, const std::string &workspace, const std::string &data);
   ~ScanService();
+  void stop();
   void eligible(bool enabled, const std::string &session);
   void confirm(uint64_t scan);
   void discard(uint64_t scan);

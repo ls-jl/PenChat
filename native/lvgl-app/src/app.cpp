@@ -171,6 +171,9 @@ void App::texture(lv_obj_t *object, std::shared_ptr<ImageFrame> frame,
                   bool premultiplied) {
   if (!frame)
     return;
+  auto existing=textures_.find(object);
+  if(existing!=textures_.end() && existing->second->frame==frame &&
+     bool(existing->second->descriptor.header.flags&LV_IMAGE_FLAGS_PREMULTIPLIED)==premultiplied)return;
   auto t = std::unique_ptr<Texture>(new Texture);
   t->frame = std::move(frame);
   auto &d = t->descriptor;
@@ -2693,8 +2696,17 @@ void App::suspend(bool value) {
 void App::shutdown() {
   if (shutdownComplete_) return;
   shutdownComplete_ = true;
+  // Signal every independent task before waiting for any one of them. A slow
+  // compaction/image job must not leave another request or capture running.
+  cancel_ = true; modelCancel_ = true; titleCancel_ = true;
+  contextCancel_ = true; replyCancel_ = true;
   resetBack();
   closeImageViewer(false);
+  display_.visible(false);
+  images_.stop();
+  scanner_.eligible(false, session_);
+  scanner_.stop();
+  camera_.stop();
   cancelContext();
   if (sessionInfoWorker_.joinable()) sessionInfoWorker_.join();
   replyCancel_=true;if(replyWorker_.joinable())replyWorker_.join();replyBusy_=false;
@@ -2704,6 +2716,7 @@ void App::shutdown() {
     imageStoreWorker_.join();
   if(messageEditWorker_.joinable())messageEditWorker_.join();
   messageEditBusy_=false;cancelMessageEdit(false);
+  cleanupMessageEdits();
   editorInterrupt();
   pinyin_.stop();
   if (editorRoot_) { lv_obj_delete(editorRoot_); editorRoot_ = editorText_ = nullptr; }

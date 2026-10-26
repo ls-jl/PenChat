@@ -1,17 +1,216 @@
 --- a/src/pinyin_ime.cpp
 +++ b/src/pinyin_ime.cpp
-@@ -7,6 +7,7 @@
- #include <iostream>
+@@ -1,961 +1,146 @@
++// PenChat indexed decoder, adapted from libpinyinime's C API (MIT).
++// Copyright 2026 PenChat contributors. Own additions: Apache-2.0.
+ #include "pinyin_ime.h"
+ #include "utf8.h"
+-
+ #include <algorithm>
++#include <cmath>
+ #include <cstring>
+ #include <fstream>
+-#include <iostream>
  #include <map>
- #include <new>
+-#include <new>
+-#include <set>
 +#include <memory>
- #include <set>
  #include <string>
  #include <vector>
-@@ -103,26 +104,8 @@
- namespace
- {
- 
+-#include <utility>
+-#include <chrono>
+-
+-// ---- 拼音 Trie 树（前缀索引） ----
+-
+-struct TrieNode
+-{
+-	TrieNode* children[26];
+-	bool is_word;
+-	std::string word;
+-
+-	TrieNode() : is_word(false)
+-	{
+-		std::memset(children, 0, sizeof(children));
+-	}
+-
+-	~TrieNode()
+-	{
+-		for (int i = 0; i < 26; i++)
+-			if(children[i]) delete children[i];
+-	}
++namespace {
++struct Syllable { std::string letters, numbers; };
++struct Node { std::vector<std::pair<uint16_t,uint32_t>> edges; std::vector<uint32_t> words; };
++struct Word { std::string text, spelling; double frequency, rank; bool learned=false; };
++struct Candidate { std::string text, spelling; size_t consumed=0; double cost=0, penalty=0; unsigned pieces=1; };
++std::string numbers(const std::string &s) {
++  static const char keys[]="22233344455566677778889999";
++  std::string out; for(char c:s)if(c>='a'&&c<='z')out+=keys[c-'a']; return out;
++}
++std::vector<std::string> split(const std::string &s) {
++  std::vector<std::string> out; size_t a=0;
++  while(a<s.size()){auto b=s.find('\'',a);if(b==std::string::npos)b=s.size();if(b==a)return {};out.push_back(s.substr(a,b-a));a=b+1;}return out;
++}
++}
++struct pinyin_ime_t {
++  std::vector<Syllable> syllables;
++  std::map<std::string,uint16_t> syllableIds;
++  std::vector<Node> nodes{1};
++  std::vector<Word> words;
++  std::vector<Candidate> candidates;
++  std::vector<std::string> exact;
++  std::string raw,result,segments;
++  double total=1,normalizer=0;
++  std::vector<uint32_t> dirtyNodes;
++  mutable size_t emitted=0;
++  void sortWords(uint32_t node){auto &v=nodes[node].words;std::sort(v.begin(),v.end(),[this](uint32_t a,uint32_t b){return words[a].rank!=words[b].rank?words[a].rank<words[b].rank:words[a].text<words[b].text;});}
++  bool t9=false;
++  uint16_t syllable(const std::string &s) {
++    auto it=syllableIds.find(s);if(it!=syllableIds.end())return it->second;
++    auto id=uint16_t(syllables.size());syllableIds[s]=id;syllables.push_back({s,numbers(s)});return id;
++  }
++  bool add(const std::string &py,const std::string &text,uint32_t frequency,bool learned=false) {
++    const auto parts=split(py);if(parts.empty()||parts.size()!=utf8_to_wstring(text).size()||parts.size()>32)return false;
++    for(const auto &s:parts)if(s.empty()||s.size()>6||s.find_first_not_of("abcdefghijklmnopqrstuvwxyz")!=std::string::npos||!syllableIds.count(s))return false;
++    uint32_t node=0;
++    for(const auto &s:parts){auto id=syllableIds[s];uint32_t child=0;for(auto edge:nodes[node].edges)if(edge.first==id){child=edge.second;break;}
++      if(!child){child=uint32_t(nodes.size());nodes.emplace_back();nodes[node].edges.emplace_back(id,child);}node=child;}
++    for(auto id:nodes[node].words)if(words[id].text==text){auto &w=words[id];if(learned){w.frequency=frequency;w.learned=true;}else{total+=frequency>w.frequency?frequency-w.frequency:0;w.frequency=std::max(w.frequency,double(frequency));}w.rank=-std::log(w.frequency+1)-(w.learned?16.0:0.0);if(learned)dirtyNodes.push_back(node);return true;}
++    const auto id=uint32_t(words.size());words.push_back({text,py,double(frequency),-std::log(double(frequency)+1)-(learned?16.0:0.0),learned});nodes[node].words.push_back(id);if(!learned)total+=frequency;else dirtyNodes.push_back(node);return true;
++  }
++  double cost(const Word &w)const{return normalizer+w.rank;}
++  void match(uint32_t node,size_t at,double penalty,std::vector<Candidate> &out,size_t &budget,unsigned depth=0,bool abbreviations=false)const {
++    if(!budget||depth>32||out.size()>=2048||emitted>=16384)return;--budget;
++    while(at<raw.size()&&raw[at]=='\'')++at;
++    for(size_t index=0;index<std::min<size_t>(64,nodes[node].words.size());++index){auto id=nodes[node].words[index];const auto &w=words[id];if(out.size()<2048&&emitted<16384){out.push_back({w.text,w.spelling,at,cost(w),penalty,1});++emitted;}}
++    if(at>=raw.size()||out.size()>4096)return;
++    for(auto edge:nodes[node].edges){if(!budget)return;
++      const auto &s=syllables[edge.first];const bool numeric=raw[at]>='2'&&raw[at]<='9';const auto &key=numeric?s.numbers:s.letters;
++      size_t same=0;while(same<key.size()&&at+same<raw.size()&&raw[at+same]==key[same])++same;
++      if(same==key.size())match(edge.second,at+same,penalty,out,budget,depth+1,abbreviations);
++      // Explicit syllables in a nine-key filter must match exactly.
++      if(abbreviations&&!t9&&!numeric){
++        for(size_t n=1;n<std::min(key.size(),same+1);++n){
++          if(at+n<raw.size()&&raw[at+n]=='\'')continue;
++          match(edge.second,at+n,penalty+1.4*(key.size()-n),out,budget,depth+1,abbreviations);
++        }
++      }else if(numeric&&same&&same<key.size()&&at+same==raw.size()){
++        // Incomplete final syllable: only its direct word endings, no suffix guessing.
++        for(size_t index=0;index<std::min<size_t>(64,nodes[edge.second].words.size());++index){auto id=nodes[edge.second].words[index];const auto &w=words[id];if(out.size()<2048&&emitted<16384){out.push_back({w.text,w.spelling,raw.size(),cost(w),penalty+1.4*(key.size()-same),1});++emitted;}}
++      }
++    }
++  }
++  void search() {
++    std::sort(dirtyNodes.begin(),dirtyNodes.end());dirtyNodes.erase(std::unique(dirtyNodes.begin(),dirtyNodes.end()),dirtyNodes.end());
++    for(auto node:dirtyNodes)sortWords(node);dirtyNodes.clear();emitted=0;
++    normalizer=std::log(total+words.size())+1.5;
++    candidates.clear();exact.clear();segments=raw;t9=raw.find_first_of("23456789")!=std::string::npos;
++    if(raw.empty()||raw.size()>128)return;
++    if(raw.find_first_not_of("abcdefghijklmnopqrstuvwxyz'23456789")!=std::string::npos)return;
++    size_t budget=65536;
++    std::vector<std::vector<Candidate>> matches(raw.size()+1),beam(raw.size()+1);
++    match(0,0,0,matches[0],budget);candidates=matches[0];
++    beam[0].push_back({"","",0,0,0,0});
++    // A small Viterbi beam composes exact words into complete phrases. It does
++    // not fabricate missing letters or learn these guesses before confirmation.
++    for(size_t at=0;at<raw.size()&&budget;++at){
++      if(beam[at].empty())continue;
++      if(at)match(0,at,0,matches[at],budget);
++      for(const auto &w:matches[at]){
++        if(w.consumed<=at||w.penalty!=0)continue;
++        for(const auto &prev:beam[at]){
++          if(prev.pieces>=16||prev.text.size()+w.text.size()>96)continue;
++          Candidate next{prev.text+w.text,prev.spelling+(prev.spelling.empty()?"":"'")+w.spelling,w.consumed,prev.cost+w.cost,0,prev.pieces+1};
++          auto &b=beam[w.consumed];bool duplicate=false;for(auto &old:b)if(old.text==next.text){if(old.cost>next.cost)old=next;duplicate=true;break;}
++          if(!duplicate)b.push_back(std::move(next));
++          std::sort(b.begin(),b.end(),[](const Candidate&a,const Candidate&b){return a.cost<b.cost;});if(b.size()>4)b.resize(4);
++        }
++      }
++    }
++    for(const auto &c:beam.back())if(c.pieces>1)candidates.push_back(c);
++    bool complete=false;for(const auto &c:candidates)if(c.consumed==raw.size()&&c.penalty==0){complete=true;break;}
++    if((!complete||(raw.size()==1&&raw.find_first_of("aeo")==std::string::npos))&&!t9){std::vector<Candidate> fallback;match(0,0,0,fallback,budget,0,true);candidates.insert(candidates.end(),fallback.begin(),fallback.end());}
++    std::sort(candidates.begin(),candidates.end(),[](const Candidate&a,const Candidate&b){
++      if(a.consumed!=b.consumed)return a.consumed>b.consumed;
++      const double ac=a.cost+a.penalty,bc=b.cost+b.penalty;if(ac!=bc)return ac<bc;return a.text<b.text;
++    });
++    std::vector<Candidate> unique;for(auto &c:candidates){bool seen=false;for(const auto &u:unique)if(u.text==c.text){seen=true;break;}if(!seen)unique.push_back(std::move(c));if(unique.size()==64)break;}candidates=std::move(unique);
++    if(t9){size_t at=raw.find_first_of("23456789");const auto remaining=raw.substr(at);
++      for(const auto &s:syllables)if(remaining.compare(0,s.numbers.size(),s.numbers)==0)exact.push_back(s.letters);
++      std::sort(exact.begin(),exact.end(),[](const std::string&a,const std::string&b){return a.size()!=b.size()?a.size()>b.size():a<b;});}
++  }
+ };
+-
+-/**
+- * @brief 拼音输入法实例（不透明句柄）
+- *
+- * 每个实例管理：
+- *   - 拼音 -> 单字列表  的映射表（pinyin）
+- *   - 拼音串 -> 词语列表 的映射表（pinyin_to_words）
+- *   - 词 -> 词频        的全局词典（dictionary）
+- *   - 当前输入会话的临时状态
+- */
+-struct pinyin_ime_t
+-{
+-	// K9 -> 拼音列表
+-	std::map<std::string, std::vector<std::string>> k9_to_pinyin;
+-	// 拼音串 -> 词语列表
+-	std::map<std::string, std::set<std::wstring>> pinyin_to_words;
+-	// 词 -> 累计词频
+-	std::map<std::wstring, uint32_t> dictionary;
+-
+-
+-	// 拼音表文件路径
+-	std::string pinyin_path;
+-	// 词典文件路径
+-	std::string dict_path;
+-
+-	// 拼音前缀索引（Trie 树）
+-	TrieNode* trie_root;
+-
+-
+-	// 用户输入的原始拼音字符串（未过滤分隔符）
+-	std::string raw_pinyin;
+-
+-	// 全拼模式下分词后的音节列表，如 ["shu", "li", "kou"]
+-	std::vector<std::string> segments;
+-
+-	// 已确认（已选词）的音节个数，即 segments 中前 solved_yin 个音节已处理
+-	uint32_t solved_yin;
+-
+-	// 已选中的最终汉字结果
+-	std::wstring final_word;
+-
+-	// 当前候选词列表（拼音, 候选词）
+-	std::vector<std::pair<std::string, std::wstring>> candidates;
+-
+-	// 当前输入是否已完成（无剩余音节待处理）
+-	bool finished;
+-
+-	bool use_k9;
+-
+-	// ---- UTF-8 缓存（供 C 接口返回 const char* 使用） ----
+-
+-	// 当前剩余拼音分词的 UTF-8 缓存
+-	std::string segments_cache;
+-
+-	// 最终汉字结果的 UTF-8 缓存
+-	std::string result_cache;
+-
+-	// 候选词列表的 UTF-8 缓存（按索引对应 candidates）
+-	std::vector<std::string> candidate_cache;
+-
+-	// k9 精确拼音列表
+-	std::vector<std::string> k9_exact_cache;
+-
+-	// 构造函数：初始化状态变量
+-	pinyin_ime_t() : solved_yin(0), finished(true), use_k9(false), trie_root(nullptr) {}
+-	~pinyin_ime_t() { delete trie_root; }
+-};
+-
+-namespace
+-{
+-
 -long long timer = 0;
 -
 -long long millis() {
@@ -19,11 +218,41 @@
 -    auto now = system_clock::now();
 -    auto ms = duration_cast<milliseconds>(now.time_since_epoch());
 -    return ms.count();
--}
++extern "C" {
++pinyin_ime_t* pinyin_ime_init(const char *table,const char *dictionary) {
++  if(!table||!dictionary)return nullptr;
++  try {for(auto path:{table,dictionary}){std::ifstream bound(path,std::ios::binary|std::ios::ate);if(!bound||bound.tellg()<=0||bound.tellg()>6*1024*1024)return nullptr;}std::unique_ptr<pinyin_ime_t> e(new pinyin_ime_t);std::ifstream p(table);std::string line;
++    while(std::getline(p,line)){const auto comma=line.find(',');if(comma==std::string::npos)continue;const auto py=line.substr(0,comma);if(py.empty()||py.size()>6||py.find_first_not_of("abcdefghijklmnopqrstuvwxyz")!=std::string::npos)return nullptr;
++      e->syllable(py);if(e->syllables.size()>512)return nullptr;
++      for(wchar_t c:utf8_to_wstring(line.substr(comma+1)))if(c>0x3000)e->add(py,wstring_to_utf8(std::wstring(1,c)),0);
++    }
++    if(e->syllables.empty())return nullptr;
++    std::ifstream d(dictionary);std::string py,text;size_t count=0,loaded=0;uint32_t weight;
++    while(d>>py){if(!(d>>count)||count>65536||py.size()>128)return nullptr;for(size_t i=0;i<count;++i){if(!(d>>text>>weight)||text.size()>128)return nullptr;e->add(py,text,weight);if(++loaded>250000)return nullptr;}}
++    if(!d.eof()||!loaded)return nullptr;
++    for(uint32_t i=0;i<e->nodes.size();++i){std::sort(e->nodes[i].edges.begin(),e->nodes[i].edges.end());e->sortWords(i);}
++    return e.release();
++  }catch(...){return nullptr;}
+ }
 -
 -void print_millis(const std::string& name) {
 -	std::cout<<"[pinyin_ime] "<<name<<" time="<<millis()<<std::endl;
--}
++void pinyin_ime_destroy(pinyin_ime_t *e){delete e;}
++int pinyin_ime_input(pinyin_ime_t *e,const char *raw){if(!e||!raw)return PINYIN_IME_ERR_INVALID_ARG;try{e->raw=raw;e->result.clear();e->search();return e->raw.size()<=128?PINYIN_IME_OK:PINYIN_IME_ERR_BAD_PINYIN;}catch(...){return PINYIN_IME_ERR_INVALID_ARG;}}
++int pinyin_ime_get_candidate_count(pinyin_ime_t *e){return e?int(e->candidates.size()):0;}
++const char* pinyin_ime_get_candidate(pinyin_ime_t *e,uint32_t i){return e&&i<e->candidates.size()?e->candidates[i].text.c_str():nullptr;}
++const char* pinyin_ime_candidate_pinyin(pinyin_ime_t *e,uint32_t i){return e&&i<e->candidates.size()?e->candidates[i].spelling.c_str():nullptr;}
++int pinyin_ime_candidate_consumed(pinyin_ime_t *e,uint32_t i){if(!e||i>=e->candidates.size())return -1;auto n=e->candidates[i].consumed;if(!e->t9)return int(n);return int(n-std::count(e->raw.begin(),e->raw.begin()+n,'\''));}
++int pinyin_ime_user_word(pinyin_ime_t *e,const char *py,const char *word,uint32_t frequency){if(!e||!py||!word)return PINYIN_IME_ERR_INVALID_ARG;try{return e->add(py,word,frequency,true)?PINYIN_IME_OK:PINYIN_IME_ERR_INVALID_ARG;}catch(...){return PINYIN_IME_ERR_INVALID_ARG;}}
++const char* pinyin_ime_get_segments(pinyin_ime_t *e){return e?e->segments.c_str():nullptr;}
++const char* pinyin_ime_get_result(pinyin_ime_t *e){return e?e->result.c_str():nullptr;}
++int pinyin_ime_is_finished(pinyin_ime_t *e){return !e||e->raw.empty();}
++int pinyin_ime_get_k9_exact_count(pinyin_ime_t *e){return e?int(e->exact.size()):0;}
++const char* pinyin_ime_get_k9_exact(pinyin_ime_t *e,uint32_t i){return e&&i<e->exact.size()?e->exact[i].c_str():nullptr;}
++int pinyin_ime_select(pinyin_ime_t *e,uint32_t i){if(!e||i>=e->candidates.size())return PINYIN_IME_ERR_INDEX;auto c=e->candidates[i];e->raw.erase(0,c.consumed);auto result=e->result+c.text;e->search();e->result=result;return PINYIN_IME_OK;}
++int pinyin_ime_select_k9_exact(pinyin_ime_t *e,uint32_t i){if(!e||i>=e->exact.size())return PINYIN_IME_ERR_INDEX;auto py=e->exact[i];auto a=e->raw.find_first_of("23456789");e->raw.replace(a,py.size(),py+"'");e->search();return PINYIN_IME_OK;}
++int pinyin_ime_save(pinyin_ime_t*,const char*){return PINYIN_IME_ERR_IO;} // Read-only base resources.
+ }
 -
 -void timer_set() {
 -	timer = millis();
@@ -32,146 +261,658 @@
 -void timer_print(const std::string& name) {
 -	std::cout<<"[pinyin_ime] "<<name<<" cost="<<(millis() - timer)<<std::endl;
 -}
-+void timer_set() {}
-+void timer_print(const std::string&) {}
- 
- void trie_insert(TrieNode* root, const std::string& word)
- {
-@@ -231,7 +214,7 @@
- 	}
- 	*/
- 
+-
+-void trie_insert(TrieNode* root, const std::string& word)
+-{
+-	TrieNode* node = root;
+-	for (char c : word)
+-	{
+-		uint32_t idx = c - 'a';
+-		if (idx >= 26) return;
+-		if (!node->children[idx])
+-			node->children[idx] = new TrieNode();
+-		node = node->children[idx];
+-	}
+-	node->is_word = true;
+-	node->word = word;
+-}
+-
+-TrieNode* trie_find_prefix(TrieNode* root, const std::string& prefix)
+-{
+-	TrieNode* node = root;
+-	for (char c : prefix)
+-	{
+-		uint32_t idx = c - 'a';
+-		if (idx >= 26 || !node->children[idx])
+-			return nullptr;
+-		node = node->children[idx];
+-	}
+-	return node;
+-}
+-
+-void trie_collect_words(TrieNode* node, std::vector<std::string>& result)
+-{
+-	if (!node)
+-		return;
+-	if (node->is_word)
+-		result.push_back(node->word);
+-	for (uint32_t i = 0; i < 26; i++)
+-	{
+-		if (node->children[i])
+-			trie_collect_words(node->children[i], result);
+-	}
+-}
+-
+-const uint32_t k9_map[] = {2,2,2,3,3,3,4,4,4,5,5,5,6,6,6,7,7,7,7,8,8,8,9,9,9,9};
+-
+-uint32_t letter_to_k9(const char& c) {
+-	if(c < 'a' || c > 'z') return 0;
+-	return k9_map[c - 'a'];
+-}
+-
+-/**
+- * @brief 加载拼音表文件
+- *
+- * @param ime  输入法实例
+- * @param path 拼音表文件路径
+- * @return 成功加载且至少有一条记录时返回 true，否则 false
+- */
+-bool load_pinyin_table(pinyin_ime_t* ime, const std::string& path)
+-{
+-	std::ifstream fin(path.c_str());
+-	if (!fin) return false;
+-
+-	if (ime->trie_root) delete ime->trie_root;
+-	ime->trie_root = new TrieNode();
+-
+-	std::string line;
+-	while (std::getline(fin, line))
+-	{
+-		// 查找逗号分隔符（左边是拼音，右边是汉字串）
+-		int comma = line.find(',');
+-		if (comma == std::string::npos)
+-			continue;
+-		std::string en = line.substr(0, comma);
+-		trie_insert(ime->trie_root, en);
+-
+-		uint32_t k9_id = 0;
+-		for (uint32_t i = 0; i < comma; i++)
+-		{
+-			uint32_t digit = letter_to_k9(en[i]);
+-			k9_id = k9_id * 10 + digit;
+-		}
+-		ime->k9_to_pinyin[std::to_string(k9_id)].push_back(en);
+-
+-		std::wstring chars = utf8_to_wstring(line.substr(comma + 1));
+-		for (wchar_t ch : chars)
+-		{
+-			// 跳过空白字符
+-			if (ch == L' ' || ch == L'\t' || ch == L'\r' || ch == L'\n')
+-				continue;
+-			std::wstring ch_as_str = std::wstring(1, ch);
+-			ime->pinyin_to_words[en].insert(ch_as_str);
+-			// 初始化单字词频为 0
+-			ime->dictionary[ch_as_str] = 0;
+-		}
+-	}
+-	fin.close();
+-
+-	/*
+-	for (auto &it : ime->k9_to_pinyin)
+-	{
+-		std::cout<<it.first<<":";
+-		for (auto &jt : it.second)
+-		{
+-			std::cout<<jt<<",";
+-		}
+-		std::cout<<std::endl;
+-	}
+-	*/
+-
 -	return true;
-+	return !ime->pinyin_to_words.empty();
- }
- 
- /**
-@@ -246,30 +229,28 @@
- 	std::ifstream fin(path.c_str());
- 	if (!fin) return false;
- 
-+	size_t loaded = 0;
- 	std::string pinxie;
- 	uint32_t word_count;
- 	std::string word_utf8;
- 	uint32_t word_freq;
- 	while (fin >> pinxie)
- 	{
+-}
+-
+-/**
+- * @brief 加载词典文件
+- *
+- * @param ime  输入法实例
+- * @param path 词典文件路径
+- * @return 始终返回 true（即使文件为空也允许）
+- */
+-bool load_dictionary(pinyin_ime_t* ime, const std::string& path)
+-{
+-	std::ifstream fin(path.c_str());
+-	if (!fin) return false;
+-
+-	std::string pinxie;
+-	uint32_t word_count;
+-	std::string word_utf8;
+-	uint32_t word_freq;
+-	while (fin >> pinxie)
+-	{
 -		if (!(fin >> word_count))
 -			break;
-+		if (!(fin >> word_count) || word_count > 100000) return false;
- 		for (uint32_t i = 0; i < word_count; i++)
- 		{
+-		for (uint32_t i = 0; i < word_count; i++)
+-		{
 -			if (!(fin >> word_utf8))
 -				break;
 -			if (!(fin >> word_freq))
 -				break;
-+			if (!(fin >> word_utf8)) return false;
-+			if (!(fin >> word_freq)) return false;
- 			std::wstring word = utf8_to_wstring(word_utf8);
- 
- 			// 使用 set 容器，自身即保证不重复
- 			ime->pinyin_to_words[pinxie].insert(word);
+-			std::wstring word = utf8_to_wstring(word_utf8);
+-
+-			// 使用 set 容器，自身即保证不重复
+-			ime->pinyin_to_words[pinxie].insert(word);
 -			ime->dictionary[word] = word_freq;
-+			ime->dictionary[word] = word_freq; ++loaded;
- 		}
- 	}
- 	fin.close();
- 
+-		}
+-	}
+-	fin.close();
+-
 -	return true;
-+	return loaded > 0;
- }
- 
- /**
-@@ -350,15 +331,16 @@
-  * @param out 输出音节列表（递归调用时从后往前插入）
-  * @return 分词成功返回 true
-  */
+-}
+-
+-/**
+- * @brief 将字符串向量从指定位置开始拼接
+- *
+- * @param v    字符串向量
+- * @param from 起始索引（包含）
+- * @param sep  分隔符
+- * @return 拼接后的字符串，如 join({"shu","li","kou"}, 1, "'") => "li'kou"
+- */
+-std::string join(const std::vector<std::string>& v, uint32_t from, const std::string& sep)
+-{
+-	std::string s;
+-	for (uint32_t i = from; i < v.size(); i++)
+-	{
+-		if (i > from)
+-			s += sep;
+-		s += v[i];
+-	}
+-	return s;
+-}
+-
+-/**
+- * @brief 候选词比较函数（用于排序）
+- *
+- * 排序规则（依次）：
+- *   1. 字数多的优先
+- *   2. 26键，拼音短的优先；9键，拼音长的优先
+- *   3. 频率高的优先
+- *
+- * 用于 std::sort，配合 lambda 使用。
+- *
+- * @param ime 输入法实例（用于获取词频）
+- * @param a   候选词 A
+- * @param b   候选词 B
+- * @return a 应排在 b 前面时返回 true
+- */
+-bool words_compare(const pinyin_ime_t* ime, 
+-		std::pair<std::string, std::wstring>& a, std::pair<std::string, std::wstring>& b)
+-{
+-	auto da = ime->dictionary.find(a.second);
+-	auto db = ime->dictionary.find(b.second);
+-	uint32_t fa = (da == ime->dictionary.end()) ? 0 : da->second;
+-	uint32_t fb = (db == ime->dictionary.end()) ? 0 : db->second;
+-	if (a.second.length() != b.second.length())
+-	    return a.second.length() > b.second.length();
+-	if (a.first.length() != b.first.length()) {
+-		if (!ime->use_k9) 	return a.first.length() < b.first.length();
+-		else 				return a.first.length() > b.first.length();
+-	}
+-	return fa > fb;
+-}
+-
+-std::vector<std::string> guess_pinyin(const pinyin_ime_t* ime, const std::string& seg_str)
+-{
+-	std::vector<std::string> result;
+-	TrieNode* node = trie_find_prefix(ime->trie_root, seg_str);
+-	if (node)
+-		trie_collect_words(node, result);
+-	return result;
+-}
+-
+-/**
+- * @brief 将拼音字符串切分为音节序列。
+- * 
+- * 优先匹配最长音节，失败时回溯尝试更短的音节。
+- * k9 模式下，先切分前半部分的精确拼音（如果有），数字部分看作一个音节
+- * 
+- * for example:
+- * k26无分隔 你好 "nihao" -> [ni'hao]
+- * k26有分隔 西安市 "xi'anshi" -> [xi'an'shi]
+- * k9未精确选择 猫娘 "62664264" -> [62664264]
+- * k9有精确选择 嵌入式 "qian'78744" -> [qian'78744]
+- *
+- * @param ime 输入法实例（用于查询拼音表）
+- * @param s   待分词的拼音字符串
+- * @param pos 当前处理位置
+- * @param out 输出音节列表（递归调用时从后往前插入）
+- * @return 分词成功返回 true
+- */
 -bool segmentation(const pinyin_ime_t* ime, const std::string& s, int pos, std::vector<std::string>& out)
-+bool segmentation_impl(const pinyin_ime_t* ime, const std::string& s, int pos, std::vector<std::string>& out, std::vector<bool>& failed)
- {
- 	// 已处理完所有字符，成功
- 	if (pos >= s.size())
- 		return true;
- 		
-+	if (failed[pos]) return false;
- 	// 跳过当前这一位的 ' 分隔符
- 	if (s[pos] == '\'')
+-{
+-	// 已处理完所有字符，成功
+-	if (pos >= s.size())
+-		return true;
+-		
+-	// 跳过当前这一位的 ' 分隔符
+-	if (s[pos] == '\'')
 -		return segmentation(ime, s, pos + 1, out);
-+		return segmentation_impl(ime, s, pos + 1, out, failed);
- 		
- 	// 找到下一个分隔符或字符串末尾，作为当前音节的最大可能长度
- 	int end = s.find('\'', pos);
-@@ -377,7 +359,7 @@
- 		//std::cout<<seg_str<<","<<valid<<","<<len<<std::endl;
- 
- 		// 如果合法，进行后续分词，看是否成功
+-		
+-	// 找到下一个分隔符或字符串末尾，作为当前音节的最大可能长度
+-	int end = s.find('\'', pos);
+-	if (end == std::string::npos) end = s.size();
+-	// 一个拼音音节最长的长度只有6
+-	if (end > pos + 6) end = pos + 6;
+-
+-	// 从最长可能音节开始尝试，逐步缩短
+-	for (int len = end - pos; len >= 1; len--)
+-	{
+-		std::string seg_str = s.substr(pos, len);
+-
+-		// 用 Trie 判断该拼音是否合法
+-		bool valid = (trie_find_prefix(ime->trie_root, seg_str) != nullptr);
+-
+-		//std::cout<<seg_str<<","<<valid<<","<<len<<std::endl;
+-
+-		// 如果合法，进行后续分词，看是否成功
 -		if (valid && segmentation(ime, s, pos + len, out))
-+		if (valid && segmentation_impl(ime, s, pos + len, out, failed))
- 		{
- 			// 如果成功，递归返回时在开头插入当前音节（保证最终顺序正确）
- 			out.insert(out.begin(), seg_str);
-@@ -394,8 +376,15 @@
- 		
- 		// 后续分词不成功，缩短长度继续
- 	}
-+	failed[pos] = true;
- 	// 所有长度都失败，分词失败
- 	return false;
-+}
-+
-+bool segmentation(const pinyin_ime_t* ime, const std::string& s, int pos, std::vector<std::string>& out)
-+{
-+  std::vector<bool> failed(s.size() + 1, false);
-+  return segmentation_impl(ime, s, pos, out, failed);
- }
- 
- /**
-@@ -606,23 +595,22 @@
- 		return nullptr;
- 	try
- 	{
+-		{
+-			// 如果成功，递归返回时在开头插入当前音节（保证最终顺序正确）
+-			out.insert(out.begin(), seg_str);
+-			return true;
+-		}
+-		// 如果不合法，检查后面是否是九键数字
+-		if (!valid && ime->use_k9 && (seg_str[0] >= '2' && seg_str[0] <= '9'))
+-		{
+-			// 如果是，直接截取到字符串结尾然后返回
+-			// 因为九键选择精确拼音是从前往后选，只能前半段是字母，后半段一定是数字
+-			out.insert(out.begin(), s.substr(pos));
+-			return true;
+-		}
+-		
+-		// 后续分词不成功，缩短长度继续
+-	}
+-	// 所有长度都失败，分词失败
+-	return false;
+-}
+-
+-/**
+- * @brief 判断候选词能不能匹配k9数字串
+- * 这玩意不加注释我过两天就看不懂咯
+- * 
+- * @param ime 输入法实例
+- * @param _k9_idx 当前k9_str处理到哪一位
+- * @param k9_str k9数字串
+- * @param _seg_idx 当前候选词处理到哪个音节
+- * @param word_segs 候选词的音节列表
+- */
+-bool match_cand_k9(pinyin_ime_t* ime, uint32_t _k9_idx, std::string& k9_str, uint32_t _seg_idx, std::vector<std::string>& word_segs)
+-{
+-	std::string& segment_curr = word_segs[_seg_idx];
+-	uint32_t k9_idx = _k9_idx;
+-
+-	// 遍历该音节中的每一位，判断当前音节能否完美匹配
+-	for (uint32_t i = 0; i < segment_curr.length(); i++)
+-	{
+-		// 获取该位数字值
+-		uint32_t k9_num_curr = k9_str[k9_idx] - '0';
+-		uint32_t k9_seg_curr = letter_to_k9(segment_curr[i]);
+-
+-		// 当前音节中这一位可以与数字匹配
+-		if (k9_num_curr == k9_seg_curr) {
+-			// 索引++，下一次循环时判断下一位
+-			k9_idx++;
+-			// 如果k9数字串消耗完
+-			if (k9_idx == k9_str.length()) {
+-				// 如果是最后一个音节的最后一个字符，那么匹配成功，否则失败
+-				if ((_seg_idx == word_segs.size() - 1) && (i == segment_curr.length() - 1)) return true;
+-				else return false;
+-			}
+-		}
+-		// 当前音节中这一位不能与数字匹配，匹配失败
+-		else {
+-			return false;
+-		}
+-	}
+-
+-	// 如果是最后一个音节，那么匹配成功
+-	// 即使后续还有k9数字串，也是选词后的事了
+-	if (_seg_idx == word_segs.size() - 1) return true;
+-	// 如果不是最后一个音节，那就去匹配下一个音节吧
+-	// 上面的循环里已经考虑过k9数字串提前消耗完的情况了
+-	return match_cand_k9(ime, k9_idx, k9_str, _seg_idx + 1, word_segs);
+-	
+-}
+-
+-/**
+- * @brief 遍历 拼音串->词语表，寻找匹配的词语
+- * @param ime 输入法实例
+- */
+-void guess_cand(pinyin_ime_t* ime)
+-{
+-	timer_set();
+-	uint32_t start_seg = ime->solved_yin;
+-	uint32_t seg_cnt = ime->segments.size() - start_seg;
+-
+-	for (auto &it : ime->pinyin_to_words)
+-	{
+-		// 如果首字母不对直接跳，避免后续耗时
+-		if (!(ime->use_k9 && seg_cnt == 1) && (it.first[0] != ime->segments[start_seg][0])) continue;
+-		if ((ime->use_k9 && seg_cnt == 1) && (letter_to_k9(it.first[0]) != ime->segments.back()[0] - '0')) continue;
+-
+-		// 把拼音转换为音节列表，方便计算
+-		// 正常情况下必定一次成功，耗时不会多
+-		// 不成功的也直接跳，说明词表这一条有问题
+-		std::vector<std::string> word_segs;
+-		if (!segmentation(ime, it.first, 0, word_segs)) continue;
+-
+-		// 26键，只要输入音节数小于该词音节数，直接跳
+-		// 9键，到最后的数字音节时，考虑到数字串里不一定有多少音节，需要匹配大于等于音节数的词
+-		if ((!ime->use_k9) && (seg_cnt < word_segs.size())) continue;
+-
+-		// 按开头匹配看每单个拼音是否合法
+-		bool valid = true;
+-		if (ime->use_k9) {
+-			for (uint32_t j = 0; j < word_segs.size(); j++)
+-			{
+-				// 9键需要特殊处理最后的数字音节
+-				if ((ime->use_k9) && (start_seg + j == ime->segments.size() - 1))
+-				{
+-					//std::cout<<ime->segments[start_seg + j]<<std::endl;
+-					valid = match_cand_k9(ime, 0, ime->segments[start_seg + j], j, word_segs);
+-					break;
+-				}
+-				// 9键不应支持模糊拼音，应当完全匹配
+-				if (word_segs[j].compare(ime->segments[start_seg + j]) != 0)
+-				{
+-					valid = false;
+-					break;
+-				}
+-			}
+-		}
+-		else {
+-			for (uint32_t j = 0; j < word_segs.size(); j++)
+-			{
+-				// 26键，判断是否以当前音节为开头，这样就可以支持模糊拼音
+-				if (word_segs[j].rfind(ime->segments[start_seg + j], 0) != 0)
+-				{
+-					valid = false;
+-					break;
+-				}
+-			}
+-		}
+-		if (!valid) continue;
+-
+-		for (auto &cand : it.second)
+-		{
+-			ime->candidates.push_back(std::make_pair(it.first, cand));
+-		}
+-	}
+-	timer_print("guess_cand");
+-}
+-
+-/**
+- * @brief 计算当前候选词列表
+- * 查找 pinyin_to_words 中所有匹配的词语，最后排序。
+- * 如果已无剩余音节，标记 finished = true。
+- */
+-void compute_candidates(pinyin_ime_t* ime)
+-{
+-	ime->candidates.clear();
+-	if (ime->finished || ime->solved_yin >= (int)ime->segments.size())
+-	{
+-		ime->finished = true;
+-		return;
+-	}
+-
+-	guess_cand(ime);
+-
+-	std::sort(ime->candidates.begin(), ime->candidates.end(),
+-		[ime](std::pair<std::string, std::wstring>& a, std::pair<std::string, std::wstring>& b)
+-		 { return words_compare(ime, a, b); });
+-}
+-
+-/**
+- * @brief 计算 k9 精确拼音候选
+- */
+-void compute_k9_exact(pinyin_ime_t* ime)
+-{
+-	ime->k9_exact_cache.clear();
+-	if (!ime->use_k9) return;
+-	std::string& k9_str = ime->segments.back();
+-	for (auto &it : ime->k9_to_pinyin)
+-	{
+-		if (k9_str.rfind(it.first, 0) == 0) {
+-			for (auto &pinyin : it.second)
+-			{
+-				ime->k9_exact_cache.push_back(pinyin);
+-			}
+-		}
+-	}
+-
+-	std::sort(ime->k9_exact_cache.begin(), ime->k9_exact_cache.end(),
+-		[ime](std::string& a, std::string& b)
+-		 { return (a.length() != b.length()) ? (a.length() > b.length()) : (a > b); });
+-}
+-
+-/**
+- * @brief 更新所有 UTF-8 缓存
+- *
+- * 将内部宽字符串状态转换为 UTF-8 缓存，供 C 接口返回 const char* 使用。
+- * 包括：
+- *   - segments_cache: 剩余拼音分词
+- *   - result_cache:   已选汉字结果
+- *   - candidate_cache: 候选词列表
+- */
+-void update_caches(pinyin_ime_t* ime)
+-{
+-	ime->segments_cache = join(ime->segments, ime->solved_yin, "'");
+-
+-	ime->result_cache = wstring_to_utf8(ime->final_word);
+-
+-	ime->candidate_cache.clear();
+-	ime->candidate_cache.resize(ime->candidates.size());
+-	/*
+-	for (auto& cand : ime->candidates)
+-		ime->candidate_cache.push_back(wstring_to_utf8(cand.second));
+-	*/
+-
+-	compute_k9_exact(ime);
+-
+-}
+-
+-} // namespace
+-
+-
+-extern "C"
+-{
+-
+-/**
+- * @brief 初始化拼音输入法实例
+- *
+- * 加载拼音表与词典文件，建立内部数据结构。
+- * 加载失败时自动释放已分配资源并返回 NULL。
+- *
+- * @param pinyin_path     拼音表文件路径（如 "pinyin.txt"）
+- * @param dictionary_path 词典文件路径（如 "dictionary.data"）
+- * @return 成功返回不透明句柄，失败返回 NULL
+- */
+-pinyin_ime_t* pinyin_ime_init(const char* pinyin_path, const char* dictionary_path)
+-{
+-	timer_set();
+-	if (!pinyin_path || !dictionary_path)
+-		return nullptr;
+-	try
+-	{
 -		pinyin_ime_t* ime = new (std::nothrow) pinyin_ime_t();
-+		std::unique_ptr<pinyin_ime_t> owner(new (std::nothrow) pinyin_ime_t());
-+		pinyin_ime_t* ime = owner.get();
- 		if (!ime)
- 			return nullptr;
- 		ime->pinyin_path = pinyin_path;
- 		ime->dict_path = dictionary_path;
- 		if (!load_pinyin_table(ime, pinyin_path))
- 		{
+-		if (!ime)
+-			return nullptr;
+-		ime->pinyin_path = pinyin_path;
+-		ime->dict_path = dictionary_path;
+-		if (!load_pinyin_table(ime, pinyin_path))
+-		{
 -			delete ime;
- 			return nullptr;
- 		}
- 		if (!load_dictionary(ime, dictionary_path))
- 		{
+-			return nullptr;
+-		}
+-		if (!load_dictionary(ime, dictionary_path))
+-		{
 -			delete ime;
- 			return nullptr;
- 		}
- 		timer_print("init");
+-			return nullptr;
+-		}
+-		timer_print("init");
 -		return ime;
-+		return owner.release();
- 	}
- 	catch (...)
- 	{
-@@ -728,10 +716,10 @@
- 		if (index < 0 || index >= ime->candidates.size())
- 			return PINYIN_IME_ERR_INDEX;
- 
+-	}
+-	catch (...)
+-	{
+-		return nullptr;
+-	}
+-}
+-
+-/**
+- * @brief 销毁输入法实例并释放所有内存
+- *
+- * 销毁后，所有通过 getter 接口获取的字符串指针将失效。
+- *
+- * @param ime 输入法实例句柄
+- */
+-void pinyin_ime_destroy(pinyin_ime_t* ime)
+-{
+-	delete ime;
+-}
+-
+-/**
+- * @brief 输入拼音字符串，触发分词与候选词生成
+- *
+- * 清空当前会话状态，对输入进行合法性校验，然后执行分词（全拼优先，失败则走简拼/混拼），
+- * 生成候选词列表。结果通过 pinyin_ime_get_* 系列接口获取。
+- *
+- * 输入要求：
+- *   - 仅允许小写字母 a-z 和音节分隔符 '
+- *   - 不允许为空字符串
+- *
+- * @param ime         输入法实例句柄
+- * @param pinyin_utf8 拼音字符串（UTF-8 编码）
+- * @return PINYIN_IME_OK 成功，PINYIN_IME_ERR_BAD_PINYIN 格式错误
+- */
+-int pinyin_ime_input(pinyin_ime_t* ime, const char* pinyin_utf8)
+-{
+-	if (!ime || !pinyin_utf8)
+-		return PINYIN_IME_ERR_INVALID_ARG;
+-	try
+-	{
+-		std::string raw_pinyin = pinyin_utf8;
+-		// 清空上次输入的会话状态
+-		ime->raw_pinyin = raw_pinyin;
+-		ime->segments.clear();
+-		ime->solved_yin = 0;
+-		ime->final_word.clear();
+-		ime->candidates.clear();
+-		ime->segments_cache.clear();
+-		ime->k9_exact_cache.clear();
+-		ime->finished = true;
+-		ime->use_k9 = false;
+-		
+-		// 空输入非法（但可以用于清空数据）
+-		if (raw_pinyin.empty())
+-			return PINYIN_IME_ERR_BAD_PINYIN;
+-		// 允许小写字母和 ' 分隔符，如果有2~9数字则启用 k9，否则报错
+-		for (char& c : raw_pinyin) {
+-			if ((c >= 'a' && c <= 'z') || c == '\'') continue;
+-			else if (c >= '2' && c <= '9') ime->use_k9 = true;
+-			else return PINYIN_IME_ERR_BAD_PINYIN;
+-		}
+-		
+-		if (segmentation(ime, raw_pinyin, 0, ime->segments)) {
+-			// 分词成功，计算候选词
+-			ime->finished = false;
+-			compute_candidates(ime);
+-		}
+-		else {
+-			return PINYIN_IME_ERR_BAD_PINYIN;
+-		}
+-
+-		update_caches(ime);
+-		return PINYIN_IME_OK;
+-	}
+-	catch (...)
+-	{
+-		return PINYIN_IME_ERR_INVALID_ARG;
+-	}
+-}
+-
+-/**
+- * @brief 选择候选词，推进输入状态
+- *
+- * 用户从候选词列表中选择一个（序号从 0 开始），
+- * 该词被追加到最终结果，对应音节被标记为已处理。
+- *
+- * 行为细节：
+- *   - 简拼/混拼模式：选中后立即完成（一次选择一个整词）。
+- *   - 全拼模式：选中后的音节数 = 词的字数（每个汉字对应一个音节），
+- *     若还有剩余音节则重新计算候选词；否则标记完成。
+- *   - 新词自学习：全拼模式下的新词组合会被自动加入词典。
+- *   - 词频更新：每次选中后，对应词的词频 +1。
+- *
+- * @param ime   输入法实例句柄
+- * @param index 候选词序号（0-based）
+- * @return PINYIN_IME_OK 成功，PINYIN_IME_ERR_INDEX 序号越界
+- */
+-int pinyin_ime_select(pinyin_ime_t* ime, uint32_t index)
+-{
+-	if (!ime)
+-		return PINYIN_IME_ERR_INVALID_ARG;
+-	try
+-	{
+-		if (index < 0 || index >= ime->candidates.size())
+-			return PINYIN_IME_ERR_INDEX;
+-
 -		std::string& chosen_yin = ime->candidates[index].first;
 -		std::wstring& chosen = ime->candidates[index].second;
-+		const std::string chosen_yin = ime->candidates[index].first;
-+		const std::wstring chosen = ime->candidates[index].second;
- 		// 词频 +1
+-		// 词频 +1
 -		ime->dictionary[chosen]++;
-+		// PenChat commits learning explicitly after editor confirmation.
- 
- 		// 按词的字数推进音节
- 		ime->final_word += chosen;
-@@ -775,14 +763,8 @@
- 			// 所有音节处理完毕
- 			ime->finished = true;
- 			ime->candidates.clear();
+-
+-		// 按词的字数推进音节
+-		ime->final_word += chosen;
+-		if (ime->use_k9) {
+-			// k9 要考虑的就很多了
+-			//std::cout<<ime->solved_yin + chosen.length()<<','<<ime->segments.size()<<std::endl;
+-			if (ime->solved_yin + chosen.length() >= ime->segments.size()) {
+-				std::string k9_numstr = ime->segments.back();  // 只可拷贝，不可引用
+-
+-				std::vector<std::string> chosen_segs;
+-				segmentation(ime, chosen_yin, 0, chosen_segs);
+-
+-				// 参与此次选词的精确拼音的数量：总音节数 - 已选的音节数 - 最后的1个数字音节
+-				uint32_t exact_seg_count = ime->segments.size() - ime->solved_yin - 1;
+-				// 从已选词的音节列表里删掉最前面的精确拼音，后面就是 k9 数字串代换的部分
+-				if (exact_seg_count != 0)
+-					chosen_segs.erase(chosen_segs.begin(), chosen_segs.begin() + exact_seg_count);
+-
+-				// 将后半部分转换成无分隔的字符串，其长度就是 k9 数字串里要去掉的数字数量
+-				std::string k9_replaced_str = join(chosen_segs, 0, "");
+-				uint32_t k9_consumed = k9_replaced_str.length();
+-				
+-				// 删除最后一项，即整个 k9 数字串
+-				ime->segments.pop_back();
+-
+-				// 插入代换部分
+-				ime->segments.insert(ime->segments.end(), chosen_segs.begin(), chosen_segs.end());
+-				// 如果 k9 有剩余，再插入剩余的 k9 数字串
+-				if (k9_consumed < k9_numstr.length())
+-					ime->segments.push_back(k9_numstr.substr(k9_consumed));
+-				
+-			}
+-		}
+-		//for (auto &it : ime->segments) std::cout<<it<<',';
+-		
+-		ime->solved_yin += chosen.length();
+-		//std::cout<<ime->solved_yin<<std::endl;
+-
+-		if (ime->solved_yin >= ime->segments.size())
+-		{
+-			// 所有音节处理完毕
+-			ime->finished = true;
+-			ime->candidates.clear();
 -			// 新词自学习：如果是词典中不存在的新组合，写入词典
 -			std::string segments_string = join(ime->segments, 0, "'");
 -			if (ime->dictionary.find(ime->final_word) == ime->dictionary.end())
@@ -180,56 +921,205 @@
 -				ime->pinyin_to_words[segments_string].insert(ime->final_word);
 -				ime->dictionary[ime->final_word] = 1;
 -			}
-+			// PenChat owns the user dictionary; candidate selection is read-only.
-+
- 		}
- 		else
- 		{
-@@ -958,4 +940,37 @@
- 	return ime->finished ? 1 : 0;
- }
- 
-+
-+// PenChat adapter: read-only selection metadata and explicit user-delta overlay.
-+const char* pinyin_ime_candidate_pinyin(pinyin_ime_t* ime, uint32_t index) {
-+  return ime && index < ime->candidates.size() ? ime->candidates[index].first.c_str() : nullptr;
-+}
-+int pinyin_ime_candidate_consumed(pinyin_ime_t* ime, uint32_t index) {
-+  if (!ime || index >= ime->candidates.size() || ime->use_k9) return -1;
-+  const size_t count = ime->candidates[index].second.size();
-+  if (count > ime->segments.size()) return -1;
-+  size_t offset = 0;
-+  for (size_t i = 0; i < count; ++i) {
-+    while (offset < ime->raw_pinyin.size() && ime->raw_pinyin[offset] == '\'') ++offset;
-+    offset += ime->segments[i].size();
-+  }
-+  while (offset < ime->raw_pinyin.size() && ime->raw_pinyin[offset] == '\'') ++offset;
-+  return offset <= ime->raw_pinyin.size() ? int(offset) : -1;
-+}
-+int pinyin_ime_user_word(pinyin_ime_t* ime, const char* py, const char* text, uint32_t frequency) {
-+  if (!ime || !py || !text) return PINYIN_IME_ERR_INVALID_ARG;
-+  try {
-+    const std::string pinyin(py);
-+    if (pinyin.empty() || pinyin.size() > 128 || pinyin.find_first_not_of("abcdefghijklmnopqrstuvwxyz'") != std::string::npos)
-+      return PINYIN_IME_ERR_INVALID_ARG;
-+    std::vector<std::string> segments;
-+    const auto word = utf8_to_wstring(text);
-+    if (word.empty() || word.size() > 32 || !segmentation(ime, pinyin, 0, segments) || segments.size() != word.size())
-+      return PINYIN_IME_ERR_INVALID_ARG;
-+    ime->pinyin_to_words[pinyin].insert(word);
-+    ime->dictionary[word] = std::max(ime->dictionary[word], frequency);
-+    return PINYIN_IME_OK;
-+  } catch (...) { return PINYIN_IME_ERR_INVALID_ARG; }
-+}
-+
- } // extern "C"
+-		}
+-		else
+-		{
+-			// 还有剩余音节，继续计算下一批候选词
+-			compute_candidates(ime);
+-		}
+-
+-		update_caches(ime);
+-		return PINYIN_IME_OK;
+-	}
+-	catch (...)
+-	{
+-		return PINYIN_IME_ERR_INVALID_ARG;
+-	}
+-}
+-
+-/**
+- * @brief 获取当前 k9 对应的精确拼音数量
+- */
+-int pinyin_ime_get_k9_exact_count(pinyin_ime_t* ime)
+-{
+-	if (!ime)
+-		return PINYIN_IME_ERR_INVALID_ARG;
+-	return ime->k9_exact_cache.size();
+-}
+-
+-/**
+- * @brief 获取第 index 个 k9 精确拼音，越界返回 NULL
+- */
+-const char* pinyin_ime_get_k9_exact(pinyin_ime_t* ime, uint32_t index)
+-{
+-	if (!ime || index >= ime->k9_exact_cache.size())
+-		return NULL;
+-	return ime->k9_exact_cache[index].c_str();
+-}
+-
+-/**
+- * @brief 选择第 index 个 k9 精确拼音
+- */
+-int pinyin_ime_select_k9_exact(pinyin_ime_t* ime, uint32_t index)
+-{
+-	if (!ime || index >= ime->k9_exact_cache.size())
+-		return PINYIN_IME_ERR_INVALID_ARG;
+-
+-	std::string& chosen_yin = ime->k9_exact_cache[index];
+-	uint32_t k9_consumed = chosen_yin.length();
+-
+-	std::string k9_numstr = ime->segments.back(); // 只可拷贝，不可引用
+-
+-	// 删除最后一项，即整个 k9 数字串
+-	ime->segments.pop_back();
+-	// 重新添加被选择的拼音和截取的数字串
+-	ime->segments.push_back(chosen_yin);
+-	if (k9_consumed < k9_numstr.length()) ime->segments.push_back(k9_numstr.substr(k9_consumed));
+-	else ime->use_k9 = false;
+-
+-	compute_candidates(ime);
+-	update_caches(ime);
+-
+-	return PINYIN_IME_OK;
+-}
+-
+-
+-/**
+- * @brief 保存词库到文件
+- *
+- * 将当前 pinyin_to_words 和 dictionary 的内容写入文件。
+- * 格式：每行 pinxie  word_freq  word1  freq1  word2  freq2  ...
+- *
+- * 通过此接口，用户使用过程中自学习的新词和更新的词频得以持久化。
+- *
+- * @param ime             输入法实例句柄
+- * @param dictionary_path 目标保存路径，传 NULL 则写回初始化时的路径
+- * @return PINYIN_IME_OK 成功，PINYIN_IME_ERR_IO 写入失败
+- */
+-int pinyin_ime_save(pinyin_ime_t* ime, const char* dictionary_path)
+-{
+-	if (!ime)
+-		return PINYIN_IME_ERR_INVALID_ARG;
+-	try
+-	{
+-		std::string path = dictionary_path ? dictionary_path : ime->dict_path;
+-		if (path.empty())
+-			return PINYIN_IME_ERR_IO;
+-		std::ofstream fout(path.c_str(), std::ios::out | std::ios::trunc);
+-		if (!fout)
+-			return PINYIN_IME_ERR_IO;
+-		// 遍历每个拼音串及其对应的词语列表
+-		for (const auto& e : ime->pinyin_to_words)
+-		{
+-			fout << e.first << "  " << e.second.size() << "  ";
+-			for (const std::wstring& w : e.second)
+-				fout << wstring_to_utf8(w) << " " << ime->dictionary[w] << "  ";
+-			fout << "\n";
+-		}
+-		fout.close();
+-		return PINYIN_IME_OK;
+-	}
+-	catch (...)
+-	{
+-		return PINYIN_IME_ERR_IO;
+-	}
+-}
+-
+-/**
+- * @brief 获取当前剩余拼音分词
+- *
+- * 全拼模式：返回未处理音节，如 "li'kou"（已选 "shu" 时）
+- * 简拼/混拼模式：未完成时返回原始输入，完成后返回空串
+- *
+- * @param ime 输入法实例句柄
+- * @return UTF-8 字符串指针（im 生命周期内有效），im 为 NULL 时返回 NULL
+- */
+-const char* pinyin_ime_get_segments(pinyin_ime_t* ime)
+-{
+-	if (!ime)
+-		return nullptr;
+-	return ime->segments_cache.c_str();
+-}
+-
+-/**
+- * @brief 获取当前已选中的汉字结果
+- *
+- * @param ime 输入法实例句柄
+- * @return UTF-8 字符串指针（im 生命周期内有效），im 为 NULL 时返回 NULL
+- */
+-const char* pinyin_ime_get_result(pinyin_ime_t* ime)
+-{
+-	if (!ime)
+-		return nullptr;
+-	return ime->result_cache.c_str();
+-}
+-
+-/**
+- * @brief 获取当前候选词数量
+- *
+- * @param ime 输入法实例句柄
+- * @return 候选词数量，im 为 NULL 时返回 0
+- */
+-int pinyin_ime_get_candidate_count(pinyin_ime_t* ime)
+-{
+-	if (!ime)
+-		return 0;
+-	return (int)ime->candidates.size();
+-}
+-
+-/**
+- * @brief 获取指定序号的候选词
+- *
+- * @param ime   输入法实例句柄
+- * @param index 候选词序号（0-based）
+- * @return UTF-8 字符串指针（im 生命周期内有效），越界或 im 为 NULL 时返回 NULL
+- */
+-const char* pinyin_ime_get_candidate(pinyin_ime_t* ime, uint32_t index)
+-{
+-	if (!ime || index >= (int)ime->candidates.size())
+-		return nullptr;
+-	if (ime->candidate_cache[index].empty())
+-		ime->candidate_cache[index] = wstring_to_utf8(ime->candidates[index].second);
+-	return ime->candidate_cache[index].c_str();
+-}
+-
+-/**
+- * @brief 判断当前输入是否已完成（无剩余音节待处理）
+- *
+- * @param ime 输入法实例句柄
+- * @return 1 表示已完成，0 表示未完成；im 为 NULL 时返回 1
+- */
+-int pinyin_ime_is_finished(pinyin_ime_t* ime)
+-{
+-	if (!ime)
+-		return 1;
+-	return ime->finished ? 1 : 0;
+-}
+-
+-} // extern "C"
 --- a/include/pinyin_ime.h
 +++ b/include/pinyin_ime.h
-@@ -73,6 +73,10 @@
+@@ -42,12 +42,12 @@
+ int pinyin_ime_select(pinyin_ime_t* ime, uint32_t index);
+ 
+ /*
+- * 保存词库。dictionary_path 传 NULL 则写回初始化时的词典路径。
++ * PenChat 基础词库只读。此 ABI 占位返回 ERR_IO；用户学习由 PinyinService 独立提交。
+  */
+ int pinyin_ime_save(pinyin_ime_t* ime, const char* dictionary_path);
+ 
+ /*
+- * 获取当前剩余的拼音分词结果（UTF-8，如 "shu'li'kou"）。
++ * 获取尚未消费的原始拼音组合（UTF-8，保留分隔符，不强制单一路径分词）。
+  * 简拼/半简拼半全拼模式下，未完成时为原始输入串，完成后为空串。
+  */
+ const char* pinyin_ime_get_segments(pinyin_ime_t* ime);
+@@ -73,6 +73,11 @@
  /* 是否已结束当前输入（无剩余分词） */
  int pinyin_ime_is_finished(pinyin_ime_t* ime);
  
 +const char* pinyin_ime_candidate_pinyin(pinyin_ime_t*, uint32_t index);
++// Consumed raw positions; in nine-key mode, excludes filter apostrophes.
 +int pinyin_ime_candidate_consumed(pinyin_ime_t*, uint32_t index);
 +int pinyin_ime_user_word(pinyin_ime_t*, const char* pinyin, const char* word, uint32_t frequency);
 +

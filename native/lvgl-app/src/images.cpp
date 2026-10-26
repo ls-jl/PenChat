@@ -16,11 +16,14 @@ namespace penchat {
 Images::Images(Events &e) : events_(e) {
   worker_ = std::thread([this] { work(); });
 }
-Images::~Images() {
+Images::~Images() { stop(); }
+void Images::stop() {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     stopped_ = true;
     cancel_ = true;
+    queue_.clear();
+    pending_.clear();
   }
   condition_.notify_one();
   if (worker_.joinable())
@@ -41,6 +44,7 @@ std::string Images::request(const std::string &path, int w, int h,
   auto key = path + ":" + std::to_string(w) + "x" + std::to_string(h) +
              (upscale ? ":up" : "") + (detail ? ":detail" : "");
   std::lock_guard<std::mutex> lock(mutex_);
+  if (stopped_) return key;
   if (!cache_.count(key) && pending_.insert(key).second) {
     if (queue_.size() >= 64) {
       pending_.erase(key); trimCache(0); cache_[key] = nullptr; order_.push_back(key);
@@ -77,11 +81,14 @@ void Images::work() {
       std::string bytes;
       if (r.path.find("https://") == 0 || r.path.find("http://") == 0) {
         ApiOptions options; options.timeout = 60;
-        auto response = http(r.path, "GET", Json::object(), "", cancel_, {}, options);
+        auto response = http(r.path, "GET", Json::object(), "", cancel_,
+          [&bytes](const char *data,size_t count) {
+            if(count>16*1024*1024-bytes.size())throw std::runtime_error("Image too large");
+            bytes.append(data,count);
+          }, options);
         if (response.status < 200 || response.status >= 300 ||
             !response.error.empty())
           throw std::runtime_error("Image download failed");
-        bytes = std::move(response.body);
       } else if (r.path.find("data:image/") == 0) {
         auto comma = r.path.find(',');
         if (comma == std::string::npos ||
@@ -148,7 +155,8 @@ void Images::work() {
       image->width = std::max(1, int(w * scale));
       image->height = std::max(1, int(h * scale));
       image->pixels.resize(size_t(image->width) * image->height * 4);
-      for (int y = 0; y < image->height; ++y)
+      for (int y = 0; y < image->height; ++y) {
+        if (cancel_) return;
         for (int x = 0; x < image->width; ++x) {
           auto in =
               data +
@@ -160,8 +168,10 @@ void Images::work() {
           out[2] = in[0];
           out[3] = in[3];
         }
+      }
       {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (stopped_) return;
         auto size = image->pixels.size();
         trimCache(size);
         cache_[r.key] = image;
@@ -172,6 +182,7 @@ void Images::work() {
       events_.push("image_ready", {{"key", r.key}});
     } catch (const std::exception &e) {
       std::lock_guard<std::mutex> lock(mutex_);
+      if (stopped_) return;
       trimCache(0);
       cache_[r.key] = nullptr; order_.push_back(r.key);
       pending_.erase(r.key);

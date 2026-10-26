@@ -19,9 +19,10 @@ with zipfile.ZipFile(path) as archive:
     assert not any(re.search(r'(?i)(jsapi_(camera|openai)|openh264|features/|scanning/)', n) for n in names)
     assert [n for n in names if n.endswith('.rknn')] == ['assets/scanner/pintu_32.rknn']
     pinyin_lock=json.loads((ROOT/'native/pinyin/source-lock.json').read_text())
+    dictionary_lock=json.loads((ROOT/'native/pinyin/dictionary-lock.json').read_text())
     assert sorted(n for n in names if n.startswith('assets/pinyin/') and not n.endswith('/'))==['assets/pinyin/dictionary.data','assets/pinyin/pinyin.txt']
     for name in ['dictionary.data','pinyin.txt']:
-        assert hashlib.sha256(archive.read('assets/pinyin/'+name)).hexdigest()==pinyin_lock['files'][name]['source_sha256']
+        assert hashlib.sha256(archive.read('assets/pinyin/'+name)).hexdigest()==dictionary_lock['resources'][name]['sha256']
     binary = archive.read('assets/bin/penchat-lvgl')
     assert binary[:5] == b'\x7fELF\x02' and struct.unpack_from('<H', binary, 18)[0] == 183
     assert binary == (ROOT / 'assets/bin/penchat-lvgl').read_bytes()

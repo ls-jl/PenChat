@@ -166,7 +166,7 @@ struct PinyinService::Impl {
     for(int i=0;i<std::min(48,pinyin_ime_get_candidate_count(engine));++i) {
       const auto *word=pinyin_ime_get_candidate(engine,i), *py=pinyin_ime_candidate_pinyin(engine,i);
       if(!word||!py)continue;
-      const auto consumed=t9?int(digits(py).size()):pinyin_ime_candidate_consumed(engine,i);
+      const auto consumed=pinyin_ime_candidate_consumed(engine,i);
       if(consumed<=0||size_t(consumed)>raw.size())continue;
       choices.push_back({{"word",word},{"pinyin",py},{"consumed",consumed}});
       result["candidates"].push_back(word);

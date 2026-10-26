@@ -19,5 +19,4 @@ print('libpinyinime: source, adapter and dictionary hashes verified.')
 
 assets=ROOT/'assets/pinyin'
 assets.mkdir(parents=True,exist_ok=True)
-for name in ['pinyin.txt','dictionary.data']:
- shutil.copyfile(source/name,assets/name)
+subprocess.run(['python3',str(ROOT/'scripts/prepare-pinyin-dictionary.py')],check=True)

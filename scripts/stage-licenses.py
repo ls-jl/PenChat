@@ -26,6 +26,7 @@ def license_payload():
     for name in ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md']:
         files[name] = ROOT / name
     files['pinyin-source-lock.json'] = ROOT / 'native/pinyin/source-lock.json'
+    files['pinyin-dictionary-lock.json'] = ROOT / 'native/pinyin/dictionary-lock.json'
     files['dependencies.lock.json'] = ROOT / 'native/lvgl-app/dependencies.lock.json'
     return files
 

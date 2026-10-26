@@ -46,11 +46,18 @@ int main(int argc,char **argv) {
     assert(e.preedit=="64426"&&e.fixed=="ni");e.changeLayout(0);assert(e.preedit=="nihao"&&e.text=="English");
   }
   Fixture f(argv[1]);
+  for(const auto &example:{std::make_pair("lve","略"),std::make_pair("lue","略"),std::make_pair("nve","虐"),std::make_pair("nue","虐")}) {
+    auto result=f.search(example.first);f.choose(result,example.second);
+  }
   { Database db(join(f.root,"preferences.db"));db.queueSetting("pinyin_chinese_layout","zh9");db.flush();assert(db.settings()["pinyin_chinese_layout"]=="zh9"); }
 
   auto r=f.search("nihao");assert(r["ok"]==true);auto selected=f.choose(r,"你好");assert(selected["remaining"]==""&&selected["consumed"]==5);
   r=f.search("nihaoq");selected=f.choose(r,"你好");assert(selected["remaining"]=="q"&&selected["pinyin"]=="ni'hao");
   r=f.search("nh");selected=f.choose(r,"你好");assert(selected["remaining"]=="");
+  for(const auto &example:{std::make_pair("shurufa","输入法"),std::make_pair("nihaoshijie","你好世界"),std::make_pair("womenxuexizhongwen","我们学习中文")}) {
+    r=f.search(example.first);assert(r["candidates"][0]==example.second);
+    selected=f.choose(r,example.second);assert(selected["remaining"]=="");
+  }
   r=f.search("6442664","zh9");selected=f.choose(r,"你好");assert(selected["remaining"]=="64"&&selected["consumed"]==5);
   r=f.search("64426","zh9");bool exact=false;for(const auto &v:r["exact"])if(v=="ni")exact=true;assert(exact);
   r=f.search("64426","zh9","ni");assert(std::find(r["candidates"].begin(),r["candidates"].end(),Json("你好"))!=r["candidates"].end());selected=f.choose(r,"你");assert(selected["remaining"]=="426"&&selected["fixed"]=="");

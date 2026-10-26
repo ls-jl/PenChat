@@ -7,7 +7,4 @@ manifest={str(p.relative_to(root/'assets')):hashlib.sha256(p.read_bytes()).hexdi
 (root/'native/lvgl-app/math-resources.sha256.json').write_text(json.dumps(manifest,indent=2)+'\n')
 
 # Independent, read-only input dictionary; never stage private user learning.
-for name in ["pinyin.txt", "dictionary.data"]:
-    target=root/"assets/pinyin"/name
-    target.parent.mkdir(parents=True,exist_ok=True)
-    shutil.copyfile(root/".deps/libpinyinime"/name,target)
+runpy.run_path(str(root/'scripts/prepare-pinyin-dictionary.py'),run_name='__main__')

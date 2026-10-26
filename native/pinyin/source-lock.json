@@ -1,14 +1,14 @@
 {
   "revision": "cda375cfa4aafa1791f42a628d4888eba0a3db36",
-  "patch_sha256": "9c75b4a6b7c62634f68a94fef34c08f2d808710a4418660cc48e2f6021b3793f",
+  "patch_sha256": "84b8511d246214a011b2fb340bd8f55e03e9a0c7fedaa9e3cdcda52797e24b3e",
   "files": {
     "src/pinyin_ime.cpp": {
       "source_sha256": "bdd7a736956a08fc428e23c717a07e7765bf6eb3ae1e076bce9611affc0f1b4f",
-      "adapted_sha256": "5b2928b8db0bdb61528c323b13d5ad2f3efc9c3266930d64188c672ebebdc28a"
+      "adapted_sha256": "c062db13c5b4c6ad77d7e6b50d79c67e5168c088bcd38b6f0599cd91c583af0b"
     },
     "include/pinyin_ime.h": {
       "source_sha256": "d7de373e7a85e0f054655cc3b3a682b88f098ac5f8676683b2df63e19149e057",
-      "adapted_sha256": "9f697c2ca42cc514393ae42066ed86e1b5681881f81c16567142ab39371eeba5"
+      "adapted_sha256": "ce5ad4a164e505f901ba286659c51ea53ff89aa8dc0f309e67a1d489bae5f42a"
     },
     "src/utf8.cpp": {
       "source_sha256": "c55a3d3ed4c4dbafcf24ea0cb3ee2fea0f7cc88f4e2ec6aed29cbf54a6b2f005",

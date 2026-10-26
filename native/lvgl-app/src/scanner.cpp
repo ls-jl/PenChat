@@ -49,13 +49,14 @@ struct ScanService::Impl {
 #endif
     worker = std::thread([this] { run(); });
   }
-  ~Impl() {
+  ~Impl() { stop(); }
+  void stop() {
     {
       std::lock_guard<std::mutex> l(mutex);
       stopped = true;
       cv.notify_all();
     }
-    worker.join();
+    if(worker.joinable())worker.join();
   }
   Json command(const std::string &type, uint64_t scan = 0) {
     return {{"v", ProtocolVersion},     {"type", type},
@@ -323,9 +324,10 @@ struct ScanService::Impl {
 ScanService::ScanService(Events &e, const std::string &w, const std::string &d)
     : p_(new Impl(e, w, d)) {}
 ScanService::~ScanService() = default;
+void ScanService::stop() { p_->stop(); }
 void ScanService::eligible(bool enabled, const std::string &session) {
   std::lock_guard<std::mutex> l(p_->mutex);
-  if (!p_->available)
+  if (!p_->available || p_->stopped)
     return;
   if (enabled && (!p_->desired || p_->session != session)) {
     p_->desired = true;

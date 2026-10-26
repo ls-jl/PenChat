@@ -27,6 +27,11 @@ for item in json.loads((ROOT / 'licenses/manifest.json').read_text())['files']:
 adaptation = json.loads((ROOT / 'native/camera/stb-adaptation.json').read_text())
 assert hashlib.sha256((ROOT / 'native/camera' / adaptation['file']).read_bytes()).hexdigest() == adaptation['adapted_sha256']
 pinyin = json.loads((ROOT/'native/pinyin/source-lock.json').read_text())
+dictionary = json.loads((ROOT/'native/pinyin/dictionary-lock.json').read_text())
+assert sum(r['bytes'] for r in dictionary['resources'].values()) <= 5*1024*1024
+for name, entry in dictionary['resources'].items():
+    path=ROOT/'assets/pinyin'/name
+    assert path.stat().st_size==entry['bytes'] and hashlib.sha256(path.read_bytes()).hexdigest()==entry['sha256']
 assert hashlib.sha256((ROOT/'native/pinyin/penchat.patch').read_bytes()).hexdigest()==pinyin['patch_sha256']
 for name,entry in pinyin['files'].items():
     if (ROOT/'.deps/libpinyinime'/name).exists():

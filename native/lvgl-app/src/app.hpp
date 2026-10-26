@@ -144,6 +144,7 @@ class App {
   std::vector<int64_t> messageEditCursors_;
   std::map<std::string,lv_obj_t *> userBubbles_, messageActions_;
   void initializeMessageEdits();
+  void cleanupMessageEdits();
   void messageLongPress(lv_obj_t *, const std::string &id);
   void messageMenu(const std::string &id);
   void messageEditWarning(const std::string &id);
@@ -417,6 +418,7 @@ class App {
   int editorHandle_=-1, editorTextScroll_=0, editorLastTapX_=0, editorLastTapY_=0, editorTouchX_=0,editorTouchY_=0;
   size_t editorDragAnchor_=0;
   uint64_t editorPressTime_=0, editorLastTap_=0;
+  int64_t editorAutoScrollAt_=0;
   std::vector<Json> editorOcrPending_;
   void editorSyncText(bool text=false);
   void editorMagnify(bool show);
@@ -514,6 +516,7 @@ public:
   void handle(const Json &message);
   void suspend(bool value);
   void shutdown();
+  bool interactive() const { return visible_ && !keyboard_; }
   void demo(const std::string &markdown);
   Json diagnostics() const;
 };

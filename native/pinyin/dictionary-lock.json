@@ -1,0 +1,18 @@
+{
+  "repository": "https://github.com/rime/rime-pinyin-simp",
+  "revision": "0c6861ef7420ee780270ca6d993d18d4101049d0",
+  "url": "https://raw.githubusercontent.com/rime/rime-pinyin-simp/0c6861ef7420ee780270ca6d993d18d4101049d0/pinyin_simp.dict.yaml",
+  "sha256": "e341598343a0f0f2035bb1aafc34a7f3bb7887deeecb3f60796262aaa2983e6b",
+  "license": "Apache-2.0",
+  "upstream_origin": "Android Open Source Project PinyinIME",
+  "resources": {
+    "pinyin.txt": {
+      "sha256": "10a27b6fca76b619008a0dc8ff197e21152db6cf8e9a29dd0faf4c47b555baa3",
+      "bytes": 53353
+    },
+    "dictionary.data": {
+      "sha256": "aa967b2260542af48ecaf0fadaf9921203d42726d185177a3223bd75340c9aee",
+      "bytes": 1200496
+    }
+  }
+}

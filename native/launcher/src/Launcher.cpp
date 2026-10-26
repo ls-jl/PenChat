@@ -31,7 +31,9 @@ class Launcher : public JQBaseObject {
     }
     if (pid_ > 0) {
       kill(pid_, SIGTERM);
-      for (int i = 0; i < 100; ++i) {
+      // Permit bounded HTTP cancellation, scanner lease restoration and DB
+      // final-save acknowledgement before falling back to SIGKILL.
+      for (int i = 0; i < 500; ++i) {
         int status;
         auto result = waitpid(pid_, &status, WNOHANG);
         if (result == pid_ || result < 0) {

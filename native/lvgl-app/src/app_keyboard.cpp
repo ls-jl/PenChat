@@ -667,13 +667,18 @@ void App::editorInterrupt() {
 }
 void App::editorTick() {
   const auto layout=editorLayout();
-  if (!editor_.active || keyboard_ || !visible_) return;
+  if (!editor_.active || keyboard_ || !visible_) { editorAutoScrollAt_=0;return; }
+  const auto now=ticks();
+  const int scrollStep=std::max(1,int(editorAutoScrollAt_?std::min<int64_t>(32,now-editorAutoScrollAt_):8)/2);
+  editorAutoScrollAt_=now;
   if(!editorPointer_&&!editorPinyinPending_.is_null()) {auto pending=std::move(editorPinyinPending_);editorPinyinPending_=Json();editorResult(pending);}
   if(!editorPointer_&&!editorOcrPending_.empty()) {auto pending=std::move(editorOcrPending_);editorOcrPending_.clear();for(const auto &m:pending)editorOcrResult(m);}
   if(editorRebuild_ && !editorPointer_) editorBuild();
   if(editorTextTouch_&&(editorCursorDrag_||editorHandle_>=0)&&(editorTouchY_<layout.textY+14||editorTouchY_>layout.textBottom()-14)) {
+    const bool up=editorTouchY_<layout.textY+14;
+    const bool boundary=up?editor_.cursor==0:editor_.cursor==editLength(editor_.text);
     const int before=lv_obj_get_scroll_y(editorText_);
-    editorScroll(before+(editorTouchY_<layout.textY+14?-4:4));
+    if(!boundary)editorScroll(before+(up?-scrollStep:scrollStep));
     if(lv_obj_get_scroll_y(editorText_)!=before) {
       if(editorHandle_>=0)editor_.select(editorDragAnchor_,editorPositionAt(editorTouchX_,editorTouchY_-16));else editor_.position(editorPositionAt(editorTouchX_,editorTouchY_));
       editorSyncText();

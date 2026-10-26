@@ -176,6 +176,11 @@
       "file": "libpinyinime.txt",
       "source": ".deps/libpinyinime/LICENSE",
       "sha256": "6f09371c2a39b5dd001175b72071055b6f3e4a7f565576bb3c90002423db853c"
+    },
+    {
+      "file": "rime-pinyin-simp.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "source": "https://github.com/rime/rime-pinyin-simp/blob/0c6861ef7420ee780270ca6d993d18d4101049d0/LICENSE"
     }
   ]
 }

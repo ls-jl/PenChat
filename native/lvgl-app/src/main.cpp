@@ -18,6 +18,7 @@ int main(int argc, char **argv) {
       screenConfig = "/etc/miniapp/resources/cfg.json";
   int fd = -1, frames = 0;
   bool headless = false;
+  std::unique_ptr<Bridge> bridgeOwner;
   try {
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
@@ -68,9 +69,12 @@ int main(int argc, char **argv) {
     lv_init();
     lv_tick_set_cb([]() -> uint32_t { return uint32_t(ticks()); });
     initializeFonts(fontPath, join(workspace, "assets/fonts/DejaVuSans.ttf"));
+    struct FontCleanup { ~FontCleanup() { lv_deinit(); shutdownFonts(); } } fontCleanup;
     Display display(screen, headless);
     Input input;
-    Bridge bridge(fd);
+    const bool standalone = headless && fd < 0;
+    bridgeOwner.reset(new Bridge(fd)); fd=-1;
+    auto &bridge=*bridgeOwner;
     Database db(join(data, "penchat.db"));
     App app(db, bridge, display, input, screen, workspace, data, fontPath,
             resources);
@@ -78,14 +82,14 @@ int main(int argc, char **argv) {
       app.demo(fileText(demo));
     bridge.send("booted", {{"screen", screen.descriptor()}});
     int frame = 0;
-    while (running && ((headless && fd < 0) || bridge.connected())) {
+    while (running && (standalone || bridge.connected())) {
       for (const auto &m : bridge.receive()) {
         if (m.value("type", std::string()) == "exit")
           running = 0;
         app.handle(m);
       }
       app.tick();
-      lv_timer_handler();
+      const auto nextTimer = lv_timer_handler();
       if (snapshotRequested) {
         const bool includeImage = snapshotRequested == 2;
         snapshotRequested = 0;
@@ -96,7 +100,8 @@ int main(int argc, char **argv) {
       }
       if (frames && ++frame >= frames)
         break;
-      usleep(8000);
+      const auto pause = app.interactive() ? std::min<uint32_t>(16,nextTimer) : 50;
+      usleep(std::max<uint32_t>(1,pause)*1000);
     }
     if (!screenshot.empty())
       display.screenshot(screenshot);
@@ -105,7 +110,8 @@ int main(int argc, char **argv) {
     return 0;
   } catch (const std::exception &e) {
     std::cerr << "penchat-lvgl: " << e.what() << std::endl;
-    if (fd >= 0) {
+    if(bridgeOwner) bridgeOwner->send("fatal", {{"error", e.what()}});
+    else if (fd >= 0) {
       Bridge bridge(fd);
       bridge.send("fatal", {{"error", e.what()}});
     }
