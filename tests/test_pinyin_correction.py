@@ -18,6 +18,15 @@ def run(w,h):
         root=pathlib.Path(directory);profile=root/'ime/user.json'
         a=t.Native(p.BINARY,root,official_adapter=False,screen={'width':w,'height':h,'direction':0})
         try:
+            p.open_editor(a);type_raw(a,'niao');s=p.editor(a)
+            assert 0<s['corrected_count']<=2
+            capture(a,OUT/f'{w}-valid-alternatives.png')
+            a.editor_action(f"choose:{s['revision']}:3");p.selected(a)
+            assert p.official(a)['text']=='你好'
+            a.editor_action('cancel');assert not profile.exists()
+            p.open_editor(a);type_raw(a,'niao');p.key(a,'space');p.selected(a)
+            assert p.official(a)['text']=='鸟','Normal first choice must remain unchanged'
+            a.editor_action('cancel');assert not profile.exists()
             p.open_editor(a);type_raw(a,'nihoa');s=p.editor(a)
             assert s['corrected_count']>0 and s['preedit_length']==5 and s['length']==0
             capture(a,OUT/f'{w}-candidates.png')

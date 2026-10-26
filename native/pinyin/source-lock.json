@@ -1,10 +1,10 @@
 {
   "revision": "cda375cfa4aafa1791f42a628d4888eba0a3db36",
-  "patch_sha256": "ea0abfbb9eb910856ab8a96d580f9b7908d80de3371b199934be8d4422b76500",
+  "patch_sha256": "5ff460d1f1587bde0fc0adc6d0e4d69f64021f239d619e2fcbd7f12197f02b40",
   "files": {
     "src/pinyin_ime.cpp": {
       "source_sha256": "bdd7a736956a08fc428e23c717a07e7765bf6eb3ae1e076bce9611affc0f1b4f",
-      "adapted_sha256": "4ad123f5fc543888388be100fdd7b310750f952e9407cbef69d5645192c5432d"
+      "adapted_sha256": "b6ea2891a5150f2a7bf908c04ef73037200827504f696b7c8081ff4a018bee68"
     },
     "include/pinyin_ime.h": {
       "source_sha256": "d7de373e7a85e0f054655cc3b3a682b88f098ac5f8676683b2df63e19149e057",

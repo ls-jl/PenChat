@@ -28,9 +28,14 @@ def summary(rows):
 
 old,old_counters=evaluate(base,False);current,counters=evaluate(base,True)
 for before,after in zip(old,current):
-    assert before['candidates']==after['candidates'],f'Normal input changed: {before["input"]}'
+    if before['kind']=='nine':
+        assert before['candidates']==after['candidates'],f'Nine-key input changed: {before["input"]}'
+    else:
+        count=2 if len(before['candidates'])>=2 and all(c['consumed']==len(before['input']) for c in before['candidates'][:2]) else 1
+        assert before['candidates'][:count]==after['candidates'][:count],f'Normal leading choices changed: {before["input"]}'
 old_typos,old_typo_counters=evaluate(typos,False);new_typos,typo_counters=evaluate(typos,True)
-assert summary(new_typos)['top5']>=28,'Fixed mixed typo/valid-spelling corpus regressed'
+assert summary(current)['top1']==summary(old)['top1'] and summary(current)['top5']>=summary(old)['top5']
+assert summary(new_typos)['top5']>=35,'Fixed mixed typo/valid-spelling corpus regressed'
 assert summary(new_typos)['top5']>summary(old_typos)['top5']
 # Alternate process order, use medians; cold dictionary construction is excluded.
 samples={False:[],True:[]}
@@ -39,7 +44,7 @@ for n in range(9):
         rows,_=evaluate(base[:len(normal)],enabled);samples[enabled].append(summary(rows)['p95_ms'])
 paired={str(k):statistics.median(v) for k,v in samples.items()}
 # Measurements are reported rather than making an unpinned CI CPU a flaky gate.
-# Release/device acceptance checks the paired 20% limit on the recorded batch.
+# Release/device acceptance checks warm-query P95 stays below 20ms, including valid-spelling alternatives.
 report={'normal_disabled':summary(old),'normal_enabled':summary(current),'typo_disabled':summary(old_typos),'typo_enabled':summary(new_typos),
         'paired_normal_p95_ms':paired,'normal_p95_ratio':paired['True']/paired['False'],'normal_resources':counters,'normal_disabled_resources':old_counters,'typo_resources':typo_counters,'typo_disabled_resources':old_typo_counters,
         'by_kind':{kind:summary([r for r in new_typos if r['kind']==kind]) for kind in sorted(set(r['kind'] for r in typos))},'examples':new_typos}

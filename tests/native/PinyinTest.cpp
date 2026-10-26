@@ -52,6 +52,13 @@ int main(int argc,char **argv) {
   }
   { Database db(join(f.root,"preferences.db"));db.queueSetting("pinyin_chinese_layout","zh9");db.flush();assert(db.settings()["pinyin_chinese_layout"]=="zh9"); }
 
+  {
+    auto result=f.search("niao","zh26","",false);const auto first=result["candidates"][0],second=result["candidates"][1];
+    result=f.search("niao");assert(result["candidates"][0]==first&&result["candidates"][1]==second);
+    auto value=f.choose(result,"你好");assert(value["pinyin"]=="ni'hao"&&value["consumed"]==4&&value["remaining"]=="");
+    // A valid spelling still retains its ordinary first choice for Space/Done.
+    result=f.search("nihao","zh26","",false);auto top=result["candidates"][0];result=f.search("nihao");assert(result["candidates"][0]==top);
+  }
   // Correction is candidate-only. Its consumed range is always ORIGINAL raw.
   for(const auto &example:{std::make_pair("nihoa",5),std::make_pair("nihxao",6),std::make_pair("nihqo",5),std::make_pair("nihoaq",5)}) {
     auto result=f.search(example.first);size_t index=0;while(index<result["candidates"].size()&&result["candidates"][index]!="你好")++index;

@@ -29,6 +29,10 @@ def run(ctx):
     open_editor();assert state()['layout']=='zh26';capture('pinyin-26')
     for wanted in ['en26','zh9','zh26']:
         key('language');assert state()['layout']==wanted
+    for c in 'niao':key(c)
+    ready();assert 0<state()['corrected_count']<=2;capture('pinyin-valid-alternatives')
+    action(f"choose:{state()['revision']}:3");wait(lambda:state()['length']==2 and not state()['preedit_length'])
+    action('cancel');wait(lambda:not state()['active']);open_editor()
     for c in 'nihoa':key(c)
     ready();assert state()['corrected_count']>0;capture('pinyin-correction-candidates')
     b=state()['actions'][f"choose:{state()['revision']}:0"];x,y=ctx['raw']((b[0]+b[2])//2,(b[1]+b[3])//2)
@@ -91,6 +95,6 @@ def run(ctx):
     ctx['shell']('miniapp_cli start '+ctx['APP']['appid']);wait(lambda:read()['visible']);assert ctx['pid']()==p
     assert state()['active'] and state()['preedit_length']==before and state()['top_panel_blocked']
     action('cancel');wait(lambda:not state()['active'])
-    ctx['result']['pinyin']={'native_dictionary':True,'typo_candidates_and_long_press':True,'single_character_correction':True,'original_raw_enter':True,'correction_switch':True,'canonical_correction_learning':True,'three_layouts':True,'globe_cycle_and_timeout':True,
+    ctx['result']['pinyin']={'native_dictionary':True,'typo_candidates_and_long_press':True,'valid_spelling_alternatives':True,'single_character_correction':True,'original_raw_enter':True,'correction_switch':True,'canonical_correction_learning':True,'three_layouts':True,'globe_cycle_and_timeout':True,
         'exact_filter_and_raw_enter':True,'typing_under_right_panels':True,'deferred_learning':True,'clear_disable_restart':True,
         'official_cancel':True,'parked_compositions':True,'query_ms_samples':latencies,'editor_cycles':20,'fd_baseline':baseline,'lifecycle':True}
