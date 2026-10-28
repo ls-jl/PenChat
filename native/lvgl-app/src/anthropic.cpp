@@ -168,7 +168,7 @@ void streamAnthropic(const Json &model, Json input, std::atomic<bool> &cancel,
                           (state.stopped() || (options.compatible && state.terminal()));
     const auto error = redact(!result.error.empty() ? result.error : !state.error().empty() ? state.error() :
                               !complete ? "Messages 流在明确结束前中断，请手动重试" : "");
-    diagnostic = {{"status", result.status}, {"request_id", redact(result.requestId)}, {"elapsed_ms", result.elapsedMs},
+    diagnostic = {{"status", result.status}, {"request_id", redact(result.requestId)}, {"elapsed_ms", result.elapsedMs}, {"timings", result.timings},
                   {"outcome", cancel ? "cancelled" : !complete ? "api_or_transport_error" : "response"}};
     state.finish(ticks()); publish(complete);
     tag["http_status"] = result.status; tag["request_id"] = redact(result.requestId);

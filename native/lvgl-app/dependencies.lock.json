@@ -65,6 +65,18 @@
       "revision": "cda375cfa4aafa1791f42a628d4888eba0a3db36",
       "url": "https://codeload.github.com/RobinNotBad/libpinyinime/tar.gz/cda375cfa4aafa1791f42a628d4888eba0a3db36",
       "sha256": "02a218692babca26bcf9332e01892c9dc2fd4d5a4019da6286cfb7ef5957f0e2"
+    },
+    {
+      "name": "curl",
+      "revision": "curl-8_17_0",
+      "url": "https://curl.se/download/curl-8.17.0.tar.xz",
+      "sha256": "955f6e729ad6b3566260e8fef68620e76ba3c31acf0a18524416a185acf77992"
+    },
+    {
+      "name": "openssl-headers",
+      "revision": "OpenSSL_1_1_1w",
+      "url": "https://codeload.github.com/openssl/openssl/tar.gz/refs/tags/OpenSSL_1_1_1w",
+      "sha256": "2130e8c2fb3b79d1086186f78e59e8bc8d1a6aedf17ab3907f4cb9ae20918c41"
     }
   ]
 }

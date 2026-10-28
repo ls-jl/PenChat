@@ -2,14 +2,12 @@
 #include "image_data.h"
 #include "reasoning_stream.hpp"
 #include "titles.hpp"
-#include <curl/curl.h>
 #include <cctype>
 #include <stdexcept>
 #include <set>
 namespace penchat {
 namespace {
 constexpr size_t EventLimit = 4 * 1024 * 1024;
-constexpr size_t ResponseLimit = 32 * 1024 * 1024;
 std::string safeError(const std::string &text) {
   return Json::parse(Json(text).dump(-1, ' ', false, Json::error_handler_t::replace)).get<std::string>();
 }
@@ -80,131 +78,6 @@ void SseParser::finish() {
   if (!buffer_.empty()) { line(std::move(buffer_)); buffer_.clear(); }
   line("");
 }
-struct Transfer {
-  HttpResult result;
-  std::atomic<bool> *cancel;
-  std::function<void(const char *, size_t)> chunks;
-  std::function<bool()> complete;
-  size_t bytes = 0;
-};
-static size_t receiveHeader(char *p, size_t a, size_t b, void *user) {
-  auto &t = *static_cast<Transfer *>(user);
-  const auto n = a * b;
-  try {
-    std::string line(p, n);
-    if (line.find("HTTP/") == 0) {
-      const auto space = line.find(' ');
-      if (space != std::string::npos) t.result.status = std::strtol(line.c_str() + space + 1, nullptr, 10);
-      t.result.contentType.clear(); t.result.requestId.clear();
-    } else {
-      const auto colon = line.find(':');
-      if (colon != std::string::npos) {
-        auto value = line.substr(colon + 1);
-        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) value.pop_back();
-        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) value.erase(0, 1);
-        auto key = lower(line.substr(0, colon));
-        if (key == "content-type") t.result.contentType = value.substr(0, 256);
-        if (key == "x-request-id" || key == "request-id") t.result.requestId = safeError(value.substr(0, 256));
-      }
-    }
-    return n;
-  } catch (...) { return 0; }
-}
-static size_t receive(char *p, size_t a, size_t b, void *user) {
-  auto &t = *static_cast<Transfer *>(user);
-  const auto n = a * b;
-  if (t.cancel->load()) return 0;
-  try {
-    if (t.bytes + n > ResponseLimit) throw std::runtime_error("Response size limit exceeded");
-    t.bytes += n;
-    if (t.chunks && t.result.status >= 200 && t.result.status < 300) {
-      if (!t.complete || !t.complete()) t.chunks(p, n);
-    } else if (t.result.status >= 200 && t.result.status < 300) t.result.body.append(p, n);
-    else if (t.result.body.size() < 65536)
-      t.result.body.append(p, std::min(n, size_t(65536) - t.result.body.size()));
-    return n;
-  } catch (const std::exception &e) { t.result.error = e.what(); return 0; }
-}
-static int progress(void *p, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
-  auto &t = *static_cast<Transfer *>(p);
-  try { return t.cancel->load() || (t.complete && t.complete()) ? 1 : 0; }
-  catch (const std::exception &e) { t.result.error = e.what(); return 1; }
-}
-HttpResult http(const std::string &url, const std::string &method,
-                const Json &headers, const std::string &body, std::atomic<bool> &cancel,
-                std::function<void(const char *, size_t)> chunks,
-                const ApiOptions &options, std::function<bool()> complete) {
-  if (url.find("https://") != 0 && url.find("http://") != 0) {
-    HttpResult invalid; invalid.error = "Only HTTP(S) URLs are supported"; return invalid;
-  }
-  static std::once_flag init;
-  std::call_once(init, [] { curl_global_init(CURL_GLOBAL_DEFAULT); });
-  Transfer transfer{{}, &cancel, std::move(chunks), std::move(complete), 0};
-  CURL *h = curl_easy_init();
-  if (!h) { transfer.result.error = "Cannot initialize HTTP"; return transfer.result; }
-  curl_slist *list = nullptr;
-  try {
-    for (auto i = headers.begin(); i != headers.end(); ++i) {
-      if (!i.value().is_string() || i.key().find_first_of("\r\n:") != std::string::npos ||
-          i.value().get<std::string>().find_first_of("\r\n") != std::string::npos)
-        throw std::runtime_error("Invalid HTTP header");
-      const auto line = i.key() + ": " + i.value().get<std::string>();
-      auto appended = curl_slist_append(list, line.c_str());
-      if (!appended) throw std::runtime_error("Cannot allocate HTTP headers");
-      list = appended;
-    }
-    curl_easy_setopt(h, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(h, CURLOPT_HTTPHEADER, list);
-    curl_easy_setopt(h, CURLOPT_NOSIGNAL, 1L);
-    curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS, 15000L);
-    curl_easy_setopt(h, CURLOPT_TIMEOUT_MS, long(options.timeout) * 1000);
-    curl_easy_setopt(h, CURLOPT_SSL_VERIFYPEER, 1L);
-    curl_easy_setopt(h, CURLOPT_SSL_VERIFYHOST, 2L);
-    curl_easy_setopt(h, CURLOPT_FOLLOWLOCATION, 0L);
-    if (options.http1) curl_easy_setopt(h, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-    curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, receive);
-    curl_easy_setopt(h, CURLOPT_WRITEDATA, &transfer);
-    curl_easy_setopt(h, CURLOPT_HEADERFUNCTION, receiveHeader);
-    curl_easy_setopt(h, CURLOPT_HEADERDATA, &transfer);
-    curl_easy_setopt(h, CURLOPT_NOPROGRESS, 0L);
-    curl_easy_setopt(h, CURLOPT_XFERINFOFUNCTION, progress);
-    curl_easy_setopt(h, CURLOPT_XFERINFODATA, &transfer);
-    if (method != "GET") {
-      curl_easy_setopt(h, CURLOPT_CUSTOMREQUEST, method.c_str());
-      curl_easy_setopt(h, CURLOPT_POSTFIELDS, body.data());
-      curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE_LARGE, curl_off_t(body.size()));
-    }
-    const auto started = ticks();
-    // Poll the existing transfer; never resend. A bounded wait also flushes the
-    // latest coalesced state when the peer pauses after a short delta.
-    CURLcode code = CURLE_OK;
-    auto cleanup = [h](CURLM *multi) { curl_multi_remove_handle(multi, h); curl_multi_cleanup(multi); };
-    std::unique_ptr<CURLM, decltype(cleanup)> multi(curl_multi_init(), cleanup);
-    if (!multi) throw std::runtime_error("Cannot initialize HTTP transfer");
-    auto status = curl_multi_add_handle(multi.get(), h);
-    int running = 0;
-    if (status == CURLM_OK) status = curl_multi_perform(multi.get(), &running);
-    while (status == CURLM_OK && running && !cancel && !(transfer.complete && transfer.complete())) {
-      int descriptors = 0;
-      status = curl_multi_wait(multi.get(), nullptr, 0, 50, &descriptors);
-      if (!descriptors) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      if (status == CURLM_OK) status = curl_multi_perform(multi.get(), &running);
-    }
-    int remaining = 0;
-    while (auto message = curl_multi_info_read(multi.get(), &remaining))
-      if (message->msg == CURLMSG_DONE) code = message->data.result;
-    if (status != CURLM_OK) transfer.result.error = curl_multi_strerror(status);
-    multi.reset();
-    transfer.result.elapsedMs = ticks() - started;
-    curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &transfer.result.status);
-    const bool finished = transfer.complete && transfer.complete();
-    if (cancel) transfer.result.error = "cancelled";
-    else if (code != CURLE_OK && transfer.result.error.empty() && !(code == CURLE_ABORTED_BY_CALLBACK && finished))
-      transfer.result.error = code == CURLE_OPERATION_TIMEDOUT ? "请求超时，请检查连接或增加请求超时后手动重试" : curl_easy_strerror(code);
-  } catch (const std::exception &e) { transfer.result.error = e.what(); }
-  curl_slist_free_all(list); curl_easy_cleanup(h);
-  return transfer.result;
-}
 std::string apiRoot(const Json &m) {
   return protocolRoot(m);
 }
@@ -272,12 +145,15 @@ HttpResult apiRequest(const Json &model, const std::string &resource,
                       std::atomic<bool> &cancel, std::function<void(const char *, size_t)> chunks,
                       std::function<bool()> complete) {
   auto headers = apiHeaders(model);
+  const auto headerProfile = headers.dump();
   bool hasAccept = false;
   for (auto it = headers.begin(); it != headers.end(); ++it)
     if (lower(it.key()) == "accept") hasAccept = true;
   if (chunks && !hasAccept) headers["Accept"] = "text/event-stream, application/json";
   auto result = http(apiRoot(model) + resource, method, headers, body, cancel,
-                     std::move(chunks), apiOptions(model), std::move(complete));
+                     std::move(chunks), apiOptions(model), std::move(complete),
+                     {model.value("provider_id", std::string()), apiRoot(model),
+                      objectField(model, "provider_metadata").value("credential_revision", std::string()), headerProfile});
   if (!cancel && (result.status < 200 || result.status >= 300)) {
     auto parsed = Json::parse(result.body, nullptr, false);
     const auto detail = parsed.is_object() && parsed.contains("error") ? messageError(parsed["error"]) : safeError(result.body.substr(0, 1500));
@@ -448,7 +324,7 @@ void streamChat(const Json &m, Json input, std::atomic<bool> &cancel, Events &ev
         if (chat) doneMarker = !finishReason.empty();
       }
     }
-    diagnostic = {{"status", result.status}, {"request_id", result.requestId}, {"elapsed_ms", result.elapsedMs},
+    diagnostic = {{"status", result.status}, {"request_id", result.requestId}, {"elapsed_ms", result.elapsedMs}, {"timings", result.timings},
                   {"outcome", cancel ? "cancelled" : !result.error.empty() ? "transport_or_http_error" : !protocolError.empty() ? "api_error" : "response"}};
     state.finish(ticks()); publish();
     tag["http_status"] = result.status; tag["request_id"] = result.requestId;

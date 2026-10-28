@@ -68,10 +68,17 @@ MPL 覆盖源码；锁文件中的 Cairo 1.18.4 官方归档及哈希是源码�
 falcon-ui 发布包未附完整 MIT 版权文本，本项目不虚构其版权所有人。若后续开始打包
 该组件，须先补齐其实际许可声明及传递依赖声明。
 
-libcurl、SQLite、glibc、系统输入法/OCR 与 Falcon 宿主由设备提供；PenChat 不打包
-这些系统动态库。SQLite 主项目为公有领域、curl 有自己的宽松许可、glibc 有 LGPL
-义务；设备提供者的分发义务不由本项目的 Apache 声明替代。添加新的运行库副本时
-应另行登记对应版本、源码与完整声明。
+PenChat 0.2.12 起源码构建并静态链接 **libcurl 8.17.0**，使用 curl 许可；
+完整原文在 `licenses/curl.txt`，源码地址与归档校验值在原生依赖锁中。
+设备系统 OpenSSL 为1.1.1 ABI，因此选择仍支持该 ABI 且包含请求前回调的 curl 版本；
+8.18及之后要求OpenSSL 3，不能直接替换。当前仅构建HTTP/HTTPS与线程DNS解析，
+保持设备原有HTTP/1.1能力，不打包curl命令行程序。
+
+交叉编译使用源码锁定的 OpenSSL 1.1.1w 头文件，原文双许可证在
+`licenses/openssl-headers.txt`。**不构建或分发OpenSSL库**；设备运行时继续使用自身的
+`libssl.so.1.1`、`libcrypto.so.1.1`、zlib与证书根目录，不修改系统文件。
+SQLite、glibc、系统输入法/OCR与Falcon宿主也由设备提供；PenChat不打包这些系统动态库。
+SQLite主项目为公有领域，glibc有LGPL义务；设备提供者的分发义务不由本项目Apache声明替代。
 
 ## RKNN 与扫描资源：未获授权
 

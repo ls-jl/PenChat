@@ -181,6 +181,16 @@
       "file": "rime-pinyin-simp.txt",
       "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "source": "https://github.com/rime/rime-pinyin-simp/blob/0c6861ef7420ee780270ca6d993d18d4101049d0/LICENSE"
+    },
+    {
+      "file": "curl.txt",
+      "source": ".deps/curl/COPYING",
+      "sha256": "e18f1989333b70044b2adfb7dc2f905d0119dbdcac3bc9f4bc9d540e3a29de5b"
+    },
+    {
+      "file": "openssl-headers.txt",
+      "source": ".deps/openssl-headers/LICENSE",
+      "sha256": "c32913b33252e71190af2066f08115c69bc9fddadf3bf29296e20c835389841c"
     }
   ]
 }

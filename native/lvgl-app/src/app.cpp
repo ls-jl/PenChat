@@ -68,6 +68,9 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   transfer_->start("init");
   clearCrop();
   auto config = db_.settings();
+  const auto idleSeconds = config.value("http_idle_seconds", Json());
+  setHttpIdleSeconds(idleSeconds.is_number_integer() && idleSeconds.get<double>() >= 15 && idleSeconds.get<double>() <= 600
+                      ? idleSeconds.get<int>() : 90);
   editor_.preferredChinese=config.value("pinyin_chinese_layout",std::string("zh26"))=="zh9"?2:0;
   const auto savedPull = config.value("pull_sensitivity_offset", Json());
   if (savedPull.is_number_integer())
@@ -993,6 +996,8 @@ void App::build() {
     settingsPage();
   else if (view_ == "font_size")
     fontSizePage();
+  else if (view_ == "http_settings")
+    httpSettingsPage();
   else if (view_ == "keyboard_settings")
     keyboardSettingsPage();
   else if (view_ == "transfer")
@@ -1943,7 +1948,10 @@ void App::settingsPage() {
                 db_.setting("persistent_export_directory", !persistentExports);
                 build();
               }, persistentExports);
-  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", left, 604, width,
+  const auto idle = httpIdleSeconds();
+  const auto idleText = idle < 60 ? std::to_string(idle) + "秒" : std::to_string(idle/60) + "分" + (idle%60 ? std::to_string(idle%60)+"秒" : "");
+  settingsRow("http_idle", "连接保留时间", idleText + " · 全应用", left, 604, column, [this] { show("http_settings"); });
+  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", right, 604, column,
               [this] {
                 const auto summary = db_.summary();
                 modal("关于 " PENCHAT_NAME,
@@ -2243,7 +2251,7 @@ void App::goBack() {
   }
   if (view_ == "api_compatibility" || view_ == "anthropic_connection") {
     show("provider"); lv_obj_scroll_to_y(body_, providerScroll_, LV_ANIM_OFF);
-  } else if (view_ == "font_size" || view_ == "keyboard_settings")
+  } else if (view_ == "font_size" || view_ == "keyboard_settings" || view_ == "http_settings")
     show("settings");
   else if (view_ == "presets")
     show("settings");
@@ -2736,6 +2744,7 @@ void App::shutdown() {
     titleWorker_.join();
   if (generating_ && !assistant_.empty())
     stopNetwork();
+  shutdownHttp();
   db_.flush();
   if (transfer_ && !transfer_->finish(db_.settings().value("persistent_export_directory", true)))
     db_.setting("export_cleanup_failed", true);
@@ -3423,6 +3432,7 @@ Json App::diagnostics() const {
       {"crop_actions", [&]{Json a=Json::object();for(const auto &i:cropActions_)a[i.first]=bounds(i.second);return a;}()},
       {"crop_selection", {cropX_,cropY_,cropW_,cropH_}},
       {"crop_source_rect", cropSourceRect()},
+      {"network_transport", httpDiagnostics()},
       {"touch_input", touchInput_.diagnostics()},
       {"image_touch", {{"peak",imageTouchPeak_},{"pinch_updates",imagePinchUpdates_},{"mode",imageGesture_.mode},{"source",touchInput_.enabled()?"direct-read-only":"host-test"}}},
       {"crop_rect", {cropX_, cropY_, cropW_, cropH_}},

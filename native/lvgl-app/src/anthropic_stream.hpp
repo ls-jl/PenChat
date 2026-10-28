@@ -158,6 +158,7 @@ public:
     if (output.empty() && reason_ == "refusal") output = "模型拒绝了本次请求。";
     Json metadata = {{"reasoning_observed", observed_}, {"reasoning_complete", finished_ || firstBody_ > 0 || (observed_ && explicitTiming_ && !thinkingStart_)},
                      {"reasoning_estimated", !explicitTiming_}, {"stop_reason", reason_}};
+    metadata["first_body_ms"] = firstBody_ ? Json(std::max<int64_t>(0,firstBody_-requested_)) : Json();
     if (observed_) metadata["reasoning_duration_ms"] = explicitTiming_ ?
         thinkingMs_ + (thinkingStart_ ? std::max<int64_t>(0, now - thinkingStart_) : 0) :
         std::max<int64_t>(0, (firstBody_ ? firstBody_ : now) - requested_);

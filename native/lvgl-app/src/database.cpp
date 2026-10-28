@@ -3,6 +3,7 @@
 #include "context.hpp"
 #include "reasoning.hpp"
 #include "api_config.hpp"
+#include "network.hpp"
 #include "schema.hpp"
 #include "titles.hpp"
 #include "util.h"
@@ -981,6 +982,7 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
       }
     }
     execute("COMMIT");
+    invalidateHttpProvider(id);
   } catch (...) {
     execute("ROLLBACK");
     throw;

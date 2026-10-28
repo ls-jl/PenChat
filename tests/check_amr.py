@@ -24,6 +24,8 @@ with zipfile.ZipFile(path) as archive:
     for name in ['dictionary.data','pinyin.txt']:
         assert hashlib.sha256(archive.read('assets/pinyin/'+name)).hexdigest()==dictionary_lock['resources'][name]['sha256']
     binary = archive.read('assets/bin/penchat-lvgl')
+    assert b'PENCHAT_TEST_CA' not in binary, 'Test-only CA override leaked into production'
+    assert b'8.17.0' in binary, 'Source-built libcurl version missing'
     assert binary[:5] == b'\x7fELF\x02' and struct.unpack_from('<H', binary, 18)[0] == 183
     assert binary == (ROOT / 'assets/bin/penchat-lvgl').read_bytes()
     catalog = (ROOT/'build/orange/generated/model_catalog_data.bin').read_bytes()

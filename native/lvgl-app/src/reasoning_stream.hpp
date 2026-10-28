@@ -186,6 +186,7 @@ public:
         {"reasoning_observed", observed_},
         {"reasoning_complete", finished_ || firstBody_ || stopped_},
         {"reasoning_estimated", started_ == 0}};
+    metadata["first_body_ms"] = firstBody_ ? Json(std::max<int64_t>(0,firstBody_-requested_)) : Json();
     if (observed_)
       metadata["reasoning_duration_ms"] =
           std::max<int64_t>(0, end - (started_ ? started_ : requested_));

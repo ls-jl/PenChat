@@ -315,6 +315,7 @@ class App {
   Json settingsDiagnostic() const;
   void providerPage();
   void apiCompatibilityPage();
+  void httpSettingsPage();
   void protocolPicker();
   void anthropicConnectionPage();
   void anthropicModelPage();

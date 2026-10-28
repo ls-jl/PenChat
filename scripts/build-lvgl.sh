@@ -8,6 +8,7 @@ python3 "$ROOT/scripts/fetch-lvgl-deps.py"
 python3 "$ROOT/scripts/prepare-microtex.py"
 python3 "$ROOT/scripts/prepare-pinyin.py"
 bash "$ROOT/scripts/build-render-deps.sh" "$TARGET"
+bash "$ROOT/scripts/build-http-deps.sh" "$TARGET"
 ARGS=()
 if [ "$TARGET" = orange ]; then
   SDK=${RK_SDK_ROOT:-/home/ls-jl/dictpen/x7pro/android13_sdk/RK3562_Android13.0_SDK}
