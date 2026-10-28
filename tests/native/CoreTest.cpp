@@ -5,6 +5,7 @@
 #include "editor_layout.hpp"
 #include "photo_orientation.hpp"
 #include "common.hpp"
+#include "chat_text.hpp"
 #include "database.hpp"
 #include "image_data.h"
 #include "markdown.hpp"
@@ -24,6 +25,15 @@
 using namespace penchat;
 int main(int argc, char **argv) {
   assert(argc == 4);
+  {
+    for (const auto &blank : {"", "\r\n \t\n", "\v\f", "　\n\xc2\xa0", "\xe2\x80\xa8\xe2\x80\xa9"}) {
+      assert(!hasChatText(blank)); assert(normalizedChatText(blank).empty());
+    }
+    const std::string body = "    中文 👩‍💻  \r\n\r\n```\n  code\n\n  next\n```";
+    assert(normalizedChatText("\r\n　\n" + body + "\n\t\r\n") == body);
+    assert(normalizedChatText(body) == body && hasChatText(body));
+    assert(normalizedChatText("\xe2\x80\xa8正文\xe2\x80\xa9") == "正文");
+  }
   {
     char root[] = "/tmp/penchat-files-XXXXXX";
     char outside[] = "/tmp/penchat-outside-XXXXXX";

@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "chat_text.hpp"
 #include "context.hpp"
 #include "image_data.h"
 #include <stdexcept>
@@ -63,10 +64,11 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
       auto snapshot = db_.contextSnapshot(session, true);
       leased = snapshot.value("leased", false);
       Json pending = Json::array();
-      if (draft.find_first_not_of(" \r\n\t") != std::string::npos)
+      const auto text = normalizedChatText(draft);
+      if (!text.empty())
         pending.push_back(
             {{"role", "user"},
-             {"content", Json::array({{{"type", "input_text"}, {"text", draft}}})}});
+             {"content", Json::array({{{"type", "input_text"}, {"text", text}}})}});
       auto material = snapshot;
       auto &history = material["rows"];
       if(regenerate) {

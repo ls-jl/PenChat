@@ -1,4 +1,5 @@
 #include "database.hpp"
+#include "chat_text.hpp"
 #include "context.hpp"
 #include "reasoning.hpp"
 #include <stdexcept>
@@ -52,12 +53,13 @@ Json Database::messageEditSnapshot(const std::string &session,
   });
 }
 Json Database::commitMessageEdit(const Json &snapshot, const Json &images,
-                                 const std::string &text, const Json &preferences,
+                                 const std::string &inputText, const Json &preferences,
                                  bool archive, int64_t sentAt) {
+  const auto text = normalizedChatText(inputText);
   return perform([=] {
     const auto session = snapshot.at("session").at("id").get<std::string>();
     const auto pivot = snapshot.at("pivot").get<int64_t>();
-    if (text.find_first_not_of(" \r\n\t") == std::string::npos && images.empty())
+    if (text.empty() && images.empty())
       throw std::runtime_error("请输入文字或附加图片");
     Json prepared = Json::array();
     std::vector<std::string> created;

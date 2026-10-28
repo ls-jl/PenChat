@@ -49,6 +49,18 @@ int main() {
     db.commitMessageEdit(one,Json::array(),"changed second question",Json::object(),false,nowMs());
     db.releaseTransferSnapshot();
     assert(db.messages(consecutive).size()==2 && db.messages(consecutive)[0]["output_text"]=="keep this first question");
+    auto clean=db.messageEditSnapshot(consecutive,db.messages(consecutive).back()["id"]);
+    db.commitMessageEdit(clean,Json::array(),"\n　\n  edited\n\nparagraph  \n\n",Json::object(),false,nowMs());
+    db.releaseTransferSnapshot();
+    assert(db.messages(consecutive).back()["output_text"]=="  edited\n\nparagraph  ");
+    clean=db.messageEditSnapshot(consecutive,db.messages(consecutive).back()["id"]);
+    failed=false;try{db.commitMessageEdit(clean,Json::array(),"\n　\t\n",Json::object(),false,nowMs());}catch(...){failed=true;}
+    assert(failed&&db.messages(consecutive).size()==2);db.releaseTransferSnapshot();
+    auto pictureOnly=db.messageEditSnapshot(s,db.messages(s).back()["id"]);
+    db.commitMessageEdit(pictureOnly,Json::array({{{"original_path",original},{"stored_path",original},{"source_type","album"}}}),"\n　\n",Json::object(),false,nowMs());
+    db.releaseTransferSnapshot();
+    assert(db.messages(s).size()==3&&db.messages(s).back()["output_text"]=="");
+    assert(db.query("select * from message_parts where message_id=?",Json::array({db.messages(s).back()["id"]}))[0]["part_type"]=="image");
     assert(db.query("PRAGMA foreign_key_check").empty());
     (void)later;(void)pending;(void)image;
   }

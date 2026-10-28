@@ -9,6 +9,7 @@ parser.add_argument('--model-catalog',action='store_true',help='Offline model ca
 parser.add_argument('--anthropic',action='store_true',help='Native Messages local-server and physical-touch acceptance')
 parser.add_argument('--api-compatibility',action='store_true',help='Local API fixture and Provider settings with physical touches')
 parser.add_argument('--http-pool',action='store_true',help='HTTP reuse, global retention and verified native TLS probe')
+parser.add_argument('--chat-whitespace',action='store_true',help='Blank composer and normalized prompts with isolated local requests')
 parser.add_argument('--native-touch',action='store_true',help='Raw evdev alternating-slot bursts, edges and lifecycle')
 parser.add_argument('--pinyin',action='store_true',help='Owned pinyin, learning and nine-key real-touch acceptance')
 parser.add_argument('--pull-sensitivity',action='store_true',help='Saved pull sensitivity and mapped gesture boundary acceptance')
@@ -21,7 +22,7 @@ parser.add_argument('--reply-actions',action='store_true')
 parser.add_argument('--session-info',action='store_true',help='Run focused conversation statistics acceptance')
 parser.add_argument('--archive-reader',action='store_true',help='Run focused archive-reader acceptance, with normal data isolation/restoration')
 args=parser.parse_args();SERIAL=args.serial
-assert sum((args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch,args.http_pool))<=1,'Run isolated feature fixtures separately'
+assert sum((args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch,args.http_pool,args.chat_whitespace))<=1,'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 class FeatureComplete(Exception):
@@ -178,6 +179,10 @@ try:
         messageServer,messageHandler,files=http_pool_flow.prepare(ROOT,OUT/'http-pool-fixture',DATA,SERIAL)
         shell('mkdir -p '+DATA+'/assets')
         for source,target in files:subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
+    if args.chat_whitespace:
+        import chat_whitespace_flow
+        messageServer,messageHandler,files=chat_whitespace_flow.prepare(ROOT,OUT/'whitespace-fixture',DATA,SERIAL)
+        for source,target in files:subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
     if args.api_compatibility:
         import api_flow
         messageServer,messageHandler,files=api_flow.prepare(ROOT,OUT/'api-fixture',DATA,SERIAL)
@@ -265,6 +270,10 @@ try:
         raise FeatureComplete()
     if args.http_pool:
         http_pool_flow.run(globals(),messageHandler)
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
+    if args.chat_whitespace:
+        chat_whitespace_flow.run(globals(),messageHandler)
         assert shell('pidof miniapp')==host;result['host_unchanged']=True
         raise FeatureComplete()
     if args.native_touch:

@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "chat_text.hpp"
 #include "chat_time.hpp"
 #include "context.hpp"
 #include "icons.hpp"
@@ -45,8 +46,7 @@ bool retryableStatus(const std::string &status) {
   return status == "error" || status == "cancelled" || status == "interrupted";
 }
 bool hasText(const std::string &text) {
-  return std::any_of(text.begin(), text.end(),
-                     [](unsigned char c) { return !std::isspace(c); });
+  return hasChatText(text);
 }
 std::string basename(const std::string &p) {
   auto slash = p.rfind('/');
@@ -2571,8 +2571,9 @@ void App::sendPrepared(Json model, Json input, const std::string &retryId,
   bindPreferences(model);
   sessionPreferences_["has_sent"] = true;
   savePreferences();
-  if (retryId.empty() && hasText(draft)) {
-    db_.append(session_, "user", draft, Json::object(), sessionPreferences_);
+  if (retryId.empty()) {
+    const auto text = normalizedChatText(draft);
+    if (!text.empty()) db_.append(session_, "user", text, Json::object(), sessionPreferences_);
     if (draft_ == draft)
       draft_.clear();
   }
