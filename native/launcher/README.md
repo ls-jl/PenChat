@@ -18,7 +18,6 @@ Keyboard IDs are opaque strings; ordinary messages use monotonically increasing 
 | shell → native | `init` | generation and clean native initialization |
 | shell → native | `display.area` | full logical hole bounds from the native `booted.screen` descriptor |
 | native → shell | `display.ready` | accepted dimensions and device rotation/offsets |
-| shell → native | `touch` | Falcon pageX/pageY logical coordinates, pressed state and optional `cancelled` flag |
 | shell → native | `visibility` | foreground/background; releases pointer and camera when hidden |
 | native → shell | `keyboard.open` | request ID, text, placeholder, length and inputType |
 | shell → native | `keyboard.result` | matching request ID, confirmed/cancelled, text |
@@ -26,9 +25,8 @@ Keyboard IDs are opaque strings; ordinary messages use monotonically increasing 
 | shell → native | `ocr.status` / `ocr.result` | matching request ID, completion or generic error; no logging |
 | either | `exit` / `finish` | close native process / request Falcon page finish |
 | native → shell | `booted`, `ready`, `fatal` | startup progress and actionable failure |
-| native → shell | `navigation.state` | ordered sequence and root-only system side-exit permission |
+| native → shell | `navigation.state` | ordered sequence, native root and image-workspace state |
 | shell → native | `navigation.policy` | matching sequence and Falcon setSupportBack result |
-| shell → native | `navigation.back` | firmware backpressed completion with page sequence and physical gesture ID |
 
 The native process reads `/etc/miniapp/resources/cfg.json` → `screen` once at startup.
 Width and height are required; missing/invalid configuration fails visibly rather
@@ -36,7 +34,8 @@ than falling back to a device-specific resolution. `booted.screen` carries those
 logical dimensions to the shell, which echoes them in `display.area`. DRM uses the
 same configuration for rotation and offsets. Headless tests provide an explicit
 `--screen-config` file. The hole/overlay use the full Falcon viewport.
-Touch coordinates are already transformed by Falcon. System IME hides the native
+NativeTouch reads Linux evdev directly and applies configured touch rotation/offsets
+once. Falcon page touch callbacks are not registered. System IME hides the native
 plane and releases touch; confirm/cancel restores the view and scroll position.
 SQLite is exclusively written by the native process. The shell does not read external Storage. No API key is included in diagnostic output.
 
@@ -46,37 +45,56 @@ It forwards text only into the native editor for review. The standalone native
 pinyin engine owns composition and learning; the official editor is a manual fallback. No image stitching code, OCR models, or extra OCR network service
 are bundled. The Provider database remains native-owned and changes only on Save.
 
-The v1 touch payload accepts `cancelled: true` on system touch cancellation or
-background release. Native resets pointer/gesture state without activating a click
-or committing the pull-to-create gesture. Older payloads without this flag retain
-normal press/release behavior; the protocol version and socket format are unchanged.
+All foreground pages use one read-only, nonexclusive evdev reader. It discovers a
+DIRECT type-B device, reconstructs slots at SYN_REPORT and preserves release
+coordinates. A new tracking ID is never treated as movement of the old contact.
+No EVIOCGRAB, driver settings, raw-resolution scaling or Falcon touch fallback is
+used. Headless host tests inject logical packets; production rejects IPC touches.
+SYN_DROPPED cancels the active gesture, discards queued frames and resynchronizes
+slots before waiting for all fingers to lift. Contacts starting outside the logical
+screen cannot activate edge controls; accepted pointers retain their normal drag slop. Startup/resume with a held finger waits for
+release. Background, official IME and shutdown close the descriptor.
 
-Only unobstructed root chat enables Falcon's `setSupportBack(true)`. Native child
-pages, image viewing, the editor, menus and modals disable the shell's exit gesture.
-When raw touch remains available, the native logical left edge owns right-swipe
-back: commit on release after 10% of logical width, cancel on retreat/interruption,
-and otherwise replay taps or
-vertical scrolling. Interior image pan, text selection and horizontal tables keep
-their existing handlers. Back reuses each page's contextual return action; the
-history drawer retains its tap-only dismissal. Firmware may cancel raw touches
-before emitting `backpressed`; the shell forwards that completion, and native
-validates the frozen edge target and deduplicates it against the raw release by
-physical gesture ID. Hide, disposal and bridge
-failure restore Falcon policy; resume reapplies native state. Sequence and process
-generation checks prevent stale permissions from re-enabling exit over a child page.
+Falcon side-back is disabled throughout the native foreground, including root chat.
+The native logical left edge commits right-swipe back on release after 10% of
+logical width. Root chat requests page finish; child pages reuse contextual back.
+Short taps, vertical drags, retreat, cancellation and the tap-only drawer retain
+their existing rules. There is no backpressed fallback or synthetic page pointer.
+Hide, disposal and bridge failure restore the page's system policy.
 
+Images use the same complete multi-touch frames as all other pages. Image workspaces
+consume 1→2→1→0 transitions; keyboard and other pages cancel multi-touch until every
+finger lifts. Poll waits can wake on the native fd, avoiding a frame sleep on input.
 
-Image workspaces also accept optional `points: [{id,x,y}]` in v1 touch packets.
-The launcher preserves one physical gesture through 1→2→1→0 fingers and forwards
-logical coordinates without another scale/rotation. Other pages cancel multi-touch
-until all contacts lift. On ORANGE and Y02 the firmware page callback only reports
-one contact despite hardware MT slots. In those image workspaces alone the native
-app opens a nonexclusive, read-only evdev descriptor, reconstructs complete MT
-frames, and maps raw coordinates once using Falcon's tp_direction/tp_xoffset/
-tp_yoffset. Duplicate page touches are suppressed while that source owns the image
-workspace; background/exit closes it. It never grabs the input device or changes
-its configuration. See docs/IMAGE-GESTURES.md.
 The optional navigation.state imageWorkspace flag temporarily disables the
 system top panel during image editing/viewing, so top crop handles remain usable.
 Editor and image policies are combined; hide, close, disposal and failure restore
 the top panel without changing system settings.
+
+## 0.2.11 native input validation (2026-10-28)
+
+The prior Falcon page callback emitted stale slot-0 coordinates around a slot-1
+contact on ORANGE and 113. Read-only kernel capture showed correct coordinates,
+and raw page-event instrumentation reproduced the fault before PenChat extraction.
+Alternating-slot injection previously committed 15/30 taps at each tested speed.
+
+The native parser test verifies 1,000 exact-position taps across four slots,
+release coordinates, contact replacement, multi-touch, dropped-frame cancellation,
+bezel starts, held-contact startup and all four rotations. Both devices now commit
+400/400 injected taps across middle C/M and edge A/L targets, with press/release
+waits of 80, 20, 5, 1 and 0 ms. These are evdev injection regressions, not a claim
+that zero-duration physical finger taps can be sensed by hardware.
+
+Both boards pass native edge-back/root exit, drawer tap-only dismissal, cursor
+drag/selection, official-editor cancellation and foreground/background recovery.
+Both pass two-slot image zoom/pan; ORANGE also passes real camera capture/crop in
+four orientations. Private and public test directories are isolated and hash-checked
+after restoration; neither system MiniApp host was restarted.
+
+Targeted ASAN/UBSAN covers the parser, edge keyboard, navigation, photo gestures
+and exit/EOF/signal cleanup. Application runs use the existing narrowly scoped
+MicroTeX symbol-registry leak suppression; the touch parser itself passes without
+leak suppression. Screenshots and device data remain ignored local artifacts.
+
+Full `npm test`, 14 host CTests, AArch64 build and production AMR checks pass.
+The existing `aiot-cli check` advisory recommends optional cnpm; it is unchanged.

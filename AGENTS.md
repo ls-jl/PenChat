@@ -1,7 +1,7 @@
 # Repository Guidelines
 
-PenChat 0.2.4 is a native LVGL app for ORANGE (RK3562/AArch64, 960×266).
-The Falcon AMR is a thin launcher with a full-screen hole, system IME, touch and
+PenChat is a native LVGL app for ORANGE (RK3562/AArch64, 960×266).
+The Falcon AMR is a thin launcher with a full-screen hole, system IME and
 lifecycle forwarding. Do not put business UI or networking back into Vue.
 Scanning uses the source-pinned Stream32 backend in native/scanner, with a
 separate C++17 process and ORANGE-only capture lease. Keep 32/24/8 windowing,
@@ -64,8 +64,8 @@ positive means more responsive. Freeze the offset with geometry at pointer-down.
 but never its attachment or send controls. Scale spatial
 thresholds, slow-motion speed and stretch by the unobstructed logical reader
 height relative to 208px. Freeze geometry at pointer-down, excluding resting
-composer space, clipping and viewport translations. Falcon already maps rotation
-and touch offsets; never scale a second time using physical/raw touch dimensions.
+composer space, clipping and viewport translations. Native evdev frames apply tp_direction and touch offsets exactly once; never scale
+spatial gesture thresholds a second time using physical/raw touch dimensions.
 Blank new chats are transient; persist the conversation and active selection
 atomically with the first message. Do not add history rows for unsent drafts.
 Chat model selection is per session and also updates the global new-chat default.
@@ -164,7 +164,11 @@ summary coverage or archive links. Device access remains forbidden while unavail
 
 Screen geometry must come from Falcon's `/etc/miniapp/resources/cfg.json` screen section.
 Never add a device-specific width/height fallback or resolution gate. The native booted.screen
-message supplies the same dimensions to the AMR; Falcon already maps input coordinates.
+message supplies the same dimensions to the AMR. NativeTouch owns all foreground input,
+commits complete type-B SYN_REPORT frames and maps touch rotation/offsets once.
+Do not reintroduce Falcon page touch forwarding, system backpressed completion or
+a touch fallback. Use read-only, nonexclusive fds; close them on background, official
+IME and shutdown. Native left-edge back handles child pages and root exit.
 Use EditorLayout for keyboard controls, decorations and touch bounds. Test fixtures may
 specify explicit resolutions; camera sensor capture sizes are independent of display sizes.
 `tests/device/display_config.py --serial <explicit serial>` covers the user-authorized Y02

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native edge-back arbitration and root-only Falcon exit policy."""
+"""Native edge-back arbitration, including root exit, without Falcon gestures."""
 import os,pathlib,tempfile,time
 import test_lvgl_app as t
 from test_image_viewer import fixture,open_photo,shot
@@ -26,20 +26,12 @@ def run(w,h):
             assert a.diag()['view']=='provider' and '添加 Provider' in a.diag()['page']['actions']
             swipe(a,[(20,120),(60,122),(160,124)])
             assert a.diag()['view']=='settings'
-            # Firmware may cancel raw touch and deliver a completed side-back.
-            a.setting('models');seq=a.diag()['back_navigation']['sequence']
+            # Falcon completions cannot revive a cancelled native gesture.
+            seq=a.diag()['back_navigation']['sequence']
             a.send('touch',x=20,y=120,pressed=True,gesture=701)
-            a.send('touch',x=60,y=120,pressed=True,gesture=701)
             a.send('touch',x=0,y=0,pressed=False,cancelled=True,gesture=701)
             a.send('navigation.back',gesture=701,sequence=seq)
-            t.wait_for(lambda:a.diag()['view']=='settings')
-            a.send('navigation.back',gesture=701,sequence=a.diag()['back_navigation']['sequence'])
-            assert a.diag()['view']=='settings' # no double return
-            a.send('touch',x=20,y=120,pressed=True,gesture=702)
-            a.send('touch',x=0,y=0,pressed=False,cancelled=True,gesture=702)
-            a.send('visibility',visible=False);a.send('visibility',visible=True)
-            a.send('navigation.back',gesture=702,sequence=a.diag()['back_navigation']['sequence'])
-            assert a.diag()['view']=='settings' # stale after lifecycle
+            assert a.diag()['view']=='settings'
             # Claimed-but-short, retreat, cancelled, vertical and interior drags
             # must never dispatch a return or a delayed button click.
             for points,cancel in [([(20,120),(70,120)],False),
@@ -78,6 +70,8 @@ def run(w,h):
             a.to_chat();a.tap(128,h-34);assert a.diag()['attachments']
             swipe(a,[(20,120),(80,120),(160,120)])
             assert not a.diag()['attachments'] and a.diag()['back_navigation']['root']
+            swipe(a,[(20,120),(80,120),(160,120)])
+            assert a.receive('finish')['type']=='finish'
         finally:a.close()
 
 if __name__=='__main__':

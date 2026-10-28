@@ -29,6 +29,7 @@ void App::nativeBack() {
   if(replyBusy_){replyCancel_=true;return;}
   if(contextRegenerating_){cancelContext();build();return;}
   if(messageEditBusy_)return;
+  if (navigationRoot()) { bridge_.send("finish"); return; }
   input_.cancel(); touchDown_ = false; composerTapAllowed_ = false;
   if (imageViewer_) closeImageViewer();
   else if (editor_.active) editorFinish(false);
@@ -37,17 +38,6 @@ void App::nativeBack() {
   else if (!navigationOpen_ && view_ != "chat") goBack();
   else if(!messageEdit_.empty())cancelMessageEdit();
   syncScanner(); syncBackPolicy();
-}
-void App::systemBack(const Json &m) {
-  const auto gesture=m.value("gesture",uint64_t(0));
-  // Some firmware takes over the pointer and emits backpressed after CANCEL.
-  // Only the frozen edge-down target may accept that completion. The raw
-  // release path and Falcon signal share one consumed physical gesture ID.
-  if (!visible_ || keyboard_ || imageStoreBusy_ || navigationRoot() ||
-      (navigationOpen_ && !modal_) || !gesture || gesture==backConsumedGesture_ ||
-      gesture!=backGesture_ || backStart_.value("gesture",uint64_t(0))!=gesture ||
-      m.value("sequence",uint64_t(0))!=backPolicySequence_ || backContext_!=backContext()) return;
-  backConsumedGesture_=gesture; resetBack(); nativeBack();
 }
 bool App::backTouch(const Json &m) {
   const int x=m.value("x",0), y=m.value("y",0);
@@ -64,7 +54,6 @@ bool App::backTouch(const Json &m) {
     backDown_=true;
     backEditorKey_ = editor_.active && std::any_of(editorKeys_.begin(), editorKeys_.end(),
         [x,y](const EditorKey &key) { return key.hit.contains(x,y); });
-    backGesture_=m.value("gesture",uint64_t(0));
     // Reserve only the logical left edge. Drawer dismissal stays tap-only;
     // image panning, text selection and horizontal content keep their gestures.
     bool cropHandle=false;
@@ -72,7 +61,7 @@ bool App::backTouch(const Json &m) {
       auto p=photoPoint({x,y});lv_area_t viewport;lv_obj_get_coords(cropViewport_,&viewport);
       cropHandle=cropEdges(p.x-viewport.x1,p.y-viewport.y1)!=0;
     }
-    backCandidate_=!cropHandle && !navigationRoot() && (!navigationOpen_ || modal_) && x>=0 && x<=edge;
+    backCandidate_=!cropHandle && (!navigationOpen_ || modal_) && x>=0 && x<=edge;
     if (backCandidate_) { backStart_=m; backX_=x; backY_=y; backContext_=backContext(); }
   }
   if (!backCandidate_) { if(!down)backDown_=false; return false; }
@@ -103,7 +92,7 @@ bool App::backTouch(const Json &m) {
     const bool tap=!backClaimed_;
     const auto start=backStart_;
     resetBack();
-    if (commit) { backConsumedGesture_=backGesture_; nativeBack(); }
+    if (commit) nativeBack();
     else if (tap) { routeTouch(start); return false; }
   }
   return true;

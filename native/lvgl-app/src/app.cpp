@@ -55,8 +55,8 @@ std::string basename(const std::string &p) {
 } // namespace
 App::App(Database &db, Bridge &bridge, Display &display, Input &input,
          const Screen &s, std::string workspace, std::string dataDir,
-         const std::string &fontPath, const std::string &resources)
-    : db_(db), bridge_(bridge), display_(display), input_(input), screen_(s), imageInput_(s),
+         const std::string &fontPath, const std::string &resources, bool nativeTouch)
+    : db_(db), bridge_(bridge), display_(display), input_(input), screen_(s), touchInput_(s, nativeTouch),
       pinyin_(events_, join(workspace, "assets/pinyin"), dataDir),
       images_(events_), camera_(events_, join(dataDir, "camera-tmp"), workspace),
       scanner_(events_, workspace, dataDir),
@@ -2659,12 +2659,11 @@ void App::attach(const Json &image) {
 }
 void App::suspend(bool value) {
   resetBack();
-  backGesture_ = 0; backStart_ = Json::object();
+  backStart_ = Json::object();
   viewerPointer_ = viewerCanvasTouch_ = false; viewerLastTap_ = 0;
   finishImageGesture(false);nonImageMulti_=false;
   if(imageViewer_ || view_=="crop")imageGesture_.mode=-2;
-  if(directImageInput_)imageInputExitDue_=ticks()+80;
-  imageInput_.close();directImageInput_=false;
+  touchInput_.close();
   if (value && imageStoreWorker_.joinable())
     imageStoreWorker_.join();
   if (value) {replyCancel_=true;if(contextRegenerating_)cancelContext();editorInterrupt();}
@@ -2696,6 +2695,8 @@ void App::suspend(bool value) {
 void App::shutdown() {
   if (shutdownComplete_) return;
   shutdownComplete_ = true;
+  touchInput_.close();
+  input_.cancel();
   // Signal every independent task before waiting for any one of them. A slow
   // compaction/image job must not leave another request or capture running.
   cancel_ = true; modelCancel_ = true; titleCancel_ = true;
@@ -2858,12 +2859,8 @@ void App::handle(const Json &m) {
     lastTouch_ = m;
   if (type == "touch" && visible_ && !keyboard_) {
     if (imageStoreBusy_) return;
-    const bool direct=m.value("source",std::string())=="direct-image";
-    if(!direct && directImageInput_) {
-      if(m.value("cancelled",false)){imageInput_.cancel();finishImageGesture(false);input_.cancel();resetBack();}
-      return;
-    }
-    if(!direct && ticks()<imageInputExitDue_)return;
+    // Production input has one owner. Never replay Falcon or delayed IPC touches.
+    if (touchInput_.enabled() && m.value("source", std::string()) != "native-evdev") return;
     lastTouch_ = m;
     const bool multi=m.contains("points") && m["points"].is_array() && m["points"].size()>1;
     if(multi || nonImageMulti_ || imageGesture_.multi || imageGesture_.mode<0) {
@@ -2885,8 +2882,7 @@ void App::handle(const Json &m) {
       } else {editorPolicy(true);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
     }
     display_.visible(visible_);
-  } else if(type=="navigation.back") {
-    systemBack(m);
+
   } else if(type=="navigation.policy") {
     if(m.value("sequence",uint64_t(0))==backPolicySequence_) {
       backPolicyOk_=m.value("ok",false); backPolicyBlocked_=m.value("blocked",false);
@@ -2911,12 +2907,9 @@ void App::handle(const Json &m) {
   syncScanner();
 }
 void App::tick() {
-  const bool wanted=visible_ && !keyboard_ && (imageViewer_ || view_=="crop");
-  auto touches=imageInput_.poll(wanted);
-  if(directImageInput_ && !imageInput_.active())imageInputExitDue_=ticks()+80;
-  directImageInput_=imageInput_.active();
+  auto touches=touchInput_.poll(visible_ && !keyboard_);
   for(const auto &touch:touches){
-    if(!visible_ || keyboard_ || (!imageViewer_ && view_!="crop"))break;
+    if(!visible_ || keyboard_) { touchInput_.close(); break; }
     handle(touch);
   }
   imageReturnTick();
@@ -3430,7 +3423,8 @@ Json App::diagnostics() const {
       {"crop_actions", [&]{Json a=Json::object();for(const auto &i:cropActions_)a[i.first]=bounds(i.second);return a;}()},
       {"crop_selection", {cropX_,cropY_,cropW_,cropH_}},
       {"crop_source_rect", cropSourceRect()},
-      {"image_touch", {{"peak",imageTouchPeak_},{"pinch_updates",imagePinchUpdates_},{"mode",imageGesture_.mode},{"source",directImageInput_?"direct-read-only":"falcon"}}},
+      {"touch_input", touchInput_.diagnostics()},
+      {"image_touch", {{"peak",imageTouchPeak_},{"pinch_updates",imagePinchUpdates_},{"mode",imageGesture_.mode},{"source",touchInput_.enabled()?"direct-read-only":"host-test"}}},
       {"crop_rect", {cropX_, cropY_, cropW_, cropH_}},
       {"crop_preview", {cropPreviewW_, cropPreviewH_}},
       {"crop_save_album", cropSaveAlbum_},

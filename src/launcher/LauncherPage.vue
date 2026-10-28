@@ -1,7 +1,6 @@
 <template>
-  <div class="native-page" @touchstart="touchStart" @touchmove="touchMove" @touchend="touchEnd" @touchcancel="touchCancel">
-    <hole class="native-hole" @touchstart.stop="touchStart" @touchmove.stop="touchMove" @touchend.stop="touchEnd" @touchcancel.stop="touchCancel"></hole>
-    <div class="touch-surface" @touchstart.stop="touchStart" @touchmove.stop="touchMove" @touchend.stop="touchEnd" @touchcancel.stop="touchCancel"></div>
+  <div class="native-page">
+    <hole class="native-hole"></hole>
     <div v-if="errorText" class="failure-panel">
       <text class="failure-title">{{ appName }}</text>
       <text class="failure-text">{{ errorText }}</text>
@@ -21,15 +20,6 @@ function parse(value) {
   if (typeof value !== 'string') return value
   try { return JSON.parse(value) } catch (err) { return null }
 }
-function point(event) {
-  const e = event || {}
-  const detail = e.detail || e
-  const touches = e.changedTouches || e.touches || detail.changedTouches || detail.touches
-  const p = (touches && touches[0]) || detail
-  const x = Number(p.pageX !== undefined ? p.pageX : p.clientX !== undefined ? p.clientX : p.x)
-  const y = Number(p.pageY !== undefined ? p.pageY : p.clientY !== undefined ? p.clientY : p.y)
-  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null
-}
 export default {
   data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false } },
   mounted() { this.boot() },
@@ -41,8 +31,6 @@ export default {
     this.setNativeEditorPolicy(false)
     this.stopOcr()
     this.visible = false
-    this._touchPoints = []
-    this.send('touch', { x: 0, y: 0, pressed: false, cancelled: true, points: [] })
     this.send('visibility', { visible: false })
     clearInterval(this._poll); this._poll = null
   },
@@ -52,8 +40,7 @@ export default {
     resume() {
       this._disposed = false
       this.visible = true
-      this.bindBack()
-      this.setBackPolicy(!!this._nativeRoot && !this._nativeEditor && !this.keyboardOpen)
+      this.setBackPolicy(false)
       this.setNativeEditorPolicy(!!this._nativeEditor && !this.keyboardOpen)
       if (this.running && (typeof launcher.status !== 'function' || !launcher.status().alive)) {
         this.running = false
@@ -72,9 +59,7 @@ export default {
       if (this._starting || this.running || this._disposed) return
       this._starting = true
       this._generation = ++generationSeed
-      this._nativeRoot = false; this._nativeImage = false; this._navigationSequence = 0
-      this._touchSerial = 0; this._touchPoints = []; this._touchId = 0
-      this.bindBack()
+      this._nativeImage = false; this._navigationSequence = 0
       this.setBackPolicy(false)
       const generation = this._generation
       this.setNativeEditorPolicy(false)
@@ -137,31 +122,15 @@ export default {
         const page = this.$page && this.$page.$npage
         if (!page || typeof page.setSupportBack !== 'function') return false
         page.setSupportBack(allow)
-        this._systemBackAllowed = allow
         return true
       } catch (_) { return false }
-    },
-    bindBack() {
-      const page = this.$page && this.$page.$npage
-      if (this._backPage || !page || typeof page.on !== 'function') return
-      this._backPressed = () => {
-        if (this.running && this.visible && !this.keyboardOpen && !this._systemBackAllowed)
-          this.send('navigation.back', { sequence: this._navigationSequence, gesture: this._touchSerial || 0 })
-      }
-      page.on('backpressed', this._backPressed)
-      this._backPage = page
-    },
-    unbindBack() {
-      if (this._backPage && typeof this._backPage.off === 'function') this._backPage.off('backpressed', this._backPressed)
-      this._backPage = null; this._backPressed = null
     },
     navigationState(event) {
       if (event.sequence <= (this._navigationSequence || 0)) return
       this._navigationSequence = event.sequence
-      this._nativeRoot = event.root === true
       this._nativeImage = event.imageWorkspace === true
       this.setNativeEditorPolicy(!!this._nativeEditor && this.visible && !this.keyboardOpen)
-      const allow = !this.visible || (!!this._nativeRoot && !this._nativeEditor && !this.keyboardOpen)
+      const allow = !this.visible
       const ok = this.setBackPolicy(allow)
       this.send('navigation.policy', { sequence: event.sequence, ok, blocked: ok && !allow })
     },
@@ -169,7 +138,7 @@ export default {
       if (event.sequence <= (this._editorPolicySequence || 0)) return
       this._editorPolicySequence = event.sequence
       this._nativeEditor = event.active ? event.session : null
-      this.setBackPolicy(!this.visible || (!!this._nativeRoot && !this._nativeEditor && !this.keyboardOpen))
+      this.setBackPolicy(!this.visible)
       const active = !!event.active && this.visible && !this.keyboardOpen
       const ok = this.setNativeEditorPolicy(active)
       this.send('editor.policy', { session: event.session, sequence: event.sequence, ok, blocked: ok && active })
@@ -217,47 +186,9 @@ export default {
         this.keyboardOpen = false
       }
     },
-    touchStart(e) { this.forwardTouch(e, true) },
-    touchMove(e) { this.forwardTouch(e, true) },
-    touchEnd(e) { this.forwardTouch(e, false) },
-    touchCancel(e) { this.forwardTouch(e, false, true) },
-    forwardTouch(event, pressed, cancelled = false) {
-      if (!this.visible || this.keyboardOpen || this.errorText) return
-      const detail = (event && event.detail) || event || {}
-      const active = (event && event.touches) || detail.touches
-      const list = active ? Array.prototype.slice.call(active) : pressed ? [point(event)] : []
-      const previous = this._touchPoints || []
-      const used = new Set()
-      const points = []
-      for (const raw of list.slice(0, 3)) {
-        const p = point(raw)
-        if (!p) { cancelled = true; break }
-        let id = raw.identifier !== undefined ? 'i' + raw.identifier : raw.id !== undefined ? 'i' + raw.id : null
-        if (id === null) {
-          let nearest = null, distance = Infinity
-          for (const old of previous) {
-            const d = (old.x - p.x) ** 2 + (old.y - p.y) ** 2
-            if (!used.has(old.id) && d < distance) { nearest = old; distance = d }
-          }
-          id = nearest ? nearest.id : 'p' + (this._touchId = (this._touchId || 0) + 1)
-        }
-        if (used.has(id)) { cancelled = true; break }
-        used.add(id)
-        points.push({ id, x: Math.round(p.x), y: Math.round(p.y) })
-      }
-      if (!previous.length && points.length) this._touchSerial = (this._touchSerial || 0) + 1
-      const p = points[0] || point(event) || this._lastPoint
-      if (!p && !cancelled) return
-      this._touchPoints = cancelled ? [] : points
-      if (p) this._lastPoint = p
-      this.send('touch', { x: p ? p.x : 0, y: p ? p.y : 0,
-        pressed: !cancelled && points.length > 0, cancelled,
-        points: cancelled ? [] : points, gesture: this._touchSerial || 0 })
-    },
     fail(message) {
       this._nativeImage = false
       this.setBackPolicy(true)
-      this.unbindBack()
       this.setNativeEditorPolicy(false)
       this.stopOcr()
       if (this._disposed) return
@@ -273,7 +204,6 @@ export default {
       if (this._disposed) return
       this._nativeImage = false
       this.setBackPolicy(true)
-      this.unbindBack()
       this.setNativeEditorPolicy(false)
       this._nativeEditor = null
       this._disposed = true
@@ -293,7 +223,6 @@ export default {
 </script>
 <style lang="less" scoped>
 .native-page { width: 100vw; height: 100vh; position: relative; background-color: #212121; }
-.touch-surface { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: rgba(0,0,0,0); }
 .native-hole { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
 .failure-panel { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #212121; padding-left: 32px; padding-top: 20px; }
 .failure-title { color: #ececec; font-size: 30px; }

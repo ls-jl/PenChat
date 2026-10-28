@@ -1,4 +1,4 @@
-"""Physical two-slot touches through Falcon, isolated images and ORANGE captures."""
+"""Physical two-slot touches through native evdev, isolated images and ORANGE captures."""
 import pathlib,shlex,subprocess,time,types
 
 def run(env):
@@ -38,7 +38,7 @@ def run(env):
             if marker in (0xc0,0xc1,0xc2):return [int.from_bytes(data[i+5:i+7],'big'),int.from_bytes(data[i+3:i+5],'big')]
             i+=length
         raise AssertionError('No JPEG dimensions')
-    # First check the actual two-finger bridge on both boards.
+    # First check the actual native two-finger reader on both boards.
     for _ in range(10):
         before=d.state();item=next((i for i in before['chat_images'] if i['y']>=0 and i['y']+i['height']<=H),None)
         if item:break
@@ -47,7 +47,7 @@ def run(env):
     d.tap(item['x']+item['width']//2,item['y']+item['height']//2)
     d.wait(lambda:d.state()['image_viewer'].get('loaded'));d.capture('gestures-viewer-fit')
     pinch(W/2,H/2,100,3)
-    s=d.state();assert s['image_viewer']['zoom']>2.8,('Falcon did not deliver pinch',s['image_viewer'],s['touch'])
+    s=d.state();assert s['image_viewer']['zoom']>2.8,('Native touch did not deliver pinch',s['image_viewer'],s['touch'])
     assert s['image_viewer']['touch_peak']==2 and s['image_viewer']['pinch_updates']>=2
     pan=s['image_viewer']['pan'];drag(W/2,H/2,-40,-25)
     assert d.state()['image_viewer']['pan']!=pan;d.capture('gestures-viewer-pinch-pan')

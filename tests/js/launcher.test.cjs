@@ -21,12 +21,6 @@ function fixture() {
   const page = Object.assign(options.data(), options.methods, { $page: { finish: () => calls.push(['finish']), $npage: {setSupportTopPanel: value => calls.push(['topPanel',value]), setSupportBack: value => calls.push(['systemBack',value]), on: (name,cb)=>calls.push(['listen',name,cb]), off: name=>calls.push(['unlisten',name])} } })
   return { page, options, calls, native, context, timers, edit: (...args) => editCallback(...args) }
 }
-test('Falcon pageX/pageY touches retain logical coordinates through the full-screen hole', () => {
-  const f = fixture(); f.page.running = true; f.page._generation = 7
-  f.page.touchStart({ changedTouches: [{ pageX: 40, pageY: 100 }] })
-  f.page.touchEnd({ changedTouches: [{ pageX: 40, pageY: 100 }] })
-  assert.deepEqual(f.calls.map(c => [c[1].x, c[1].y, c[1].pressed]), [[40,100,true],[40,100,false]])
-})
 test('startup is deduplicated, sends clean initialization, and disposal closes exactly once', async () => {
   const f = fixture(); await Promise.all([f.page.boot(), f.page.boot()])
   assert.equal(f.calls.filter(c => c[0] === 'start').length, 1)
@@ -36,40 +30,25 @@ test('startup is deduplicated, sends clean initialization, and disposal closes e
   assert.equal(f.calls.filter(c => c[0] === 'stop').length, 1)
   assert.equal(f.timers.size, 0)
 })
-test('only native root allows system side exit, with ordered policy and lifecycle restoration', async () => {
+test('native input owns root and child back gestures; lifecycle restores system policy', async () => {
   const f=fixture(); await f.page.boot()
   const last=()=>f.calls.filter(c=>c[0]==='systemBack').at(-1)[1]
   assert.equal(last(),false)
-  f.page.navigationState({sequence:1,root:true});assert.equal(last(),true)
+  f.page.navigationState({sequence:1,root:true});assert.equal(last(),false)
   f.page.navigationState({sequence:2,root:false});assert.equal(last(),false)
   f.page.navigationState({sequence:1,root:true});assert.equal(last(),false)
   f.options.onHide.call(f.page);assert.equal(last(),true)
   f.page.resume();assert.equal(last(),false)
-  f.page.navigationState({sequence:3,root:true});assert.equal(last(),true)
+  f.page.navigationState({sequence:3,root:true});assert.equal(last(),false)
   f.page.editorState({sequence:1,session:'edit',active:true});assert.equal(last(),false)
   f.page.navigationState({sequence:4,root:true});assert.equal(last(),false)
-  f.page.editorState({sequence:2,session:'edit',active:false});assert.equal(last(),true)
+  f.page.editorState({sequence:2,session:'edit',active:false});assert.equal(last(),false)
   f.page.fail('test');assert.equal(last(),true)
   f.page.dispose();assert.equal(last(),true)
-})
-test('Falcon takeover forwards one scoped completion and unregisters its listener', async () => {
-  const f=fixture();await f.page.boot()
-  f.page.navigationState({sequence:2,root:false})
-  f.page.touchStart({changedTouches:[{pageX:20,pageY:120}]})
-  f.page.touchCancel({changedTouches:[{pageX:80,pageY:120}]})
-  const signal=f.calls.find(c=>c[0]==='listen'&&c[1]==='backpressed')[2]
-  signal()
-  const event=f.calls.filter(c=>c[0]==='send'&&c[1].type==='navigation.back').at(-1)[1]
-  assert.equal(event.sequence,2);assert.equal(event.gesture,1)
-  f.page.navigationState({sequence:3,root:true});const count=f.calls.length;signal();assert.equal(f.calls.length,count)
-  f.page.dispose();assert(f.calls.some(c=>c[0]==='unlisten'&&c[1]==='backpressed'))
 })
 test('system keyboard rejects stale completion, supports cancel, and suppresses touch forwarding', async () => {
   const f = fixture(); await f.page.boot()
   f.page.openKeyboard({ requestId: 'native-request', text: '', placeholder: '请输入' })
-  const count = f.calls.length
-  f.page.touchStart({ changedTouches: [{ pageX: 10, pageY: 10 }] })
-  assert.equal(f.calls.length, count)
   f.edit('old-edit', JSON.stringify({ editConfirmed: true, text: 'stale' }))
   assert(f.page.keyboardOpen)
   f.edit('edit-1', JSON.stringify({ editConfirmed: false, text: 'discard' }))
@@ -134,17 +113,6 @@ test('API key editors request English input while chat defaults to Chinese', asy
   f.page.dispose()
 })
 
-test('touch cancellation and background release are distinct from a committed pull release', async () => {
-  const f = fixture(); await f.page.boot()
-  f.page.touchStart({ changedTouches: [{ pageX: 500, pageY: 190 }] })
-  f.page.touchCancel({ changedTouches: [{ pageX: 500, pageY: 80 }] })
-  let event = f.calls.filter(c => c[0] === 'send' && c[1].type === 'touch').pop()[1]
-  assert.equal(event.pressed, false); assert.equal(event.cancelled, true)
-  f.options.onHide.call(f.page)
-  event = f.calls.filter(c => c[0] === 'send' && c[1].type === 'touch').pop()[1]
-  assert.equal(event.cancelled, true)
-  f.page.dispose()
-})
 
 
 test('ready delivered during poll registration cancels the already armed timeout', async () => {
@@ -179,31 +147,6 @@ test('native keyboard is independent of Falcon shared input methods', () => {
   assert(!source.includes('queryIme'))
   const f=fixture()
   assert.equal(typeof f.page.queryIme,'undefined')
-})
-test('multitouch forwards active IDs, preserves a gesture through finger changes and ends once', async () => {
-  const f = fixture(); await f.page.boot(); f.calls.length = 0
-  const one = { identifier: 4, pageX: 10, pageY: 20 }, two = { identifier: 8, pageX: 90, pageY: 20 }
-  f.page.touchStart({ touches: [one] })
-  f.page.touchStart({ touches: [one, two] })
-  f.page.touchMove({ touches: [two, one] })
-  f.page.touchEnd({ touches: [one], changedTouches: [two] })
-  f.page.touchEnd({ touches: [], changedTouches: [one] })
-  const events=f.calls.map(c=>c[1])
-  assert.deepEqual(events.map(e=>e.points.length),[1,2,2,1,0])
-  assert(events.every(e=>e.gesture===events[0].gesture && !e.cancelled))
-  assert.equal(events[2].points[0].id,events[1].points[1].id)
-  assert.equal(events[3].pressed,true);assert.equal(events[4].pressed,false)
-  f.page.touchStart({touches:[one]});assert.equal(f.calls.at(-1)[1].gesture,events[0].gesture+1)
-  f.page.touchCancel({touches:[one]});assert(f.calls.at(-1)[1].cancelled);assert.equal(f.calls.at(-1)[1].points.length,0)
-  f.page.dispose()
-})
-test('coordinate-only firmware points keep synthetic identities on reorder', async () => {
-  const f=fixture();await f.page.boot();f.calls.length=0
-  f.page.touchStart({touches:[{pageX:20,pageY:30},{pageX:100,pageY:30}]})
-  const first=f.calls.at(-1)[1].points.map(p=>p.id)
-  f.page.touchMove({touches:[{pageX:110,pageY:30},{pageX:10,pageY:30}]})
-  assert.deepEqual(Array.from(f.calls.at(-1)[1].points,p=>p.id),[first[1],first[0]])
-  f.page.dispose()
 })
 test('official fallback receives independent multiline and UTF-16 cursor configuration', async () => {
   const f = fixture(); await f.page.boot()
@@ -253,4 +196,12 @@ test('image workspace blocks top panel for crop handles and restores it on close
   f.page.navigationState({sequence:3,root:false,imageWorkspace:true});f.page.fail('fixture')
   assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],true)
   f.page.dispose()
+})
+
+test('launcher never forwards or reconstructs native touch coordinates', async () => {
+  const source=fs.readFileSync('src/launcher/LauncherPage.vue','utf8')
+  for (const removed of ['@touchstart','@touchmove','@touchend','@touchcancel','forwardTouch','changedTouches','navigation.back','backpressed']) assert(!source.includes(removed),removed)
+  const f=fixture();await f.page.boot();f.options.onHide.call(f.page);f.page.resume();f.page.dispose()
+  assert(!f.calls.some(c=>c[0]==='send'&&c[1].type==='touch'))
+  assert(f.calls.some(c=>c[0]==='send'&&c[1].type==='visibility'&&c[1].visible===false))
 })

@@ -22,21 +22,21 @@ def exercise():
     swipe();d.wait(lambda:d.state()['navigation_open']);assert d.pid()==native
     # The history drawer still closes only through a backdrop tap.
     blocked(True);swipe(x=780,end=920);assert d.state()['navigation_open']
-    d.tap(850,80);d.wait(lambda:not d.state()['navigation_open']);blocked(False)
+    d.tap(850,80);d.wait(lambda:not d.state()['navigation_open']);blocked(True)
     before=open_photo();blocked(True);d.capture('back-image-viewer')
     swipe(x=300,end=480);assert d.state()['image_viewer']['open']
-    swipe();d.wait(lambda:not d.state()['image_viewer']['open']);blocked(False)
+    swipe();d.wait(lambda:not d.state()['image_viewer']['open']);blocked(True)
     assert d.state()['session']==before['session'] and d.pid()==native
     state=d.state()
     if state['to_bottom_visible']:d.tap(state['to_bottom_x']+22,state['to_bottom_y']+22)
     d.wait(lambda:d.state()['toolbar_y']==d.state()['height']-58)
     d.tap(500,232);d.wait(lambda:d.state()['editor']['active']);blocked(True)
-    swipe();d.wait(lambda:not d.state()['editor']['active']);blocked(False)
+    swipe();d.wait(lambda:not d.state()['editor']['active']);blocked(True)
     assert d.pid()==native and d.state()['draft_length']==0
     for entry,view in ((38,'camera'),(82,'album')):
         d.tap(128,232);d.tap(200,entry);d.view(view);blocked(True)
         if view=='camera':d.wait(lambda:d.state()['camera_ready'])
-        d.capture('back-'+view);swipe();d.view('chat');blocked(False)
+        d.capture('back-'+view);swipe();d.view('chat');blocked(True)
         assert d.pid()==native
     # At the true root Falcon retains its own exit behavior.
     swipe()

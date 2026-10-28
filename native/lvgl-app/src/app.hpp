@@ -5,7 +5,7 @@
 #include "pinyin.hpp"
 #include "editor_layout.hpp"
 #include "images.hpp"
-#include "image_input.hpp"
+#include "native_touch.hpp"
 #include "network.hpp"
 #include "platform.hpp"
 #include "pull_geometry.hpp"
@@ -36,9 +36,7 @@ class App {
   Display &display_;
   Input &input_;
   Screen screen_;
-  DirectImageInput imageInput_;
-  bool directImageInput_ = false;
-  int64_t imageInputExitDue_ = 0;
+  NativeTouch touchInput_;
   Events events_;
   PinyinService pinyin_;
   std::unique_ptr<Transfer> transfer_;
@@ -333,12 +331,10 @@ class App {
   std::string backContext() const;
   void syncBackPolicy();
   void nativeBack();
-  void systemBack(const Json &);
   void routeTouch(const Json &);
   bool backTouch(const Json &);
   void resetBack();
   uint64_t backPolicySequence_ = 0, backPolicyGeneration_ = 0;
-  uint64_t backGesture_ = 0, backConsumedGesture_ = 0;
   std::string backPolicyContext_;
   bool backPolicyRoot_ = false, backPolicyOk_ = false, backPolicyBlocked_ = false;
   bool backDown_ = false, backCandidate_ = false, backClaimed_ = false, backAborted_ = false;
@@ -512,9 +508,10 @@ class App {
 public:
   App(Database &, Bridge &, Display &, Input &, const Screen &,
       std::string workspace, std::string dataDir, const std::string &fontPath,
-      const std::string &resources);
+      const std::string &resources, bool nativeTouch);
   ~App();
   void tick();
+  void waitInput(unsigned milliseconds) const { touchInput_.wait(milliseconds); }
   void handle(const Json &message);
   void suspend(bool value);
   void shutdown();

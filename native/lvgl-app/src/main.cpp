@@ -77,7 +77,7 @@ int main(int argc, char **argv) {
     auto &bridge=*bridgeOwner;
     Database db(join(data, "penchat.db"));
     App app(db, bridge, display, input, screen, workspace, data, fontPath,
-            resources);
+            resources, !headless);
     if (!demo.empty())
       app.demo(fileText(demo));
     bridge.send("booted", {{"screen", screen.descriptor()}});
@@ -88,6 +88,8 @@ int main(int argc, char **argv) {
           running = 0;
         app.handle(m);
       }
+      // A closed launcher must not dispatch one last batch of physical touches.
+      if (!running || (!standalone && !bridge.connected())) break;
       app.tick();
       const auto nextTimer = lv_timer_handler();
       if (snapshotRequested) {
@@ -101,7 +103,7 @@ int main(int argc, char **argv) {
       if (frames && ++frame >= frames)
         break;
       const auto pause = app.interactive() ? std::min<uint32_t>(16,nextTimer) : 50;
-      usleep(std::max<uint32_t>(1,pause)*1000);
+      app.waitInput(std::max<uint32_t>(1,pause));
     }
     if (!screenshot.empty())
       display.screenshot(screenshot);

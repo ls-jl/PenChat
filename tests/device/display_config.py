@@ -8,6 +8,7 @@ parser.add_argument('--back-navigation',action='store_true')
 parser.add_argument('--model-catalog',action='store_true',help='Offline model capabilities, field fills and compression threshold')
 parser.add_argument('--anthropic',action='store_true',help='Native Messages local-server and physical-touch acceptance')
 parser.add_argument('--api-compatibility',action='store_true',help='Local API fixture and Provider settings with physical touches')
+parser.add_argument('--native-touch',action='store_true',help='Raw evdev alternating-slot bursts, edges and lifecycle')
 parser.add_argument('--pinyin',action='store_true',help='Owned pinyin, learning and nine-key real-touch acceptance')
 parser.add_argument('--pull-sensitivity',action='store_true',help='Saved pull sensitivity and mapped gesture boundary acceptance')
 parser.add_argument('--font-size',action='store_true',help='Reading font size settings and native layout acceptance')
@@ -19,7 +20,7 @@ parser.add_argument('--reply-actions',action='store_true')
 parser.add_argument('--session-info',action='store_true',help='Run focused conversation statistics acceptance')
 parser.add_argument('--archive-reader',action='store_true',help='Run focused archive-reader acceptance, with normal data isolation/restoration')
 args=parser.parse_args();SERIAL=args.serial
-assert sum((args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin))<=1,'Run isolated feature fixtures separately'
+assert sum((args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch))<=1,'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 class FeatureComplete(Exception):
@@ -256,6 +257,11 @@ try:
         api_flow.run(globals(),messageHandler)
         assert shell('pidof miniapp')==host;result['host_unchanged']=True
         raise FeatureComplete()
+    if args.native_touch:
+        import native_touch_flow
+        native_touch_flow.run(globals())
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
     if args.pinyin:
         import pinyin_flow
         pinyin_flow.run(globals())
@@ -345,7 +351,7 @@ try:
     assert state()['view']=='chat'
     if state()['navigation_open']:tap(W-30,100)
     if args.back_navigation:
-        blocked(False)
+        blocked(True)
         for _ in range(8):
             s=state();photo=next((p for p in s['chat_images'] if p['y']>=0 and p['y']+p['height']<=H),None)
             if photo:break
@@ -356,7 +362,10 @@ try:
         sx,sy=raw(W//2,H//2)
         shell('for i in 1 2; do PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap '+str(sx)+' '+str(sy)+' 2>/dev/null; done')
         pan=state()['image_viewer']['pan']
-        drag(W//3,H//2,W//3+W//5,H//2)
+        # At 2x a 4:3 image still fits horizontally on these wide displays;
+        # test pan on its overflowing vertical axis, not the centered axis.
+        assert state()['image_viewer']['zoom']==2
+        drag(W//3,H//2,W//3,H//2+H//5)
         assert state()['image_viewer']['open'] and state()['image_viewer']['pan']!=pan
         capture('back-image-pan');side_back();wait(lambda:not state()['image_viewer']['open'])
         assert state()['session']==before['session'] and state()['scroll_y']==before['scroll_y'] and pid()==native
@@ -365,7 +374,7 @@ try:
         wait(lambda:state()['toolbar_y']==H-58)
         tap(W//2,H-34);wait(lambda:state()['editor']['active']);blocked(True)
         key('language');key('q');assert state()['editor']['length']==1
-        side_back();wait(lambda:not state()['editor']['active']);blocked(False)
+        side_back();wait(lambda:not state()['editor']['active']);blocked(True)
         assert state()['draft_length']==0 and pid()==native
         result['image_pan_and_edge_back']=result['editor_back_cancels_input']=True
     wait(lambda:state()['toolbar_y']==H-58);time.sleep(.4)
@@ -464,7 +473,7 @@ try:
     shell('miniapp_cli start '+APP['appid']);wait(lambda:state()['visible']);assert pid()==p
     assert state()['draft_length']>0;result['background_resume']=True
     if args.back_navigation:
-        blocked(False);side_back();wait(lambda:not pid() or not state()['visible'])
+        blocked(True);side_back();wait(lambda:not pid() or not state()['visible'])
         result['root_system_exit']=True
     assert shell('pidof miniapp')==host;result['host_unchanged']=True
 except FeatureComplete:
