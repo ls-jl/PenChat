@@ -22,6 +22,7 @@ void App::syncBackPolicy() {
 }
 void App::resetBack() {
   backDown_ = backCandidate_ = backClaimed_ = backAborted_ = false;
+  backEditorKey_ = false;
   if (backHint_) { lv_obj_delete(backHint_); backHint_ = nullptr; }
 }
 void App::nativeBack() {
@@ -61,6 +62,8 @@ bool App::backTouch(const Json &m) {
   }
   if (down && !backDown_) {
     backDown_=true;
+    backEditorKey_ = editor_.active && std::any_of(editorKeys_.begin(), editorKeys_.end(),
+        [x,y](const EditorKey &key) { return key.hit.contains(x,y); });
     backGesture_=m.value("gesture",uint64_t(0));
     // Reserve only the logical left edge. Drawer dismissal stays tap-only;
     // image panning, text selection and horizontal content keep their gestures.
@@ -83,7 +86,10 @@ bool App::backTouch(const Json &m) {
     if(!down)backDown_=false;
     return false;
   }
-  if (!backClaimed_ && dx>slop && dx>std::abs(dy)*1.5) {
+  // Edge-key taps often drift slightly toward the keyboard interior. Keep
+  // these eligible for the normal down/up replay; a real back swipe still wins.
+  const int claimSlop = backEditorKey_ ? 2 * slop : slop;
+  if (!backClaimed_ && dx>claimSlop && dx>std::abs(dy)*1.5) {
     backClaimed_=true;
     backHint_=icon(lv_screen_active(),"back",8,(screen_.height-56)/2,44,56,{},theme::surface);
     lv_obj_set_clickable(backHint_,false);

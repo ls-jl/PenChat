@@ -54,6 +54,11 @@ int main(int argc, char **argv) {
       const EditorLayout l(screen.width, screen.height);
       assert(l.textX+l.textWidth == screen.width-8 && l.actionsY+44 == screen.height-8);
       assert(l.textBottom()+6 == l.actionsY && l.keyWidth >= 44 && l.rowHeight >= 44);
+      const EditorLayout::Popup a{33,76,54,64}, last{l.split-87,76,54,64};
+      const auto left=l.keyTouchBounds(a,true), right=l.keyTouchBounds(last,false,true);
+      assert(left.x==0 && left.contains(0,100) && left.contains(20,100));
+      assert(right.x+right.width==l.split && right.contains(l.split-1,100));
+      assert(!right.contains(l.split,100) && !left.contains(0,70));
     }
     for (const auto cfg : {Json::object(), Json{{"width",960},{"height",266}},
          Json{{"screen", {{"width",960}}}}, Json{{"screen", {{"width","936"},{"height",280}}}},

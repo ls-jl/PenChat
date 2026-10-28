@@ -104,6 +104,21 @@ def wake():
         time.sleep(.4)
     assert int(shell('cat /sys/class/backlight/backlight/actual_brightness'))>5,'Y02 did not wake'
 
+def start_app():
+    shell('miniapp_cli start '+APP['appid'])
+    # Some firmware caches the launcher after this harness intentionally stops
+    # its native child. Its visible restart button is the supported recovery;
+    # do not restart Falcon or reset data to force a fresh launcher instance.
+    deadline=time.monotonic()+1
+    while not pid() and time.monotonic()<deadline:time.sleep(.1)
+    if not pid():
+        if shell('test -x /tmp/penchat-display-tap && echo yes')!='yes':
+            subprocess.run(['adb','-s',SERIAL,'push',str(helper),'/tmp/penchat-display-tap'],check=True,capture_output=True)
+            shell('chmod 755 /tmp/penchat-display-tap')
+        print('Activating cached launcher restart after intentional native shutdown.',flush=True)
+        tap(122,H-47)
+    wait(pid);wait(lambda:state()['visible'])
+
 if pid():
     s=state();assert not s['generating'] and not s.get('compressing') and not s['title_busy'] and not s['keyboard'] and not s['editor']['active'] and not s['draft_length'] and not s['storage']['unsaved'],'Pending work preserved; finish it before isolated acceptance'
     close()
@@ -211,7 +226,7 @@ try:
         for source,target in files:
             subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
     wake()
-    shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);time.sleep(2.2) # Let Falcon's app transition finish before corner mapping.
+    start_app();time.sleep(2.2) # Let Falcon's app transition finish before corner mapping.
     if SERIAL=='MEA2300009007113' and int(shell('cat /sys/class/backlight/backlight/actual_brightness'))<=5:
         wake();shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);time.sleep(2.2)
     s=state();assert (s['width'],s['height'],s['rotation'])==(W,H,screen.get('direction',0));capture('chat')
@@ -479,5 +494,6 @@ finally:
     shell('rm -f /tmp/penchat-display-tap /tmp/penchat-display-key /tmp/penchat-display-official.png /tmp/penchat-display-system-failure.png')
 result['user_data_restored']=True
 (OUT/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
-shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);capture('final')
+start_app();capture('final')
+shell('rm -f /tmp/penchat-display-tap')
 print(json.dumps(result,ensure_ascii=False))

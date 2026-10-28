@@ -27,6 +27,14 @@ struct EditorLayout {
       return px>=x&&px<x+width&&py>=y&&py<y+height;
     }
   };
+  Popup keyTouchBounds(const Popup &cap, bool leftEdge = false,
+                       bool rightEdge = false) const {
+    const int left = leftEdge ? 0 : std::max(0, cap.x - 4);
+    const int right = rightEdge ? split : std::min(split, cap.x + cap.width + 4);
+    const int top = std::max(0, cap.y - 3);
+    const int bottom = std::min(height, cap.y + cap.height + 3);
+    return {left, top, right - left, bottom - top};
+  }
   Popup floatingPopup(int x,int y,int w,int h) const {
     return {std::max(4,std::min(width-w-4,x)),
             std::max(4,std::min(height-h-4,y)),w,h};

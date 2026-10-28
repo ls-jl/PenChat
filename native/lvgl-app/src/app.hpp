@@ -342,6 +342,7 @@ class App {
   std::string backPolicyContext_;
   bool backPolicyRoot_ = false, backPolicyOk_ = false, backPolicyBlocked_ = false;
   bool backDown_ = false, backCandidate_ = false, backClaimed_ = false, backAborted_ = false;
+  bool backEditorKey_ = false;
   Json backStart_ = Json::object();
   std::string backContext_;
   int backX_ = 0, backY_ = 0;
@@ -430,7 +431,7 @@ class App {
   void editorOcrResult(const Json &);
   void editorPolicy(bool active);
   lv_obj_t *editorRoot_ = nullptr, *editorText_ = nullptr;
-  struct EditorKey { int x,y,w,h; std::string value; lv_obj_t *object; };
+  struct EditorKey { int x,y,w,h; std::string value; lv_obj_t *object; EditorLayout::Popup hit; };
   std::vector<EditorKey> editorKeys_;
   EditorKey editorPress_{};
   bool editorChoosing_ = false, editorRebuild_ = false,editorFollowCursor_=true;

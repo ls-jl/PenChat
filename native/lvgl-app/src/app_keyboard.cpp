@@ -76,7 +76,7 @@ void App::editorBuild() {
       attachIcon(b, value == "shift" && editor_.shift == 2 ? "shift-lock" : value,
                  value == "shift" && editor_.shift ? theme::background : theme::text);
     }
-    editorKeys_.push_back({x,y,w,h,value,b});
+    editorKeys_.push_back({x,y,w,h,value,b,layout.keyTouchBounds({x,y,w,h})});
   };
   if(!editorSelectionOnly_) {
   const bool nine=editor_.mode==0&&editor_.layout==2&&!editor_.secret;
@@ -110,6 +110,10 @@ void App::editorBuild() {
       std::string v(1,rows[r][i]);
       if (!editor_.mode && editor_.shift) v[0]=std::toupper(v[0]);
       key(keyboardPunctuation(v,editor_.chinese&&!editor_.secret),v,layout.px(start+i*(layout.keyWidth+4)),6+r*(layout.rowHeight+6),layout.px(layout.keyWidth),layout.rowHeight);
+      if (!editor_.mode && r == 1) {
+        auto &k = editorKeys_.back();
+        k.hit = layout.keyTouchBounds({k.x,k.y,k.w,k.h}, i == 0, i + 1 == rows[r].size());
+      }
     }
   }
   key(editor_.mode ? (editor_.mode==1?"#+=":"123") : (editor_.shift==2?"⇧锁":"⇧"),editor_.mode?"symbols":"shift",4,6+2*(layout.rowHeight+6),layout.px(layout.keyWidth+2),layout.rowHeight);
@@ -640,7 +644,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
     }
     if(!popupHit&&!editorLayoutMenu_&&!editorPunctuation_)for(size_t i=0;i<editorKeys_.size();++i) {
       const auto &k=editorKeys_[i];
-      if(x>=k.x-4&&x<k.x+k.w+4&&y>=k.y-3&&y<k.y+k.h+3) {
+      if(k.hit.contains(x,y)) {
         editorHeld_=int(i);editorPress_=k;lv_obj_set_style_bg_color(k.object,lv_color_hex(theme::border),0);editorRepeat_=ticks()+450;break;
       }
     }
@@ -675,7 +679,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
   }
   if(editorHeld_>=0) {
     const auto k=editorPress_;
-    if(x<k.x-12||x>=k.x+k.w+12||y<k.y-12||y>=k.y+k.h+12){editorSlid_=true;editorRepeat_=0;}
+    if(x<k.hit.x-12||x>=k.hit.x+k.hit.width+12||y<k.hit.y-12||y>=k.hit.y+k.hit.height+12){editorSlid_=true;editorRepeat_=0;}
     if(!pressed) {
       editorPointer_=false;editorHeld_=-1;editorRepeat_=0;
       if(!editorSlid_&&!editorRepeats_)events_.push("editor_action",{{"id",editor_.id},{"action",k.value}});else editorBuild();
@@ -729,7 +733,9 @@ void App::editorTick() {
 }
 Json App::editorDiagnostic() const {
   const auto layout=editorLayout();
-  Json keys=Json::array(); for(const auto &k:editorKeys_) keys.push_back({{"key",k.value},{"x",k.x+k.w/2},{"y",k.y+k.h/2}});
+  Json keys=Json::array(); for(const auto &k:editorKeys_) keys.push_back({{"key",k.value},{"x",k.x+k.w/2},{"y",k.y+k.h/2},
+      {"bounds",{k.x,k.y,k.x+k.w,k.y+k.h}},
+      {"hit_bounds",{k.hit.x,k.hit.y,k.hit.x+k.hit.width,k.hit.y+k.hit.height}}});
   Json actions=Json::object();
   for(const auto &entry:editorLocalActions_){lv_area_t a;lv_obj_get_coords(entry.second,&a);actions[entry.first]={a.x1,a.y1,a.x2,a.y2};}
   if(editor_.active&&!editorSelectionOnly_)for(const auto &a:layout.actions())
@@ -772,7 +778,7 @@ Json App::editorDiagnostic() const {
     {"selection_start",editor_.range().first},{"selection_end",editor_.range().second},{"selected",editor_.selected()},
     {"clipboard_count",editorClipboard_.records.size()},{"clipboard_open",editorClipboardOpen_},{"menu",editorMenu_},{"undo_menu",editorUndoMenu_},{"undo_popup",undoPopup},{"text_bounds",textBounds},
     {"ocr_request",editorOcrId_},{"ocr_active",editorOcrActive_},{"ocr_multi",editorOcrMulti_},{"ocr_busy",editorOcrBusy_},{"top_panel_blocked",editorTopBlocked_},
-    {"query_ms",editorLatency_},{"candidate_count",editorCandidates_.size()},{"corrected_count",std::count_if(editorCandidateDetails_.begin(),editorCandidateDetails_.end(),[](const Json &v){return v.value("corrected",false);})},{"revision",editorRevision_},{"keys",keys}};
+    {"keyboard_split",layout.split},{"query_ms",editorLatency_},{"candidate_count",editorCandidates_.size()},{"corrected_count",std::count_if(editorCandidateDetails_.begin(),editorCandidateDetails_.end(),[](const Json &v){return v.value("corrected",false);})},{"revision",editorRevision_},{"keys",keys}};
 }
 } // namespace penchat
 

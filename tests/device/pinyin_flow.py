@@ -26,6 +26,20 @@ def run(ctx):
     from settings_ui import locate
     def setting(name):
         b=locate(read,ctx['settings_swipe'],name)['bounds'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+    # Edge-row hit areas use mapped physical touches, not cap-centre shortcuts.
+    open_editor();choose_layout('en26');k={v['key']:v for v in state()['keys']};split=state()['keyboard_split'];y=k['a']['y'];length=0
+    assert k['a']['hit_bounds'][0]==0 and k['l']['hit_bounds'][2]==split
+    for x in [2,14,k['a']['bounds'][0]-8,k['a']['x'],split-2,split-14,k['l']['bounds'][2]+8]:
+        tap(x,y);length+=1;wait(lambda:state()['length']==length)
+    sx,sy=ctx['raw'](2,y);ex,ey=ctx['raw'](20,y)
+    ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap --drag-hold '+f'{sx} {sy} {ex} {ey} 200 100 2>/dev/null')
+    length+=1;wait(lambda:state()['length']==length)
+    key('shift');tap(2,y);length+=1;wait(lambda:state()['length']==length and not state()['shift'])
+    shift=next(v for v in state()['keys'] if v['key']=='shift')
+    # Querying diagnostics between taps can exceed the real 400ms double-tap window.
+    tap(shift['x'],shift['y']);tap(shift['x'],shift['y']);wait(lambda:state()['shift']==2)
+    tap(split-2,y);length+=1;wait(lambda:state()['length']==length and state()['shift']==2);key('shift')
+    capture('keyboard-edge-keys');action('cancel');wait(lambda:not state()['active'])
     open_editor();assert state()['layout']=='zh26';capture('pinyin-26')
     for wanted in ['en26','zh9','zh26']:
         key('language');assert state()['layout']==wanted
@@ -86,7 +100,7 @@ def run(ctx):
     baseline=fds()
     for _ in range(20):open_editor();action('cancel');wait(lambda:not state()['active'])
     assert fds()<=baseline+1,(baseline,fds())
-    ctx['close']();ctx['shell']('miniapp_cli start '+ctx['APP']['appid']);wait(ctx['pid']);wait(lambda:read()['visible']);time.sleep(.4)
+    ctx['close']();ctx['start_app']();time.sleep(.4)
     open_editor();assert state()['layout']=='zh9' and state()['parked_count']==0
     assert profile()['records']==[]
     for c in '64':key('t9:'+c)
@@ -95,6 +109,6 @@ def run(ctx):
     ctx['shell']('miniapp_cli start '+ctx['APP']['appid']);wait(lambda:read()['visible']);assert ctx['pid']()==p
     assert state()['active'] and state()['preedit_length']==before and state()['top_panel_blocked']
     action('cancel');wait(lambda:not state()['active'])
-    ctx['result']['pinyin']={'native_dictionary':True,'typo_candidates_and_long_press':True,'valid_spelling_alternatives':True,'single_character_correction':True,'original_raw_enter':True,'correction_switch':True,'canonical_correction_learning':True,'three_layouts':True,'globe_cycle_and_timeout':True,
+    ctx['result']['pinyin']={'native_dictionary':True,'edge_key_touches':10,'edge_jitter_and_uppercase':True,'typo_candidates_and_long_press':True,'valid_spelling_alternatives':True,'single_character_correction':True,'original_raw_enter':True,'correction_switch':True,'canonical_correction_learning':True,'three_layouts':True,'globe_cycle_and_timeout':True,
         'exact_filter_and_raw_enter':True,'typing_under_right_panels':True,'deferred_learning':True,'clear_disable_restart':True,
         'official_cancel':True,'parked_compositions':True,'query_ms_samples':latencies,'editor_cycles':20,'fd_baseline':baseline,'lifecycle':True}
