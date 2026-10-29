@@ -2,13 +2,13 @@
 import json,subprocess,sys,threading,time
 
 class DeviceServer:
-    def __init__(self,root,serial,out,cert=None,key=None):
+    def __init__(self,root,serial,out,cert=None,key=None,stream=False):
         import queue
         self.serial=serial;self.requests=[];self.ready=queue.Queue();self.closed=0
         self.remote='/tmp/penchat-http-server-'+serial+('-tls' if cert else '-plain')
         subprocess.run(['adb','-s',serial,'push',str(root/'build/orange/penchat-tls-fixture'),self.remote],check=True,capture_output=True)
         subprocess.run(['adb','-s',serial,'shell','chmod 755 '+self.remote],check=True,capture_output=True)
-        args=[]
+        args=['--stream'] if stream else []
         if cert:
             for source,suffix in [(cert,'.pem'),(key,'.key')]:
                 subprocess.run(['adb','-s',serial,'push',str(source),self.remote+suffix],check=True,capture_output=True)
@@ -30,6 +30,8 @@ class DeviceServer:
         assert self.process.wait(timeout=8)==0
         self.log.close()
         subprocess.run(['adb','-s',self.serial,'shell','rm -f '+self.remote+' '+self.remote+'.pem '+self.remote+'.key'],check=True,capture_output=True)
+    def command(self,value):
+        self.process.stdin.write(value+'\n');self.process.stdin.flush()
     def server_close(self):pass
 
 def prepare(root,folder,data,serial):

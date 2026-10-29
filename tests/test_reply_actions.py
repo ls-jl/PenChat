@@ -155,11 +155,12 @@ def stream_and_empty_cases():
         a=t.Native(BINARY,p)
         try:
             a.edit('stream test');a.tap(908,232)
-            t.wait_for(lambda:any(c['copy_enabled'] for c in a.diag()['reply_actions']['rows'].values()))
-            id=next(id for id,c in a.diag()['reply_actions']['rows'].items() if c['copy_enabled'])
-            c=a.diag()['reply_actions']['rows'][id];assert not c['retry_enabled'] and not c['branch_enabled']
-            action(a,id,'copy');assert read_clipboard(a)=='STREAM_PART'
-            shot(a,'streaming-copy-disabled-actions');gate.set();t.wait_for(lambda:not a.diag()['generating'])
+            t.wait_for(lambda:a.diag()['output_length']>=len('STREAM_PART'))
+            rows=a.diag()['reply_actions']['rows'];assert rows
+            id=next(iter(rows));c=rows[id]
+            assert not c['visible'] and not c['copy_enabled'] and not c['retry_enabled'] and not c['branch_enabled']
+            shot(a,'streaming-hidden-actions');gate.set();t.wait_for(lambda:not a.diag()['generating'])
+            t.wait_for(lambda:a.diag()['reply_actions']['rows'][id]['visible'])
             bottom(a);shot(a,'short-reply-with-toolbar')
         finally:gate.set();a.close();server.shutdown()
     with tempfile.TemporaryDirectory(prefix='penchat-reference-actions-') as tmp:
@@ -199,4 +200,4 @@ if __name__=='__main__':
     for w,h in ((960,266),(936,280)):
         run_retry(w,h,'responses');run_branch(w,h)
     run_retry(960,266,'chat');preflight_failure();stream_and_empty_cases();restart_cases()
-    print('Assistant actions: raw/stream copy, busy states, tooltips, reference handling, confirmation/cancel, archive/direct retry, frozen config, draft/photo isolation, preflight failure, prefix branches, numbering and moved draft restoration passed.')
+    print('Assistant actions: raw copy, hidden live controls, busy states, tooltips, reference handling, confirmation/cancel, archive/direct retry, frozen config, draft/photo isolation, preflight failure, prefix branches, numbering and moved draft restoration passed.')

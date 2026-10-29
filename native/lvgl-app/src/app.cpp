@@ -909,6 +909,9 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
+  chatRenderPending_ = chatRefreshPending_ = chatImagesPending_ = false;
+  chatFinishPending_ = Json::object();
   fontSlider_ = fontPercentLabel_ = fontPreview_ = nullptr;
   cropActions_.clear();cropViewport_=cropBitmap_=cropSelection_=nullptr;
   if(!imageViewer_)imageGesture_={};
@@ -1153,6 +1156,13 @@ void App::chat() {
       },
       LV_EVENT_SCROLL, this);
   renderMessages(chatFollowing_);
+  rebuildChatControls();
+}
+void App::rebuildChatControls() {
+  if (chatControls_) { lv_anim_delete(chatControls_, nullptr); lv_obj_delete(chatControls_); }
+  if (toBottom_) lv_obj_delete(toBottom_);
+  composer_ = chatControls_ = toBottom_ = nullptr;
+  chatControlsTarget_ = -1;
   const int composerWidth = screen_.width - 130;
   chatControls_ =
       box(screenObj_, 106, screen_.height - 58, composerWidth, 48, theme::surface);
@@ -1212,13 +1222,68 @@ void App::chat() {
   lv_obj_set_style_border_width(toBottom_, 1, 0);
   updateChatControls(false);
 }
+bool App::atLatestBottom() const {
+  return view_ == "chat" && body_ && messageOffset_ == 0 && lv_obj_get_scroll_bottom(body_) <= 10;
+}
+bool App::readerInteracting() const {
+  if (view_ != "chat" || !body_ || chatLayout_ || keyboard_ || editor_.active || imageViewer_ ||
+      navigationOpen_ || modal_) return false;
+  if (readerPointer_ || lv_obj_is_scrolling(body_)) return true;
+  for (const auto &r : rasters_) if (lv_obj_is_scrolling(r.holder)) return true;
+  return false;
+}
+void App::readerTouch(int x, int y, bool pressed, bool cancelled) {
+  const bool began = pressed && !readerDown_;
+  readerDown_ = pressed && !cancelled;
+  if (began) {
+    readerPointer_ = readerVertical_ = false;
+    if (view_ == "chat" && body_ && !keyboard_ && !editor_.active && !imageViewer_ &&
+        !navigationOpen_ && !modal_ && !attachments_) {
+      lv_area_t area; lv_obj_get_coords(body_, &area);
+      readerPointer_ = x >= area.x1 && x <= area.x2 && y >= area.y1 && y <= area.y2;
+      if (chatControls_) {
+        lv_area_t controls; lv_obj_get_coords(chatControls_, &controls);
+        if (x >= controls.x1 && x <= controls.x2 && y >= controls.y1 && y <= controls.y2)
+          readerPointer_ = false;
+      }
+    }
+    readerStartX_ = x; readerStartY_ = y;
+    readerSettle_ = readerPointer_;
+  }
+  if (readerPointer_ && pressed) {
+    const int dx = x - readerStartX_, dy = y - readerStartY_;
+    if (std::abs(dy) > 12 && std::abs(dy) > std::abs(dx)) {
+      readerVertical_ = true;
+      // Finger moving down reads older content. Detach before the next delta
+      // can resize/reanchor the viewport; horizontal table gestures stay separate.
+      if (dy > 0 && lv_obj_get_scroll_y(body_) + lv_obj_get_scroll_bottom(body_) > 10)
+        chatFollowing_ = false;
+    }
+  }
+  if (!pressed || cancelled) readerPointer_ = false;
+}
+void App::settleReader() {
+  if (view_ != "chat" || keyboard_ || editor_.active || imageViewer_ || navigationOpen_ || modal_) {
+    readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
+    return;
+  }
+  if (readerSettle_ && !readerInteracting()) {
+    readerSettle_ = readerVertical_ = false;
+    if (atLatestBottom()) {
+      if (!chatFollowing_) { pullNeedsPause_ = true; pullLastActivity_ = ticks(); }
+      chatFollowing_ = true;
+    }
+    updateChatControls(true);
+  }
+}
 void App::chatScrolled() {
   if (chatLayout_ || view_ != "chat" || !body_)
     return;
   closeAttachments();
   chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
   const bool wasFollowing = chatFollowing_;
-  chatFollowing_ = messageOffset_ == 0 && lv_obj_get_scroll_bottom(body_) <= 10;
+  if (!atLatestBottom()) chatFollowing_ = false;
+  else if (!readerInteracting() && !readerSettle_) chatFollowing_ = true;
   if (!wasFollowing && chatFollowing_ &&
       lv_obj_get_scroll_y(body_) + lv_obj_get_scroll_bottom(body_) > 0)
     pullNeedsPause_ = true;
@@ -1231,7 +1296,7 @@ void App::chatScrolled() {
 void App::updateChatControls(bool animate) {
   if (!chatControls_ || !toBottom_)
     return;
-  lv_obj_set_hidden(toBottom_, chatFollowing_ || pulling_);
+  lv_obj_set_hidden(toBottom_, chatFollowing_ || atLatestBottom() || pulling_);
   bool overContent = false;
   if (messageContent_) {
     lv_area_t buttonArea;
@@ -1249,7 +1314,7 @@ void App::updateChatControls(bool animate) {
   lv_obj_set_style_bg_opa(toBottom_, overContent ? 160 : 255, 0);
   lv_obj_set_style_border_opa(toBottom_, overContent ? 160 : 255, 0);
   const int target =
-      chatFollowing_ && !pulling_ ? screen_.height - 58 : screen_.height + 2;
+      (chatFollowing_ || atLatestBottom()) && !pulling_ ? screen_.height - 58 : screen_.height + 2;
   if (chatControlsTarget_ == target)
     return;
   chatControlsTarget_ = target;
@@ -1273,15 +1338,18 @@ void App::jumpToBottom() {
   pullNeedsPause_ = true;
   pullLastActivity_ = ticks();
   chatFollowing_ = true;
-  if (messageOffset_ != 0) {
-    messageOffset_ = 0;
-    renderMessages(true);
-    return;
-  }
+  readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
+  messageOffset_ = 0;
+  const bool previous = chatLayout_;
   chatLayout_ = true;
+  lv_obj_stop_scroll_anim(body_);
+  // Flush the latest stream state before measuring the destination. This also
+  // returns from an older history page; live rows use output_, not the DB lag.
+  renderMessages(true);
+  dirty_ = false;
   lv_obj_scroll_to_y(body_, LV_COORD_MAX, LV_ANIM_OFF);
   chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
-  chatLayout_ = false;
+  chatLayout_ = previous;
   updateChatControls(true);
   paintVisible();
 }
@@ -1538,6 +1606,12 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
 void App::renderMessages(bool bottom, bool cached) {
   if (!messageContent_)
     return;
+  if (readerInteracting()) {
+    chatRenderPending_ = true;
+    chatRefreshPending_ = chatRefreshPending_ || !cached;
+    return;
+  }
+  chatRenderPending_ = chatRefreshPending_ = false;
   const int scroll = chatScroll_;
   const bool follow = messageOffset_ == 0 && (bottom || chatFollowing_);
   const bool previousLayout = chatLayout_;
@@ -1640,6 +1714,27 @@ void App::renderLiveMessage() {
   paintVisible();
   refreshImages();
 }
+void App::flushChatRender() {
+  if (view_ != "chat" || readerInteracting()) return;
+  if (!chatFinishPending_.empty() && !touchDown_) {
+    auto finish = std::move(chatFinishPending_); chatFinishPending_ = Json::object();
+    dirty_ = false;
+    renderMessages(false);
+    rebuildChatControls();
+    if (!finish.value("error", std::string()).empty()) {
+      modal("生成失败", finish["error"]);
+      const auto message = finish["id"], session = finish["session"];
+      button(modal_, "重试", screen_.width - 325, screen_.height - 66, 100, 44,
+             [this, message, session] { events_.push("retry_request", {{"id", message}, {"session", session}}); });
+    }
+  } else if ((chatRenderPending_ || dirty_) && ticks() >= renderDue_) {
+    renderDue_ = ticks() + 100;
+    const bool full = chatRenderPending_, refresh = chatRefreshPending_;
+    dirty_ = false;
+    if (full) renderMessages(false, !refresh); else renderLiveMessage();
+  }
+  if (chatImagesPending_) { chatImagesPending_ = false; refreshImages(); }
+}
 void App::richScrolled(lv_obj_t *object) {
   if (syncingTableScroll_)
     return;
@@ -1726,6 +1821,7 @@ void App::paintVisible() {
   }
 }
 void App::refreshImages() {
+  if (readerInteracting()) { chatImagesPending_ = true; return; }
   bool resized = false;
   for (auto &request : imageRequests_) {
     auto frame = images_.get(request.second);
@@ -2529,6 +2625,7 @@ void App::stopNetwork() {
   persistDirty_ = false;
   saveInFlight_ = false;
   generating_ = false;
+  receivingReply_ = false;
   assistant_.clear();
   ++networkGeneration_;
 }
@@ -2597,6 +2694,7 @@ void App::sendPrepared(Json model, Json input, const std::string &retryId,
   output_.clear();
   reasoning_.clear();
   generating_ = true;
+  receivingReply_ = true;
   cancel_ = false;
   int generation = ++networkGeneration_;
   persistDue_ = ticks() + 500;
@@ -2667,6 +2765,7 @@ void App::attach(const Json &image) {
   });
 }
 void App::suspend(bool value) {
+  readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
   resetBack();
   backStart_ = Json::object();
   viewerPointer_ = viewerCanvasTouch_ = false; viewerLastTap_ = 0;
@@ -2758,6 +2857,7 @@ void App::routeTouch(const Json &m) {
   if (editor_.active) { editorTouch(m.value("x",0), m.value("y",0), m.value("pressed",false), m.value("cancelled",false)); return; }
   const int x = m.value("x", 0), y = m.value("y", 0);
   const bool pressed = m.value("pressed", false);
+  readerTouch(x, y, pressed, m.value("cancelled", false));
   if (navigationOpen_ && !modal_) {
     if (pressed && !navigationPointerDown_) {
       navigationBackdrop_ = x >= screen_.width * 2 / 3;
@@ -2937,15 +3037,8 @@ void App::tick() {
         saveInFlight_ = false;
         generating_ = false;
         if (view_ == "chat") {
-          build();
-          if (saved.data.value("status", std::string()) == "error") {
-            modal("生成失败", notice_);
-            button(modal_, "重试", screen_.width - 325, screen_.height - 66, 100, 44,
-                   [this, message, session] {
-                     events_.push("retry_request",
-                                  {{"id", message}, {"session", session}});
-                   });
-          }
+          chatFinishPending_ = {{"id", message}, {"session", session},
+                                {"error", saved.data.value("status", std::string()) == "error" ? notice_ : std::string()}};
         }
       }
     } else if (saved.type == "setting_error") {
@@ -3156,7 +3249,7 @@ void App::tick() {
       persistDirty_ = true;
       if (e.type == "done" || e.type == "cancelled" ||
           e.type == "network_error") {
-        dirty_ = false;
+        receivingReply_ = false;
         saveInFlight_ = true;
         auto status = e.type == "done"        ? "complete"
                       : e.type == "cancelled" ? "cancelled"
@@ -3237,16 +3330,12 @@ void App::tick() {
     }
   }
   syncBackPolicy();
-  syncReplyControls();
+  settleReader();
   if(!replyBusy_&&!contextRegenerating_)tickTitles();
   if (persistDirty_ && !saveInFlight_ && ticks() >= persistDue_)
     persistReply("streaming");
-  if (dirty_ && ticks() >= renderDue_) {
-    renderDue_ = ticks() + 100;
-    dirty_ = false;
-    if (view_ == "chat")
-      renderLiveMessage();
-  }
+  flushChatRender();
+  syncReplyControls();
   if (view_ == "camera" && cameraAutomatic_ && pendingCameraAngle_>=0 && !cameraCapturing_ && !touchDown_ && visible_) {
     cameraAngle_=pendingCameraAngle_;pendingCameraAngle_=-1;build();
   }
@@ -3403,6 +3492,13 @@ Json App::diagnostics() const {
       {"pull_indicator_y", pullIndicator_ ? lv_obj_get_y(pullIndicator_) : -1},
       {"pull_content_y", body_ ? lv_obj_get_style_translate_y(body_, LV_PART_MAIN) : 0},
       {"following_latest", chatFollowing_},
+      {"receiving_reply", receivingReply_},
+      {"output_length", output_.size()},
+      {"live_content_height", liveContent_ ? lv_obj_get_height(liveContent_) : 0},
+      {"reader_interacting", readerInteracting()},
+      {"reader_vertical", readerVertical_},
+      {"at_latest_bottom", atLatestBottom()},
+      {"chat_render_pending", dirty_ || chatRenderPending_ || !chatFinishPending_.empty()},
       {"attachments", attachments_ != nullptr},
       {"popup", popupKind_},
       {"has_conversation_content", hasConversationContent_},

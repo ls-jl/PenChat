@@ -228,6 +228,17 @@ class App {
   int64_t renderDue_ = 0, lastCameraFrame_ = 0;
   bool dirty_ = false;
   bool chatFollowing_ = true, chatLayout_ = false;
+  bool receivingReply_ = false;
+  bool readerDown_ = false, readerPointer_ = false, readerVertical_ = false, readerSettle_ = false;
+  int readerStartX_ = 0, readerStartY_ = 0;
+  bool chatRenderPending_ = false, chatRefreshPending_ = false, chatImagesPending_ = false;
+  Json chatFinishPending_ = Json::object();
+  bool atLatestBottom() const;
+  bool readerInteracting() const;
+  void readerTouch(int x, int y, bool pressed, bool cancelled);
+  void settleReader();
+  void flushChatRender();
+  void rebuildChatControls();
   int chatScroll_ = 0, chatControlsTarget_ = -1;
   std::string builtView_;
   int settingsScroll_ = 0;

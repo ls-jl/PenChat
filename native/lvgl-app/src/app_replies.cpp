@@ -61,12 +61,28 @@ void App::replyBar(lv_obj_t *parent,const Json &message,int width,bool question)
 }
 void App::syncReplyControls() {
   const bool busy=generating_||contextBusy_||replyBusy_||imageStoreBusy_||saveInFlight_||messageEditBusy_||!messageEdit_.empty();
+  const bool previousLayout = chatLayout_;
+  const bool deferLayout = readerInteracting();
+  bool changed = false;
   auto enable=[](lv_obj_t *o,bool yes){if(lv_obj_has_state(o,LV_STATE_DISABLED)==!yes)return;if(yes)lv_obj_remove_state(o,LV_STATE_DISABLED);else lv_obj_add_state(o,LV_STATE_DISABLED);lv_obj_set_style_opa(o,yes?LV_OPA_COVER:LV_OPA_40,0);};
   for(auto &entry:replyControls_) {
     auto &c=entry.second;
-    enable(c.copy,entry.first==assistant_? !output_.empty():c.body);
-    enable(c.retry,!busy&&c.question);enable(c.branch,!busy);
+    const bool hide = entry.first == assistant_ && receivingReply_;
+    if (lv_obj_is_hidden(c.bar) != hide && !deferLayout) {
+      chatLayout_ = true;
+      lv_obj_set_hidden(c.bar, hide); changed = true;
+    }
+    const bool visible = !lv_obj_is_hidden(c.bar);
+    enable(c.copy,visible&&(entry.first==assistant_? !output_.empty():c.body));
+    enable(c.retry,visible&&!busy&&c.question);enable(c.branch,visible&&!busy);
   }
+  if (changed && !previousLayout && body_ && messageContent_) {
+    lv_obj_update_layout(messageContent_);
+    lv_obj_scroll_to_y(body_, chatFollowing_ ? LV_COORD_MAX : chatScroll_, LV_ANIM_OFF);
+    chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
+  }
+  chatLayout_ = previousLayout;
+  if (changed && !previousLayout) {updateChatControls(true);paintVisible();}
 }
 void App::retryWarning(const std::string &id) {
   if(generating_||contextBusy_||replyBusy_||imageStoreBusy_||saveInFlight_||messageEditBusy_||!messageEdit_.empty())return;
@@ -132,6 +148,7 @@ bool App::replyEvent(const Event &e) {
   if(e.type=="reply_action"||e.type=="reply_hint") {
     if(!visible_||view_!="chat"||keyboard_||editor_.active||imageViewer_||navigationOpen_||modal_||e.data.value("session",std::string())!=session_)return true;
     const auto id=e.data.value("id",std::string());
+    if(id==assistant_&&receivingReply_)return true;
     if(e.type=="reply_hint"){replyToast(e.data.value("text",std::string()));return true;}
     const auto action=e.data.value("action",std::string());
     input_.cancel();
@@ -150,6 +167,7 @@ Json App::replyDiagnostic() const {
   Json rows=Json::object();
   auto bounds=[](lv_obj_t *o){lv_area_t a;lv_obj_get_coords(o,&a);return Json::array({a.x1,a.y1,a.x2,a.y2});};
   for(const auto &p:replyControls_)rows[p.first]={{"bar",bounds(p.second.bar)},{"copy",bounds(p.second.copy)},{"retry",bounds(p.second.retry)},{"branch",bounds(p.second.branch)},
+    {"visible",!lv_obj_is_hidden(p.second.bar)},{"message",bounds(lv_obj_get_parent(p.second.bar))},
     {"copy_enabled",!lv_obj_has_state(p.second.copy,LV_STATE_DISABLED)},{"retry_enabled",!lv_obj_has_state(p.second.retry,LV_STATE_DISABLED)},{"branch_enabled",!lv_obj_has_state(p.second.branch,LV_STATE_DISABLED)}};
   return {{"rows",rows},{"busy",replyBusy_},{"confirm",replyConfirmId_},{"regenerating",contextRegenerating_}};
 }
