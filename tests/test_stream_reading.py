@@ -5,7 +5,7 @@ import test_lvgl_app as t
 from test_reasoning_ui import seed
 
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
-OUT=t.ROOT/'.work/stream-reading-0.2.14';OUT.mkdir(parents=True,exist_ok=True)
+OUT=t.ROOT/'.work/stream-reading-0.2.15';OUT.mkdir(parents=True,exist_ok=True)
 
 class Stream(http.server.BaseHTTPRequestHandler):
     commands=queue.Queue()
@@ -59,9 +59,16 @@ def run(w,h,api,thinking=False):
             a.edit('reader test');a.tap(w-52,h-34);t.wait_for(lambda:a.diag()['receiving_reply'])
             rows=a.diag()['reply_actions']['rows'];assert rows
             id=next(iter(rows));assert not rows[id]['visible'] and not rows[id]['copy_enabled']
+            t.wait_for(lambda:a.diag()['generation_hint_present'])
             shot(a,f'{w}-{api}-waiting')
-            if thinking:emit('公开思考\n\n继续思考。',True)
+            if thinking:
+                emit('公开思考\n\n继续思考。',True)
+                settled();assert a.diag()['generation_hint_present']
             emit('short');settled();s=a.diag();assert s['at_latest_bottom'] and not s['to_bottom_visible']
+            assert not s['generation_hint_present']
+            if thinking:
+                emit('补充公开思考',True);time.sleep(.15);settled()
+                assert not a.diag()['generation_hint_present']
             shortHeight=s['reply_actions']['rows'][id]['message'][3]-s['reply_actions']['rows'][id]['message'][1]
             shot(a,f'{w}-{api}-short-hidden')
             emit('\n\n'+'\n\n'.join(f'段落 {i}: reading while output continues.' for i in range(25)))
@@ -74,6 +81,7 @@ def run(w,h,api,thinking=False):
             emit('\n\nnew content during the drag\n\n'*8)
             time.sleep(.18);s=a.diag()
             assert s['reader_interacting'] and s['chat_render_pending'] and not s['following_latest']
+            assert not s['generation_hint_present']
             assert s['scroll_y']+s['scroll_bottom']==maximum
             swipe([180,210],False);assert a.diag()['scroll_y']<before['scroll_y']
             a.send('touch',x=w//2,y=210,pressed=False);settled()
@@ -103,6 +111,25 @@ def run(w,h,api,thinking=False):
         finally:Stream.commands.put(('cut',''));a.close()
     print(f'Stream reader {api} {w}x{h}: hidden live bar, drag/inertia, coalescing, continued follow and completion during drag passed.',flush=True)
 
+
+def waiting_terminal(mode):
+    Stream.commands=queue.Queue()
+    with http.server.ThreadingHTTPServer(('127.0.0.1',0),Stream) as server,tempfile.TemporaryDirectory(prefix='penchat-waiting-terminal-') as tmp:
+        t.port=server.server_port;threading.Thread(target=server.serve_forever,daemon=True).start();p=pathlib.Path(tmp);seed(p,server.server_port)
+        with sqlite3.connect(p/'penchat.db') as db:db.execute("insert into app_settings values('auto_title_enabled','false',1)")
+        a=t.Native(BINARY,p)
+        try:
+            a.edit('waiting');a.tap(908,232);t.wait_for(lambda:a.diag()['generation_hint_present'])
+            if mode=='stop':a.tap(908,232)
+            else:Stream.commands.put((mode,''))
+            t.wait_for(lambda:not a.diag()['generating'] and not a.diag()['chat_render_pending'])
+            assert not a.diag()['generation_hint_present']
+            with sqlite3.connect(p/'penchat.db') as db:
+                assert not db.execute("select 1 from chat_messages where output_text like '%正在生成%' ").fetchall()
+            shot(a,'waiting-terminal-'+mode)
+        finally:Stream.commands.put(('cut',''));a.close()
+    print(f'Waiting {mode}: UI-only placeholder removed without saving fake output.',flush=True)
+
 def short_and_terminal(mode):
     Stream.commands=queue.Queue()
     with http.server.ThreadingHTTPServer(('127.0.0.1',0),Stream) as server,tempfile.TemporaryDirectory(prefix='penchat-terminal-reader-') as tmp:
@@ -121,6 +148,7 @@ def short_and_terminal(mode):
             t.wait_for(lambda:not a.diag()['generating'] and not a.diag()['chat_render_pending'])
             s=a.diag();bar=s['reply_actions']['rows'][id]
             assert bar['visible'] and not s['to_bottom_visible'] and s['at_latest_bottom']
+            assert not s['generation_hint_present']
             assert bar['message'][3]-bar['message'][1]>=height+48
             expected='complete' if mode=='done' else 'cancelled' if mode=='stop' else 'error'
             assert [r for r in a.read_messages() if r[0]=='assistant'][-1][1]==expected
@@ -199,7 +227,8 @@ def collapsed_thought_at_bottom():
 
 if __name__=='__main__':
     run(960,266,'responses');run(936,280,'chat',True)
-    for mode in ['done','stop','cut']:short_and_terminal(mode)
+    for mode in ['done','stop','cut']:
+        short_and_terminal(mode);waiting_terminal(mode)
     older_copy_and_horizontal()
     end_during_bottom_click()
     collapsed_thought_at_bottom()

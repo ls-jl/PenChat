@@ -1452,6 +1452,20 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
       appendText(b);
   }
 }
+void App::replyContent(lv_obj_t *parent, const std::string &text, int width,
+                       const std::string &id, bool live) {
+  if (!text.empty()) {
+    richMessage(parent, text, width, false, id);
+  } else if (live && receivingReply_) {
+    // A UI-only placeholder: never mix it into Markdown or saved output.
+    generationHint_ = label(parent, "正在生成…", 0, 0, width, readingFontSize());
+    lv_obj_add_event_cb(generationHint_, [](lv_event_t *e) {
+      auto *app = static_cast<App *>(lv_event_get_user_data(e));
+      if (app->generationHint_ == lv_event_get_target(e))
+        app->generationHint_ = nullptr;
+    }, LV_EVENT_DELETE, this);
+  }
+}
 void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::string &source,
                             int width,bool readOnly,int lastAssistant,int64_t questionSeq) {
   const auto reasoningMode=reasoningDisplay_;
@@ -1512,8 +1526,6 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
     const bool live=!readOnly&&id==assistant_;
     std::string content =
         live ? output_ : stringValue(m, "output_text");
-    if (live && content.empty() && generating_)
-      content = "正在生成…";
     auto reason =
         live ? reasoning_ : stringValue(m, "reasoning_text");
     auto metadata =
@@ -1582,7 +1594,7 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
       image(imgBox, path, 0, 0, textWidth, 140,
             [this,original] { requestImageViewer(original); }, user, true);
     }
-    if (!content.empty()) {
+    if (!content.empty() || (live && receivingReply_)) {
       if (user)
         label(wrap, content, 0, 0, textWidth, readingFontSize());
       else {
@@ -1592,7 +1604,7 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
         lv_obj_set_scrollable(contentBox, false);
         if (live)
           liveContent_ = contentBox;
-        richMessage(contentBox, content, textWidth, false, id);
+        replyContent(contentBox, content, textWidth, id, live);
       }
     }
     if (retryableStatus(stringValue(m, "status"))) {
@@ -1703,8 +1715,8 @@ void App::renderLiveMessage() {
                                 }),
                  rasters_.end());
   lv_obj_clean(liveContent_);
-  richMessage(liveContent_, output_.empty() ? "正在生成…" : output_,
-              lv_obj_get_width(liveContent_), false, assistant_);
+  replyContent(liveContent_, output_, lv_obj_get_width(liveContent_),
+               assistant_, true);
   lv_obj_update_layout(messageContent_);
   lv_obj_scroll_to_y(body_, chatFollowing_ ? LV_COORD_MAX : scroll,
                      LV_ANIM_OFF);
@@ -3493,6 +3505,7 @@ Json App::diagnostics() const {
       {"pull_content_y", body_ ? lv_obj_get_style_translate_y(body_, LV_PART_MAIN) : 0},
       {"following_latest", chatFollowing_},
       {"receiving_reply", receivingReply_},
+      {"generation_hint_present", generationHint_ != nullptr},
       {"output_length", output_.size()},
       {"live_content_height", liveContent_ ? lv_obj_get_height(liveContent_) : 0},
       {"reader_interacting", readerInteracting()},

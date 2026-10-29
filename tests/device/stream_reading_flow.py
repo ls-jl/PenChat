@@ -32,6 +32,7 @@ def run(c,server):
     key('q');b=state()['editor']['actions']['done'];tap((b[0]+b[2])//2,(b[1]+b[3])//2);wait(lambda:not state()['editor']['active'])
     tap(W-52,H-34);wait(lambda:state()['receiving_reply'] and state()['output_length']>100)
     quiescent();s=state();id=next(iter(s['reply_actions']['rows']))
+    assert not s['generation_hint_present']
     assert not s['reply_actions']['rows'][id]['visible'] and s['following_latest'] and not s['to_bottom_visible']
     c['capture']('stream-following-hidden-actions')
     p=hold_drag()
@@ -47,6 +48,7 @@ def run(c,server):
     assert state()['reader_interacting'] and state()['chat_render_pending']
     assert p.wait(timeout=6)==0;quiescent();s=state()
     assert s['reply_actions']['rows'][id]['visible'] and s['to_bottom_visible'] and not s['following_latest']
+    assert not s['generation_hint_present']
     scroll=s['scroll_y'];time.sleep(.2);assert state()['scroll_y']==scroll
     c['capture']('stream-completed-reading')
     bottom();c['capture']('stream-completed-bottom')

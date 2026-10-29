@@ -210,7 +210,7 @@ class App {
   std::atomic<bool> modelCancel_{false}, modelsBusy_{false};
   lv_obj_t *screenObj_ = nullptr, *body_ = nullptr, *messageContent_ = nullptr,
            *composer_ = nullptr, *status_ = nullptr, *cameraImage_ = nullptr,
-           *liveContent_ = nullptr;
+           *liveContent_ = nullptr, *generationHint_ = nullptr;
   std::vector<Raster> rasters_;
   std::vector<std::pair<lv_obj_t *, std::string>> imageRequests_;
   std::map<lv_obj_t *, std::unique_ptr<Texture>> textures_;
@@ -398,6 +398,8 @@ class App {
                          int width,bool readOnly,int lastAssistant,int64_t questionSeq);
   void richMessage(lv_obj_t *parent, const std::string &text, int width,
                    bool subdued = false, const std::string &context = "");
+  void replyContent(lv_obj_t *parent, const std::string &text, int width,
+                    const std::string &id, bool live);
   void paintVisible();
   void richScrolled(lv_obj_t *object);
   bool syncingTableScroll_ = false;
