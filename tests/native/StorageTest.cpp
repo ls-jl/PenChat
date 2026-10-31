@@ -1,6 +1,7 @@
 #include "database.hpp"
 #include "schema.hpp"
 #include <cassert>
+#include <dirent.h>
 #include <fstream>
 #include <iostream>
 #include <set>
@@ -42,9 +43,59 @@ static void seed(const std::string &path, int sessions = 1, int messages = 1) {
   sql(db, "COMMIT");
   sqlite3_close(db);
 }
+static int entries(const char *path) {
+  auto *directory = opendir(path);
+  assert(directory);
+  int count = 0;
+  while (readdir(directory)) ++count;
+  closedir(directory);
+  return count;
+}
+static void startupFailures(const std::string &root) {
+  for (const auto &table : {"schema_meta", "chat_messages"}) {
+    const auto path = root + "/startup-" + table + ".db";
+    {
+      Database db(path);
+      const auto session = db.createSession();
+      db.append(session, "assistant", "partial");
+      db.execute("UPDATE chat_messages SET status='streaming'");
+    }
+    sqlite3 *raw = nullptr;
+    assert(sqlite3_open(path.c_str(), &raw) == SQLITE_OK);
+    sql(raw, std::string("CREATE TRIGGER fail_start BEFORE ") +
+        (std::string(table) == "schema_meta" ? "INSERT ON " : "UPDATE ON ") +
+        table + " BEGIN SELECT RAISE(ABORT,'fixture startup failure'); END");
+    sqlite3_close(raw);
+    const auto child = fork();
+    assert(child >= 0);
+    if (child == 0) {
+      const int threads = entries("/proc/self/task"), fds = entries("/proc/self/fd");
+      for (int attempt = 0; attempt < 20; ++attempt) {
+        bool caught = false;
+        try { Database invalid(path); }
+        catch (const std::exception &e) {
+          caught = std::string(e.what()) == "fixture startup failure";
+        }
+        assert(caught);
+        assert(entries("/proc/self/task") == threads);
+        assert(entries("/proc/self/fd") == fds);
+      }
+      _exit(0);
+    }
+    int status = 0;
+    assert(waitpid(child, &status, 0) == child);
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    assert(sqlite3_open(path.c_str(), &raw) == SQLITE_OK);
+    sql(raw, "DROP TRIGGER fail_start");
+    sqlite3_close(raw);
+    Database recovered(path);
+    assert(recovered.query("SELECT status FROM chat_messages")[0]["status"] == "interrupted");
+  }
+}
 int main() {
   char tmp[] = "/tmp/penchat-storage-XXXXXX";
   auto root = std::string(mkdtemp(tmp));
+  startupFailures(root);
   auto path = root + "/penchat.db";
   seed(path, 1000, 100);
   auto begin = ticks();

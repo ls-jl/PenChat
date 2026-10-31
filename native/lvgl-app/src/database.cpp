@@ -20,62 +20,53 @@ Database::Database(const std::string &path) {
   const auto slash = path.find_last_of('/');
   assetDirectory_ = join(
       slash == std::string::npos ? std::string(".") : path.substr(0, slash), "assets");
-  if (sqlite3_open_v2(path.c_str(), &db_,
-                      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE |
-                          SQLITE_OPEN_FULLMUTEX,
-                      nullptr) != SQLITE_OK) {
-    if (db_)
-      sqlite3_close(db_);
-    db_ = nullptr;
-    throw std::runtime_error("Cannot open chat database");
-  }
-  sqlite3_busy_timeout(db_, 3000);
-  char *err = nullptr;
-  if (sqlite3_exec(db_, Schema, nullptr, nullptr, &err) != SQLITE_OK) {
-    std::string message = err ? err : "Schema error";
-    sqlite3_free(err);
-    sqlite3_close(db_);
-    db_ = nullptr;
-    throw std::runtime_error(message);
-  }
   try {
-    migrate(path);
-  } catch (...) {
-    for (auto &s : statements_)
-      sqlite3_finalize(s.second);
-    statements_.clear();
-    sqlite3_close(db_);
-    db_ = nullptr;
-    throw;
-  }
-  worker_ = std::thread([this] {
-    for (;;) {
-      std::function<void()> task;
-      {
-        std::unique_lock<std::mutex> lock(jobsMutex_);
-        jobsReady_.wait(lock, [this] { return stopping_ || !jobs_.empty(); });
-        if (jobs_.empty() && stopping_)
-          return;
-        task = std::move(jobs_.front());
-        jobs_.pop_front();
-      }
-      task();
+    if (sqlite3_open_v2(path.c_str(), &db_,
+                        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE |
+                            SQLITE_OPEN_FULLMUTEX,
+                        nullptr) != SQLITE_OK) {
+      throw std::runtime_error("Cannot open chat database");
     }
-  });
-  execute("INSERT OR IGNORE INTO schema_meta(key,value) "
-          "VALUES('schema_version','2')");
-  execute("UPDATE chat_messages SET status='interrupted' WHERE status='streaming'");
-  {
-    std::lock_guard<std::mutex> lock(jobsMutex_);
-    jobs_.push_back([this] {
-      try {
-        collectAssets(true);
-      } catch (...) {
-        saveEvents_.push("maintenance_error");
+    sqlite3_busy_timeout(db_, 3000);
+    char *err = nullptr;
+    if (sqlite3_exec(db_, Schema, nullptr, nullptr, &err) != SQLITE_OK) {
+      std::string message = err ? err : "Schema error";
+      sqlite3_free(err);
+      throw std::runtime_error(message);
+    }
+    migrate(path);
+    worker_ = std::thread([this] {
+      for (;;) {
+        std::function<void()> task;
+        {
+          std::unique_lock<std::mutex> lock(jobsMutex_);
+          jobsReady_.wait(lock, [this] { return stopping_ || !jobs_.empty(); });
+          if (jobs_.empty() && stopping_)
+            return;
+          task = std::move(jobs_.front());
+          jobs_.pop_front();
+        }
+        task();
       }
     });
+    execute("INSERT OR IGNORE INTO schema_meta(key,value) "
+            "VALUES('schema_version','2')");
+    execute("UPDATE chat_messages SET status='interrupted' WHERE status='streaming'");
+    {
+      std::lock_guard<std::mutex> lock(jobsMutex_);
+      jobs_.push_back([this] {
+        try {
+          collectAssets(true);
+        } catch (...) {
+          saveEvents_.push("maintenance_error");
+        }
+      });
+    }
+    jobsReady_.notify_one();
+  } catch (...) {
+    cleanup();
+    throw;
   }
-  jobsReady_.notify_one();
 }
 Json Database::perform(std::function<Json()> task) {
   if (onWorker())
@@ -89,7 +80,8 @@ Json Database::perform(std::function<Json()> task) {
   jobsReady_.notify_one();
   return result.get();
 }
-Database::~Database() {
+Database::~Database() { cleanup(); }
+void Database::cleanup() noexcept {
   {
     std::lock_guard<std::mutex> lock(jobsMutex_);
     stopping_ = true;
@@ -97,12 +89,17 @@ Database::~Database() {
   jobsReady_.notify_one();
   if (worker_.joinable())
     worker_.join();
-  if (gcDirectory_)
+  if (gcDirectory_) {
     closedir(static_cast<DIR *>(gcDirectory_));
+    gcDirectory_ = nullptr;
+  }
   for (auto &s : statements_)
     sqlite3_finalize(s.second);
-  if (db_)
+  statements_.clear();
+  if (db_) {
     sqlite3_close(db_);
+    db_ = nullptr;
+  }
 }
 Json Database::query(const std::string &sql, const Json &args) {
   return perform([this, sql, args] { return queryOnWorker(sql, args); });

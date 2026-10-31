@@ -19,6 +19,7 @@ class Database {
   void deleteConversationRows(const std::string &session, const Json &rows);
   void refreshConversationCount(const std::string &session);
   void migrate(const std::string &path);
+  void cleanup() noexcept;
   void collectAssets(bool discover = false);
   void deferAssetCollection();
   void *gcDirectory_ = nullptr;

@@ -370,10 +370,21 @@ void App::editorOfficial() {
   if (editLength(text)>editor_.limit) { editor_.notice="已达到长度上限"; editorBuild(); return; }
   editorInterrupt(); keyboard_=true; keyboardId_=uid("official");
   display_.visible(false);
-  bridge_.send("keyboard.open",{{"requestId",keyboardId_},{"text",text},{"placeholder",editor_.placeholder},
+  const bool sent = bridge_.send("keyboard.open",{{"requestId",keyboardId_},{"text",text},{"placeholder",editor_.placeholder},
     {"maxlength",editor_.limit},{"multiline",editor_.multiline},{"sensitive",editor_.secret},
     {"cursorIndex",editUtf16(text,editor_.cursor+editor_.preedit.size())},
     {"inputType",editor_.chinese?"ZhCNPreferred":"EnUSOnly"}});
+  if (!sent) {
+    keyboard_ = false;
+    keyboardId_.clear();
+    display_.visible(visible_);
+    editorPolicy(true);
+    editorChanged();
+    editor_.notice = "未能打开官方键盘，输入已保留，可继续编辑或重试";
+    editorFollowCursor_ = false;
+    editorBuild();
+    editorOcrStart();
+  }
 }
 void App::editorAction(const std::string &a) {
   if(editorSelectionOnly_) {
@@ -777,7 +788,7 @@ Json App::editorDiagnostic() const {
     {"length",editLength(editor_.text)},{"cursor",editor_.cursor},{"preedit_length",editor_.preedit.size()},
     {"selection_start",editor_.range().first},{"selection_end",editor_.range().second},{"selected",editor_.selected()},
     {"clipboard_count",editorClipboard_.records.size()},{"clipboard_open",editorClipboardOpen_},{"menu",editorMenu_},{"undo_menu",editorUndoMenu_},{"undo_popup",undoPopup},{"text_bounds",textBounds},
-    {"ocr_request",editorOcrId_},{"ocr_active",editorOcrActive_},{"ocr_multi",editorOcrMulti_},{"ocr_busy",editorOcrBusy_},{"top_panel_blocked",editorTopBlocked_},
+    {"notice_present",!editor_.notice.empty()},{"ocr_request",editorOcrId_},{"ocr_active",editorOcrActive_},{"ocr_multi",editorOcrMulti_},{"ocr_busy",editorOcrBusy_},{"top_panel_blocked",editorTopBlocked_},
     {"keyboard_split",layout.split},{"query_ms",editorLatency_},{"candidate_count",editorCandidates_.size()},{"corrected_count",std::count_if(editorCandidateDetails_.begin(),editorCandidateDetails_.end(),[](const Json &v){return v.value("corrected",false);})},{"revision",editorRevision_},{"keys",keys}};
 }
 } // namespace penchat

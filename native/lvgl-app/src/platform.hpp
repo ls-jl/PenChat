@@ -14,6 +14,7 @@ public:
   Display(const Screen &s, bool headless);
   ~Display();
   void visible(bool value);
+  bool visible() const { return shown_; }
   void screenshot(const std::string &path);
   void flush(lv_display_t *, const lv_area_t *, uint8_t *);
   lv_display_t *handle() { return display_; }

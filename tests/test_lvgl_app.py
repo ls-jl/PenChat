@@ -48,7 +48,7 @@ def wait_for(callback, timeout=10):
     raise AssertionError('Timed out waiting for native state')
 
 class Native:
-    def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True, screen=None):
+    def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True, screen=None, bridge_send_buffer=None):
         self.pending=[]
         self.official_adapter=official_adapter
         self.directory=pathlib.Path(directory);self.directory.mkdir(parents=True,exist_ok=True)
@@ -63,6 +63,7 @@ class Native:
         display=screen if screen is not None else {'width':960,'height':266,'direction':0,'xoffset':0,'yoffset':0}
         config=self.directory/'falcon-display.json';config.write_text(json.dumps({'screen':display}))
         self.parent, child=socket.socketpair(socket.AF_UNIX,socket.SOCK_SEQPACKET)
+        if bridge_send_buffer is not None:child.setsockopt(socket.SOL_SOCKET,socket.SO_SNDBUF,bridge_send_buffer)
         self.parent.settimeout(float(os.environ.get("PENCHAT_TEST_TIMEOUT", "10")))
         self.log=(self.directory/'runtime.log').open('wb')
         self.process=subprocess.Popen([str(binary),'--headless','--screen-config',str(config),'--bridge-fd',str(child.fileno()),'--data-dir',str(self.directory),'--workspace',str(ROOT),'--font',str(ROOT/'.deps/chinese.ttf'),'--tex-resources',str(ROOT/'.deps/microtex/res')],pass_fds=[child.fileno()],stdout=self.log,stderr=self.log)
