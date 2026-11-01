@@ -22,7 +22,7 @@ assert launches == {
     'native/camera/src/accelerometer.cpp': ['posix_spawn'],
     'native/launcher/src/Launcher.cpp': ['execl', 'fork'],
     'native/lvgl-app/src/scanner.cpp': ['execve', 'fork'],
-    'tests/native/StorageTest.cpp': ['fork'],  # Crash-recovery child; no exec.
+    'tests/native/StorageTest.cpp': ['fork', 'fork'],  # Startup-failure and crash-recovery children; no exec.
 }, launches
 
 for path in (ROOT/'src').rglob('*'):

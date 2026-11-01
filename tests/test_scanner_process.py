@@ -5,7 +5,7 @@ ROOT=pathlib.Path(__file__).resolve().parents[1]
 BUNDLE=pathlib.Path(os.environ.get('PENCHAT_SCAN_BUNDLE','/home/ls-jl/Documents/ChatGPT/词典笔扫描拼接/deliverables/stream32_complete_20261018'))
 
 class Scanner:
-    def __init__(self,directory,slow_ms=0):
+    def __init__(self,directory,slow_ms=0,profile="orange"):
         self.directory=pathlib.Path(directory)
         self.socket,child=socket.socketpair(socket.AF_UNIX,socket.SOCK_SEQPACKET)
         self.socket.settimeout(10);self.fd=os.memfd_create('scanner-test',0)
@@ -14,7 +14,7 @@ class Scanner:
         env=dict(os.environ,LD_LIBRARY_PATH=str(BUNDLE/'third_party/opencv-host/lib/x86_64-linux-gnu')+':'+str(BUNDLE/'third_party/opencv-host/lib/x86_64-linux-gnu/openblas-pthread'),OPENBLAS_NUM_THREADS='1')
         env['PENCHAT_TEST_SCAN_INFER_MS']=str(slow_ms)
         self.log=(self.directory/'worker.log').open('wb')
-        self.process=subprocess.Popen([os.environ.get('PENCHAT_SCANNER_TEST_BINARY',str(ROOT/'build/scanner-host/penchat-scanner')),'--bridge-fd',str(child.fileno()),'--preview-fd',str(self.fd),'--resources',str(BUNDLE/'resources/illumination'),'--data-dir',str(self.directory/'pending'),'--simulate'],pass_fds=[child.fileno(),self.fd],env=env,stdout=self.log,stderr=self.log)
+        self.process=subprocess.Popen([os.environ.get('PENCHAT_SCANNER_TEST_BINARY',str(ROOT/'build/scanner-host/penchat-scanner')),'--bridge-fd',str(child.fileno()),'--preview-fd',str(self.fd),'--resources',str(BUNDLE/'resources/illumination'),'--data-dir',str(self.directory/'pending'),'--simulate-y02' if profile=='y02' else '--simulate'],pass_fds=[child.fileno(),self.fd],env=env,stdout=self.log,stderr=self.log)
         child.close();self.send('arm');self.receive('ready')
     def send(self,kind,**values):
         self.request+=1
@@ -112,22 +112,25 @@ def run():
     print('Scanner IPC: concurrent 32/24 windows, lighting pipeline, bounded shared preview, confirmation, duplicate/stale commands, single/empty tail and EOF cleanup passed.')
 if __name__=='__main__':run()
 
-# Deliberately slower inference must not stop an otherwise continuous capture.
-with tempfile.TemporaryDirectory(prefix='penchat-scan-backlog-') as directory:
-    worker=Scanner(directory,slow_ms=250)
-    try:
-        worker.press()
-        for i in range(400):
-            worker.send('test.frame');time.sleep(.002)
-        worker.release();result=worker.receive('finished')
-        assert result['status']==1 and result['counts']['received']==400,result
-        assert result['counts']['committed']==400 and result['counts']['discarded_backlog']==0,result
-        assert result['counts']['spilled']>0,result
-        assert not list((pathlib.Path(directory)/'pending').iterdir())
-        worker.send('discard');worker.receive('ready');worker.press()
-        for i in range(400):
-            worker.send('test.frame');time.sleep(.002)
-        worker.send('cancel');worker.receive('released')
-        assert not list((pathlib.Path(directory)/'pending').iterdir())
-    finally:worker.close()
-print('Scanner backlog: 400 continuous frames survive slow inference, ordered disk spill and release drain with no discarded input.')
+def backlog():
+    # Deliberately slower inference must not stop an otherwise continuous capture.
+    with tempfile.TemporaryDirectory(prefix='penchat-scan-backlog-') as directory:
+        worker=Scanner(directory,slow_ms=250)
+        try:
+            worker.press()
+            for i in range(400):
+                worker.send('test.frame');time.sleep(.002)
+            worker.release();result=worker.receive('finished')
+            assert result['status']==1 and result['counts']['received']==400,result
+            assert result['counts']['committed']==400 and result['counts']['discarded_backlog']==0,result
+            assert result['counts']['spilled']>0,result
+            assert not list((pathlib.Path(directory)/'pending').iterdir())
+            worker.send('discard');worker.receive('ready');worker.press()
+            for i in range(400):
+                worker.send('test.frame');time.sleep(.002)
+            worker.send('cancel');worker.receive('released')
+            assert not list((pathlib.Path(directory)/'pending').iterdir())
+        finally:worker.close()
+    print('Scanner backlog: 400 continuous frames survive slow inference, ordered disk spill and release drain with no discarded input.')
+
+if __name__=='__main__':backlog()

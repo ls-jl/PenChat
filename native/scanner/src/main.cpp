@@ -147,6 +147,7 @@ class Worker {
   std::string resources_, directory_, session_, state_ = "disarmed";
   uint64_t generation_ = 0, request_ = 0, scan_ = 0;
   bool mock_ = false, armed_ = false, capturing_ = false, finished_ = false;
+  CaptureProfile profile_;
   bool requireRelease_ = false, keyDown_ = false, draining_ = false;
   unsigned afterStop_ = 0;
   bool haveSequence_ = false;
@@ -159,7 +160,7 @@ class Worker {
   int64_t lightRequestedUs_ = 0;
   int64_t ownerDeadline_ = 0, nextOwner_ = 0;
   int64_t nextPreview_ = 0, lastFrame_ = 0, pressTime_ = 0, firstFrame_ = 0,
-          drainDeadline_ = 0;
+          drainDeadline_ = 0, sourceCutoffUs_ = 0;
   Json lease_, exported_;
   std::mutex eventMutex_;
   std::deque<Event> events_;
@@ -184,6 +185,7 @@ class Worker {
             {"recovered_gaps", recoveredGaps_},
             {"queued", queued},
             {"queue_peak", ingress_ ? ingress_->peak() : 0},
+            {"queue_capacity", ingress_ ? ingress_->capacity() : 0},
             {"spilled", ingress_ ? ingress_->spilled() : 0},
             {"discarded_backlog", discardedBacklog_},
             {"warnings", warnings_.load()}};
@@ -195,10 +197,28 @@ class Worker {
     data["requestId"] = request_;
     data["scanId"] = scan_;
     data["session"] = session_;
+    data["profile"] = profile_.id;
+    data["sensor_width"] = config_.width;
+    data["sensor_height"] = config_.height;
     if (!sendPacket(fd_, data))
       throw ControlDisconnected();
   }
   void calibration() {
+    config_.width = profile_.width;
+    config_.height = profile_.height;
+    if (profile_.id == "y02-sc035gs") {
+      // Independent neutral flat-field, NOT the ORANGE illumination resource.
+      // Keep raw SC035GS detail; per-frame photometric estimation still runs.
+      auto k = std::make_shared<Calibration>();
+      k->version = "y02-sc035gs-native-neutral-v1";
+      k->sensorWidth = profile_.width;
+      k->sensorHeight = profile_.height;
+      k->rotation = config_.rotation;
+      k->gain.fill(1.f);
+      config_.calibration = k;
+      config_.diagnosticAcceptAll = mock_;
+      return;
+    }
     std::ifstream meta(resources_ + "/demo_gain.json");
     Json j;
     meta >> j;
@@ -270,7 +290,7 @@ class Worker {
     if (!armed_ || scan_ || requireRelease_)
       return;
     mkdir(directory_.c_str(), 0700);
-    ingress_ = std::make_unique<FrameQueue>(directory_);
+    ingress_ = std::make_unique<FrameQueue>(directory_, config_.width, config_.height);
     engineSealed_ = false;
     discardedBacklog_ = 0;
     const auto begin = engine_->beginScan(
@@ -311,6 +331,7 @@ class Worker {
     lastRawTimestamp_ = 0;
     captureFailure_.clear();
     afterStop_ = 0;
+    sourceCutoffUs_ = 0;
     capturing_ = true;
     finished_ = false;
     draining_ = false;
@@ -332,6 +353,7 @@ class Worker {
   void drain() {
     if (!capturing_ || draining_)
       return;
+    sourceCutoffUs_ = clockUs();
     light_.request(false);
     if (mock_) {
       seal();
@@ -414,6 +436,8 @@ class Worker {
         {"reason",
          captureFailure_.empty() ? result_->reason() : captureFailure_},
         {"calibration", config_.calibration->version},
+        {"profile", profile_.id}, {"sensor_width", config_.width},
+        {"sensor_height", config_.height},
         {"timing",
          {{"pressedUs", pressTime_},
           {"firstFrameUs", firstFrame_},
@@ -442,9 +466,11 @@ class Worker {
 
 public:
   Worker(int fd, PreviewSlot *slot, std::string resources,
-         std::string directory, bool mock)
+         std::string directory, bool mock, const CaptureProfile &profile)
       : fd_(fd), slot_(slot), resources_(std::move(resources)),
-        directory_(std::move(directory)), mock_(mock), light_(mock) {
+        directory_(std::move(directory)), mock_(mock), profile_(profile), light_(mock) {
+    if (!profile_.supported())
+      throw std::runtime_error("unsupported scan board or pen sensor");
     std::unique_ptr<Inference> backend;
 #ifdef SCANNER_TEST_SOURCE
     if (mock_)
@@ -531,12 +557,12 @@ public:
         drain();
       }
     } else if (mock_ && type == "test.frame" && capturing_) {
-      std::vector<uint8_t> pixels(496 * 360, 210);
-      for (int y = 20; y < 340; ++y)
-        for (int x = 20; x < 476; ++x)
+      std::vector<uint8_t> pixels(size_t(config_.width) * config_.height, 210);
+      for (int y = 20; y < config_.height - 20; ++y)
+        for (int x = 20; x < config_.width - 20; ++x)
           if ((x + y) % 11 < 3)
-            pixels[size_t(y) * 496 + x] = 30;
-      frame(pixels.data(), 496,
+            pixels[size_t(y) * config_.width + x] = 30;
+      frame(pixels.data(), config_.width,
             j.value("rawSequence", haveSequence_ ? lastSequence_ + 1 : uint64_t(0)),
             j.value("rawTimestamp", clockUs()));
     }
@@ -549,6 +575,12 @@ public:
       return;
     if (!mock_ && timestamp < pressTime_)
       return;
+    if (!mock_ && profile_.id == "y02-sc035gs" && draining_ &&
+        timestamp > sourceCutoffUs_) {
+      // Outside the released pen's capture window, not a lost in-window frame.
+      seal();
+      return;
+    }
 
     if (haveSequence_ && uint32_t(sequence) != uint32_t(lastSequence_ + 1)) {
       const auto distance = uint32_t(sequence) - uint32_t(lastSequence_);
@@ -596,7 +628,7 @@ public:
     for (unsigned n = memory.frames; ingress_ && n < 128 && n < memory.frames + 16; ++n) {
       FrameQueue::Frame frame;
       if (!ingress_->pop(frame)) break;
-      auto pushed = engine_->pushFrame(scan_, frame.pixels.data(), 496, 360, 496,
+      auto pushed = engine_->pushFrame(scan_, frame.pixels.data(), config_.width, config_.height, config_.width,
                                         frame.sequence, frame.timestamp);
       if (pushed.code == Code::StopCapture || !pushed.accepted) {
         captureFailure_ = "scan engine memory capacity";
@@ -686,7 +718,9 @@ public:
               {"lightRequestedUs", lightRequestedUs_},
               {"firstSelectedUs", firstSelectedUs_.load()},
               {"firstBatchUs", firstBatchUs_.load()},
-              {"maxCaptureLoopUs", maxCaptureLoopUs_}});
+              {"maxCaptureLoopUs", maxCaptureLoopUs_},
+              {"captureEndedUs", sourceCutoffUs_},
+              {"lastSourceFrameUs", lastRawTimestamp_}});
       }
     }
     if (scan_ && !finished_ && clockUs() >= nextPreview_) {
@@ -729,11 +763,15 @@ int main(int argc, char **argv) {
   int fd = -1, preview = -1, processLock = -1;
   std::string resources, directory;
   bool mock = false;
+#ifdef SCANNER_TEST_SOURCE
+  bool mockY02 = false;
+#endif
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
 #ifdef SCANNER_TEST_SOURCE
-    if (a == "--simulate") {
+    if (a == "--simulate" || a == "--simulate-y02") {
       mock = true;
+      mockY02 = a == "--simulate-y02";
       continue;
     }
 #endif
@@ -776,7 +814,13 @@ int main(int argc, char **argv) {
         throw std::runtime_error("invalid scanner process lock");
       fcntl(processLock, F_SETFD, FD_CLOEXEC);
     }
-    Worker worker(fd, slot, resources, directory, mock);
+    auto profile = detectedScanProfile();
+#ifdef SCANNER_TEST_SOURCE
+    if (mock)
+      profile = mockY02 ? scanProfile("Rockchip RK3562 Y02 LP4 V10 Board", "sc035gs")
+                        : scanProfile("Rockchip RK3562 ORANGE LP4 V10 Board", "sc2356");
+#endif
+    Worker worker(fd, slot, resources, directory, mock, profile);
     while (running) {
       pollfd p{fd, POLLIN, 0};
       poll(&p, 1, 5);

@@ -4,7 +4,7 @@ PenChat is a native LVGL app for ORANGE (RK3562/AArch64, 960×266).
 The Falcon AMR is a thin launcher with a full-screen hole, system IME and
 lifecycle forwarding. Do not put business UI or networking back into Vue.
 Scanning uses the source-pinned Stream32 backend in native/scanner, with a
-separate C++17 process and ORANGE-only capture lease. Keep 32/24/8 windowing,
+separate C++17 process and explicit ORANGE/Y02 capture leases. Keep 32/24/8 windowing,
 per-frame photometric estimates and bounded memory. Always review scan results
 before appending messages. API Key entry still uses the system pen-tip OCR bridge.
 Do not import legacy stitching engines or research data. The first release supports
@@ -174,6 +174,10 @@ specify explicit resolutions; camera sensor capture sizes are independent of dis
 `tests/device/display_config.py --serial <explicit serial>` covers the user-authorized Y02
 and ORANGE display targets using their config and discovered input device. Keep ORANGE
 scanner calibration guards even when display/input support expands to another board.
+Y02 is an explicit SC035GS 640×480 profile, not an ORANGE alias. Its neutral
+flat-field is separately identified; never substitute the SC2356 gain map. Restore
+the previous V4L2 format before resuming the system capture guardian. Keep the
+spill file below 110 MiB by reducing frame capacity for larger native images.
 
 The native editor owns libpinyinime on one background worker. Never reintroduce the Falcon
 shared decoder, system pinyin imports, symbol borrowing or a fallback bridge for candidates.

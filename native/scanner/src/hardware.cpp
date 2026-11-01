@@ -80,10 +80,15 @@ bool validScanProcessLock(int fd) {
          opened.st_dev == named.st_dev && opened.st_ino == named.st_ino &&
          flock(fd, LOCK_EX | LOCK_NB) == 0;
 }
+CaptureProfile detectedScanProfile() {
+  return scanProfile(read("/proc/device-tree/model"),
+                     read("/sys/class/video4linux/v4l-subdev2/name"));
+}
 Json scanLeaseSnapshot() {
-  require(read("/proc/device-tree/model").find("ORANGE") != std::string::npos,
-          "unsupported scan board");
-  Json j{{"guardians", Json::array()}, {"captures", Json::array()}};
+  const auto profile = detectedScanProfile();
+  require(profile.supported(), "unsupported scan board or pen sensor");
+  Json j{{"guardians", Json::array()}, {"captures", Json::array()},
+         {"profile", profile.id}};
   DIR *d = opendir("/proc");
   require(d, "cannot inspect scan owner");
   while (auto e = readdir(d)) {
@@ -110,13 +115,26 @@ Json scanLeaseSnapshot() {
   // runCapFrame may still be starting CaptureFrame after our previous release.
   // Taking an empty snapshot would leave that late child outside the lease.
   require(!j["captures"].empty(), "system capture preparing");
+  int video = ::open("/dev/video23", O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+  require(video >= 0, "cannot inspect system scan format");
+  v4l2_format format{};
+  format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+  const bool valid = io(video, VIDIOC_G_FMT, &format) == 0;
+  ::close(video);
+  require(valid && format.fmt.pix_mp.width >= 2 && format.fmt.pix_mp.height >= 2,
+          "system capture preparing");
+  const auto &f = format.fmt.pix_mp;
+  j["video_format"] = {{"width", f.width}, {"height", f.height},
+      {"pixel_format", f.pixelformat}, {"planes", f.num_planes},
+      {"field", f.field}, {"colorspace", f.colorspace},
+      {"quantization", f.quantization}, {"ycbcr_enc", f.ycbcr_enc},
+      {"xfer_func", f.xfer_func}};
   return j;
 }
 void setScanLight(bool on) {
-  // ORANGE's vendor len_onoff.sh maps the white scanner LED to GPIO43.
+  // Both verified RK3562 profiles map the white scanner LED to GPIO43.
   // Configure while arming, then toggle directly without fork/shell latency.
-  require(read("/proc/device-tree/model").find("ORANGE") != std::string::npos,
-          "unsupported scan light board");
+  require(detectedScanProfile().supported(), "unsupported scan light board");
   auto write = [](const char *path, const char *value) {
     int fd = ::open(path, O_WRONLY | O_CLOEXEC);
     if (fd < 0)
@@ -159,8 +177,7 @@ void restoreScanLease(const Json &j) noexcept {
   } catch (...) {
   }
   try {
-    if (read("/sys/class/video4linux/v4l-subdev2/name").find("sc2356") !=
-        std::string::npos) {
+    if (detectedScanProfile().id == "orange-sc2356") {
       int fd = ::open("/dev/v4l-subdev2", O_RDWR | O_CLOEXEC);
       if (fd >= 0) {
         int zero = 0;
@@ -168,6 +185,22 @@ void restoreScanLease(const Json &j) noexcept {
         io(fd, 0x400456ea, &zero);
         ::close(fd);
       }
+    }
+  } catch (...) {
+  }
+  try {
+    if (j.contains("video_format")) {
+      const auto &saved = j.at("video_format");
+      v4l2_format format{};
+      format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+      auto &f = format.fmt.pix_mp;
+      f.width = saved.at("width"); f.height = saved.at("height");
+      f.pixelformat = saved.at("pixel_format"); f.num_planes = saved.at("planes");
+      f.field = saved.at("field"); f.colorspace = saved.at("colorspace");
+      f.quantization = saved.at("quantization"); f.ycbcr_enc = saved.at("ycbcr_enc");
+      f.xfer_func = saved.at("xfer_func");
+      int video = ::open("/dev/video23", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+      if (video >= 0) { io(video, VIDIOC_S_FMT, &format); ::close(video); }
     }
   } catch (...) {
   }
@@ -183,6 +216,9 @@ void Hardware::open(const Json &lease) {
   close();
   lease_ = lease;
   try {
+    profile_ = detectedScanProfile();
+    require(profile_.supported() && lease_.value("profile", profile_.id) == profile_.id,
+            "scan lease profile mismatch");
     for (auto &p : lease_.at("guardians"))
       if (!p["paused"].get<bool>() && same(p) &&
           match(p["pid"], "guardian_run", "/usr/bin/runCapFrame"))
@@ -235,24 +271,24 @@ void Hardware::open(const Json &lease) {
   }
 }
 void Hardware::openCamera() {
-  // ORANGE profile; verify the sensor before changing any streaming controls.
+  // Revalidate identity before changing the capture format or sensor controls.
   auto sensorName = read("/sys/class/video4linux/v4l-subdev2/name");
-  require(sensorName.find("sc2356") != std::string::npos,
+  require(sensorName.find(profile_.sensor) != std::string::npos,
           "unsupported pen sensor");
   video_ = ::open("/dev/video23", O_RDWR | O_NONBLOCK | O_CLOEXEC);
   require(video_ >= 0, "pen capture busy");
   v4l2_format f{};
   f.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-  f.fmt.pix_mp.width = 496;
-  f.fmt.pix_mp.height = 360;
+  f.fmt.pix_mp.width = profile_.width;
+  f.fmt.pix_mp.height = profile_.height;
   f.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12;
   f.fmt.pix_mp.num_planes = 1;
-  require(io(video_, VIDIOC_S_FMT, &f) == 0 && f.fmt.pix_mp.width == 496 &&
-              f.fmt.pix_mp.height == 360 && f.fmt.pix_mp.num_planes == 1 &&
+  require(io(video_, VIDIOC_S_FMT, &f) == 0 && f.fmt.pix_mp.width == unsigned(profile_.width) &&
+              f.fmt.pix_mp.height == unsigned(profile_.height) && f.fmt.pix_mp.num_planes == 1 &&
               f.fmt.pix_mp.pixelformat == V4L2_PIX_FMT_NV12,
           "unsupported pen NV12 profile");
   stride_ = f.fmt.pix_mp.plane_fmt[0].bytesperline;
-  require(stride_ >= 496, "invalid pen stride");
+  require(stride_ >= profile_.width, "invalid pen stride");
   v4l2_requestbuffers r{};
   // Absorb short scheduler stalls without dropping real sensor frames.
   r.count = 12;
@@ -280,14 +316,40 @@ void Hardware::openCamera() {
   sensor_ = ::open("/dev/v4l-subdev2", O_RDWR | O_CLOEXEC);
   require(sensor_ >= 0, "pen sensor unavailable");
   int one = 1;
+  // Both deployed kernels expose the quick-only flag. Y02's stock capture also
+  // leaves it set, so STREAMON alone is not proof that pixels are arriving.
   require(io(sensor_, 0x400456ea, &one) == 0, "pen quick-only failed");
   int type = f.type;
   require(io(video_, VIDIOC_STREAMON, &type) == 0, "pen STREAMON failed");
   stream_ = true;
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  require(io(sensor_, 0x400456ca, &one) == 0, "pen quick stream failed");
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  require(io(sensor_, 0x400456ca, &one) == 0, "pen quick stream retry failed");
+  if (profile_.id == "orange-sc2356") {
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    require(io(sensor_, 0x400456ca, &one) == 0, "pen quick stream failed");
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    require(io(sensor_, 0x400456ca, &one) == 0, "pen quick stream retry failed");
+  } else {
+    // The deployed Y02 driver leaves SC035GS gated after pipeline STREAMON.
+    // Start it once after the receiver is ready; never replay the SC2356 retry.
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    require(io(sensor_, 0x400456ca, &one) == 0, "pen quick stream failed");
+    // Verify the actual source before advertising ready. Drain startup buffers
+    // here, outside any pen capture window, until the sequence is stable.
+    unsigned consecutive = 0;
+    uint32_t previous = 0;
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(2);
+    while (consecutive < 16) {
+      require(std::chrono::steady_clock::now() < deadline,
+              "pen sensor did not deliver sustained frames");
+      if (!readFrame([&](const uint8_t *, int, uint64_t sequence, int64_t) {
+            const auto current = uint32_t(sequence);
+            consecutive = consecutive && current == previous + 1
+                              ? consecutive + 1 : 1;
+            previous = current;
+          }))
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  }
 }
 bool Hardware::keyEvent(bool &down) {
   input_event e{};
@@ -313,6 +375,9 @@ bool Hardware::keyEvent(bool &down) {
   return false;
 }
 void Hardware::exposure(bool enabled) {
+  // Keep SC035GS running after its single startup. Toggling quick-stream at
+  // pen release truncates CSI packets; the worker bounds the scan by timestamps.
+  if (profile_.id == "y02-sc035gs") return;
   int value = enabled ? 1 : 0;
   require(sensor_ >= 0 && io(sensor_, 0x400456ca, &value) == 0,
           "cannot change pen exposure");
@@ -336,7 +401,7 @@ bool Hardware::readFrame(
     auto &v = buffers_[b.index];
     size_t used = p[0].bytesused, off = p[0].data_offset;
     require(off <= used && used <= v.size &&
-                used - off >= size_t(stride_) * 360 * 3 / 2,
+                used - off >= size_t(stride_) * profile_.height * 3 / 2,
             "invalid pen NV12 payload");
     require(!(b.flags & V4L2_BUF_FLAG_ERROR), "pen frame error");
     consume(static_cast<const uint8_t *>(v.bytes) + off, stride_, b.sequence,
@@ -349,7 +414,7 @@ bool Hardware::readFrame(
   return true;
 }
 void Hardware::close() noexcept {
-  if (sensor_ >= 0) {
+  if (sensor_ >= 0 && profile_.id == "orange-sc2356") {
     int zero = 0;
     io(sensor_, 0x400456ca, &zero);
     io(sensor_, 0x400456ea, &zero);

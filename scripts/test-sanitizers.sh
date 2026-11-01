@@ -24,5 +24,6 @@ export PENCHAT_SCANNER_TEST_BINARY="$task_root/build/scanner-sanitize/penchat-sc
 ctest --test-dir build/scanner-sanitize --output-on-failure
 ctest --test-dir build/asan --output-on-failure
 python3 tests/test_scanner_process.py
+python3 tests/test_scanner_y02.py
 python3 tests/test_scanner_ui.py
 python3 tests/test_chat_style.py

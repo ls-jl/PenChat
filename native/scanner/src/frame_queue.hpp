@@ -32,7 +32,13 @@ private:
     uint64_t sequence;
     int64_t timestamp;
   };
-  static constexpr size_t Record = sizeof(Header) + Pixels;
+  static size_t framePixels(int width, int height) {
+    if (width < 2 || height < 2 || width > 1024 || height > 1024)
+      throw std::invalid_argument("invalid scan queue frame size");
+    return size_t(width) * height;
+  }
+  int width_, height_;
+  size_t pixels_, record_, capacity_;
   int fd_ = -1;
   std::mutex mutex_;
   std::condition_variable condition_;
@@ -83,20 +89,20 @@ private:
         }
         if (load) {
           Header header{};
-          const auto offset = off_t(head % Capacity) * Record;
+          const auto offset = off_t(head % capacity_) * record_;
           transfer(&header, sizeof(header), offset, false);
           frame.sequence = header.sequence;
           frame.timestamp = header.timestamp;
-          frame.pixels.resize(Pixels);
-          transfer(frame.pixels.data(), Pixels, offset + sizeof(header), false);
+          frame.pixels.resize(pixels_);
+          transfer(frame.pixels.data(), pixels_, offset + sizeof(header), false);
           ++head;
           std::lock_guard<std::mutex> lock(mutex_);
           ready_.push_back(std::move(frame));
         } else {
           Header header{frame.sequence, frame.timestamp};
-          const auto offset = off_t(tail % Capacity) * Record;
+          const auto offset = off_t(tail % capacity_) * record_;
           transfer(&header, sizeof(header), offset, true);
-          transfer(frame.pixels.data(), Pixels, offset + sizeof(header), true);
+          transfer(frame.pixels.data(), pixels_, offset + sizeof(header), true);
           ++tail;
           std::lock_guard<std::mutex> lock(mutex_);
           ++writes_;
@@ -109,7 +115,12 @@ private:
   }
 
 public:
-  explicit FrameQueue(const std::string &directory) {
+  explicit FrameQueue(const std::string &directory, int width = 496, int height = 360)
+      : width_(width), height_(height), pixels_(framePixels(width, height)),
+        record_(sizeof(Header) + pixels_),
+        capacity_(std::min(Capacity, size_t(110 * 1024 * 1024) / record_)) {
+    if (width < 2 || height < 2 || width > 1024 || height > 1024 || !capacity_)
+      throw std::invalid_argument("invalid scan queue frame size");
     auto name = directory + "/capture-XXXXXX";
     std::vector<char> path(name.begin(), name.end());
     path.push_back(0);
@@ -141,13 +152,15 @@ public:
     std::lock_guard<std::mutex> lock(mutex_);
     if (!error_.empty())
       throw std::runtime_error(error_);
-    if (pending_ >= Capacity)
+    if (!pixels || stride < width_)
+      throw std::invalid_argument("invalid scan queue stride");
+    if (pending_ >= capacity_)
       throw std::runtime_error("scan temporary queue capacity");
     if (inbox_.size() >= Inbox)
       throw std::runtime_error("scan temporary queue storage stalled");
-    Frame frame{sequence, timestamp, std::vector<uint8_t>(Pixels)};
-    for (int row = 0; row < 360; ++row)
-      memcpy(frame.pixels.data() + row * 496, pixels + row * stride, 496);
+    Frame frame{sequence, timestamp, std::vector<uint8_t>(pixels_)};
+    for (int row = 0; row < height_; ++row)
+      memcpy(frame.pixels.data() + size_t(row) * width_, pixels + size_t(row) * stride, width_);
     inbox_.push_back(std::move(frame));
     ++pending_;
     peak_ = std::max(peak_, pending_);
@@ -165,6 +178,8 @@ public:
     condition_.notify_one();
     return true;
   }
+  size_t capacity() const { return capacity_; }
+  size_t storageLimit() const { return capacity_ * record_; }
   size_t pending() {
     std::lock_guard<std::mutex> lock(mutex_);
     return pending_;
