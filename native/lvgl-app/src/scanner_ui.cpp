@@ -89,7 +89,7 @@ void App::scanPage() {
       text = scanReason(scanResult_["error"].get<std::string>());
     else if (!usable)
       text = scanResult_.value("reason", std::string()).empty()
-                 ? "没有可用图像，请重新扫描"
+                 ? "没有可用图像，按下笔头即可重扫"
                  : "扫描失败：" +
                        scanReason(scanResult_.value("reason", std::string()));
     else if (partial)
@@ -114,7 +114,10 @@ void App::scanEvent(const Event &event) {
       j.value("session", std::string()) != session_)
     return;
   if (event.type == "scan_started") {
-    if (view_ != "chat" || !visible_ || keyboard_ || imageViewer_ || modal_ || attachments_ ||
+    const bool retryEmpty = view_ == "scan" &&
+        scanResult_.value("type", std::string()) == "finished" &&
+        !scanResult_.value("usable", false) && !scanConfirming_;
+    if ((view_ != "chat" && !retryEmpty) || !visible_ || keyboard_ || imageViewer_ || modal_ || attachments_ ||
         navigationOpen_) {
       scanner_.eligible(false, session_);
       return;

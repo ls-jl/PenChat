@@ -149,6 +149,7 @@ class Worker {
   bool mock_ = false, armed_ = false, capturing_ = false, finished_ = false;
   CaptureProfile profile_;
   bool requireRelease_ = false, keyDown_ = false, draining_ = false;
+  bool retryWhenEmpty_ = false;
   unsigned afterStop_ = 0;
   bool haveSequence_ = false;
   uint64_t lastSequence_ = 0, droppedRaw_ = 0, recoveredGaps_ = 0;
@@ -200,6 +201,7 @@ class Worker {
     data["profile"] = profile_.id;
     data["sensor_width"] = config_.width;
     data["sensor_height"] = config_.height;
+    data["hardware_armed"] = armed_;
     if (!sendPacket(fd_, data))
       throw ControlDisconnected();
   }
@@ -271,6 +273,7 @@ class Worker {
     capturing_ = false;
     finished_ = false;
     draining_ = false;
+    retryWhenEmpty_ = false;
     removeExport();
     std::lock_guard<std::mutex> l(eventMutex_);
     events_.clear();
@@ -279,6 +282,7 @@ class Worker {
     light_.off();
     hardware_.close();
     armed_ = false;
+    keyDown_ = false;
     state_ = "disarmed";
     // Camera, key and guardian are restored before imposing an exit bound on
     // cancelled work. A stuck NPU call must not leave a detached worker alive.
@@ -340,6 +344,35 @@ class Worker {
     light_.request(true);
     emit("started",
          {{"pressedUs", pressTime_}, {"lightRequestedUs", lightRequestedUs_}});
+  }
+  bool retryEmpty() {
+    if (!armed_ || !finished_ || !result_)
+      return false;
+    const auto bounds = result_->bounds();
+    if (bounds.width > 0 && bounds.height > 0)
+      return false; // Never discard an image waiting for user review.
+    release();
+    requireRelease_ = false;
+    if (!mock_)
+      hardware_.exposure(true);
+    begin();
+    return true;
+  }
+  void keyEvent(bool down) {
+    if (!armed_ || down == keyDown_)
+      return;
+    keyDown_ = down;
+    if (down) {
+      if (retryEmpty())
+        return;
+      // Finish deciding whether there is an image before discarding anything.
+      retryWhenEmpty_ = scan_ && !capturing_ && !finished_;
+      begin();
+    } else {
+      retryWhenEmpty_ = false;
+      requireRelease_ = false;
+      drain();
+    }
   }
   void seal() {
     if (!capturing_)
@@ -480,6 +513,7 @@ public:
       backend = makeRknn32(resources_ + "/pintu_32.rknn");
     Limits limits;
     limits.maxSessions = 1;
+    limits.idleModelMs = 0;
     backend = std::make_unique<ObservedInference>(std::move(backend), [this] {
       int64_t zero = 0;
       firstBatchUs_.compare_exchange_strong(zero, clockUs());
@@ -548,14 +582,7 @@ public:
     }
 #ifdef SCANNER_TEST_SOURCE
     else if (mock_ && type == "test.press") {
-      bool down = j.value("pressed", false);
-      keyDown_ = down;
-      if (down)
-        begin();
-      else {
-        requireRelease_ = false;
-        drain();
-      }
+      keyEvent(j.value("pressed", false));
     } else if (mock_ && type == "test.frame" && capturing_) {
       std::vector<uint8_t> pixels(size_t(config_.width) * config_.height, 210);
       for (int y = 20; y < config_.height - 20; ++y)
@@ -665,15 +692,8 @@ public:
     }
     if (armed_ && !mock_) {
       bool down = false;
-      while (hardware_.keyEvent(down)) {
-        keyDown_ = down;
-        if (down)
-          begin();
-        else {
-          requireRelease_ = false;
-          drain();
-        }
-      }
+      while (hardware_.keyEvent(down))
+        keyEvent(down);
       // Always dequeue standby frames, but copy only while capturing.
       for (int n = 0; n < 16; ++n)
         if (!hardware_.readFrame(
@@ -721,6 +741,8 @@ public:
               {"maxCaptureLoopUs", maxCaptureLoopUs_},
               {"captureEndedUs", sourceCutoffUs_},
               {"lastSourceFrameUs", lastRawTimestamp_}});
+        if (retryWhenEmpty_ && keyDown_)
+          retryEmpty();
       }
     }
     if (scan_ && !finished_ && clockUs() >= nextPreview_) {
@@ -757,6 +779,7 @@ public:
       emit("error", {{"error", why}});
     }
   }
+  bool idle() const { return state_ == "disarmed"; }
 };
 } // namespace
 int main(int argc, char **argv) {
@@ -823,7 +846,7 @@ int main(int argc, char **argv) {
     Worker worker(fd, slot, resources, directory, mock, profile);
     while (running) {
       pollfd p{fd, POLLIN, 0};
-      poll(&p, 1, 5);
+      poll(&p, 1, worker.idle() ? -1 : 5);
       if (p.revents & (POLLHUP | POLLERR | POLLNVAL))
         break;
       try {

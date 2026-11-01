@@ -1,7 +1,7 @@
 {
   "source_commit": "21bfd280fbb97969ff7883d107aeaa8f21982fc7",
   "files": {
-    "engine/include/pen_stream/stream.hpp": "44de04e9b16b1d4d9e28943822529d2cce19821346e85cba52a4f52b1da0c604",
+    "engine/include/pen_stream/stream.hpp": "aae7c9ae92cf6a79fc355b0724b9e01eaf968c13643ad3d3c64b4bbef0a578cb",
     "engine/include/rknn/rknn_api.h": "c48e11a6f41b451a5fd1e4ad774ea60252d3d94f78bee9b21ea3d21b21deba9a",
     "engine/src/canvas.cpp": "f99f14bac1972f298f4212179a4d2aa3727c5e89ca8c52265a346293ea970f32",
     "engine/src/geometry.cpp": "7ab4adac94108557178c6d98d9a38b023db26f815dc7eb11bfccd5db873479ec",
@@ -11,10 +11,10 @@
     "engine/src/photo_cpu.hpp": "aca85afe830e1da02cac8306e98a79da7613598e18c5062e25d681b97eb58a8a",
     "engine/src/resize_compat.cpp": "af0d7a5d2506e059b66f8b964a5bfe27856db6874a60ebeab25377c3bf147e98",
     "engine/src/rknn.cpp": "0012ef4a069673647aa6106f6aae151ac88fee3ef915755a89772fcc406ea442",
-    "engine/src/stream.cpp": "0c4593b9cec4f3ea8fff7c3e449fa1d6fbb35e44fddcbebfaeb19b99d21dd32c",
+    "engine/src/stream.cpp": "f807b97626144eb2db123e7c397efa1a7dcf156092516e43021ea48399c8fb0d",
     "engine/tests/fake_runtime.cpp": "2d7f7780a3faa239bb39c7e152a06a218554559a1f3b5f540602314a666a2da8",
     "engine/tests/test_adapter.cpp": "90d08f0fad9d704c7664f7c6c017638b7c9f24bc28fdff18bd3086de41e84cc0",
-    "engine/tests/test_stream.cpp": "a3ed8734d031088910fb834baf65f94893bc3c3aa0ba485fbb7e4e2a2efda161",
+    "engine/tests/test_stream.cpp": "839a2a252d7ed74aaeb6911e73125c5321605672166ff2f20e94dd0d34c7a5fe",
     "tests/replay.cpp": "39064d6c26e1f1b000d6deda66fef62e9aa23875126849e8088af560aa1c4d38"
   },
   "resources": {

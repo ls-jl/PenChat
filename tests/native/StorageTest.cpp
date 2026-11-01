@@ -77,6 +77,11 @@ static void startupFailures(const std::string &root) {
           caught = std::string(e.what()) == "fixture startup failure";
         }
         assert(caught);
+        // Linux can wake pthread_join at clear_child_tid before the exiting
+        // task disappears from procfs. Still reject any persistent thread leak.
+        for (unsigned retry = 0;
+             entries("/proc/self/task") != threads && retry < 100; ++retry)
+          usleep(1000);
         assert(entries("/proc/self/task") == threads);
         assert(entries("/proc/self/fd") == fds);
       }

@@ -43,7 +43,7 @@ struct Limits {
     std::size_t frameBytes = 48 * MiB, canvasBytes = 32 * MiB;
     std::size_t managedBytes = 96 * MiB, rssSoftBytes = 240 * MiB;
     unsigned maxFrames = 256, highFrames = 240, maxSessions = 4;
-    unsigned idleModelMs = 5000;
+    unsigned idleModelMs = 5000; // 0 retains a healthy model until shutdown.
 };
 struct Counts {
     std::uint64_t received = 0, filtered = 0, selected = 0, committed = 0;

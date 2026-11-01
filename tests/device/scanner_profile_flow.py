@@ -27,11 +27,29 @@ def run(c):
         assert shell('cat /sys/class/gpio/gpio43/value')=='0'
         wait(lambda:shell('pidof CaptureFrame'),timeout=10)
     results=[]
-    ready();c['capture']('scanner-ready-'+profile)
-    for cycle in range(6):
-        ready()
-        p=subprocess.Popen(['adb','-s',c['SERIAL'],'shell','/tmp/penchat-display-key /dev/input/by-path/led_control 134 1 500 100'],stdout=subprocess.DEVNULL)
-        assert p.wait(timeout=5)==0
+    def press(hold):
+        # This firmware's adbd may return zero even when the remote helper fails.
+        output=subprocess.check_output(['adb','-s',c['SERIAL'],'shell',f'/tmp/penchat-display-key /dev/input/by-path/led_control 134 1 {hold} 100'],text=True)
+        assert 'sent 1 paired events code=134' in output,output
+    resident=ready()['scanner']['worker_pid'];assert str(resident)==shell('pidof penchat-scanner')
+    c['capture']('scanner-ready-'+profile)
+    empty_retry=False
+    if profile=='y02-sc035gs':
+        for attempt in range(3):
+            press(1)
+            empty=wait(lambda:(r if (r:=state().get('scan_result',{})).get('type')=='finished' else None),timeout=90)
+            if not empty['usable']:
+                c['capture']('scanner-empty-ready-to-retry')
+                press(500)
+                retry=wait(lambda:(r if (r:=state().get('scan_result',{})).get('type')=='finished' and r['scanId']!=empty['scanId'] else None),timeout=90)
+                assert retry['counts']['received']>=5 and shell('pidof penchat-scanner')==str(resident)
+                empty_retry=True;c['capture']('scanner-retried-without-leaving')
+            tap(W-205,108);wait(lambda:state()['view']=='chat');ready()
+            if empty_retry:break
+        assert empty_retry,'Could not exercise an empty result with a short physical press'
+    for cycle in range(3):
+        assert ready()['scanner']['worker_pid']==resident
+        press(500)
         r=wait(lambda:(d['scan_result'] if (d:=state()).get('scan_result',{}).get('type')=='finished' else None),timeout=90)
         counts=r['counts'];assert r['profile']==profile and counts['received']>=5,r
         assert counts['discarded_backlog']==0 and counts['queue_capacity']==capacity,r
@@ -41,22 +59,35 @@ def run(c):
         results.append({'received':counts['received'],'selected':counts['selected'],'batches':counts['batches'],'status':r['status'],'reason':r.get('reason','')})
         c['capture']('scanner-result-'+str(cycle))
         # Keep even a usable image out of the fixture's conversation.
-        tap(W-205,108);wait(lambda:state()['view']=='chat');ready()
+        tap(W-205,108);wait(lambda:state()['view']=='chat')
+        assert ready()['scanner']['generation']==r['generation']
         snapshot=c['DATA']+'/scanner-acceptance.db'
         shell('sqlite3 -readonly '+shlex.quote(c['DATA']+'/penchat.db')+' '+shlex.quote('.backup '+snapshot))
         assert shell('sqlite3 -readonly '+shlex.quote(snapshot)+' '+shlex.quote('select count(*) from chat_sessions'))=='0'
         tap(40,32);wait(lambda:state()['navigation_open']);released()
+        assert shell('pidof penchat-scanner')==str(resident)
         fmt=shell('v4l2-ctl -d /dev/video23 --get-fmt-video');assert fmt==c['scanner_profile_format'],fmt
-        tap(W-30,80);ready()
+        if cycle==0:
+            handles=lambda:[line.split(' -> ',1)[-1] for line in shell(f'ls -l /proc/{resident}/fd').splitlines() if ' -> /dev/dri/' in line or ' -> /dev/rknpu' in line]
+            npu_handles=handles();assert npu_handles,'Resident RKNN context has no device handle'
+            shell('miniapp_cli start 8080222437664451');wait(lambda:not state()['visible'])
+            time.sleep(6) # The previous model idle limit was five seconds.
+            assert shell('pidof penchat-scanner')==str(resident) and handles()==npu_handles
+            c['wake']();shell('miniapp_cli start '+c['APP']['appid']);wait(lambda:state()['visible'])
+        else:
+            tap(W-30,80)
+        assert ready()['scanner']['worker_pid']==resident
     # Parent fallback must restore the saved Y02 format after an abrupt child exit.
     worker=shell('pidof penchat-scanner');assert worker.isdigit()
     shell('kill -KILL '+worker)
     tap(40,32);wait(lambda:state()['navigation_open']);released()
     assert shell('v4l2-ctl -d /dev/video23 --get-fmt-video')==c['scanner_profile_format']
-    tap(W-30,80);ready();assert shell('pidof penchat-scanner')!=worker
+    tap(W-30,80);resident=ready()['scanner']['worker_pid'];assert str(resident)!=worker
     tap(W//2,H-34);wait(lambda:state()['editor']['active']);released()
     wait(lambda:state()['editor']['ocr_active']);c['capture']('scanner-keyboard-ocr-release')
+    assert shell('pidof penchat-scanner')==str(resident)
     b=state()['editor']['actions']['cancel'];tap((b[0]+b[2])//2,(b[1]+b[3])//2);ready()
     shell('miniapp_cli start 8080222437664451');wait(lambda:not state()['visible']);released()
+    assert shell('pidof penchat-scanner')==str(resident)
     shell('miniapp_cli start '+c['APP']['appid']);wait(lambda:state()['visible']);ready()
-    c['result']['scanner_profile']={'profile':profile,'native_shape':shape,'queue_capacity':capacity,'cycles':results,'ocr_release':True,'background_release':True,'child_crash_restore':True,'discard_only':True,'paper_quality_validated':False}
+    c['result']['scanner_profile']={'profile':profile,'native_shape':shape,'queue_capacity':capacity,'cycles':results,'resident_worker':True,'idle_npu_handles':npu_handles,'empty_result_tip_retry':empty_retry,'ocr_release':True,'background_release':True,'child_crash_restore':True,'discard_only':True,'paper_quality_validated':False}

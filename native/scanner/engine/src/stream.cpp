@@ -403,7 +403,7 @@ struct Engine::Impl {
                         cv.notify_all();
                         continue;
                     }
-                    if (opened && idleLocked()) {
+                    if (opened && budget->limits.idleModelMs && idleLocked()) {
                         if (!idleArmed) {
                             idleSince = std::chrono::steady_clock::now();
                             idleArmed = true;

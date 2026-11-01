@@ -1,6 +1,7 @@
 #include "scanner.hpp"
 #include "../../scanner/src/hardware.hpp"
 #include <algorithm>
+#include <chrono>
 #include <csignal>
 #include <dirent.h>
 #include <fcntl.h>
@@ -235,13 +236,18 @@ struct ScanService::Impl {
   void run() {
     for (;;) {
       std::deque<Json> outgoing;
+      bool idle = false;
       {
         std::unique_lock<std::mutex> l(mutex);
         if (commands.empty() && socket < 0 && !stopped)
           cv.wait(l, [&] { return stopped || !commands.empty(); });
+        else if (commands.empty() && disarmed && !stopped)
+          cv.wait_for(l, std::chrono::milliseconds(250),
+                      [&] { return stopped || !commands.empty(); });
         if (stopped)
           break;
         outgoing.swap(commands);
+        idle = disarmed && outgoing.empty();
       }
       try {
         if (socket < 0 && !outgoing.empty())
@@ -252,7 +258,7 @@ struct ScanService::Impl {
         if (socket < 0)
           continue;
         pollfd p{socket, POLLIN, 0};
-        poll(&p, 1, 10);
+        poll(&p, 1, idle ? 0 : 10);
         if (p.revents & (POLLHUP | POLLERR | POLLNVAL))
           throw std::runtime_error("scanner process exited");
         for (int i = 0; i < 32; ++i) {
@@ -261,6 +267,7 @@ struct ScanService::Impl {
             break;
           if (j.is_boolean())
             throw std::runtime_error("scanner disconnected");
+          j["worker_pid"] = child;
           auto type = j.value("type", std::string());
           if (type == "fatal")
             throw std::runtime_error(
@@ -290,20 +297,8 @@ struct ScanService::Impl {
             events.pushLatest("scan_" + type, j);
           else
             events.push("scan_" + type, j);
-          if (type == "released") {
-            bool needed;
-            {
-              std::lock_guard<std::mutex> l(mutex);
-              needed = desired;
-            }
-            if (!needed) {
-              // A menu/background transition relinquishes the worker too.
-              // Close only after the child has restored camera/key/light state;
-              // keep the process lease until waitpid and fallback finish.
-              cleanup();
-              break;
-            }
-          }
+          // Keep the worker and model resident until application shutdown.
+          // released only acknowledges camera/key/light and guardian handoff.
         }
       } catch (const std::exception &e) {
         cleanup();

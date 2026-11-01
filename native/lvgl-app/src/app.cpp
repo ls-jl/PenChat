@@ -1079,7 +1079,11 @@ void App::show(const std::string &view) {
   if (view_ == "crop" && view != "crop")
     clearCrop();
   if (view_ == "scan" && view != "scan") {
-    scanner_.eligible(false, session_);
+    if (view == "chat" && scanResult_.value("type", std::string()) == "finished" &&
+        scanResult_.value("hardware_armed", false) && !scanConfirming_)
+      scanner_.discard(scanId_);
+    else
+      scanner_.eligible(false, session_);
     scanId_ = 0;
     scanResult_ = Json::object();
     scanConfirming_ = false;

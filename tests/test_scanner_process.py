@@ -42,6 +42,19 @@ def run():
         try:
             s.press();s.release()
             empty=s.receive('finished');assert not empty['usable'] and empty['counts']['received']==0
+            # A fresh down retries empty results; repeated down is not a new scan.
+            empty_scan=s.scan
+            s.press();assert s.scan!=empty_scan
+            s.send('test.press',pressed=True);s.frames(1);s.release()
+            retried=s.receive('finished');assert retried['usable'] and retried['counts']['received']==1,retried
+            s.send('test.press',pressed=True);s.frames(1);s.release()
+            s.send('confirm');held=s.receive('exported')['image']
+            assert held['metadata']['counts']['received']==1 # A valid result is never replaced.
+            s.send('discard');s.receive('ready')
+            # Pressing again before empty-result processing finishes also retries,
+            # but never starts a later scan after that second press is released.
+            s.press();s.release();s.send('test.press',pressed=True);s.receive('started')
+            s.frames(1);s.release();assert s.receive('finished')['usable']
             s.send('discard');s.receive('ready')
             # While the tip remains down, a complete first batch is already drawn.
             started=s.press();s.frames(32)

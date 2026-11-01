@@ -27,6 +27,7 @@ def run():
             try:
                 original=app.diag()['session']
                 wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
+                worker=app.diag()['scanner']['worker_pid']
                 app.send('scanner.test',command='test.press',pressed=True)
                 wait_for(lambda:app.diag()['view']=='scan')
                 snapshot(app,'capturing')
@@ -38,6 +39,8 @@ def run():
                 snapshot(app,'result')
                 app.tap(840,108) # discard, without creating a chat row
                 wait_for(lambda:app.diag()['view']=='chat')
+                wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
+                assert app.diag()['scanner']['generation']==finished['scan_result']['generation']
                 assert app.diag()['session']==original and app.diag()['summary']['sessions']==0
                 scan(app)
                 app.tap(840,54);app.tap(840,54)
@@ -57,11 +60,13 @@ def run():
                     app.tap(photo['x']+photo['width']//2,photo['y']+photo['height']//2)
                 wait_for(lambda:app.diag()['image_viewer']['open'])
                 wait_for(lambda:app.diag()['scan_released'])
+                assert app.diag()['scanner']['worker_pid']==worker and pathlib.Path(f'/proc/{worker}').exists()
                 app.tap(922,30)
                 wait_for(lambda:not app.diag()['image_viewer']['open'])
                 assert len(app.read_messages())==1
                 # History can render the thumbnail after the pending original is deleted.
                 wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
+                assert app.diag()['scanner']['worker_pid']==worker
                 assert not list((pathlib.Path(directory)/'.scan-pending').glob('*.png'))
                 app.open_navigation();assert app.diag()['navigation_open']
                 wait_for(lambda:app.diag()['scan_released'])
@@ -69,6 +74,18 @@ def run():
                 scan(app,0);assert not app.diag()['scan_result']['usable']
                 snapshot(app,'empty')
                 app.tap(840,54);assert app.diag()['view']=='scan' # empty cannot confirm
+                empty_scan=app.diag()['scan_id']
+                app.send('scanner.test',command='test.press',pressed=True)
+                wait_for(lambda:app.diag()['scan_id']!=empty_scan)
+                assert app.diag()['view']=='scan' and not app.diag()['scan_result']
+                app.send('scanner.test',command='test.press',pressed=True)
+                app.send('scanner.test',command='test.frame')
+                app.send('scanner.test',command='test.press',pressed=False)
+                wait_for(lambda:app.diag()['scan_result'].get('type')=='finished')
+                assert app.diag()['scan_result']['usable'] and app.diag()['scan_result']['counts']['received']==1
+                app.send('scanner.test',command='test.press',pressed=True)
+                app.send('scanner.test',command='test.press',pressed=False)
+                assert app.diag()['scan_result']['counts']['received']==1 # Review protects a valid image.
                 app.tap(40,32);wait_for(lambda:app.diag()['view']=='chat')
                 wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
                 app.send('scanner.test',command='test.press',pressed=True)
@@ -85,11 +102,15 @@ def run():
                 scan(app,1)
                 app.send('visibility',visible=False)
                 wait_for(lambda:app.diag()['scan_released'])
+                assert app.diag()['scanner']['worker_pid']==worker and pathlib.Path(f'/proc/{worker}').exists()
                 app.send('visibility',visible=True)
+                wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
+                assert app.diag()['scanner']['worker_pid']==worker
                 assert len(app.read_messages())==1 and app.diag()['view']=='chat'
                 app.edit('扫描后仍可输入')
                 assert app.diag()['view']=='chat'
             finally:app.close()
+            wait_for(lambda:not pathlib.Path(f'/proc/{worker}').exists())
         server=http.server.ThreadingHTTPServer(('127.0.0.1',0),transport.Server)
         transport.port=server.server_port
         threading.Thread(target=server.serve_forever,daemon=True).start()

@@ -28,7 +28,9 @@ and input request IDs. With GCC 6/C++14, read JSON defaults into a local before
 assigning through `operator[]` on that object; assignment operands are unordered
 and `[]` may insert null before the read.
 Release child processes, camera, pointers and the display
-plane on lifecycle transitions. Never dereference freed LVGL object pointers;
+plane on lifecycle transitions. The scanner child and healthy model are an
+exception: retain them until native app exit, while releasing camera/key/light,
+guardian leases and per-scan results on page/background handoff. Never dereference freed LVGL object pointers;
 register image cleanup on LV_EVENT_DELETE (9.6's old is_valid alias is unsafe).
 Section page titles and their actions belong to the full-height scrolling reader,
 using pageHeader/pageContent/pageAction. Never pin a title/action strip over menu

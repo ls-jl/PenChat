@@ -213,6 +213,32 @@ static void pressure() {
     e.shutdown();
     require(!e.metrics().frames, "pressure cleanup");
 }
+static void residentModel() {
+    auto probe = std::make_shared<Probe>();
+    Limits limits;
+    limits.idleModelMs = 0;
+    Engine engine(std::make_unique<Fake>(probe), limits);
+    auto c = config();
+    auto pixels = image(c);
+    for (unsigned scan = 0; scan < 3; ++scan) {
+        auto started = engine.beginScan(c);
+        require(started.code == Code::Ok, "resident begin");
+        for (unsigned frame = 0; frame < 33; ++frame)
+            require(engine.pushFrame(started.scan, pixels.data(), c.width, c.height,
+                                     c.width, frame, frame).accepted, "resident push");
+        engine.endScan(started.scan);
+        auto result = engine.wait(started.scan);
+        require(result->counts().committed == 33, "resident result");
+        engine.releaseResult(result);
+        engine.releaseResult(started.scan);
+        std::this_thread::sleep_for(std::chrono::milliseconds(80));
+        require(engine.metrics().modelLoaded && probe->opens == 1 && probe->closes == 0,
+                "idle and session release retain one model context");
+    }
+    engine.shutdown();
+    require(!engine.metrics().modelLoaded && probe->closes == 1,
+            "shutdown releases resident model");
+}
 static void sessionsAndFailure() {
     auto p = std::make_shared<Probe>();
     p->delay = 5;
@@ -371,6 +397,7 @@ int main() {
         pressure();
         std::fprintf(stderr, "TEST sessions\n");
         sessionsAndFailure();
+        residentModel();
         std::fprintf(stderr, "TEST canvas and ownership\n");
         canvasAndCopies();
         synchronousFacade();
