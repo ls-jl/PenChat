@@ -19,7 +19,13 @@ struct HttpResult {
   long status = 0;
   std::string body, error, contentType, requestId;
   int64_t elapsedMs = 0;
+  int curlCode = 0;
+  int64_t retryAfterSeconds = 0;
   Json timings = Json::object();
+};
+struct HttpRoute {
+  std::string host, target;
+  unsigned port = 443;
 };
 struct HttpIdentity { std::string provider, endpoint, revision, headerProfile; };
 void setHttpIdleSeconds(int seconds);
@@ -33,7 +39,7 @@ HttpResult http(const std::string &url, const std::string &method,
                 std::function<void(const char *, size_t)> chunks = {},
                 const ApiOptions &options = {},
                 std::function<bool()> complete = {},
-                const HttpIdentity &identity = {});
+                const HttpIdentity &identity = {}, const HttpRoute &route = {});
 Json requestBody(const Json &model, Json input, bool streaming);
 Json anthropicRequestBody(const Json &model, const Json &input, bool streaming);
 void streamAnthropic(const Json &model, Json input, std::atomic<bool> &cancel,

@@ -1,4 +1,5 @@
 #include "network.hpp"
+#include "feedback.hpp"
 #include <curl/curl.h>
 #include <cerrno>
 #include <cctype>
@@ -21,6 +22,7 @@ class HttpService {
     std::string url, method, provider, key;
     Json headers;
     ApiOptions options;
+    HttpRoute route;
     const std::string *sourceBody = nullptr; // Caller waits until published.
     std::string body;
     size_t upload = 0, bytes = 0, tailBytes = 0;
@@ -31,6 +33,7 @@ class HttpService {
     HttpResult result;
     CURL *easy = nullptr;
     curl_slist *headerList = nullptr;
+    curl_slist *connectList = nullptr;
     Pool *pool = nullptr;
     int attempts = 0;
     bool published = false, logical = false, retryDenied = false;
@@ -183,6 +186,9 @@ class HttpService {
     curl_easy_getinfo(j.easy,CURLINFO_APPCONNECT_TIME,&tls);
     curl_easy_getinfo(j.easy,CURLINFO_STARTTRANSFER_TIME,&first);
     curl_easy_getinfo(j.easy,CURLINFO_NUM_CONNECTS,&created);
+    curl_off_t retry = 0;
+    if (curl_easy_getinfo(j.easy, CURLINFO_RETRY_AFTER, &retry) == CURLE_OK)
+      j.result.retryAfterSeconds = std::max<int64_t>(0, retry);
     j.result.elapsedMs=ticks()-j.submitted;
     j.result.timings={{"dns_ms",dns*1000},{"tcp_ms",std::max(0.,connect-dns)*1000},
       {"tls_ms",tls>0?std::max(0.,tls-connect)*1000:0.}, {"first_byte_ms",first*1000},
@@ -196,6 +202,11 @@ class HttpService {
     // Release every callback and caller pointer before waking the waiting task.
     j.chunks={};j.complete={};j.cancel=nullptr;j.sourceBody=nullptr;j.published=true;
     last_=j.result.timings;last_["status"]=j.result.status;
+    auto safe = j.result.timings;
+    safe["status"] = j.result.status;
+    safe["curl_code"] = j.result.curlCode;
+    diagnosticRecord(j.provider == "penchat-feedback" ? "feedback" : "network",
+                     "request_end", safe);
     j.promise.set_value(std::move(j.result));
   }
   void start(const std::shared_ptr<Job> &j,Pool &p) {
@@ -214,6 +225,19 @@ class HttpService {
     SET(CURLOPT_URL,j->url.c_str());SET(CURLOPT_HTTPHEADER,j->headerList);SET(CURLOPT_SHARE,p.share);
     SET(CURLOPT_NOSIGNAL,1L);SET(CURLOPT_CONNECTTIMEOUT_MS,15000L);SET(CURLOPT_TIMEOUT_MS,long(j->options.timeout)*1000);
     SET(CURLOPT_SSL_VERIFYPEER,1L);SET(CURLOPT_SSL_VERIFYHOST,2L);SET(CURLOPT_FOLLOWLOCATION,0L);
+    if (!j->route.target.empty()) {
+      if (j->route.host.empty() || j->route.port == 0 || j->route.port > 65535 ||
+          j->route.host.find_first_of("\r\n/: ") != std::string::npos ||
+          j->route.target.find_first_of("\r\n/ ") != std::string::npos)
+        throw std::runtime_error("Invalid HTTP connection target");
+      const auto target = j->route.target.find(':') == std::string::npos
+                            ? j->route.target : "[" + j->route.target + "]";
+      const auto value = j->route.host + ":" + std::to_string(j->route.port) +
+                         ":" + target + ":" + std::to_string(j->route.port);
+      j->connectList = curl_slist_append(nullptr, value.c_str());
+      if (!j->connectList) throw std::runtime_error("Cannot allocate HTTP route");
+      SET(CURLOPT_CONNECT_TO, j->connectList);
+    }
     SET(CURLOPT_MAXAGE_CONN,long(idle_.load()));SET(CURLOPT_SSL_SESSIONID_CACHE,1L);
     if(j->options.http1)SET(CURLOPT_HTTP_VERSION,CURL_HTTP_VERSION_1_1);
 #if !defined(__aarch64__) || defined(PENCHAT_HTTP_TESTING)
@@ -236,6 +260,7 @@ class HttpService {
     active_[h]=j;
   }
   void finish(const std::shared_ptr<Job> &j,CURLcode code,bool forceClose=false) {
+    j->result.curlCode = int(code);
     if(j->easy) {
       if(forceClose||code!=CURLE_OK)curl_easy_setopt(j->easy,CURLOPT_FORBID_REUSE,1L);
       if(!j->published) {
@@ -245,6 +270,7 @@ class HttpService {
         publish(*j);
       }
       curl_multi_remove_handle(multi_,j->easy);active_.erase(j->easy);curl_easy_cleanup(j->easy);j->easy=nullptr;
+      if (j->connectList) { curl_slist_free_all(j->connectList); j->connectList = nullptr; }
     } else publish(*j);
     curl_slist_free_all(j->headerList);j->headerList=nullptr;
     if(j->pool){--j->pool->active;j->pool->lastUsed=ticks();j->pool=nullptr;}
@@ -329,13 +355,15 @@ public:
   ~HttpService(){shutdown();if(initialized_)curl_global_cleanup();}
   HttpResult request(const std::string &url,const std::string &method,const Json &headers,const std::string &body,
                      std::atomic<bool> &cancel,std::function<void(const char *,size_t)> chunks,
-                     const ApiOptions &options,std::function<bool()> complete,const HttpIdentity &identity) {
+                     const ApiOptions &options,std::function<bool()> complete,const HttpIdentity &identity,
+                     const HttpRoute &route) {
     if(url.compare(0,8,"https://")&&url.compare(0,7,"http://")){HttpResult r;r.error="Only HTTP(S) URLs are supported";return r;}
     auto j=std::make_shared<Job>();j->url=url;j->method=method;j->headers=headers;j->sourceBody=&body;
     j->cancel=&cancel;j->chunks=std::move(chunks);j->complete=std::move(complete);j->options=options;j->provider=identity.provider;
+    j->route = route;
     // Private in-memory key only. It is never included in diagnostics or logs.
     j->key=Json({identity.provider,identity.endpoint.empty()?origin(url):identity.endpoint,identity.revision,options.http1,
-                identity.headerProfile.empty()?headers:Json(identity.headerProfile)}).dump();
+                identity.headerProfile.empty()?headers:Json(identity.headerProfile),route.host,route.port,route.target}).dump();
     auto future=j->promise.get_future();
     {std::lock_guard<std::mutex> lock(mutex_);
       if(stopping_){HttpResult r;r.error="HTTP 服务已关闭";return r;}
@@ -364,7 +392,8 @@ void shutdownHttp(){service().shutdown();}
 Json httpDiagnostics(){return service().diagnostics();}
 HttpResult http(const std::string &url,const std::string &method,const Json &headers,const std::string &body,
                 std::atomic<bool> &cancel,std::function<void(const char *,size_t)> chunks,
-                const ApiOptions &options,std::function<bool()> complete,const HttpIdentity &identity) {
-  return service().request(url,method,headers,body,cancel,std::move(chunks),options,std::move(complete),identity);
+                const ApiOptions &options,std::function<bool()> complete,const HttpIdentity &identity,
+                const HttpRoute &route) {
+  return service().request(url,method,headers,body,cancel,std::move(chunks),options,std::move(complete),identity,route);
 }
 } // namespace penchat

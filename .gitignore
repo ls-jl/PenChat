@@ -40,3 +40,6 @@ assets/scanner/
 *.a
 
 assets/pinyin/
+
+# Private feedback queues and diagnostic rings
+.feedback/

@@ -55,7 +55,7 @@ std::string basename(const std::string &p) {
 } // namespace
 App::App(Database &db, Bridge &bridge, Display &display, Input &input,
          const Screen &s, std::string workspace, std::string dataDir,
-         const std::string &fontPath, const std::string &resources, bool nativeTouch)
+         const std::string &fontPath, const std::string &resources, bool nativeTouch, const Json &configuration)
     : db_(db), bridge_(bridge), display_(display), input_(input), screen_(s), touchInput_(s, nativeTouch),
       pinyin_(events_, join(workspace, "assets/pinyin"), dataDir),
       images_(events_), camera_(events_, join(dataDir, "camera-tmp"), workspace),
@@ -64,6 +64,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
             join(workspace, "assets/fonts/DejaVuSans.ttf")),
       workspace_(std::move(workspace)), dataDir_(std::move(dataDir)) {
   initializeMessageEdits();
+  feedback_.reset(new Feedback(events_, dataDir_, feedbackScreen(configuration, s), nativeTouch));
   transfer_.reset(new Transfer(db_, events_, dataDir_));
   transfer_->start("init");
   clearCrop();
@@ -909,6 +910,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  feedbackActions_.clear();
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
   chatRenderPending_ = chatRefreshPending_ = chatImagesPending_ = false;
   chatFinishPending_ = Json::object();
@@ -957,6 +959,7 @@ void App::clear() {
       nullptr;
 }
 void App::build() {
+  feedbackActions_.clear();
   const int pageY = pageHeader_ && body_ && builtView_ == view_ && builtPageKey_ == pageKey()
                       ? std::max(0, int(lv_obj_get_scroll_y(body_))) : 0;
   const int settingsY = body_ && builtView_ == "settings" && view_ == "settings"
@@ -1003,6 +1006,8 @@ void App::build() {
     httpSettingsPage();
   else if (view_ == "keyboard_settings")
     keyboardSettingsPage();
+  else if (view_ == "feedback")
+    feedbackPage();
   else if (view_ == "transfer")
     transferPage();
   else if (view_ == "presets")
@@ -1068,6 +1073,7 @@ void App::build() {
   if (imageViewer_) lv_obj_move_foreground(imageViewer_);
 }
 void App::show(const std::string &view) {
+  if (view_ == "feedback" && view != view_ && feedback_) feedback_->request("keys.cancel");
   if (view_ == "session_info" && view != view_) {
     ++sessionInfoGeneration_; sessionInfoPending_ = false;
   }
@@ -1110,6 +1116,7 @@ void App::show(const std::string &view) {
     });
 }
 void App::error(const std::string &m) {
+  diagnosticRecord("ui", "error");
   notice_ = m;
   if (status_)
     lv_label_set_text(status_, m.c_str());
@@ -1880,6 +1887,7 @@ void App::refreshImages() {
   }
 }
 std::string App::pageKey() const {
+  if (view_ == "feedback") return view_ + ":" + feedbackView_ + ":" + std::to_string(feedbackPreviewPage_);
   if (view_ == "provider") return view_ + ":" + (providerForm_.empty() ? "list" : providerForm_.value("id",std::string("new")));
   if (view_ == "model") return view_ + ":" + modelForm_.value("id",std::string());
   if (view_ == "preset_edit") return view_ + ":" + presetForm_.value("id",std::string());
@@ -2074,6 +2082,9 @@ void App::settingsPage() {
                       "AI 协作：" PENCHAT_AI_CONTRIBUTOR "\n"
                       "项目地址：" PENCHAT_PROJECT_URL);
               });
+  const auto pending = feedback_ ? feedback_->state().value("pending", size_t(0)) : 0;
+  settingsRow("feedback", "问题反馈", std::to_string(pending) + " 份待处理 · 诊断与机型适配",
+              left, 668, width, [this] { feedbackView_ = "form"; show("feedback"); });
 }
 void App::updateFontPreview(int percent) {
   readingFontDraft_ = std::max(75, std::min(150, percent));
@@ -2357,6 +2368,12 @@ void App::saveProvider() {
   show("provider");
 }
 void App::goBack() {
+  if (view_ == "feedback") {
+    feedback_->request("keys.cancel");
+    if (feedbackView_ == "form") show("settings");
+    else { feedbackView_ = "form"; build(); }
+    return;
+  }
   if (view_ == "transfer") {
     transferBack();
     return;
@@ -2781,6 +2798,8 @@ void App::attach(const Json &image) {
   });
 }
 void App::suspend(bool value) {
+  diagnosticRecord("lifecycle", value ? "background" : "foreground");
+  if (value && feedback_) feedback_->background();
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
   resetBack();
   backStart_ = Json::object();
@@ -2860,6 +2879,8 @@ void App::shutdown() {
     titleWorker_.join();
   if (generating_ && !assistant_.empty())
     stopNetwork();
+  if (feedback_) feedback_->stop();
+  diagnosticRecord("lifecycle", "stop"); flushDiagnostics();
   shutdownHttp();
   db_.flush();
   if (transfer_ && !transfer_->finish(db_.settings().value("persistent_export_directory", true)))
@@ -2927,6 +2948,10 @@ void App::routeTouch(const Json &m) {
 void App::handle(const Json &m) {
   auto type = m.value("type", std::string());
 #ifndef __aarch64__
+  if (type == "feedback.test" && std::getenv("PENCHAT_TEST_FEEDBACK_CONFIG")) {
+    feedback_->request(m.value("operation",std::string()),m.value("args",Json::object()));
+    return;
+  }
   if (type == "icons.test") {
     clear();
     view_ = "icons";
@@ -3061,6 +3086,7 @@ void App::tick() {
       const auto message=std::string("中文布局偏好未能保存，本次选择仍保留。");
       if(editor_.active){editor_.notice=message;editorBuild();}else error(message);
     } else if (saved.type == "save_error") {
+      diagnosticRecord("storage", "save_error");
       notice_ = saved.data.value("error", std::string("保存失败"));
       modal("内容尚未保存", notice_);
       button(modal_, "重试保存", screen_.width - 335, screen_.height - 66, 120, 44,
@@ -3078,7 +3104,15 @@ void App::tick() {
     callback();
   }
   syncScanner();
+  if (feedbackDirty_ && view_ == "feedback" && !editor_.active && !touchDown_ && !modal_ && visible_) {
+    feedbackDirty_ = false; build();
+  }
   for (auto &e : events_.drain()) {
+    if (e.type == "feedback_state") { feedbackEvent(e); continue; }
+    if (e.type == "feedback_notice") {
+      if(visible_&&!editor_.active&&!modal_)modal("反馈发送状态",e.data.value("text",std::string()));
+      continue;
+    }
     if (e.type.compare(0, 8, "context_") == 0) {
       contextEvent(e);
       continue;
@@ -3304,14 +3338,17 @@ void App::tick() {
     else if (e.type == "crop_view" && view_ == "crop" && !cropBusy_)
       cropView(e.data.value("action",std::string()));
     else if (e.type == "camera_error" && view_ == "camera") {
+      diagnosticRecord("camera", "error");
       cameraCapturing_=false;
       cameraError_=e.data.value("error", std::string("相机失败"));
       error(cameraError_);
     }
     else if (e.type == "camera_started" && view_ == "camera") {
+      diagnosticRecord("camera", "started");
       if (status_)
         lv_label_set_text(status_, "");
     } else if (e.type == "photo") {
+      diagnosticRecord("camera", "photo", e.data);
       if (view_ == "camera" && visible_ && !navigationOpen_)
         beginCrop(e.data);
       else
@@ -3479,6 +3516,13 @@ Json App::diagnostics() const {
           {"maximum", anthropicProtocol(modelForm_) ? Json(modelForm_.value("max_output_tokens", anthropicMaxOutput(modelForm_))) : Json()},
           {"context", modelForm_.value("context_budget", contextBudget(modelForm_))},
           {"vision", modelForm_.value("vision", objectField(modelForm_, "capabilities_json").value("vision", Json()))}}) : Json::object()},
+      {"feedback", [this] {
+        Json actions=Json::object();
+        for(const auto &item:feedbackActions_) { lv_area_t a; lv_obj_get_coords(item.second,&a); actions[item.first]={a.x1,a.y1,a.x2,a.y2}; }
+        auto state=feedback_?feedback_->state():Json::object();
+        return Json{{"screen",feedbackView_},{"pending",state.value("pending",size_t(0))},
+                    {"collecting",state.value("collecting",false)},{"actions",actions}};
+      }()},
       {"transfer_screen", transferScreen_},
       {"transfer_busy", transfer_ && transfer_->busy()},
       {"transfer_error", transferError_},

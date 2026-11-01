@@ -51,6 +51,7 @@ int main(int argc, char **argv) {
     if (data.empty())
       throw std::runtime_error("Missing data directory");
     ensureDirectory(data);
+    beginDiagnostics(data);
     if (workspace.empty())
       workspace = ".";
     if (fontPath.empty())
@@ -65,7 +66,8 @@ int main(int argc, char **argv) {
     const auto configuration = fileText(screenConfig, 64 * 1024);
     if (configuration.empty())
       throw std::runtime_error("Cannot read Falcon screen configuration: " + screenConfig);
-    const auto screen = Screen::fromConfig(Json::parse(configuration));
+    const auto parsedConfiguration = Json::parse(configuration);
+    const auto screen = Screen::fromConfig(parsedConfiguration);
     lv_init();
     lv_tick_set_cb([]() -> uint32_t { return uint32_t(ticks()); });
     initializeFonts(fontPath, join(workspace, "assets/fonts/DejaVuSans.ttf"));
@@ -77,7 +79,7 @@ int main(int argc, char **argv) {
     auto &bridge=*bridgeOwner;
     Database db(join(data, "penchat.db"));
     App app(db, bridge, display, input, screen, workspace, data, fontPath,
-            resources, !headless);
+            resources, !headless, parsedConfiguration);
     if (!demo.empty())
       app.demo(fileText(demo));
     bridge.send("booted", {{"screen", screen.descriptor()}});
@@ -111,6 +113,7 @@ int main(int argc, char **argv) {
     display.visible(false);
     return 0;
   } catch (const std::exception &e) {
+    diagnosticRecord("lifecycle", "startup_error"); flushDiagnostics();
     std::cerr << "penchat-lvgl: " << e.what() << std::endl;
     if(bridgeOwner) bridgeOwner->send("fatal", {{"error", e.what()}});
     else if (fd >= 0) {

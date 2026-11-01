@@ -114,6 +114,7 @@ void App::scanEvent(const Event &event) {
       j.value("session", std::string()) != session_)
     return;
   if (event.type == "scan_started") {
+    diagnosticRecord("scanner", "started");
     const bool retryEmpty = view_ == "scan" &&
         scanResult_.value("type", std::string()) == "finished" &&
         !scanResult_.value("usable", false) && !scanConfirming_;
@@ -162,6 +163,7 @@ void App::scanEvent(const Event &event) {
   } else if (event.type == "scan_processing" && scanLabel_)
     lv_label_set_text(scanLabel_, "采集已结束，正在完成剩余拼接…");
   else if (event.type == "scan_finished") {
+    diagnosticRecord("scanner", "finished", j.value("counts",Json::object()));
     scanResult_ = j;
     build();
   } else if (event.type == "scan_exported" && scanConfirming_ &&

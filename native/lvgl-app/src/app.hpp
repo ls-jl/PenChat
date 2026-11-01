@@ -1,6 +1,7 @@
 #pragma once
 #include "database.hpp"
 #include "transfer.hpp"
+#include "feedback.hpp"
 #include "editor.hpp"
 #include "pinyin.hpp"
 #include "editor_layout.hpp"
@@ -39,6 +40,16 @@ class App {
   NativeTouch touchInput_;
   Events events_;
   PinyinService pinyin_;
+  std::unique_ptr<Feedback> feedback_;
+  std::string feedbackView_ = "form", feedbackOperation_;
+  uint64_t feedbackActionSequence_ = 0;
+  size_t feedbackPreviewPage_ = 0;
+  bool feedbackDirty_ = false, feedbackBusy_ = false;
+  std::map<std::string, lv_obj_t *> feedbackActions_;
+  void feedbackPage();
+  void feedbackEvent(const Event &);
+  void feedbackRequest(const std::string &, Json args = Json::object());
+  void feedbackStartKeys(const std::string &);
   std::unique_ptr<Transfer> transfer_;
   lv_obj_t *transferProgress_ = nullptr;
   std::string transferBuiltScreen_, transferScreen_ = "home", transferKind_ = "chats", transferOp_, transferError_, transferMapKey_;
@@ -523,7 +534,7 @@ class App {
 public:
   App(Database &, Bridge &, Display &, Input &, const Screen &,
       std::string workspace, std::string dataDir, const std::string &fontPath,
-      const std::string &resources, bool nativeTouch);
+      const std::string &resources, bool nativeTouch, const Json &configuration = Json::object());
   ~App();
   void tick();
   void waitInput(unsigned milliseconds) const { touchInput_.wait(milliseconds); }
