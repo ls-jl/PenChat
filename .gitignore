@@ -43,3 +43,6 @@ assets/pinyin/
 
 # Private feedback queues and diagnostic rings
 .feedback/
+
+# Native updater packages, tickets, cached notes and unpublished release staging.
+.updates/

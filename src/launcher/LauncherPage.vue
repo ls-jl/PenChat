@@ -14,6 +14,8 @@ import { launcher } from 'penchatLauncher'
 import appConfig from '../../package.json'
 import globalModule from 'global'
 import { OcrSession } from './ocr'
+import { UpdateInstall } from './update'
+import pm from 'pm'
 
 let generationSeed = 0
 function parse(value) {
@@ -70,7 +72,9 @@ export default {
       this.errorText = ''
       try {
         if (this._disposed) return
-        await launcher.start({ workspace: String(globalThis.$workspace || ''), dataDir: String(globalThis.$dataDir || '') })
+        let workspace = String(globalThis.$workspace || '')
+        try { let info = pm.getPackageInfo(appConfig.appid); if (typeof info === 'string') info = JSON.parse(info); if (info && info.installPath) workspace = String(info.installPath) } catch (err) {}
+        await launcher.start({ workspace, dataDir: String(globalThis.$dataDir || '') })
         if (this._disposed) { await launcher.stop(); return }
         this.running = true
         this.send('init', {})
@@ -95,17 +99,39 @@ export default {
             this._screen = screen
             this.send('display.area', { x: 0, y: 0, width: screen.width, height: screen.height })
           }
-          else if (event.type === 'ready') { this._nativeReady = true; clearTimeout(this._readyTimer); this._readyTimer = null }
+          else if (event.type === 'ready') { this._nativeReady = true; clearTimeout(this._readyTimer); this._readyTimer = null; if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
           else if (event.type === 'editor.state') this.editorState(event)
           else if (event.type === 'navigation.state') this.navigationState(event)
           else if (event.type === 'keyboard.open') this.openKeyboard(event)
           else if (event.type === 'ocr.start') this.startOcr(event)
           else if (event.type === 'ocr.cancel') this.stopOcr(event.requestId)
+          else if (event.type === 'update.install') this.installUpdate(event)
           else if (event.type === 'finish') this.finish()
           else if (event.type === 'fatal') this.fail(event.error || '原生页面启动失败')
-          else if (event.type === 'exit') this.fail(event.status < 0 ? '原生程序意外退出，请重试' : `原生程序已退出（${event.status}）`)
+          else if (event.type === 'exit' && !this._updating) this.fail(event.status < 0 ? '原生程序意外退出，请重试' : `原生程序已退出（${event.status}）`)
         }
       } catch (err) { this.fail('原生页面通信失败') }
+    },
+    async installUpdate(ticket) {
+      if (this._updating) return
+      this._updating = true
+      clearTimeout(this._readyTimer); this._readyTimer = null
+      this.stopOcr(); this.setNativeEditorPolicy(false)
+      try {
+        this._updateBridge = new UpdateInstall({
+          appid: appConfig.appid, dataDir: String(globalThis.$dataDir || ''), pm, launcher,
+          setTimeout, clearTimeout,
+          accept: value => this.send('update.install.accepted', { operation: value.operation }),
+          status: text => { this.running = false; this.errorText = text },
+          installed: async () => { this._updateInstalled = true; launcher.reopen() },
+          failed: (value, text) => {
+            this._updating = false; this.running = false; this.errorText = ''
+            this._pendingUpdateResult = { operation: value.operation, success: false }
+            this.boot()
+          },
+        })
+        await this._updateBridge.start(ticket)
+      } catch (err) { this._updating = false; this.running = false; this.fail('更新安装交接失败，请重新打开 PenChat') }
     },
     setNativeEditorPolicy(active) {
       try {
@@ -198,7 +224,7 @@ export default {
       this._poll = null; this._readyTimer = null
       launcher.stop().catch(() => {})
     },
-    async retry() { if (this._starting) return; await launcher.stop(); this.running = false; this.boot() },
+    async retry() { if (this._updateInstalled) { launcher.reopen(); return }; if (this._starting) return; await launcher.stop(); this.running = false; this.boot() },
     finish() { this.dispose(); this.$page.finish() },
     dispose() {
       if (this._disposed) return
@@ -207,6 +233,7 @@ export default {
       this.setNativeEditorPolicy(false)
       this._nativeEditor = null
       this._disposed = true
+      if (this._updateBridge) this._updateBridge.dispose()
       this.stopOcr()
       this.send('exit')
       this.running = false

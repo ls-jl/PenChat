@@ -1,4 +1,5 @@
 #include "feedback.hpp"
+#include "update.hpp"
 #include <cerrno>
 #include <dirent.h>
 #include <fcntl.h>
@@ -84,6 +85,7 @@ struct Feedback::Impl {
   uint64_t actionSequence=0;
   uint64_t keyGeneration=0,revision=0,preparedRevision=0,serial=0;
   unsigned preferredRoute=0;
+  Json updateFaults=Json::object();
   bool collecting=false,dispatchPaused=false;
   int64_t lastFlush=0, nextDispatch=0;
   FeedbackKeys keys;
@@ -151,6 +153,8 @@ struct Feedback::Impl {
     const auto preference=feedbackRead(join(root,"route.json"),1024);
     if(preference.is_object()&&preference.value("route",Json()).is_number_unsigned())
       preferredRoute=preference["route"].get<unsigned>()%(config.nodes.size()+1);
+    updateFaults=feedbackRead(join(root,"update-faults.json"),256*1024);
+    if(!updateFaults.is_object())updateFaults=Json::object();
     receipts=feedbackRead(join(root,"receipts.json"),16384);
     if(!receipts.is_array()||receipts.size()>10)receipts=Json::array();
     size_t total=0;
@@ -181,7 +185,7 @@ struct Feedback::Impl {
         r["bytes"]=r["payload"].dump().size();
         if(!r.value("time_ms",Json()).is_number_integer())r["time_ms"]=0;
         if(r.value("state",std::string())=="sending") {
-          r["state"]=r.value("auto",false)&&r["attempts"].get<int>()<4?"queued":"manual";
+          r["state"]=r.value("auto",false)&&r["attempts"].get<int>()<1+r.value("retry_limit",3)?"queued":"manual";
           r["reason"]="上次发送中断，服务器可能已经收到";r["due_ms"]=nowMs();save(r);
         }
         records.push_back(std::move(r));
@@ -245,12 +249,42 @@ struct Feedback::Impl {
     draft={{"description",""},{"adapt",false},{"steps",Json::object()}};saveDraft();
     notice="反馈已加入发送队列";publish("submitted");
   }
+  void recordUpdateFault(const Json &args) {
+    const auto version=args.value("version",std::string()),current=args.value("current",std::string()),kind=args.value("kind",std::string());
+    updates::Version parsed;
+    const std::set<std::string> reasons={"amr_count","invalid_checksum","package_validation","publication_changed"};
+    if(args.value("appid",std::string())!=PENCHAT_APP_ID||!updates::Version::parse(version,parsed)||
+       !updates::Version::parse(current,parsed)||!reasons.count(kind))return;
+    if(updateFaults.contains(version))return;
+    if(updateFaults.size()>=512){error="更新异常记录已满，请联系开发者处理";publish();return;}
+    updateFaults[version]={{"event_id",feedbackUuid()},{"current",current},{"kind",kind},
+      {"count",std::max(0,std::min(2048,args.value("count",0)))},{"queued",false}};
+    feedbackWrite(join(root,"update-faults.json"),updateFaults);
+    queueUpdateFaults();publish();
+  }
+  void queueUpdateFaults() {
+    if(!config.enabled()||!storageReady||dispatchPaused)return;
+    for(auto &entry:updateFaults.items()) {
+      auto &marker=entry.value();if(marker.value("queued",false))continue;
+      const auto id=marker.at("event_id").get<std::string>();
+      if(find(id)){marker["queued"]=true;feedbackWrite(join(root,"update-faults.json"),updateFaults);continue;}
+      const auto usage=spoolUsage();if(usage.first>=9||usage.second+2048>QueueLimit)return;
+      Json payload={{"format_version",1},{"event_id",id},{"type","update_release_anomaly"},{"time_ms",nowMs()},
+        {"app",{{"name",PENCHAT_NAME},{"appid",PENCHAT_APP_ID},{"version",marker["current"]}}},
+        {"target_version",entry.key()},{"reason",marker["kind"]},{"count",marker["count"]}};
+      Json record={{"id",id},{"time_ms",nowMs()},{"payload",payload},{"state","queued"},{"attempts",0},
+        {"due_ms",nowMs()},{"auto",true},{"route",preferredRoute},{"retry_limit",0},{"source","update"},
+        {"reason","更新源异常 · "+entry.key()},{"bytes",payload.dump().size()}};
+      save(record);records.push_back(record);marker["queued"]=true;
+      try{feedbackWrite(join(root,"update-faults.json"),updateFaults);}catch(...){dispatchPaused=true;throw;}
+    }
+  }
   void schedule() {
     if(active||dispatchPaused||!storageReady||!config.enabled()||closing||ticks()<nextDispatch)return;
     for(auto &r:records) {
       if(!r.value("auto",false)||r.value("state",std::string())!="queued"||r.value("due_ms",int64_t(0))>nowMs())continue;
       auto candidate=r;const auto attempt=candidate.value("attempts",0)+1;
-      if(attempt>4){r["auto"]=false;r["state"]="manual";save(r);continue;}
+      if(attempt>1+r.value("retry_limit",3)){r["auto"]=false;r["state"]="manual";save(r);continue;}
       candidate["state"]="sending";candidate["attempts"]=attempt;candidate["reason"]="正在发送";save(candidate);r=std::move(candidate);
       auto task=std::make_shared<Upload>();task->id=r["id"];task->body=r["payload"].dump();
       task->route=r.value("route",0u)%(config.nodes.size()+1);task->serial=++serial;
@@ -295,6 +329,7 @@ struct Feedback::Impl {
     const auto route=active->route;const auto id=active->id;active.reset();
     auto r=find(id);if(!r)return;
     const long status=reply.value("status",0L);const int curl=reply.value("curl",0);
+    const bool updateFault=r->value("source",std::string())=="update";
     if(reply.value("confirmed",false)) {
       preferredRoute=route;
       try{feedbackWrite(join(root,"route.json"),{{"route",route}});}catch(...){}
@@ -308,7 +343,8 @@ struct Feedback::Impl {
       const auto reason=failureName(status,curl,false);(*r)["reason"]=reason;
       const bool temporary=!status||status==429||status==507||(status>=500&&status<=599);
       const auto attempts=r->value("attempts",4);
-      if(temporary&&r->value("auto",false)&&attempts<4) {
+      const auto retries=r->value("retry_limit",3);
+      if(temporary&&r->value("auto",false)&&attempts<1+retries) {
         const int delays[]={10,30,120};
         const int jitter=int(id.back()%3); // Stable small per-report jitter.
         auto delay=int64_t(delays[attempts-1]+jitter)*config.retryUnitMs;
@@ -325,7 +361,7 @@ struct Feedback::Impl {
       }
       save(*r);
     }
-    diagnosticRecord("feedback","upload_result",{{"status",status},{"curl_code",curl}});publish("upload_result");
+    diagnosticRecord("feedback","upload_result",{{"status",status},{"curl_code",curl}});publish(updateFault?"update_fault_result":"upload_result");
   }
   void process(const Event &command) {
     const auto &op=command.type;const auto &args=command.data;
@@ -339,6 +375,7 @@ struct Feedback::Impl {
     }
     error.clear();notice.clear();
     if(!storageReady)throw std::runtime_error("本地反馈目录不可用，正常聊天不受影响");
+    if(op=="update_fault") {recordUpdateFault(args);return;}
     if(op=="draft") {
       if(args.contains("description")) {
         const auto text=args.at("description").get<std::string>();
@@ -412,7 +449,7 @@ struct Feedback::Impl {
           error=e.what();publish("error");
         }
       }
-      try{schedule();}catch(...){dispatchPaused=true;error="反馈记录保存失败，已停止本次发送";publish("error");}
+      try{queueUpdateFaults();schedule();}catch(...){dispatchPaused=true;error="反馈记录保存失败，已停止本次发送";publish("error");}
       if(ticks()-lastFlush>=1000){flushDiagnostics();lastFlush=ticks();}
     }
   }

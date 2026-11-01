@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
             resources, !headless, parsedConfiguration);
     if (!demo.empty())
       app.demo(fileText(demo));
-    bridge.send("booted", {{"screen", screen.descriptor()}});
+    bridge.send("booted", {{"screen", screen.descriptor()},{"version",PENCHAT_VERSION},{"appid",PENCHAT_APP_ID}});
     int frame = 0;
     while (running && (standalone || bridge.connected())) {
       for (const auto &m : bridge.receive()) {
@@ -93,6 +93,7 @@ int main(int argc, char **argv) {
       // A closed launcher must not dispatch one last batch of physical touches.
       if (!running || (!standalone && !bridge.connected())) break;
       app.tick();
+      if(app.updateExit())break;
       const auto nextTimer = lv_timer_handler();
       if (snapshotRequested) {
         const bool includeImage = snapshotRequested == 2;

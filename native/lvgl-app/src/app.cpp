@@ -96,6 +96,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
     sessionPreferences_ = applyPresetSnapshot(sessionPreferences_, presetList(config)[0],
                                               db_.models(), db_.activeModel(), true, presetWarning);
   }
+  initializeUpdates();
   build();
   if (!presetWarning.empty()) modal("默认预设已部分应用", presetWarning);
   for (const auto &job : db_.pendingTitles())
@@ -910,6 +911,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  updateActions_.clear(); updateProgress_=updateProgressText_=updateTransferText_=nullptr;
   feedbackActions_.clear();
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
   chatRenderPending_ = chatRefreshPending_ = chatImagesPending_ = false;
@@ -1006,6 +1008,8 @@ void App::build() {
     httpSettingsPage();
   else if (view_ == "keyboard_settings")
     keyboardSettingsPage();
+  else if (view_ == "update")
+    updatePage();
   else if (view_ == "feedback")
     feedbackPage();
   else if (view_ == "transfer")
@@ -1450,6 +1454,9 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
         part.runs.push_back(r);
         continue;
       }
+      if (context == "release-note") {
+        auto caption = r;caption.style &= ~Image;caption.text = "[图片省略]";caption.link.clear();part.runs.push_back(std::move(caption));continue;
+      }
       appendText(part);
       part.runs.clear();
       part.marker.clear();
@@ -1887,6 +1894,7 @@ void App::refreshImages() {
   }
 }
 std::string App::pageKey() const {
+  if (view_ == "update") return view_ + ":" + updateState_.value("status",std::string()) + ":" + std::to_string(updateState_.value("note_index",size_t(0))) + ":" + std::to_string(updateState_.value("note_page",size_t(0)));
   if (view_ == "feedback") return view_ + ":" + feedbackView_ + ":" + std::to_string(feedbackPreviewPage_);
   if (view_ == "provider") return view_ + ":" + (providerForm_.empty() ? "list" : providerForm_.value("id",std::string("new")));
   if (view_ == "model") return view_ + ":" + modelForm_.value("id",std::string());
@@ -2085,6 +2093,8 @@ void App::settingsPage() {
   const auto pending = feedback_ ? feedback_->state().value("pending", size_t(0)) : 0;
   settingsRow("feedback", "问题反馈", std::to_string(pending) + " 份待处理 · 诊断与机型适配",
               left, 668, width, [this] { feedbackView_ = "form"; show("feedback"); });
+  settingsRow("update", "检查更新", std::string("当前 ")+PENCHAT_VERSION+" · 在线安装新版本",
+              left, 732, width, [this] { openUpdate(true); });
 }
 void App::updateFontPreview(int percent) {
   readingFontDraft_ = std::max(75, std::min(150, percent));
@@ -2368,6 +2378,7 @@ void App::saveProvider() {
   show("provider");
 }
 void App::goBack() {
+  if (view_ == "update") { updateBack(); return; }
   if (view_ == "feedback") {
     feedback_->request("keys.cancel");
     if (feedbackView_ == "form") show("settings");
@@ -2854,6 +2865,8 @@ void App::shutdown() {
   cancelContext();
   if (sessionInfoWorker_.joinable()) sessionInfoWorker_.join();
   replyCancel_=true;if(replyWorker_.joinable())replyWorker_.join();replyBusy_=false;
+  if (updater_) updater_->stop();
+  if (updatePrepareWorker_.joinable()) updatePrepareWorker_.join();
   if (transfer_)
     transfer_->stop();
   if (imageStoreWorker_.joinable())
@@ -2948,6 +2961,7 @@ void App::routeTouch(const Json &m) {
 void App::handle(const Json &m) {
   auto type = m.value("type", std::string());
 #ifndef __aarch64__
+  if(type=="update.test" && std::getenv("PENCHAT_TEST_UPDATE_CONFIG")){updater_->request(m.value("operation",std::string()),m.value("args",Json::object()));return;}
   if (type == "feedback.test" && std::getenv("PENCHAT_TEST_FEEDBACK_CONFIG")) {
     feedback_->request(m.value("operation",std::string()),m.value("args",Json::object()));
     return;
@@ -2992,6 +3006,7 @@ void App::handle(const Json &m) {
   }
   if (m.value("generation", bridge_.generation()) != bridge_.generation())
     return;
+  if(type=="update.install.result") {updater_->request("install_result",m);return;}
   if (type == "display.area") {
     if (m.value("x", 0) != 0 || m.value("y", 0) != 0 ||
         m.value("width", screen_.width) != screen_.width ||
@@ -3108,6 +3123,8 @@ void App::tick() {
     feedbackDirty_ = false; build();
   }
   for (auto &e : events_.drain()) {
+    if (e.type == "update_release_fault") { feedback_->request("update_fault",e.data); continue; }
+    if (e.type == "update_state" || e.type == "update_prepared") { updateEvent(e); continue; }
     if (e.type == "feedback_state") { feedbackEvent(e); continue; }
     if (e.type == "feedback_notice") {
       if(visible_&&!editor_.active&&!modal_)modal("反馈发送状态",e.data.value("text",std::string()));
@@ -3382,6 +3399,8 @@ void App::tick() {
       }
     }
   }
+  updateTick();
+  if(updateExit_)return;
   syncBackPolicy();
   settleReader();
   if(!replyBusy_&&!contextRegenerating_)tickTitles();
@@ -3516,6 +3535,15 @@ Json App::diagnostics() const {
           {"maximum", anthropicProtocol(modelForm_) ? Json(modelForm_.value("max_output_tokens", anthropicMaxOutput(modelForm_))) : Json()},
           {"context", modelForm_.value("context_budget", contextBudget(modelForm_))},
           {"vision", modelForm_.value("vision", objectField(modelForm_, "capabilities_json").value("vision", Json()))}}) : Json::object()},
+      {"update", [this] {
+        Json actions=Json::object();for(const auto &item:updateActions_){lv_area_t a;lv_obj_get_coords(item.second,&a);actions[item.first]={a.x1,a.y1,a.x2,a.y2};}
+        return Json{{"status",updateState_.value("status",std::string())},{"current",PENCHAT_VERSION},
+          {"target",updateState_.value("release",Json::object()).value("version",std::string())},
+          {"weak",updateState_.value("release",Json::object()).value("weak",false)},
+          {"suppressed",updateState_.value("suppressed",false)},{"progress",updateState_.value("progress",Json::object())},
+          {"notes",updateState_.value("notes",Json::array()).size()},{"note_index",updateState_.value("note_index",size_t(0))},
+          {"note_page",updateState_.value("note_page",size_t(0))},{"actions",actions}};
+      }()},
       {"feedback", [this] {
         Json actions=Json::object();
         for(const auto &item:feedbackActions_) { lv_area_t a; lv_obj_get_coords(item.second,&a); actions[item.first]={a.x1,a.y1,a.x2,a.y2}; }

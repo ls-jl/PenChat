@@ -70,6 +70,20 @@ class Tests(unittest.TestCase):
         self.tmp.cleanup()
     def probe(self,**kw):
         p=Probe(self.tmp.name,self.endpoint,**kw);self.probes.append(p);return p
+    def test_update_fault_single_attempt_restart_and_minimal_payload(self):
+        Server.statuses=[500,201]
+        p=self.probe();fault=dict(appid=json.loads((ROOT/'package.json').read_text())['appid'],current='0.2.20',version='0.2.21',kind='amr_count',count=2)
+        p.cmd('update_fault',**fault)
+        state=p.wait(lambda s:s.get('records') and s['records'][0]['state']=='manual')
+        self.assertEqual(len(Server.requests),1);record=state['records'][0]
+        payload=Server.requests[0][0];encoded=json.dumps(payload)
+        self.assertNotIn('screen',payload);self.assertNotIn('hardware',payload);self.assertNotIn('runtime',payload)
+        self.assertIn('amr_count',encoded);self.assertNotIn('http:',encoded)
+        p.cmd('update_fault',**fault);time.sleep(.2);self.assertEqual(len(Server.requests),1)
+        p.close();p=self.probe();p.cmd('update_fault',**fault);time.sleep(.2);self.assertEqual(len(Server.requests),1)
+        p.cmd('retry',id=record['id']);p.wait(lambda s:s.get('receipts'));self.assertEqual(len(Server.requests),2)
+        self.assertEqual(Server.requests[0][2],Server.requests[1][2])
+
     def test_whitelist_screen_preview_and_success(self):
         p=self.probe();s,report=p.preview(secret='SECRET_RUNTIME',generating=True)
         encoded=json.dumps(report)

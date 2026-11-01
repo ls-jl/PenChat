@@ -1,10 +1,15 @@
 #include "jquick_config.h"
+#include "JQuickContext.h"
 #include "jqutil_v2/jqutil.h"
 #include "jsmodules/JSCModuleExtension.h"
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
 #include <mutex>
+#include <set>
+#include <dlfcn.h>
+#include "update.hpp"
+namespace JQuick { class PackageInfo; }
 #include <signal.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
@@ -13,10 +18,21 @@
 #include <unistd.h>
 using namespace JQUTIL_NS;
 namespace {
+void saveInstallTicket(const std::string &path,const penchat::Json &ticket) {
+  penchat::atomicText(path,ticket.dump());
+  int fd=open(path.c_str(),O_RDONLY|O_NOFOLLOW|O_CLOEXEC);
+  if(fd<0)throw std::runtime_error("Cannot sync install ticket");
+  const int result=fsync(fd);close(fd);if(result)throw std::runtime_error("Cannot sync install ticket");
+  const auto parent=path.substr(0,path.find_last_of('/'));fd=open(parent.c_str(),O_DIRECTORY|O_RDONLY|O_CLOEXEC);
+  if(fd<0)throw std::runtime_error("Cannot sync install directory");
+  const int synced=fsync(fd);close(fd);if(synced)throw std::runtime_error("Cannot sync install directory");
+}
 class Launcher : public JQBaseObject {
   std::mutex mutex_;
   int fd_ = -1;
   pid_t pid_ = -1;
+  std::string ownId_, ownData_;
+  std::set<std::string> installations_;
   void stopLocked() {
     if (fd_ >= 0) {
       shutdown(fd_, SHUT_RDWR);
@@ -51,6 +67,43 @@ class Launcher : public JQBaseObject {
   }
 
 public:
+  void OnCtor(JQFunctionInfo &info) override {
+    ownId_=JQuick::getAppid(info.GetContext());ownData_=JQuick::getDataDir(info.GetContext());
+  }
+  void install(JQAsyncInfo &info) {
+    try {
+      const auto ticket=penchat::Json::parse(info[0].dump());
+      const auto operation=ticket.at("operation").get<std::string>();
+      const auto version=ticket.at("version").get<std::string>();
+      const auto path=penchat::join(penchat::join(ownData_,".updates"),"package.amr");
+      penchat::updates::Version parsed;
+      if(ownId_.empty()||ticket.at("appid")!=ownId_||ticket.at("path")!=path||
+         operation.size()!=36||operation.find_first_not_of("0123456789abcdefABCDEF-")!=std::string::npos||
+         !penchat::updates::Version::parse(version,parsed)||ticket.at("sha256").get<std::string>().size()!=64)
+        throw std::runtime_error("Invalid self-update identity");
+      std::lock_guard<std::mutex> lock(mutex_);
+      if(installations_.count(operation)||installations_.size()>=8)throw std::runtime_error("Installation already submitted");
+      std::atomic<bool> cancel{false};
+      penchat::updates::validatePackage(path,ownId_,version,ticket.at("sha256"),cancel);
+      // Use exported Falcon methods, never object offsets, fixed addresses,
+      // a forged app identity, system-policy modifications or a child command.
+      using Instance=void *(*)();
+      using Complete=std::function<void(int,const JQuick::PackageInfo &)>;
+      using Install=void (*)(void *,const std::string &,Complete,int);
+      auto instance=reinterpret_cast<Instance>(dlsym(RTLD_DEFAULT,"_ZN6JQuick17IotPackageManager8instanceEv"));
+      auto submit=reinterpret_cast<Install>(dlsym(RTLD_DEFAULT,"_ZN6JQuick17IotPackageManager14installPackageERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt8functionIFviRKNS_11PackageInfoEEEi"));
+      if(!instance||!submit)throw std::runtime_error("Falcon native package API is unavailable");
+      auto manager=instance();if(!manager)throw std::runtime_error("Falcon package manager is unavailable");
+      auto accepted=ticket;accepted["state"]="accepted";
+      const auto record=penchat::join(penchat::join(ownData_,".updates"),"install.json");saveInstallTicket(record,accepted);
+      installations_.insert(operation);
+      submit(manager,path,[info,accepted,record](int code,const JQuick::PackageInfo &) {
+        auto result=accepted;result["state"]=code==0?"installed":"failed";
+        try{saveInstallTicket(record,result);}catch(...){}
+        info.post(Bson::object{{"res",code}});
+      },0);
+    }catch(const std::exception &error){info.postError(error.what());}
+  }
   ~Launcher() override {
     std::lock_guard<std::mutex> lock(mutex_);
     stopLocked();
@@ -108,6 +161,12 @@ public:
     fd_ = pair[0];
     fcntl(fd_, F_SETFL, fcntl(fd_, F_GETFL) | O_NONBLOCK);
     info.post(Bson::object{{"ok", true}, {"pid", int(child)}});
+  }
+  void reopen(JQFunctionInfo &info) {
+    const auto id=JQuick::getAppid(info.GetContext());
+    info.GetReturnValue().Set(true);
+    JQuick::closeApp(id);
+    JQuick::startApp(id,"",{});
   }
   void send(JQFunctionInfo &info) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -178,6 +237,8 @@ int init(JSContext *ctx, JSModuleDef *module) {
   auto tpl = JQFunctionTemplate::New(env.get(), "launcher");
   tpl->InstanceTemplate()->setObjectCreator([]() { return new Launcher; });
   tpl->SetProtoMethodPromise("start", &Launcher::start);
+  tpl->SetProtoMethodPromise("install", &Launcher::install);
+  tpl->SetProtoMethod("reopen", &Launcher::reopen);
   tpl->SetProtoMethod("send", &Launcher::send);
   tpl->SetProtoMethod("poll", &Launcher::poll);
   tpl->SetProtoMethod("status", &Launcher::status);

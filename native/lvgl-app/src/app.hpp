@@ -2,6 +2,7 @@
 #include "database.hpp"
 #include "transfer.hpp"
 #include "feedback.hpp"
+#include "update.hpp"
 #include "editor.hpp"
 #include "pinyin.hpp"
 #include "editor_layout.hpp"
@@ -40,6 +41,21 @@ class App {
   NativeTouch touchInput_;
   Events events_;
   PinyinService pinyin_;
+  std::unique_ptr<Updater> updater_;
+  Json updateState_=Json::object(),updateSnapshot_=Json::object();
+  bool updateDirty_=false,updateReturning_=false,updateExit_=false;
+  std::string updateOrigin_="settings",updateOffered_,updatePreparing_,updateSent_;
+  std::thread updatePrepareWorker_;
+  lv_obj_t *updateProgress_=nullptr,*updateProgressText_=nullptr,*updateTransferText_=nullptr;
+  std::map<std::string,lv_obj_t *> updateActions_;
+  void initializeUpdates();
+  void updatePage();
+  void updateEvent(const Event &);
+  void updateTick();
+  void openUpdate(bool manual);
+  Json updateSnapshot() const;
+  void updateBack();
+  void beginUpdate();
   std::unique_ptr<Feedback> feedback_;
   std::string feedbackView_ = "form", feedbackOperation_;
   uint64_t feedbackActionSequence_ = 0;
@@ -541,6 +557,7 @@ public:
   void handle(const Json &message);
   void suspend(bool value);
   void shutdown();
+  bool updateExit() const { return updateExit_; }
   bool interactive() const { return visible_ && !keyboard_; }
   void demo(const std::string &markdown);
   Json diagnostics() const;

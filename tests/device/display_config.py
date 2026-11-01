@@ -10,6 +10,7 @@ parser.add_argument('--anthropic',action='store_true',help='Native Messages loca
 parser.add_argument('--api-compatibility',action='store_true',help='Local API fixture and Provider settings with physical touches')
 parser.add_argument('--http-pool',action='store_true',help='HTTP reuse, global retention and verified native TLS probe')
 parser.add_argument('--chat-whitespace',action='store_true',help='Blank composer and normalized prompts with isolated local requests')
+parser.add_argument('--update',action='store_true',help='Update settings and live fixed-source check, isolated data')
 parser.add_argument('--feedback',action='store_true',help='Read-only feedback hardware and explicit physical-key window')
 parser.add_argument('--scanner-profile',action='store_true',help='Explicit board/sensor original-image capture and lifecycle isolation')
 parser.add_argument('--stream-reading',action='store_true',help='Native slow-stream reading, return to bottom and live action visibility')
@@ -25,7 +26,7 @@ parser.add_argument('--reply-actions',action='store_true')
 parser.add_argument('--session-info',action='store_true',help='Run focused conversation statistics acceptance')
 parser.add_argument('--archive-reader',action='store_true',help='Run focused archive-reader acceptance, with normal data isolation/restoration')
 args=parser.parse_args();SERIAL=args.serial
-assert sum((args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch,args.http_pool,args.chat_whitespace,args.stream_reading,args.scanner_profile,args.feedback))<=1,'Run isolated feature fixtures separately'
+assert sum((args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch,args.http_pool,args.chat_whitespace,args.stream_reading,args.scanner_profile,args.feedback,args.update))<=1,'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 class FeatureComplete(Exception):
@@ -265,6 +266,11 @@ try:
             p=state()['touch']
             return p if abs(p.get('x',-100)-x)<=1 and abs(p.get('y',-100)-y)<=1 else None
         p=wait(mapped);result['corners'].append([p['x'],p['y']])
+    if args.update:
+        import update_flow
+        update_flow.run(globals())
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
     if args.feedback:
         import feedback_flow
         feedback_flow.run(globals())
