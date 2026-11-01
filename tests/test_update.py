@@ -4,6 +4,9 @@ import hashlib,http.server,io,json,os,pathlib,socket,ssl,subprocess,tempfile,thr
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 BINARY=pathlib.Path(os.environ.get('PENCHAT_UPDATE_PROBE',ROOT/'build/host/penchat-update-probe'))
 APPID=json.loads((ROOT/'package.json').read_text())['appid']
+def future_version(steps=1):
+    major,minor,patch=map(int,json.loads((ROOT/'package.json').read_text())['version'].split('.'))
+    return f'{major}.{minor}.{patch+steps}'
 def package(version='0.2.21',appid=APPID,size=128000,extra=None):
     out=io.BytesIO()
     with zipfile.ZipFile(out,'w',compression=zipfile.ZIP_STORED) as z:
@@ -56,7 +59,7 @@ class Node:
         self.port=self.server.server_port;threading.Thread(target=self.server.serve_forever,daemon=True).start()
     def release(self,version='0.2.21',body=None,sha=True,note=b'## Improvements\n\nOffline verified update.'):
         body=body if body is not None else package(version)
-        base='/penchat/'+version+'/';self.files[base+'PenChat.amr']=body
+        base='/penchat-rk/'+version+'/';self.files[base+'PenChat.amr']=body
         if sha:self.files[base+'PenChat.amr.sha256']=(hashlib.sha256(body).hexdigest()+'  PenChat.amr\n').encode()
         if note is not None:self.files[base+'release-note.md']=note
         return body
@@ -90,7 +93,7 @@ class Probe:
 class Tests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(prefix='penchat-update-');self.a=Node();self.b=Node('127.0.0.2',self.a.port);self.probes=[]
-        self.root=f'http://localhost:{self.a.port}/penchat/'
+        self.root=f'http://localhost:{self.a.port}/penchat-rk/'
     def tearDown(self):
         for p in self.probes:p.close()
         self.a.close();self.b.close();self.tmp.cleanup()
@@ -100,10 +103,10 @@ class Tests(unittest.TestCase):
         for v in ['0.2.9','0.2.21','0.2.22','0.2.100']:
             self.a.release(v)
         # Invalid newest version falls back, even though lower node is absent.
-        self.a.files['/penchat/0.2.100/extra.amr']=b'x'
-        self.a.files['/penchat/0.2.22/PenChat.amr.sha256']=b'bad hash'
-        self.a.files['/penchat/9.0beta/x.amr']=b'x'
-        self.a.files['/penchat/0.02.50/x.amr']=b'x'
+        self.a.files['/penchat-rk/0.2.100/extra.amr']=b'x'
+        self.a.files['/penchat-rk/0.2.22/PenChat.amr.sha256']=b'bad hash'
+        self.a.files['/penchat-rk/9.0beta/x.amr']=b'x'
+        self.a.files['/penchat-rk/0.02.50/x.amr']=b'x'
         p=self.probe();s=p.check();self.assertEqual(s['release']['version'],'0.2.21')
         self.assertEqual([n['version'] for n in s['notes']],['0.2.21'])
         p.wait(lambda s:len(s['faults'])==2)
@@ -116,12 +119,12 @@ class Tests(unittest.TestCase):
         p=self.probe();s=p.check();self.assertEqual(s['release']['nodes'][0]['address'],'127.0.0.2');self.assertEqual(len(s['release']['nodes']),2)
         for node in (self.a,self.b):self.assertEqual(sum(x[1]=='HEAD' for x in node.requests),3)
         self.b.release(body=package(size=128000));s=p.check();self.assertEqual(len(s['release']['nodes']),1)
-        del self.b.files['/penchat/0.2.21/PenChat.amr'];s=p.check();self.assertEqual(s['release']['nodes'][0]['address'],'127.0.0.1')
+        del self.b.files['/penchat-rk/0.2.21/PenChat.amr'];s=p.check();self.assertEqual(s['release']['nodes'][0]['address'],'127.0.0.1')
     def test_weak_confirmation_crc_identity_and_path_safety(self):
         cases=[('good',package(),False,True),('identity',package(appid='8000000000000000'),True,False),('unsafe',package(extra={'../evil':b'x'}),True,False),('hash',package(),True,False)]
         for name,body,sha,success in cases:
             self.a.files={};self.a.release(body=body,sha=sha)
-            if name=='hash':self.a.files['/penchat/0.2.21/PenChat.amr.sha256']=b'0'*64
+            if name=='hash':self.a.files['/penchat-rk/0.2.21/PenChat.amr.sha256']=b'0'*64
             p=self.probe(nodes=['127.0.0.1'],folder=name);s=p.check()
             if not sha:
                 p.cmd('download');p.wait(lambda s:s['status']=='error');self.assertFalse((p.path/'.updates/download.part').exists())

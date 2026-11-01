@@ -16,7 +16,7 @@ std::string fileHash(const std::string &,std::atomic<bool> &);
 Json validatePackage(const std::string &,const std::string &appId,const std::string &version,
                      const std::string &hash,std::atomic<bool> &);
 struct Config {
-  std::string root="https://cdn.ls-jl.cn/penchat/",appId=PENCHAT_APP_ID,current=PENCHAT_VERSION;
+  std::string root="https://cdn.ls-jl.cn/penchat-rk/",appId=PENCHAT_APP_ID,current=PENCHAT_VERSION;
   std::vector<std::string> nodes;
   bool autoCheck=true;
   static Config build();

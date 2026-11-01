@@ -24,6 +24,8 @@ with zipfile.ZipFile(path) as archive:
     for name in ['dictionary.data','pinyin.txt']:
         assert hashlib.sha256(archive.read('assets/pinyin/'+name)).hexdigest()==dictionary_lock['resources'][name]['sha256']
     binary = archive.read('assets/bin/penchat-lvgl')
+    assert b'https://cdn.ls-jl.cn/penchat-rk/' in binary, 'Update source missing from native package'
+    assert b'https://cdn.ls-jl.cn/penchat/' not in binary, 'Obsolete update source in native package'
     assert b'PENCHAT_TEST_FEEDBACK_KEYS' not in binary
     assert b'PENCHAT_TEST_UPDATE_CONFIG' not in binary and b'update.test' not in binary
     assert b'PENCHAT_TEST_CA' not in binary, 'Test-only CA override leaked into production'
