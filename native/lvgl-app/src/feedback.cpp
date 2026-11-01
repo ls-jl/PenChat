@@ -371,7 +371,9 @@ struct Feedback::Impl {
       auto value=args;value.erase("generation");draft["steps"][args.at("step").get<std::string>()]=value;
       const auto status=args.value("status",std::string());
       collecting=status=="pressed"||status=="listening";if(!collecting)keyStep.clear();
-      clearPreview();saveDraft();publish("keys");return;
+      clearPreview();saveDraft();publish("keys");
+      if(status=="timeout")events.push("feedback_notice",{{"title","按键采样超时"},{"text","30秒内未完成采样，按键拦截已释放。请松开按键后重试。"}});
+      return;
     }
     error.clear();notice.clear();
     if(!storageReady)throw std::runtime_error("本地反馈目录不可用，正常聊天不受影响");
@@ -401,7 +403,6 @@ struct Feedback::Impl {
       }
       publish("keys_start");
     } else if(op=="keys.cancel"||op=="background") {
-      if(op=="background"&&collecting&&keyStep=="home")return;
       keys.cancel();
       if(!native){collecting=false;keyStep.clear();}
       publish();
@@ -454,6 +455,7 @@ struct Feedback::Impl {
     }
   }
   void stop() {
+    keys.cancel(); // Release physical keys even if the report worker is busy with I/O.
     {std::lock_guard<std::mutex> lock(mutex);if(stopped)return;stopped=true;closing=true;httpCancel=true;cv.notify_all();uploadCv.notify_all();}
     if(worker.joinable())worker.join();
     if(uploader.joinable())uploader.join();
@@ -462,7 +464,11 @@ struct Feedback::Impl {
 Feedback::Feedback(Events &e,const std::string &data,const Json &screen,bool native,FeedbackConfig config)
     :p_(new Impl(e,data,screen,native,std::move(config))){}
 Feedback::~Feedback()=default;
-void Feedback::request(const std::string &op,Json args){p_->enqueue(op,std::move(args));}
+void Feedback::request(const std::string &op,Json args){
+  if(op=="keys.cancel"||op=="keys.skip"||op=="background"||
+      (op=="draft"&&args.value("adapt",Json())==false))p_->keys.cancel();
+  p_->enqueue(op,std::move(args));
+}
 Json Feedback::state() const {std::lock_guard<std::mutex> lock(p_->mutex);return p_->published;}
 std::string Feedback::previewPage(size_t page)const{std::lock_guard<std::mutex> lock(p_->mutex);return page<p_->publishedPages.size()?p_->publishedPages[page]:std::string();}
 void Feedback::background(){request("background");}

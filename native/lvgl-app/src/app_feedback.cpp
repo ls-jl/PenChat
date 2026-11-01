@@ -95,7 +95,7 @@ void App::feedbackPage() {
   } else if (feedbackView_ == "adapt") {
     pageHeader("机型适配信息");
     int y=4;
-    y+=description("仅在点击开始后的20秒内监听物理按键，不记录触摸或输入文字，不修改系统映射。",y)+12;
+    y+=description("采样期间临时屏蔽物理按键功能，最长30秒；完成后立即恢复。触摸不受影响。",y)+12;
     const auto steps=state.value("steps",Json::object());
     const bool collecting=state.value("collecting",false);
     const std::string current=state.value("key_step",std::string());
@@ -105,16 +105,17 @@ void App::feedbackPage() {
       const auto title=step=="scan"?"1. 扫描按钮":"2. Home 按钮";
       std::string meaning=status=="complete"?"已记录按下和松开":status=="pressed"?"已记录按下，等待松开":
         status=="skipped"?"已跳过":status=="timeout"?"等待超时":status=="release_missing"?"缺少松开事件":
-        status=="ambiguous"?"检测到多个候选，请核对":status=="unavailable"?"设备不可读或权限不足":
+        status=="ambiguous"?"检测到多个候选，请核对":status=="grab_failed"?"无法屏蔽按键，请结束其他占用后重试":
+        status=="key_held"?"按键尚未松开，请松开后重试":status=="unavailable"?"设备不可读或权限不足，未开始采样":
         status=="events_lost"?"事件丢失，请重新采集":status=="cancelled"?(result.value("release_missing",false)?"已取消 · 缺少松开事件":"已取消"):"尚未采集";
-      y+=description(std::string(title)+" · "+(collecting&&current==step?(status=="listening"||status=="pressed"?"正在监听，请按下按钮":"正在准备监听，请稍候"):meaning),y,theme::text)+8;
+      y+=description(std::string(title)+" · "+(collecting&&current==step?(status=="listening"||status=="pressed"?"按键功能已屏蔽，请按下并松开按钮":"正在准备监听，请稍候"):meaning),y,theme::text)+8;
       auto start=control("start_"+step,status.empty()?"开始采集":"重新采集",10,y,column,[this,step]{feedbackStartKeys(step);});
       auto skip=control("skip_"+step,"跳过",26+column,y,column,[this,step]{feedbackRequest("keys.skip",{{"step",step}});});
       if(collecting || (step=="home"&&!steps.count("scan"))) lv_obj_add_state(start,LV_STATE_DISABLED);
       if((collecting && current!=step) || (step=="home"&&!steps.count("scan"))) lv_obj_add_state(skip,LV_STATE_DISABLED);
       y+=60;
-      if(step=="home")y+=description("Home 保持系统行为。请先按 Home，再回到 PenChat 继续核对；事件会即时保存。",y)+12;
-      else y+=description("扫描键若打开系统页面，返回后继续即可；已收到的事件会保留。",y)+12;
+      if(step=="home")y+=description("仅采样时屏蔽Home功能，完成、停止或超时后恢复。请按下并松开Home键。",y)+12;
+      else y+=description("仅采样时屏蔽扫描键功能；请等待提示就绪后按下并松开扫描键。",y)+12;
       for(const auto &event:result.value("events",Json::array())) {
         y+=description(event.value("device",std::string())+" · 键码 "+std::to_string(event.value("code",0))+" · "+
           std::to_string(event.value("value",0))+" · "+std::to_string(event.value("relative_ms",int64_t(0)))+"ms",y)+4;

@@ -30,6 +30,10 @@ for w,h in [(960,266),(936,280)]:
    request('draft',adapt=True)
    action('adapt');shot('adapt')
    action('start_scan');t.wait_for(lambda:a.diag()['feedback']['collecting']);shot('listening')
+   request('keys.result',generation=1,step='scan',status='timeout',events=[],blocking=False)
+   t.wait_for(lambda:a.diag()['modal'] and not a.diag()['feedback']['collecting']);shot('timeout')
+   a.tap(w-60,h-40);t.wait_for(lambda:not a.diag()['modal'])
+   action('start_scan');t.wait_for(lambda:a.diag()['feedback']['collecting'])
    # Completion is injected only into host builds; real device coverage uses evdev.
    draft=json.loads((p/'.feedback/draft.json').read_text());assert draft['adapt']
    action('skip_scan');t.wait_for(lambda:not a.diag()['feedback']['collecting'])

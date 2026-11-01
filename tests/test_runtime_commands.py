@@ -22,6 +22,7 @@ assert launches == {
     'native/camera/src/accelerometer.cpp': ['posix_spawn'],
     'native/launcher/src/Launcher.cpp': ['execl', 'fork'],
     'native/lvgl-app/src/scanner.cpp': ['execve', 'fork'],
+    'tests/native/FeedbackKeysTest.cpp': ['fork'],  # Kill an isolated capture child to verify kernel release; no exec.
     'tests/native/StorageTest.cpp': ['fork', 'fork'],  # Startup-failure and crash-recovery children; no exec.
 }, launches
 

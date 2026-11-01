@@ -129,7 +129,7 @@ class Tests(unittest.TestCase):
         generation=s['key_generation'];p.cmd('keys.result',generation=generation-1,step='scan',status='complete',events=[])
         time.sleep(.1);self.assertEqual(p.cmd('state')['steps'],{})
         p.cmd('keys.skip',step='scan');p.wait(lambda s:s.get('steps',{}).get('scan',{}).get('status')=='skipped')
-        p.cmd('keys.start',step='home');p.wait(lambda s:s.get('collecting'));p.cmd('background');time.sleep(.1);self.assertTrue(p.cmd('state')['collecting'])
+        p.cmd('keys.start',step='home');p.wait(lambda s:s.get('collecting'));p.cmd('background');time.sleep(.1);self.assertFalse(p.cmd('state')['collecting'])
         p.cmd('draft',adapt=False);p.wait(lambda s:not s.get('adapt'));self.assertEqual(p.cmd('state')['steps'],{})
         Server.statuses=[401]*10
         for i in range(10):

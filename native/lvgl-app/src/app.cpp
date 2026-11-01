@@ -3127,7 +3127,7 @@ void App::tick() {
     if (e.type == "update_state" || e.type == "update_prepared") { updateEvent(e); continue; }
     if (e.type == "feedback_state") { feedbackEvent(e); continue; }
     if (e.type == "feedback_notice") {
-      if(visible_&&!editor_.active&&!modal_)modal("反馈发送状态",e.data.value("text",std::string()));
+      if(visible_&&!editor_.active&&!modal_)modal(e.data.value("title",std::string("反馈发送状态")),e.data.value("text",std::string()));
       continue;
     }
     if (e.type.compare(0, 8, "context_") == 0) {

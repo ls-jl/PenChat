@@ -22,7 +22,8 @@ struct FeedbackConfig {
   static FeedbackConfig build();
 };
 
-// A step-scoped read-only observer. It never grabs or synthesizes an input event.
+// A step-scoped physical-key lease. Grabs are bounded to 30s and never
+// include pointer/keyboard devices; closing releases them. No event injection.
 class FeedbackKeys {
   struct Impl;
   std::unique_ptr<Impl> p_;
