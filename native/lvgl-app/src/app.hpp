@@ -455,6 +455,7 @@ class App {
   bool editorPointer_ = false, editorSlid_ = false, editorExpanded_ = false, editorMenu_ = false;
   int editorStartX_ = 0, editorStartY_ = 0;
   void editorBuild();
+  bool editorCanExpand() const;
   void editorAction(const std::string &action);
   void editorFinish(bool confirmed);
   void editorOfficial();

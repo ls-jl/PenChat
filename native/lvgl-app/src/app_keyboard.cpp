@@ -50,6 +50,7 @@ void App::edit(const std::string &text, const std::string &placeholder,
 void App::editorBuild() {
   if (!editor_.active || keyboard_) return;
   if (editorPointer_ && editorHeld_ < 0) { editorRebuild_=true; return; }
+  if (!editorCanExpand()) editorExpanded_ = false;
   const auto layout=editorLayout();
   editorRebuild_=false;
   editorMagnify(false);
@@ -64,17 +65,20 @@ void App::editorBuild() {
     auto l=lv_obj_get_child(b,0); lv_obj_set_width(l,w-4); lv_obj_set_style_text_font(l,font(17),0);
     return b;
   };
-  auto key = [&](std::string title,std::string value,int x,int y,int w,int h = 64) {
+  auto key = [&](std::string title,std::string value,int x,int y,int w,int h) {
     auto b=box(editorRoot_,x,y,w,h,theme::surface); lv_obj_set_scrollable(b,false);
     lv_obj_set_style_radius(b,9,0);
-    auto l=label(b,title,0,0,w,23); lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0); lv_obj_align(l,LV_ALIGN_CENTER,0,0);
-    if (value=="shift" && editor_.shift) { lv_obj_set_style_bg_color(b,lv_color_hex(theme::text),0); lv_obj_set_style_text_color(l,lv_color_hex(theme::background),0); }
+    if (value=="shift" && editor_.shift)
+      lv_obj_set_style_bg_color(b,lv_color_hex(theme::text),0);
     if (editorPointer_ && editorHeld_>=0 && !editorSlid_ && x==editorPress_.x && y==editorPress_.y && value==editorPress_.value)
       lv_obj_set_style_bg_color(b,lv_color_hex(theme::border),0);
     if (value == "shift" || value == "delete" || value == "enter") {
-      lv_label_set_text(l, "");
       attachIcon(b, value == "shift" && editor_.shift == 2 ? "shift-lock" : value,
                  value == "shift" && editor_.shift ? theme::background : theme::text);
+    } else {
+      auto l=label(b,title,0,0,w,23);
+      lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0);
+      lv_obj_align(l,LV_ALIGN_CENTER,0,0);
     }
     editorKeys_.push_back({x,y,w,h,value,b,layout.keyTouchBounds({x,y,w,h})});
   };
@@ -116,8 +120,8 @@ void App::editorBuild() {
       }
     }
   }
-  key(editor_.mode ? (editor_.mode==1?"#+=":"123") : (editor_.shift==2?"⇧锁":"⇧"),editor_.mode?"symbols":"shift",4,6+2*(layout.rowHeight+6),layout.px(layout.keyWidth+2),layout.rowHeight);
-  key("⌫","delete",layout.px(layout.split-2-2*layout.keyWidth),6+2*(layout.rowHeight+6),layout.px(2*layout.keyWidth-2),layout.rowHeight);
+  key(editor_.mode ? (editor_.mode==1?"#+=":"123") : "",editor_.mode?"symbols":"shift",4,6+2*(layout.rowHeight+6),layout.px(layout.keyWidth+2),layout.rowHeight);
+  key("","delete",layout.px(layout.split-2-2*layout.keyWidth),6+2*(layout.rowHeight+6),layout.px(2*layout.keyWidth-2),layout.rowHeight);
   const int modeWidth=layout.px(layout.keyWidth+14), punctuationWidth=layout.px(layout.keyWidth+10), enterWidth=layout.px(2*layout.keyWidth-4);
   const int spaceWidth=layout.split-8-20-modeWidth-3*punctuationWidth-enterWidth;
   int bottomX=4;
@@ -129,7 +133,7 @@ void App::editorBuild() {
   bottomKey("","language",punctuationWidth);attachIcon(editorKeys_.back().object,"globe",theme::text);
   bottomKey(editor_.chinese?"拼音":"English","space",spaceWidth);
   bottomKey(keyboardPunctuation(".",editor_.chinese&&!editor_.secret),".",punctuationWidth);
-  bottomKey("↵","enter",enterWidth);
+  bottomKey("","enter",enterWidth);
   }
   auto right=box(editorRoot_,layout.split,0,screen_.width-layout.split,screen_.height,0x111111); lv_obj_set_scrollable(right,false);
   // Composition/candidates never resize the keys; actions share a bottom baseline.
@@ -210,7 +214,8 @@ void App::editorBuild() {
     label(choices,editorInFlight_||editorDue_?"正在查询…":"无匹配候选",4,10,layout.textWidth-150,16,theme::muted);
     if(!editor_.notice.empty())editorLocalActions_["pinyin-retry"]=button(choices,"重试",layout.textWidth-148,0,88,44,[action]{action("pinyin-retry");});
   }
-  control(editorExpanded_?"收起":"展开",screen_.width-52,6,44,"expand");
+  if (editorCanExpand())
+    editorLocalActions_["expand"] = control(editorExpanded_?"收起":"展开",screen_.width-52,6,44,"expand");
   if(editor_.secret) attachIcon(control("", screen_.width-110,6,44,"reveal"),editor_.reveal?"eye-off":"eye",theme::muted);
   if(editorOcrShown_) {
     auto scan=box(editorRoot_,layout.textX,6,layout.textWidth-(editor_.secret?110:50),44,0x111111);
@@ -302,6 +307,11 @@ void App::editorBuild() {
   lv_obj_update_layout(editorRoot_);
   lv_obj_move_foreground(editorRoot_);
   editorSyncText();
+}
+bool App::editorCanExpand() const {
+  return editor_.active && !editorSelectionOnly_ && !editor_.secret &&
+      editor_.chinese && editor_.mode == 0 && !editor_.preedit.empty() &&
+      !editorCandidates_.empty();
 }
 void App::editorChanged() {
   editorFollowCursor_=true;
@@ -476,11 +486,10 @@ void App::editorAction(const std::string &a) {
     if(editor_.mode) return;
     auto now=ticks(); editor_.shift=editor_.shift==2?0:editor_.shift==1?(now-editorShiftTime_<400?2:0):1; editorShiftTime_=now;
   } else if (a=="delete") { editor_.erase(); editorChanged(); }
-  else if (a=="expand") editorExpanded_=!editorExpanded_;
+  else if (a=="expand") editorExpanded_=editorCanExpand()&&!editorExpanded_;
   else if (a=="reveal") { editor_.reveal=!editor_.reveal; editorMenu_=false; }
   else if (a=="undo") { editor_.revert(); editorChanged(); editorMenu_=editorUndoMenu_=false; }
   else if (a=="all") { if(editor_.raw()) { editor_.all=true; editorMenu_=false; editorChanged(); } }
-  else if (a.find("cursor:")==0) { if(editor_.raw()) { editor_.position(std::min(size_t(std::stoul(a.substr(7))),editLength(editor_.text))); editorChanged(); } }
   else if (a.size()==1) {
     std::string letter=keyboardPunctuation(a,editor_.chinese&&!editor_.secret);
     if(editor_.mode==0 && std::isalpha(static_cast<unsigned char>(letter[0])))
