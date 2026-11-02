@@ -219,12 +219,12 @@ void Database::setting(const std::string &key, const Json &value) {
           "VALUES(?,?,?)",
           {key, value.dump(), nowMs()});
 }
-void Database::queueSetting(const std::string &key, const Json &value) {
+void Database::queueSetting(const std::string &key, const Json &value, const std::string &request) {
   {
     std::lock_guard<std::mutex> guard(jobsMutex_);
-    if(stopping_||jobs_.size()>=512) {saveEvents_.push("setting_error",{{"key",key}});return;}
-    jobs_.push_back([this,key,value] {
-      try {setting(key,value);}catch(...){saveEvents_.push("setting_error",{{"key",key}});}
+    if(stopping_||jobs_.size()>=512) {saveEvents_.push("setting_error",{{"key",key},{"request",request}});return;}
+    jobs_.push_back([this,key,value,request] {
+      try {setting(key,value);if(!request.empty())saveEvents_.push("setting_saved",{{"key",key},{"request",request}});}catch(...){saveEvents_.push("setting_error",{{"key",key},{"request",request}});}
     });
   }
   jobsReady_.notify_one();

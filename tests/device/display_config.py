@@ -5,6 +5,7 @@ ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text())
 parser=argparse.ArgumentParser();parser.add_argument('--serial',required=True)
 parser.add_argument('--back-navigation',action='store_true')
+parser.add_argument('--onboarding',action='store_true',help='Seven synthetic onboarding animations with real touches')
 parser.add_argument('--model-catalog',action='store_true',help='Offline model capabilities, field fills and compression threshold')
 parser.add_argument('--anthropic',action='store_true',help='Native Messages local-server and physical-touch acceptance')
 parser.add_argument('--api-compatibility',action='store_true',help='Local API fixture and Provider settings with physical touches')
@@ -256,6 +257,16 @@ try:
     start_app();time.sleep(2.2) # Let Falcon's app transition finish before corner mapping.
     if SERIAL=='MEA2300009007113' and int(shell('cat /sys/class/backlight/backlight/actual_brightness'))<=5:
         wake();shell('miniapp_cli start '+APP['appid']);wait(pid);wait(lambda:state()['visible']);time.sleep(2.2)
+    if args.onboarding:
+        import onboarding_flow
+        onboarding_flow.run(globals())
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
+    if state()['view']=='onboarding':
+        for key in ['next','next','next','finish']:
+            b=state()['onboarding']['actions'][key];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+            wait(lambda:not (state().get('onboarding') or {}).get('busy',False))
+        wait(lambda:state()['view']=='chat')
     s=state();assert (s['width'],s['height'],s['rotation'])==(W,H,screen.get('direction',0));capture('chat')
     # Firmware may swallow the first touch while leaving its idle state. Use
     # a blank-area wake tap, then require subsequent exact mapped events.

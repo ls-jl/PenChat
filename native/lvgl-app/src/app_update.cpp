@@ -66,7 +66,7 @@ void App::updateTick() {
   const auto status=updateState_.value("status",std::string());
   const auto release=updateState_.value("release",Json::object());
   if(status=="available"&&!updateState_.value("manual",false)&&!updateState_.value("suppressed",false)&&
-     release.value("version",std::string())!=updateOffered_&&view_=="chat"&&visible_&&!editor_.active&&!keyboard_&&!generating_&&!contextBusy_&&
+     release.value("version",std::string())!=updateOffered_&&!onboardingActive_&&view_=="chat"&&visible_&&!editor_.active&&!keyboard_&&!generating_&&!contextBusy_&&
      !titleBusy_&&!(transfer_&&transfer_->busy())&&!persistDirty_&&!saveInFlight_&&!imageStoreBusy_&&!navigationOpen_&&!modal_&&!attachments_&&!imageViewer_&&!touchDown_&&!readerInteracting()&&
      messageEdit_.empty()&&!replyBusy_&&!contextRegenerating_&&!scanId_&&
      scanner_.state().value("type",std::string())!="started"&&scanner_.state().value("type",std::string())!="progress"&&scanner_.state().value("type",std::string())!="processing") {

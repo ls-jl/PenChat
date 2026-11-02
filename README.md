@@ -9,6 +9,8 @@
 
 软件内可在“设置 → 关于 PenChat”查看署名、版本和项目地址；信息来自 `package.json`。
 
+首次引导为七页原生动画，依次说明直接扫描图片、键盘OCR、API配置及其他功能；前三页依次阅读，之后可结束，无需真实扫描或填写密钥。新旧用户展示一次，可在关于页重看，详见[使用引导](docs/ONBOARDING.md)。
+
 支持 Responses、Chat Completions 和独立的 Anthropic Messages 接口。Claude 可配置鉴权、API版本、最大输出和思考预算，详见[Anthropic 接入说明](docs/ANTHROPIC-MESSAGES.md)。
 
 Provider 可按需启用 API 兼容模式，调整流式、用量统计、公开思考摘要、加密续传、HTTP/1.1和超时。配置需保存 Provider 后生效；失败不自动重发。详见[API 核查、兼容设置与性能对比](docs/API-COMPATIBILITY.md)。

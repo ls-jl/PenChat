@@ -3,6 +3,7 @@
 #include "transfer.hpp"
 #include "feedback.hpp"
 #include "update.hpp"
+#include "onboarding.hpp"
 #include "editor.hpp"
 #include "pinyin.hpp"
 #include "editor_layout.hpp"
@@ -32,6 +33,16 @@ class App {
     std::string tableKey;
     std::map<std::pair<int, int>, lv_obj_t *> tiles;
   };
+  std::unique_ptr<Onboarding> onboarding_;
+  bool onboardingActive_=false,onboardingReplay_=false,onboardingConfig_=false,onboardingFinishing_=false;
+  int onboardingStep_=0,onboardingTarget_=0,onboardingReturnScroll_=0;
+  std::string onboardingReturn_="chat",onboardingPending_;
+  void initializeOnboarding(const Json &);
+  void openOnboarding();
+  void onboardingPage();
+  void onboardingAction(const std::string &);
+  void onboardingSaved(const Event &);
+  void finishOnboarding();
   Json lastTouch_ = Json::object();
   Database &db_;
   Bridge &bridge_;

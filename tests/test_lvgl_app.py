@@ -48,7 +48,7 @@ def wait_for(callback, timeout=10):
     raise AssertionError('Timed out waiting for native state')
 
 class Native:
-    def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True, screen=None, bridge_send_buffer=None):
+    def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True, screen=None, bridge_send_buffer=None, onboarding=False):
         self.pending=[]
         self.official_adapter=official_adapter
         self.directory=pathlib.Path(directory);self.directory.mkdir(parents=True,exist_ok=True)
@@ -60,6 +60,9 @@ class Native:
                 if seed_model:
                     db.execute("insert into providers(id,name,type,base_url,api_key,metadata_json,created_at,updated_at,is_default) values('fixture-provider','Fixture','openai-compatible',?,'test-only-no-real-key',?,1,1,1)",(f'http://127.0.0.1:{port}/v1',json.dumps({'api':api})))
                     db.execute("insert into model_configs(id,provider_id,name,display_name,model_type,created_at,updated_at,is_default) values('fixture-model','fixture-provider',?,?,'chat',1,1,1)",(model,model))
+        if not onboarding:
+            with sqlite3.connect(dbpath) as db:
+                db.execute("insert or replace into app_settings(key,value_json,updated_at) values('onboarding',?,1)",(json.dumps({'version':1,'complete':True,'step':6}),))
         display=screen if screen is not None else {'width':960,'height':266,'direction':0,'xoffset':0,'yoffset':0}
         config=self.directory/'falcon-display.json';config.write_text(json.dumps({'screen':display}))
         self.parent, child=socket.socketpair(socket.AF_UNIX,socket.SOCK_SEQPACKET)

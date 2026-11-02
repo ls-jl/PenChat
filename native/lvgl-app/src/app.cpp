@@ -97,8 +97,9 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
                                               db_.models(), db_.activeModel(), true, presetWarning);
   }
   initializeUpdates();
+  initializeOnboarding(config);
   build();
-  if (!presetWarning.empty()) modal("默认预设已部分应用", presetWarning);
+  if (!onboardingActive_ && !presetWarning.empty()) modal("默认预设已部分应用", presetWarning);
   for (const auto &job : db_.pendingTitles())
     titleJobs_.push_back(job);
 }
@@ -911,6 +912,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  onboarding_.reset();
   updateActions_.clear(); updateProgress_=updateProgressText_=updateTransferText_=nullptr;
   feedbackActions_.clear();
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
@@ -986,6 +988,9 @@ void App::build() {
     lv_obj_set_style_transform_rotation(screenObj_,(360-cameraAngle_)*10,0);
   }
   lv_obj_set_scrollable(screenObj_, false);
+  if(view_=="onboarding") {
+    onboardingPage();builtView_=view_;builtPageKey_=pageKey();syncScanner();syncBackPolicy();return;
+  }
   if(view_!="crop") icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", 16, 8, 48, 48, [this] {
     if (view_ == "chat") {
       if(!messageEdit_.empty())cancelMessageEdit();else toggleNavigation();
@@ -2089,6 +2094,7 @@ void App::settingsPage() {
                       "作者：" PENCHAT_AUTHOR "\n"
                       "AI 协作：" PENCHAT_AI_CONTRIBUTOR "\n"
                       "项目地址：" PENCHAT_PROJECT_URL);
+                button(modal_,"使用引导",16,screen_.height-66,112,44,[this]{events_.push("open_onboarding");});
               });
   const auto pending = feedback_ ? feedback_->state().value("pending", size_t(0)) : 0;
   settingsRow("feedback", "问题反馈", std::to_string(pending) + " 份待处理 · 诊断与机型适配",
@@ -2378,6 +2384,8 @@ void App::saveProvider() {
   show("provider");
 }
 void App::goBack() {
+  if(view_=="onboarding"){if(onboardingReplay_)onboardingAction("finish");else onboardingAction("back");return;}
+  if(onboardingConfig_&&view_=="provider"&&providerForm_.empty()){onboardingConfig_=false;show("onboarding");return;}
   if (view_ == "update") { updateBack(); return; }
   if (view_ == "feedback") {
     feedback_->request("keys.cancel");
@@ -2810,6 +2818,7 @@ void App::attach(const Json &image) {
 }
 void App::suspend(bool value) {
   diagnosticRecord("lifecycle", value ? "background" : "foreground");
+  if(onboarding_)onboarding_->tick(false);
   if (value && feedback_) feedback_->background();
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
   resetBack();
@@ -2849,6 +2858,7 @@ void App::suspend(bool value) {
 void App::shutdown() {
   if (shutdownComplete_) return;
   shutdownComplete_ = true;
+  if(onboarding_)onboarding_->tick(false);
   touchInput_.close();
   input_.cancel();
   // Signal every independent task before waiting for any one of them. A slow
@@ -3080,6 +3090,7 @@ void App::tick() {
   }
   imageReturnTick();
   for (const auto &saved : db_.saveEvents()) {
+    if(saved.data.value("key",std::string())=="onboarding"){onboardingSaved(saved);continue;}
     if (saved.type == "message_saved") {
       const auto session = saved.data.value("session", std::string());
       const auto message = saved.data.value("message", std::string());
@@ -3123,6 +3134,8 @@ void App::tick() {
     feedbackDirty_ = false; build();
   }
   for (auto &e : events_.drain()) {
+    if(e.type=="onboarding_action"){if(e.data.value("step",-1)==onboardingStep_)onboardingAction(e.data.value("action",std::string()));continue;}
+    if(e.type=="open_onboarding"){openOnboarding();continue;}
     if (e.type == "update_release_fault") { feedback_->request("update_fault",e.data); continue; }
     if (e.type == "update_state" || e.type == "update_prepared") { updateEvent(e); continue; }
     if (e.type == "feedback_state") { feedbackEvent(e); continue; }
@@ -3399,11 +3412,12 @@ void App::tick() {
       }
     }
   }
+  if(onboarding_)onboarding_->tick(visible_&&!keyboard_&&!editor_.active);
   updateTick();
   if(updateExit_)return;
   syncBackPolicy();
   settleReader();
-  if(!replyBusy_&&!contextRegenerating_)tickTitles();
+  if(!onboardingActive_&&!replyBusy_&&!contextRegenerating_)tickTitles();
   if (persistDirty_ && !saveInFlight_ && ticks() >= persistDue_)
     persistReply("streaming");
   flushChatRender();
@@ -3512,6 +3526,8 @@ Json App::diagnostics() const {
   for(const auto &entry:archiveViewButtons_){lv_area_t a;lv_obj_get_coords(entry.second,&a);archiveViews[entry.first]={a.x1,a.y1,a.x2,a.y2};}
 
   return {
+      {"onboarding",onboarding_?onboarding_->diagnostic():Json()},
+      {"onboarding_active",onboardingActive_},{"onboarding_config",onboardingConfig_},
       {"editor", editorDiagnostic()},
       {"draft_length", editLength(draft_)},
       {"storage", db_.storageStats()},
