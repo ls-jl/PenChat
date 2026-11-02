@@ -29,6 +29,11 @@
     "demo_gain_160x288.f32": {
       "sha256": "ec4f17e90781fd9b67b5ca0c8d9fed450dbb5890a19ebfa3979809553bc52ec8",
       "source": "resources/illumination/demo_gain_160x288.f32"
+    },
+    "y07-sc2356.json": {
+      "root": "project",
+      "source": "calibration/y07-sc2356.json",
+      "sha256": "c1c7b467d6f01cf12577795217c200d7cce55fd9a0a964eac5aba232055df033"
     }
   },
   "runtime": {

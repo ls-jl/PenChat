@@ -37,7 +37,7 @@ void App::feedbackEvent(const Event &event) {
 }
 void App::feedbackPage() {
   const auto state = feedback_->state();
-  const int width = screen_.width - 118, gap = 16, column = (width - gap) / 2;
+  const int width = layout().contentWidth(), gap = 16, column = (width - gap) / 2;
   auto control = [this](const std::string &key, const std::string &title, int x, int y, int w,
                         std::function<void()> action) {
     auto b = button(pageContent_, title, x, y, w, 48, std::move(action));

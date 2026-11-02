@@ -208,11 +208,22 @@ class Worker {
   void calibration() {
     config_.width = profile_.width;
     config_.height = profile_.height;
+    if(profile_.id=="y07-sc2356") {
+      std::ifstream source(resources_+"/y07-sc2356.json");Json j;source>>j;
+      if(j.value("profile",std::string())!=profile_.id || j.value("sensor_width",0)!=profile_.width ||
+         j.value("sensor_height",0)!=profile_.height || j.value("rotation",std::string())!="counterclockwise90")
+        throw std::runtime_error("Y07 scan calibration profile mismatch");
+      const float gain=j.at("gain_constant").get<float>();
+      if(!std::isfinite(gain)||gain<.8f||gain>1.4f)throw std::runtime_error("invalid Y07 scan calibration");
+      auto k=std::make_shared<Calibration>();k->version=j.at("version").get<std::string>();k->sensorWidth=profile_.width;
+      k->sensorHeight=profile_.height;k->rotation=config_.rotation;k->gain.fill(gain);
+      config_.calibration=k;config_.diagnosticAcceptAll=mock_;return;
+    }
     if (profile_.id == "y02-sc035gs") {
       // Independent neutral flat-field, NOT the ORANGE illumination resource.
       // Keep raw SC035GS detail; per-frame photometric estimation still runs.
       auto k = std::make_shared<Calibration>();
-      k->version = "y02-sc035gs-native-neutral-v1";
+      k->version = profile_.id+"-native-neutral-v1";
       k->sensorWidth = profile_.width;
       k->sensorHeight = profile_.height;
       k->rotation = config_.rotation;

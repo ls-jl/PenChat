@@ -115,7 +115,7 @@ Json scanLeaseSnapshot() {
   // runCapFrame may still be starting CaptureFrame after our previous release.
   // Taking an empty snapshot would leave that late child outside the lease.
   require(!j["captures"].empty(), "system capture preparing");
-  int video = ::open("/dev/video23", O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+  int video = ::open(profile.videoNode.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
   require(video >= 0, "cannot inspect system scan format");
   v4l2_format format{};
   format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
@@ -129,12 +129,14 @@ Json scanLeaseSnapshot() {
       {"field", f.field}, {"colorspace", f.colorspace},
       {"quantization", f.quantization}, {"ycbcr_enc", f.ycbcr_enc},
       {"xfer_func", f.xfer_func}};
+  if(profile.light==ScanLight::LedClass)j["led_brightness"]=read(profile.ledBrightness);
   return j;
 }
 void setScanLight(bool on) {
-  // Both verified RK3562 profiles map the white scanner LED to GPIO43.
+  // GPIO ownership differs by board. Never export Y07 driver-owned pins.
   // Configure while arming, then toggle directly without fork/shell latency.
-  require(detectedScanProfile().supported(), "unsupported scan light board");
+  const auto profile=detectedScanProfile();
+  require(profile.supported(), "unsupported scan light board");
   auto write = [](const char *path, const char *value) {
     int fd = ::open(path, O_WRONLY | O_CLOEXEC);
     if (fd < 0)
@@ -144,6 +146,9 @@ void setScanLight(bool on) {
     ::close(fd);
     return okay;
   };
+  if(profile.light==ScanLight::LedClass) {
+    require(write(profile.ledBrightness.c_str(),on?"255":"0"),"cannot switch Y07 scan LED");return;
+  }
   const char *value = "/sys/class/gpio/gpio43/value";
   if (access(value, F_OK) != 0) {
     require(write("/sys/class/gpio/export", "43"), "cannot export scan light");
@@ -177,7 +182,7 @@ void restoreScanLease(const Json &j) noexcept {
   } catch (...) {
   }
   try {
-    if (detectedScanProfile().id == "orange-sc2356") {
+    if (detectedScanProfile().sensor == "sc2356") {
       int fd = ::open("/dev/v4l-subdev2", O_RDWR | O_CLOEXEC);
       if (fd >= 0) {
         int zero = 0;
@@ -189,6 +194,13 @@ void restoreScanLease(const Json &j) noexcept {
   } catch (...) {
   }
   try {
+    const auto profile=detectedScanProfile();
+    if(profile.light==ScanLight::LedClass&&j.value("profile",std::string())==profile.id&&j.contains("led_brightness")&&j["led_brightness"].is_string()) {
+      const auto value=j["led_brightness"].get<std::string>();int fd=::open(profile.ledBrightness.c_str(),O_WRONLY|O_CLOEXEC);
+      if(fd>=0){::write(fd,value.data(),value.size());::close(fd);}
+    }
+  }catch(...){}
+  try {
     if (j.contains("video_format")) {
       const auto &saved = j.at("video_format");
       v4l2_format format{};
@@ -199,7 +211,7 @@ void restoreScanLease(const Json &j) noexcept {
       f.field = saved.at("field"); f.colorspace = saved.at("colorspace");
       f.quantization = saved.at("quantization"); f.ycbcr_enc = saved.at("ycbcr_enc");
       f.xfer_func = saved.at("xfer_func");
-      int video = ::open("/dev/video23", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+      int video = ::open(detectedScanProfile().videoNode.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
       if (video >= 0) { io(video, VIDIOC_S_FMT, &format); ::close(video); }
     }
   } catch (...) {
@@ -247,7 +259,7 @@ void Hardware::open(const Json &lease) {
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     setScanLight(false);
-    key_ = ::open("/dev/input/by-path/led_control",
+    key_ = ::open(profile_.keyNode.c_str(),
                   O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     require(key_ >= 0, "scan key unavailable");
     char name[128]{};
@@ -261,7 +273,7 @@ void Hardware::open(const Json &lease) {
             "cannot read scan key");
     pressed_ = false;
     waitRelease_ = false;
-    constexpr unsigned code = 134;
+    const unsigned code = profile_.keyCode;
     waitRelease_ = (keys[code / (8 * sizeof(long))] &
                     (1UL << (code % (8 * sizeof(long))))) != 0;
     openCamera();
@@ -275,7 +287,7 @@ void Hardware::openCamera() {
   auto sensorName = read("/sys/class/video4linux/v4l-subdev2/name");
   require(sensorName.find(profile_.sensor) != std::string::npos,
           "unsupported pen sensor");
-  video_ = ::open("/dev/video23", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+  video_ = ::open(profile_.videoNode.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
   require(video_ >= 0, "pen capture busy");
   v4l2_format f{};
   f.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
@@ -313,7 +325,7 @@ void Hardware::openCamera() {
     buffers_[n].bytes = ptr;
     require(io(video_, VIDIOC_QBUF, &b) == 0, "pen QBUF failed");
   }
-  sensor_ = ::open("/dev/v4l-subdev2", O_RDWR | O_CLOEXEC);
+  sensor_ = ::open(profile_.sensorNode.c_str(), O_RDWR | O_CLOEXEC);
   require(sensor_ >= 0, "pen sensor unavailable");
   int one = 1;
   // Both deployed kernels expose the quick-only flag. Y02's stock capture also
@@ -322,7 +334,7 @@ void Hardware::openCamera() {
   int type = f.type;
   require(io(video_, VIDIOC_STREAMON, &type) == 0, "pen STREAMON failed");
   stream_ = true;
-  if (profile_.id == "orange-sc2356") {
+  if (profile_.sensor == "sc2356") {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     require(io(sensor_, 0x400456ca, &one) == 0, "pen quick stream failed");
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -356,7 +368,7 @@ bool Hardware::keyEvent(bool &down) {
   while (::read(key_, &e, sizeof(e)) == sizeof(e)) {
     if (e.type == EV_SYN && e.code == SYN_DROPPED)
       throw std::runtime_error("scan key events lost");
-    if (e.type != EV_KEY || e.code != 134 || (e.value != 0 && e.value != 1))
+    if (e.type != EV_KEY || e.code != profile_.keyCode || (e.value != 0 && e.value != 1))
       continue;
     if (waitRelease_) {
       if (e.value == 0)
@@ -377,7 +389,7 @@ bool Hardware::keyEvent(bool &down) {
 void Hardware::exposure(bool enabled) {
   // Keep SC035GS running after its single startup. Toggling quick-stream at
   // pen release truncates CSI packets; the worker bounds the scan by timestamps.
-  if (profile_.id == "y02-sc035gs") return;
+  if (!profile_.gatesExposure) return;
   int value = enabled ? 1 : 0;
   require(sensor_ >= 0 && io(sensor_, 0x400456ca, &value) == 0,
           "cannot change pen exposure");
@@ -414,7 +426,7 @@ bool Hardware::readFrame(
   return true;
 }
 void Hardware::close() noexcept {
-  if (sensor_ >= 0 && profile_.id == "orange-sc2356") {
+  if (sensor_ >= 0 && profile_.sensor == "sc2356") {
     int zero = 0;
     io(sensor_, 0x400456ca, &zero);
     io(sensor_, 0x400456ea, &zero);

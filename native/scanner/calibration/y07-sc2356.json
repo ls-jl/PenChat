@@ -1,0 +1,10 @@
+{
+  "version": "y07-sc2356-native-neutral-v1",
+  "profile": "y07-sc2356",
+  "sensor_width": 752,
+  "sensor_height": 440,
+  "rotation": "counterclockwise90",
+  "gain_constant": 1.0,
+  "validation": "Raw transport verified; white-paper flat field and forward text orientation await physical validation. Neutral gain is not a measured calibration.",
+  "license": "Apache-2.0"
+}

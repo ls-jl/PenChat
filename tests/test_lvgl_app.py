@@ -99,7 +99,7 @@ class Native:
         self.send('touch',x=x,y=y,pressed=True);time.sleep(.06);self.send('touch',x=x,y=y,pressed=False);time.sleep(.08)
     def attachment_action(self,key):
         state=self.diag()
-        if not state['attachments']:self.tap(128,state['height']-34)
+        if not state['attachments']:self.tap(40 if state['height']>state['width'] else 128,state['height']-34)
         for _ in range(15):
             state=self.diag();b=state['attachment_actions'][key];v=state['attachment_viewport']
             if b[1]>=v[1] and b[3]<=v[3]:
@@ -124,7 +124,7 @@ class Native:
         for _ in range(8):
             state=self.diag()
             if state['navigation_open']:
-                self.tap(800,80)
+                self.tap(state["width"]-20,80)
             elif state['view']=='chat':return
             else:self.tap(40,32)
         raise AssertionError('Cannot return to chat')
@@ -132,7 +132,7 @@ class Native:
         self.to_chat();self.tap(40,32)
         assert self.diag()['navigation_open']
     def open_settings(self):
-        self.open_navigation();self.tap(500,236)
+        self.open_navigation();state=self.diag();self.tap(state["width"]*2//3-70,state["height"]-30)
         assert self.diag()['view']=='settings'
     def settings_swipe(self, delta):
         start=220 if delta<0 else 75

@@ -49,24 +49,25 @@ void App::whenScannerReleased(std::function<void()> callback) {
 }
 void App::scanPage() {
   lv_obj_set_scrollable(body_, false);
-  scanLabel_ = label(body_, "请从左向右扫描，松开笔头后完成拼接", 10, 0, screen_.width - 120, 19,
+  scanLabel_ = label(body_, "请从左向右扫描，松开笔头后完成拼接", layout().portrait()?72:10, layout().portrait()?16:0, layout().portrait()?screen_.width-88:screen_.width-120, 19,
                      theme::muted);
   lv_label_set_long_mode(scanLabel_, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(scanLabel_, font(19)->line_height);
-  auto holder = box(body_, 10, 32, screen_.width - 330, screen_.height - 88, theme::surface);
+  const bool portrait=layout().portrait();
+  auto holder = box(body_, 10, portrait?56:32, portrait?screen_.width-20:screen_.width-330, portrait?screen_.height-186:screen_.height-88, theme::surface);
   lv_obj_set_scrollable(holder, false);
   scanImage_ = imageWidget(holder);
   if (auto frame = scanner_.preview(scanId_)) {
     texture(scanImage_, frame);
     lv_image_set_scale(scanImage_,
-                       std::min(256, std::min((screen_.width - 340) * 256 / frame->width,
-                                              (screen_.height - 92) * 256 / frame->height)));
+                       std::min(256, std::min((lv_obj_get_width(holder)-8) * 256 / frame->width,
+                                              (lv_obj_get_height(holder)-8) * 256 / frame->height)));
   }
   lv_obj_center(scanImage_);
   bool usable = scanResult_.value("usable", false);
   const bool partial = scanResult_.value("status", 1) != 1;
-  scanUse_ = button(body_, !usable ? (scanResult_.empty() ? "等待扫描结果" : "无可用图像") : partial ? "使用部分图像" : "使用图片", screen_.width - 305, 32,
-                    200, 44, [this] {
+  scanUse_ = button(body_, !usable ? (scanResult_.empty() ? "等待扫描结果" : "无可用图像") : partial ? "使用部分图像" : "使用图片", portrait?16:screen_.width-305, portrait?screen_.height-112:32,
+                    portrait?screen_.width-32:200, 44, [this] {
                       if (scanConfirming_ || scanConfirmed_ == scanId_ ||
                           !scanResult_.value("usable", false))
                         return;
@@ -81,7 +82,7 @@ void App::scanPage() {
     lv_obj_set_style_bg_color(scanUse_, lv_color_hex(theme::surface), 0);
     lv_obj_set_style_text_color(lv_obj_get_child(scanUse_, 0), lv_color_hex(theme::muted), 0);
   }
-  button(body_, "取消", screen_.width - 305, 86, 200, 44, [this] { show("chat"); });
+  button(body_, "取消", portrait?16:screen_.width-305, portrait?screen_.height-58:86, portrait?screen_.width-32:200, 44, [this] { show("chat"); });
   if (!scanResult_.empty()) {
     auto c = scanResult_.value("counts", Json::object());
     std::string text;
@@ -149,8 +150,8 @@ void App::scanEvent(const Event &event) {
     if (auto frame = scanner_.preview(scanId_)) {
       texture(scanImage_, frame);
       lv_image_set_scale(scanImage_,
-                         std::min(256, std::min((screen_.width - 340) * 256 / frame->width,
-                                                (screen_.height - 92) * 256 / frame->height)));
+                         std::min(256, std::min((lv_obj_get_width(lv_obj_get_parent(scanImage_))-8) * 256 / frame->width,
+                                                (lv_obj_get_height(lv_obj_get_parent(scanImage_))-8) * 256 / frame->height)));
       lv_obj_center(scanImage_);
     }
   } else if (event.type == "scan_progress" && scanLabel_) {

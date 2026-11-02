@@ -1,10 +1,11 @@
 # Repository Guidelines
 
-PenChat is a native LVGL app for ORANGE (RK3562/AArch64, 960×266).
+PenChat is a native LVGL app for explicit ORANGE, Y02 and Y07 RK3562/AArch64 profiles.
+Read display geometry/rotation from Falcon, never a device-specific screen fallback.
 The Falcon AMR is a thin launcher with a full-screen hole, system IME and
 lifecycle forwarding. Do not put business UI or networking back into Vue.
 Scanning uses the source-pinned Stream32 backend in native/scanner, with a
-separate C++17 process and explicit ORANGE/Y02 capture leases. Keep 32/24/8 windowing,
+separate C++17 process and explicit ORANGE/Y02/Y07 capture leases. Keep 32/24/8 windowing,
 per-frame photometric estimates and bounded memory. Always review scan results
 before appending messages. API Key entry still uses the system pen-tip OCR bridge.
 Do not import legacy stitching engines or research data. The first release supports
@@ -100,7 +101,8 @@ Read README.md for toolchain prerequisites. `npm run build:host` builds host tes
 bridge, native and actual-process integration tests. Run `npm run check` and
 `npm run build:prod` before delivery. `check` currently reports optional cnpm.
 For runtime/camera/display changes test on ORANGE serial MEB0400008900794.
-Device test helpers use real touchscreen events; do not target other devices.
+Device test helpers use real touchscreen events. Authorized targets are ORANGE
+MEB0400008900794, Y02 MEA2300009007113 and Y07 7G12000010905426; do not target other devices.
 Do not restart the system MiniApp host or overwrite user data to bypass failures.
 Device chat acceptance snapshots/restores the DB and uses only fake local keys.
 
@@ -200,3 +202,16 @@ retain completed output order and assistant phase. Unknown counts stay unknown.
 Coalesced stream states must also flush while the peer is idle, not only on new bytes.
 
 Anthropic Messages is a separate protocol, never an OpenAI payload fallback. Keep signed/redacted blocks private and replay only completed same-identity messages; include API version and credential revision in that identity. Preserve cumulative usage without double counting and account for uncached/cache-read/cache-write input separately. Auxiliary compaction material is user reference data with original role/status labels, never assistant prefill or elevated system instructions. Unknown model thinking capabilities must remain opt-in.
+
+Y07 portrait uses shared AppLayout and EditorLayout: full-width reader, upper
+editing text and bottom keyboard. Portrait pull distance is based on
+min(unobstructed reader height, reader width/2), frozen at pointer-down.
+Preserve existing landscape geometry. Model fill buttons stay anchored to their
+field; album grids/archive readers keep their own layout rather than form reflow.
+Y07 SC2356 is an independent 752x440 profile using the driver LED class, never
+GPIO export/unbind. Its locked neutral flat field is provisional until white-paper
+and forward-text optical validation. Raw transport alone does not count as scan
+quality acceptance. The Y07 GC08A8 main path captures 3264x2448, separately from
+960x720 preview. A shutter during preview conversion remains pending for a true HD
+frame; never silently save preview pixels. Camera generation IDs reject late results.
+Do not treat Falcon video_direction as optical camera mounting calibration.

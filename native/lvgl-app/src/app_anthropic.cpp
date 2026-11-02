@@ -24,7 +24,7 @@ void App::protocolPicker() {
 }
 void App::anthropicConnectionPage() {
   pageHeader("Anthropic 连接设置");
-  const int width = screen_.width - 118, column = (width - 16) / 2;
+  const int width = layout().contentWidth(), column = (width - 16) / 2;
   const auto config = objectField(providerForm_, "anthropic");
   const auto auth = config.value("auth", std::string("x-api-key"));
   const auto version = config.value("version", std::string("2023-06-01"));
@@ -58,7 +58,7 @@ void App::anthropicConnectionPage() {
 }
 void App::anthropicModelPage() {
   pageHeader("模型设置");
-  const int width = screen_.width - 118, column = (width - 16) / 2;
+  const int width = layout().contentWidth(), column = (width - 16) / 2;
   auto &caps = modelForm_["reasoning"];
   const auto mode = caps.value("mode", std::string("off"));
   auto save = pageAction("保存", 24, 130, [this] {

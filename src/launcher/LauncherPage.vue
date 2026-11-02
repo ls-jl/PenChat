@@ -60,6 +60,7 @@ export default {
     async boot() {
       if (this._starting || this.running || this._disposed) return
       this._starting = true
+      this.cancelOfficialKeyboard()
       this._generation = ++generationSeed
       this._nativeImage = false; this._navigationSequence = 0
       this.setBackPolicy(false)
@@ -185,6 +186,16 @@ export default {
       if (requestId && requestId !== this._ocrRequest) return
       if (this._ocr) this._ocr.stop()
       this._ocr = null; this._ocrRequest = null
+    },
+    cancelOfficialKeyboard() {
+      if (!this.keyboardOpen) return
+      const requestId = this._keyboardRequest
+      const uuid = this._keyboardUuid
+      this.keyboardOpen = false
+      this._keyboardUuid = ''
+      this._keyboardRequest = ''
+      try { if (this._global && uuid && this._global.closeTextEdit) this._global.closeTextEdit(uuid) } catch (_) {}
+      this.send('keyboard.result', { requestId, confirmed: false, text: '' })
     },
     openKeyboard(event) {
       this.setNativeEditorPolicy(false)

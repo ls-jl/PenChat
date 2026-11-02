@@ -25,7 +25,9 @@ inline PullGeometry pullGeometry(PullRect body, int width, int height,
   g.reader = {std::max(0, body.left), std::max(0, body.top),
               std::min(width, body.right),
               std::min({height, body.bottom, composerTop})};
-  const double scale = std::max(0, g.reader.bottom - g.reader.top) / 208.0;
+  const double readerHeight=std::max(0,g.reader.bottom-g.reader.top);
+  const double extent=height>width?std::min(readerHeight,std::max(0,g.reader.right-g.reader.left)*.5):readerHeight;
+  const double scale=extent/208.0;
   auto scaled = [scale](double v) {
     return std::max(1, int(std::lround(v * scale)));
   };

@@ -92,7 +92,7 @@ void App::updateTick() {
   }
 }
 void App::updatePage() {
-  const int width=screen_.width-118,column=(width-16)/2;
+  const int width=layout().contentWidth(),column=(width-16)/2;
   pageHeader("软件更新");
   auto action=[&](const std::string &key,const std::string &text,int x,int y,int w,std::function<void()> callback) {
     auto b=button(pageContent_,text,x,y,w,48,std::move(callback));updateActions_[key]=b;return b;

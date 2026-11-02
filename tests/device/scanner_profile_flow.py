@@ -16,15 +16,19 @@ def run(c):
     board=shell('cat /proc/device-tree/model');sensor=shell('cat /sys/class/video4linux/v4l-subdev2/name')
     if 'RK3562 Y02 ' in board:
         assert 'sc035gs' in sensor;profile='y02-sc035gs';shape=(640,480);capacity=375
+    elif 'RK3562 Y07 ' in board:
+        assert 'sc2356' in sensor;profile='y07-sc2356';shape=(752,440);capacity=348
     else:
         assert 'RK3562 ORANGE ' in board and 'sc2356' in sensor;profile='orange-sc2356';shape=(496,360);capacity=640
     def ready():
         s=wait(lambda:(d if (d:=state())['scanner'].get('type')=='ready' else None),timeout=20)
         assert s['scanner']['profile']==profile and (s['scanner']['sensor_width'],s['scanner']['sensor_height'])==shape
         return s
+    def cancel():tap(W//2,H-36) if H>W else tap(W-205,108)
+    def light():return shell('cat '+('/sys/class/leds/flash-led-gpio/brightness' if profile=='y07-sc2356' else '/sys/class/gpio/gpio43/value'))
     def released():
         wait(lambda:state()['scan_released'],timeout=15)
-        assert shell('cat /sys/class/gpio/gpio43/value')=='0'
+        assert light()=='0'
         wait(lambda:shell('pidof CaptureFrame'),timeout=10)
     results=[]
     def press(hold):
@@ -34,7 +38,7 @@ def run(c):
     resident=ready()['scanner']['worker_pid'];assert str(resident)==shell('pidof penchat-scanner')
     c['capture']('scanner-ready-'+profile)
     empty_retry=False
-    if profile=='y02-sc035gs':
+    if profile in ('y02-sc035gs','y07-sc2356'):
         for attempt in range(3):
             press(1)
             empty=wait(lambda:(r if (r:=state().get('scan_result',{})).get('type')=='finished' else None),timeout=90)
@@ -44,10 +48,10 @@ def run(c):
                 retry=wait(lambda:(r if (r:=state().get('scan_result',{})).get('type')=='finished' and r['scanId']!=empty['scanId'] else None),timeout=90)
                 assert retry['counts']['received']>=5 and shell('pidof penchat-scanner')==str(resident)
                 empty_retry=True;c['capture']('scanner-retried-without-leaving')
-            tap(W-205,108);wait(lambda:state()['view']=='chat');ready()
+            cancel();wait(lambda:state()['view']=='chat');ready()
             if empty_retry:break
         assert empty_retry,'Could not exercise an empty result with a short physical press'
-    for cycle in range(3):
+    for cycle in range(20 if profile=='y07-sc2356' else 3):
         assert ready()['scanner']['worker_pid']==resident
         press(500)
         r=wait(lambda:(d['scan_result'] if (d:=state()).get('scan_result',{}).get('type')=='finished' else None),timeout=90)
@@ -55,11 +59,11 @@ def run(c):
         assert counts['discarded_backlog']==0 and counts['queue_capacity']==capacity,r
         assert counts['dropped_raw']==counts['recovered_gaps'],r
         if profile=='y02-sc035gs':assert r['captureEndedUs'] and r['lastSourceFrameUs']<=r['captureEndedUs'],r
-        assert shell('cat /sys/class/gpio/gpio43/value')=='0'
+        assert light()=='0'
         results.append({'received':counts['received'],'selected':counts['selected'],'batches':counts['batches'],'status':r['status'],'reason':r.get('reason','')})
         c['capture']('scanner-result-'+str(cycle))
         # Keep even a usable image out of the fixture's conversation.
-        tap(W-205,108);wait(lambda:state()['view']=='chat')
+        cancel();wait(lambda:state()['view']=='chat')
         assert ready()['scanner']['generation']==r['generation']
         snapshot=c['DATA']+'/scanner-acceptance.db'
         shell('sqlite3 -readonly '+shlex.quote(c['DATA']+'/penchat.db')+' '+shlex.quote('.backup '+snapshot))

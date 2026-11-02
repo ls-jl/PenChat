@@ -122,7 +122,7 @@ void App::sessionInfoPage() {
   pageHeader("会话信息");
   auto refresh = pageAction("刷新", 24, 100, [this] { events_.push("session_info_refresh"); });
   if (sessionInfoBusy_) lv_obj_add_state(refresh, LV_STATE_DISABLED);
-  const int width = screen_.width - 118, column = (width - 16) / 2;
+  const int width = layout().contentWidth(), column = (width - 16) / 2;
   const auto data = sessionInfoData_;
   if (data.empty() || data.contains("error")) {
     label(pageContent_, data.empty() ? "正在读取会话信息…" : data["error"].get<std::string>(),
@@ -136,6 +136,17 @@ void App::sessionInfoPage() {
   };
   auto metric = [&](const std::string &name, const std::string &value, int col, int y) {
     const int x = 10 + col * (column + 16);
+    if(layout().portrait()) {
+      auto row=box(pageContent_,x,y,column,52);
+      lv_obj_set_scrollable(row,false);
+      auto caption=label(row,name,0,0,column,17,theme::muted);
+      auto valueLabel=label(row,value,0,23,column,21,theme::text);
+      for(auto object:{caption,valueLabel}) {
+        lv_label_set_long_mode(object,LV_LABEL_LONG_MODE_DOTS);
+        lv_obj_set_height(object,object==caption?font(17)->line_height:font(21)->line_height);
+      }
+      return;
+    }
     single(name, x, y, column, 17, theme::muted);
     single(value, x, y + 23, column, 21, theme::text);
   };

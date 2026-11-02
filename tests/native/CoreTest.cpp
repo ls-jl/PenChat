@@ -3,6 +3,7 @@
 #include "accelerometer.h"
 #include "editor.hpp"
 #include "editor_layout.hpp"
+#include "layout.hpp"
 #include "photo_orientation.hpp"
 #include "common.hpp"
 #include "chat_text.hpp"
@@ -69,6 +70,25 @@ int main(int argc, char **argv) {
       assert(left.x==0 && left.contains(0,100) && left.contains(20,100));
       assert(right.x+right.width==l.split && right.contains(l.split-1,100));
       assert(!right.contains(l.split,100) && !left.contains(0,70));
+    }
+    // Portrait layouts use logical reading width, never physical axes or a
+    // tall-screen multiplier. Landscape geometry above remains unchanged.
+    for (const auto size : {std::make_pair(568,1210),std::make_pair(600,1280)}) {
+      const AppLayout page{size.first,size.second};
+      const EditorLayout keyboard(size.first,size.second);
+      assert(page.portrait() && page.gutter()==0);
+      assert(page.composerX()+page.composerWidth()==size.first-16);
+      assert(keyboard.portrait && keyboard.textY==12 && keyboard.textBottom()<keyboard.compositionY);
+      assert(keyboard.compositionY+20<=keyboard.candidateY);
+      assert(keyboard.candidateY+44<=keyboard.actionsY);
+      assert(keyboard.actionsY+44<=keyboard.keyTop);
+      assert(keyboard.rowHeight>=52 && keyboard.rowHeight<=72 && keyboard.keyWidth>=44);
+      assert(keyboard.bottomY+keyboard.bottomHeight<=size.second-8);
+      for(const auto &action:keyboard.actions())assert(action.x>=0&&action.width>=44&&action.x+action.width<=size.first);
+      const auto pull=pullGeometry({0,0,size.first,size.second},size.first,size.second,size.second-58);
+      const auto shorter=pullGeometry({0,0,size.first,size.second/2},size.first,size.second,size.second/2-58);
+      assert(pull.fill+pull.start>210&&pull.fill+pull.start<250);
+      assert(pull.fill==shorter.fill&&pull.start==shorter.start);
     }
     for (const auto cfg : {Json::object(), Json{{"width",960},{"height",266}},
          Json{{"screen", {{"width",960}}}}, Json{{"screen", {{"width","936"},{"height",280}}}},

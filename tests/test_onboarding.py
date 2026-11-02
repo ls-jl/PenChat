@@ -15,7 +15,7 @@ def counts(p):
   return {table:db.execute('select count(*) from '+table).fetchone()[0] for table in ('chat_sessions','chat_messages','providers','model_configs','message_assets')}
 def marker(p):
  with sqlite3.connect(p/'penchat.db') as db:return json.loads(db.execute("select value_json from app_settings where key='onboarding'").fetchone()[0])
-for w,h in [(960,266),(936,280)]:
+for w,h in [(960,266),(936,280),(568,1210)]:
  with tempfile.TemporaryDirectory(prefix='penchat-onboard-') as folder:
   p=pathlib.Path(folder);a=t.Native(binary,p,seed_model=False,onboarding=True,screen={'width':w,'height':h,'direction':0,'tp_direction':0})
   try:
@@ -49,7 +49,7 @@ for w,h in [(960,266),(936,280)]:
   a=t.Native(binary,p,seed_model=False,onboarding=True,screen={'width':w,'height':h,'direction':0,'tp_direction':0})
   try:
    assert a.diag()['view']=='chat'
-   a.open_settings();a.setting('about');a.tap(156,h-44)
+   a.open_settings();a.setting('about');a.tap(w//2 if h>w else 156,h-96 if h>w else h-44)
    t.wait_for(lambda:a.diag()['view']=='onboarding');assert 'finish' in a.diag()['onboarding']['actions']
    action(a,'finish');t.wait_for(lambda:a.diag()['view']=='settings');assert marker(p)['complete']
   finally:a.close()
@@ -76,4 +76,4 @@ with tempfile.TemporaryDirectory(prefix='penchat-onboard-save-failure-') as fold
   with sqlite3.connect(p/'penchat.db') as db:db.execute('DROP TRIGGER reject_guide')
   a.tap(890,222);t.wait_for(lambda:not a.diag()['modal']);action(a,'next');assert marker(p)['step']==1
  finally:a.close()
-print('Onboarding: seven animated pages / two sizes, mandatory steps, pause/replay/background, configuration return, restart, upgrade, no business writes and About replay passed.')
+print('Onboarding: seven animated pages / three sizes, mandatory steps, pause/replay/background, configuration return, restart, upgrade, no business writes and About replay passed.')

@@ -85,7 +85,18 @@ void Onboarding::scene(int phase,lv_obj_t *p) {
     }
   } else if(s==1) {
     if(phase==0)chat(p);
-    else {
+    else if(lv_obj_get_style_height(root_,LV_PART_MAIN)>lv_obj_get_style_width(root_,LV_PART_MAIN)) {
+      part(p,8,3,384,67,theme::sidebar);
+      words(p,phase==1?"划扫得到可编辑文字":phase==2?"请解释这道题":"请解释这道题。",20,18,360,16);
+      const std::string rows[]={"QWERTYUIOP","ASDFGHJKL","ZXCVBNM"};
+      for(int row=0;row<3;++row)for(int k=0;k<int(rows[row].size());++k) {
+        auto key=part(p,20+(row==1?16:row==2?48:0)+k*36,78+row*21,33,19);
+        auto letter=text(key,rows[row].substr(k,1),0,0,33*sceneWidth_/400,13);
+        lv_obj_set_style_text_align(letter,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(letter);
+      }
+      if(phase==1) {paper(p,214,28,160,30);symbol(p,"newchat",176,24,28,theme::accent);}
+      else {auto caret=part(p,phase==2?190:218,20,2,22,theme::caret,0);motions_[phase].push_back({caret,(phase==2?190:218)*sceneWidth_/400,20*sceneHeight_/150,24,0});}
+    } else {
       const std::string rows[]={"QWERTYUIOP","ASDFGHJKL","ZXCVBNM"};
       for(int row=0;row<3;++row)for(int k=0;k<int(rows[row].size());++k) {
         int x=8+(row==1?9:row==2?27:0)+k*19;
@@ -141,19 +152,26 @@ void Onboarding::scene(int phase,lv_obj_t *p) {
 Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool replaying,bool configured,std::function<void(const std::string &)> action)
   : action_(std::move(action)),step_(step) {
   root_=rect(parent,0,0,width,height,theme::background,0);
-  const int split=width/2, right=split+20, measure=width-right-20, footer=height-56;
-  auto demo=rect(root_,16,12,split-28,height-80,theme::sidebar,14);
-  text(demo,"操作演示",14,8,split-60,16,theme::muted);
-  sceneWidth_=split-44;sceneHeight_=height-130;
-  for(int n=0;n<4;++n){stages_[n]=rect(demo,8,42,sceneWidth_,sceneHeight_,theme::sidebar,0);scene(n,stages_[n]);lv_obj_set_hidden(stages_[n],true);}
-  text(root_,std::to_string(step+1)+" / 7"+(step<3?" · 必看":" · 功能介绍"),right,13,measure,16,theme::muted);
-  text(root_,titles[step],right,43,measure,24);
-  auto description=text(root_,copy[step],right,83,measure,18);
+  const bool portrait=height>width;
+  const int split=portrait?width-4:width/2, right=portrait?20:split+20;
+  const int measure=width-right-20,footer=height-56;
+  const int demoH=portrait?std::min(520,int(height*.43)):height-80;
+  auto demo=rect(root_,16,12,portrait?width-32:split-28,demoH,theme::sidebar,14);
+  text(demo,"操作演示",14,8,portrait?width-64:split-60,16,theme::muted);
+  sceneWidth_=portrait?width-48:split-44;
+  sceneHeight_=portrait?sceneWidth_*150/400:height-130;
+  const int sceneY=portrait?42+(demoH-50-sceneHeight_)/2:42;
+  for(int n=0;n<4;++n){stages_[n]=rect(demo,8,sceneY,sceneWidth_,sceneHeight_,theme::sidebar,0);scene(n,stages_[n]);lv_obj_set_hidden(stages_[n],true);}
+  const int top=portrait?demoH+92:13;
+  text(root_,std::to_string(step+1)+" / 7"+(step<3?" · 必看":" · 功能介绍"),right,top,measure,16,theme::muted);
+  text(root_,titles[step],right,top+30,measure,portrait?28:24);
+  auto description=text(root_,copy[step],right,top+70,measure,portrait?21:18);
   lv_obj_set_style_text_line_space(description,5,0);
-  if(step==2&&configured)text(root_,"已配置模型，可直接继续",right,174,measure,16,theme::link);
-  if(step==6)text(root_,"可在“关于 PenChat”中重看引导",right,174,measure,16,theme::muted);
-  pause_=control("pause","暂停",16,footer,80);control("replay","重播",104,footer,80);
-  auto phaseCaption=text(demo,captions[step][0],126,8,split-166,16,theme::link);actions_["caption"]=phaseCaption;
+  if(step==2&&configured)text(root_,"已配置模型，可直接继续",right,portrait?top+176:174,measure,16,theme::link);
+  if(step==6)text(root_,"可在“关于 PenChat”中重看引导",right,portrait?top+176:174,measure,16,theme::muted);
+  const int playbackY=portrait?demoH+28:footer;
+  pause_=control("pause","暂停",16,playbackY,80);control("replay","重播",104,playbackY,80);
+  auto phaseCaption=text(demo,captions[step][0],126,8,portrait?width-190:split-166,16,theme::link);actions_["caption"]=phaseCaption;
   if(step>0)control("back","上一步",width-220,footer,92);
   control("next",step==6?"开始使用":"下一步",width-120,footer,100,true);
   if(step==2)control("configure","去配置",right,footer,100);

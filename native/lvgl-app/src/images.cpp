@@ -197,6 +197,7 @@ void Camera::start() {
   thread_ = std::thread([this] { work(); });
 }
 void Camera::stop() {
+  ++generation_;
   stop_ = true;
   save_ = false;
   if (thread_.joinable())
@@ -210,21 +211,27 @@ std::shared_ptr<ImageFrame> Camera::frame() {
   return frame_;
 }
 void Camera::work() {
+  const auto generation=generation_.load();
+  auto event=[this,generation](const std::string &name,Json data){data["generation"]=generation;events_.push(name,std::move(data));};
   camera::Capture capture;
   int sensorSession = 0;
   PhotoOrientation orientationFilter;
+  bool highResolution=false;
   int64_t nextSensor = 0;
   try {
+    highResolution=fileText("/proc/device-tree/model",4096).find("RK3562 Y07 ")!=std::string::npos;
+    if(highResolution&&fileText("/sys/class/video4linux/v4l-subdev7/name",4096).find("gc08a8")==std::string::npos)
+      throw std::runtime_error("Y07相机传感器与高清配置不匹配");
 #ifdef __aarch64__
     if (manualOrientation_ < 0) {
       const auto sensor = camera::startAccelerometer(workspace_);
       if (sensor.ok) sensorSession = sensor.session;
-      events_.push("camera_sensor", {{"available",sensor.ok}});
+      event("camera_sensor", {{"available",sensor.ok}});
     }
 #endif
     if (!capture.open("", 960, 720))
       throw std::runtime_error(capture.lastError());
-    events_.push("camera_started",
+    event("camera_started",
                  {{"width", capture.width()}, {"height", capture.height()}});
     while (!stop_) {
       if (sensorSession && ticks() >= nextSensor) {
@@ -232,26 +239,40 @@ void Camera::work() {
         const auto sample = camera::readAccelerometer(sensorSession);
         if (!sample.ok) {
           camera::stopAccelerometer(sensorSession);sensorSession=0;
-          events_.push("camera_sensor", {{"available",false}});
+          event("camera_sensor", {{"available",false}});
         }
         if (sample.ok && !save_) {
           int next = orientationFilter.update(sample.x,sample.y,sample.z,ticks(),orientation_);
           if (next != orientation_) {
             orientation_ = next;
-            events_.push("camera_orientation", {{"angle",next}});
+            event("camera_orientation", {{"angle",next}});
           }
         }
       }
+      camera::Capture high;
+      camera::Capture *source=&capture;
+      bool pausedPreview=false;
       camera::CaptureFrame f;
-      if (!capture.grab(&f, 200))
-        continue;
+      if(highResolution&&save_.load()) {
+        bool ready=high.open("/dev/video29",3264,2448);
+        if(!ready){capture.close();pausedPreview=true;ready=high.open("/dev/video29",3264,2448);}
+        bool received=false;
+        if(ready)for(int tries=0;tries<10&&!stop_;++tries)if(high.grab(&f,200)){received=true;break;}
+        if(!received&&!stop_&&!pausedPreview) {
+          high.close();capture.close();pausedPreview=true;
+          if(high.open("/dev/video29",3264,2448))for(int tries=0;tries<10&&!stop_;++tries)if(high.grab(&f,200)){received=true;break;}
+        }
+        if(stop_)break;
+        if(!received||f.width!=3264||f.height!=2448)throw std::runtime_error("高清照片采集失败，请重试");
+        source=&high;
+      } else if (!capture.grab(&f, 200))continue;
       if (f.width < 2 || f.height < 2 || f.width > 4096 || f.height > 4096 ||
           f.yStride < f.width || f.uvStride < f.width ||
           f.size < size_t(f.yStride) * f.height ||
           (f.uv ? f.uvSize < size_t(f.uvStride) * f.height / 2
                 : f.size < size_t(f.yStride) * f.height +
                                size_t(f.uvStride) * f.height / 2)) {
-        capture.release(f.index);
+        source->release(f.index);
         continue;
       }
       std::vector<uint8_t> bytes(size_t(f.width) * f.height * 3 / 2);
@@ -264,9 +285,11 @@ void Camera::work() {
                     (f.uv ? f.uv : f.data + size_t(f.yStride) * f.height) +
                         size_t(y) * f.uvStride,
                     f.width);
-      capture.release(f.index);
+      source->release(f.index);
+      if(source==&high)high.close();
+      if(stop_)break;
       auto frame = std::make_shared<ImageFrame>();
-      float scale = std::min(1.f, 240.f / f.height);
+      float scale = std::min(1.f, (highResolution?720.f:240.f) / f.height);
       frame->width = int(f.width * scale);
       frame->height = int(f.height * scale);
       frame->rotation = orientation_;
@@ -281,17 +304,24 @@ void Camera::work() {
         frame_ = frame;
         width_ = f.width;
         height_ = f.height;
-        nv12_ = bytes;
+        if(!highResolution)nv12_ = bytes;
       }
-      if (save_.exchange(false)) {
+      // A shutter arriving during preview conversion stays pending until the
+      // next high-resolution frame; never save that in-flight preview as a photo.
+      if ((!highResolution || source==&high) && save_.exchange(false)) {
         ensureDirectory(directory_);
-        std::string final, part;
+        struct ReservedPhoto {
+          std::string final,part;
+          bool published=false;
+          ~ReservedPhoto(){if(!published){if(!part.empty())unlink(part.c_str());if(!final.empty())unlink(final.c_str());}}
+        } reserved;
+        auto &final=reserved.final;auto &part=reserved.part;
         int error = 0;
         if (!camera::reserveMediaPaths(directory_, "IMG", "jpg", &final, &part,
                                        &error))
           throw std::runtime_error("Cannot reserve photo file");
         std::vector<uint8_t> rgb(size_t(f.width) * f.height * 3);
-        for (int y = 0; y < f.height; ++y)
+        for (int y = 0; y < f.height && !stop_; ++y)
           for (int x = 0; x < f.width; ++x) {
             int Y = bytes[size_t(y) * f.width + x] - 16;
             auto off =
@@ -305,25 +335,30 @@ void Camera::work() {
             out[1] = clamp((298 * Y - 100 * U - 208 * V + 128) >> 8);
             out[2] = clamp((298 * Y + 516 * U + 128) >> 8);
           }
+        if(stop_)break;
         const int angle = captureOrientation_;
         const int photoW = angle % 180 ? f.height : f.width;
         const int photoH = angle % 180 ? f.width : f.height;
         if (angle) rgb = rotatePhoto(rgb,f.width,f.height,angle);
+        if(stop_){unlink(part.c_str());break;}
         if (!stbi_write_jpg(part.c_str(), photoW, photoH, 3, rgb.data(),
                             92) ||
             rename(part.c_str(), final.c_str())) {
           unlink(part.c_str());
           throw std::runtime_error("Cannot save photo");
         }
-        events_.push("photo", {{"path", final},
+        if(stop_)break;
+        event("photo", {{"path", final},
                                {"width", photoW},
                                {"height", photoH},
                                {"orientation",angle},
                                {"source", "camera"}});
+        reserved.published=true;
       }
+      if(pausedPreview&&!stop_&&!capture.open("/dev/video30",960,720))throw std::runtime_error("无法恢复相机预览");
     }
   } catch (const std::exception &e) {
-    events_.push("camera_error", {{"error", e.what()}});
+    event("camera_error", {{"error", e.what()}});
   }
   capture.close();
   if (sensorSession) camera::stopAccelerometer(sensorSession);

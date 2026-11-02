@@ -36,7 +36,7 @@ void App::saveModelForm() {
   db_.saveModelSettings(modelForm_.at("id"), caps);
 }
 void App::modelCapabilityRows(int y) {
-  const int width = screen_.width - 118, col = (width - 36) / 2, right = col + 26;
+  const int width = layout().contentWidth(), col = (width - 36) / 2, right = col + 26;
   const auto recommendation = modelRecommendation(modelForm_);
   const auto match = recommendation.at("match"), fields = recommendation.at("fields");
   const auto stored = objectField(modelForm_, "capabilities_json");
@@ -67,6 +67,10 @@ void App::modelCapabilityRows(int y) {
     auto object = button(pageContent_, "", x + col - 44, at + 6, 44, 44,
                          [fill, held, key] { if (*held) { *held = false; return; } fill(key); });
     attachIcon(object, "autofill", theme::text);
+    if(layout().portrait()) {
+      lv_obj_set_user_data(object,settingsControls_.at("model_"+key).row);
+      lv_obj_set_floating(object,true);
+    }
     lv_obj_set_style_opa(object, LV_OPA_50, LV_STATE_DISABLED);
     if (!recommended(key)) lv_obj_add_state(object, LV_STATE_DISABLED);
     struct Help { App *app; std::shared_ptr<bool> held; lv_point_t start; int64_t distance; };

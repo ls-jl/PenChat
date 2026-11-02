@@ -8,7 +8,8 @@ namespace penchat {
 // padding/control sizes, never a fallback display resolution.
 struct EditorLayout {
   int width, height, split, textX, textWidth, textY = 78, textHeight;
-  int actionsY, bottomY, rowHeight;
+  int actionsY, bottomY, rowHeight, keyTop=6, bottomHeight=44, candidateY=6, compositionY=54;
+  bool portrait=false;
   double keyWidth;
   EditorLayout(int w, int h, bool selectionOnly = false) : width(w), height(h) {
     split = w - std::max(352, w * 2 / 5 - 8);
@@ -19,7 +20,17 @@ struct EditorLayout {
     bottomY = h - 50;
     rowHeight = (bottomY - 24) / 3;
     keyWidth = (split - 44) / 10.0;
-    if (selectionOnly) { split=86;textX=96;textWidth=w-106;textY=56;textHeight=h-66; }
+    portrait=h>w;
+    if(portrait) {
+      split=w;textX=12;textWidth=w-24;textY=12;
+      rowHeight=std::max(52,std::min(72,int(w*.12)));
+      bottomHeight=std::max(44,std::min(60,int(w*.10)));
+      bottomY=h-12-bottomHeight;
+      keyTop=bottomY-3*(rowHeight+6);
+      actionsY=keyTop-52;candidateY=actionsY-50;compositionY=candidateY-26;
+      textHeight=compositionY-textY-10;keyWidth=(split-44)/10.;
+    }
+    if (selectionOnly) { split=86;textX=96;textWidth=w-106;textY=56;textHeight=h-66;if(portrait){split=w;textX=12;textWidth=w-24;} }
   }
   struct Popup {
     int x, y, width, height;
@@ -49,6 +60,10 @@ struct EditorLayout {
   }
   struct Action { const char *name; int x, width; };
   std::array<Action,5> actions() const {
+    if(portrait){const int gap=std::max(4,(textWidth-456)/4);int x=textX;
+      std::array<Action,5> a={{{"cancel",0,84},{"official",0,84},{"ocr-mode",0,112},{"done",0,128},{"clipboard",0,48}}};
+      for(auto &v:a){v.x=x;x+=v.width+gap;}return a;
+    }
     const int cancelWidth=textWidth-64-48-104-44-16;
     return {{{"cancel",textX,cancelWidth},
              {"official",textX+cancelWidth+4,64},

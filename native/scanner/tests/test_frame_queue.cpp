@@ -11,11 +11,12 @@ using namespace penchat_scan;
 int main() {
   char name[] = "/tmp/penchat-frame-queue-XXXXXX";
   assert(mkdtemp(name));
-  for (const auto size : {std::make_pair(496,360), std::make_pair(640,480)}) {
+  for (const auto size : {std::make_pair(496,360), std::make_pair(640,480), std::make_pair(752,440)}) {
     const int width=size.first, height=size.second, stride=width+4;
     FrameQueue queue(name,width,height);
     assert(queue.storageLimit()<=110*1024*1024 && queue.capacity()<=640);
     if(width==640)assert(queue.capacity()==375);
+    if(width==752)assert(queue.capacity()==348);
     std::vector<uint8_t> pixels(size_t(stride)*height, 0);
     for (unsigned round = 0; round < 2; ++round) {
       for (unsigned i = 0; i < queue.capacity(); ++i) {

@@ -154,7 +154,7 @@ void App::transferBack() {
   build();
 }
 void App::transferPage() {
-  const int width = screen_.width - 118, column = (width - 14) / 2,
+  const int width = layout().contentWidth(), column = (width - 14) / 2,
             right = 10 + column + 14;
   pageHeader(transferScreen_ == "home"             ? "导入与导出"
              : transferScreen_ == "preview"        ? "导入预览"

@@ -143,6 +143,7 @@ lv_obj_t *App::button(lv_obj_t *parent, const std::string &text, int x, int y,
   lv_obj_set_style_text_align(l, align, 0);
   lv_obj_align(l, LV_ALIGN_CENTER, 0, 0);
   onClick(o, std::move(click));
+  if(layout().portrait()&&parent==modal_) {modalButtons_.push_back(o);arrangeModal();}
   return o;
 }
 void App::primary(lv_obj_t *object) {
@@ -166,7 +167,7 @@ lv_obj_t *App::fieldButton(lv_obj_t *parent, const std::string &caption,
   return object;
 }
 void App::emptyState(const std::string &title, const std::string &hint) {
-  const int width = screen_.width - 118;
+  const int width = layout().contentWidth();
   auto parent = pageContent_ ? pageContent_ : body_;
   auto heading = label(parent, title, 10, 62, width, 23);
   lv_obj_set_style_text_align(heading, LV_TEXT_ALIGN_CENTER, 0);
@@ -319,7 +320,7 @@ void App::toggleAttachments() {
     return;
   }
   resetPull();
-  attachments_ = box(screenObj_, 86, 0, screen_.width - 86, screen_.height);
+  attachments_ = box(screenObj_,layout().gutter(),0,screen_.width-layout().gutter(),screen_.height);
   popupKind_ = "attachments";
   lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::scrim), 0);
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
@@ -451,13 +452,13 @@ void App::chooseEffort(const std::string &key) {
 void App::modelPicker(bool forTitles) {
   closeAttachments();
   resetPull();
-  attachments_ = box(screenObj_, 86, 0, screen_.width - 86, screen_.height);
+  attachments_ = box(screenObj_,layout().gutter(),0,screen_.width-layout().gutter(),screen_.height);
   popupKind_ = forTitles ? "title_models" : "models";
   lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::scrim), 0);
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
-  const int panelWidth = std::min(650, screen_.width - 130);
+  const int panelWidth = std::min(650, screen_.width - (layout().portrait()?32:130));
   auto panel = box(attachments_, 20, 12, panelWidth, screen_.height - 78, theme::surface);
   lv_obj_set_style_radius(panel, 16, 0);
   lv_obj_set_scroll_dir(panel, LV_DIR_VER);
@@ -532,13 +533,13 @@ void App::effortPicker() {
   auto options = effortChoices(model);
   closeAttachments();
   resetPull();
-  attachments_ = box(screenObj_, 86, 0, screen_.width - 86, screen_.height);
+  attachments_ = box(screenObj_,layout().gutter(),0,screen_.width-layout().gutter(),screen_.height);
   popupKind_ = "effort";
   lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::scrim), 0);
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
-  const int panelWidth = screen_.width - 130;
+  const int panelWidth = screen_.width - (layout().portrait()?32:130);
   const int sliderWidth = panelWidth - 80;
   auto panel = box(attachments_, 20, 12, panelWidth, screen_.height - 78, theme::surface);
   lv_obj_set_scrollable(panel, false);
@@ -641,7 +642,7 @@ void App::effortPicker() {
 void App::modelPage() {
   if (anthropicProtocol(modelForm_)) { anthropicModelPage(); return; }
   pageHeader("模型设置");
-  const int width = screen_.width - 118, column = (width - 14) / 2;
+  const int width = layout().contentWidth(), column = (width - 14) / 2;
   const auto id = modelForm_.value("id", std::string());
   pageAction("参数映射", 170, 140, [this] {
     modelAdvanced_ = !modelAdvanced_;
@@ -773,7 +774,9 @@ bool App::chatTouch(int x, int y, bool pressed) {
     }
     // The text entry shares the pull gesture, but attachment/send controls do
     // not. Keep threshold scaling tied to the unobstructed reading viewport.
-    const bool inPullArea = inReader || inComposer;
+    const bool floatingNavigation=layout().portrait()&&y>=8&&y<56&&
+        ((x>=16&&x<64)||(scanner_.available()&&x>=screen_.width-92));
+    const bool inPullArea = !floatingNavigation && (inReader || inComposer);
     pullTrackActivity_ = view_ == "chat" && !navigationOpen_ && !modal_ &&
                          !attachments_ && inPullArea;
     pullCreateAllowed_ =
@@ -850,7 +853,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
     lv_obj_scroll_to_y(body_, LV_COORD_MAX, LV_ANIM_OFF);
     chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
     chatLayout_ = false;
-    pullIndicator_ = box(screenObj_, 86 + (screen_.width - 90 - 280) / 2, screen_.height - 98, 280, 98);
+    pullIndicator_ = box(screenObj_, layout().gutter() + (layout().bodyWidth() - 280) / 2, screen_.height - 98, 280, 98);
     lv_obj_set_style_bg_opa(pullIndicator_, 0, 0);
     lv_obj_set_scrollable(pullIndicator_, false);
     pullArc_ = lv_arc_create(pullIndicator_);
@@ -912,7 +915,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
-  onboarding_.reset();
+  onboarding_.reset();modalButtons_.clear();modalScroll_=nullptr;
   updateActions_.clear(); updateProgress_=updateProgressText_=updateTransferText_=nullptr;
   feedbackActions_.clear();
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
@@ -982,7 +985,7 @@ void App::build() {
   const int canvasW = photo ? photoWidth() : screen_.width;
   const int canvasH = photo ? photoHeight() : screen_.height;
   screenObj_ = box(lv_screen_active(), (screen_.width-canvasW)/2, (screen_.height-canvasH)/2, canvasW, canvasH);
-  if (photo && cameraAngle_) {
+  if (photo && cameraAngle_ && !layout().portrait()) {
     lv_obj_set_style_transform_pivot_x(screenObj_,canvasW/2,0);
     lv_obj_set_style_transform_pivot_y(screenObj_,canvasH/2,0);
     lv_obj_set_style_transform_rotation(screenObj_,(360-cameraAngle_)*10,0);
@@ -991,16 +994,17 @@ void App::build() {
   if(view_=="onboarding") {
     onboardingPage();builtView_=view_;builtPageKey_=pageKey();syncScanner();syncBackPolicy();return;
   }
-  if(view_!="crop") icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", 16, 8, 48, 48, [this] {
+  lv_obj_t *navigation=nullptr;
+  if(view_!="crop"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", 16, 8, 48, 48, [this] {
     if (view_ == "chat") {
       if(!messageEdit_.empty())cancelMessageEdit();else toggleNavigation();
     }
     else
       goBack();
   });
-  int w = screen_.width - 90;
-  body_ = view_=="crop" ? box(screenObj_,0,0,canvasW,canvasH) : photo && cameraAngle_%180 ? box(screenObj_,0,56,canvasW,canvasH-56)
-                                      : box(screenObj_,86,0,w,screen_.height);
+  int w = layout().bodyWidth();
+  body_ = view_=="crop" || (photo&&layout().portrait()) ? box(screenObj_,0,0,canvasW,canvasH) : photo && cameraAngle_%180 ? box(screenObj_,0,56,canvasW,canvasH-56)
+                                      : box(screenObj_,layout().gutter(),0,w,screen_.height);
   lv_obj_set_scroll_dir(body_, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(body_, LV_SCROLLBAR_MODE_AUTO);
   if (view_ == "chat")
@@ -1046,7 +1050,7 @@ void App::build() {
   else if (view_ == "crop")
     cropPage();
   if (view_ == "chat" && scanner_.available()) {
-    auto hint = box(screenObj_, 12, 60, 64, 64);
+    auto hint = box(screenObj_, layout().portrait()?screen_.width-92:12, layout().portrait()?8:60, layout().portrait()?80:64, layout().portrait()?44:64);
     lv_obj_set_scrollable(hint, false);
     scanHint_ = label(hint, "扫描\n准备中", 4, 5, 60, 14, theme::muted);
     onClick(hint, [this] {
@@ -1058,6 +1062,8 @@ void App::build() {
       }
     });
   }
+  if(navigation)lv_obj_move_foreground(navigation);
+  if(layout().portrait())portraitPage();
   refreshImages();
   if (navigationOpen_)
     historyDrawer();
@@ -1137,28 +1143,29 @@ void App::modal(const std::string &title, const std::string &text) {
   resetPull();
   if (modal_)
     lv_obj_delete(modal_);
-  const bool portraitPhoto = (view_=="camera" || view_=="crop") && cameraAngle_%180;
+  const bool portraitPhoto = !layout().portrait() && (view_=="camera" || view_=="crop") && cameraAngle_%180;
   const int mw=portraitPhoto?photoWidth():screen_.width,mh=portraitPhoto?photoHeight():screen_.height;
-  const int layerWidth=portraitPhoto?mw-16:mw-92;
-  auto layer = box(screenObj_, portraitPhoto?8:84, 0, layerWidth, mh, theme::surface);
-  modal_ = layer;
+  const int layerWidth=portraitPhoto?mw-16:layout().modalWidth();
+  auto layer = box(screenObj_, portraitPhoto?8:layout().modalX(), 0, layerWidth, mh, theme::surface);
+  modal_ = layer;modalButtons_.clear();
   lv_obj_add_event_cb(
       layer,
       [](lv_event_t *e) {
-        static_cast<App *>(lv_event_get_user_data(e))->modal_ = nullptr;
+        auto app=static_cast<App *>(lv_event_get_user_data(e));app->modal_=nullptr;app->modalButtons_.clear();app->modalScroll_=nullptr;
       },
       LV_EVENT_DELETE, this);
   lv_obj_set_style_radius(layer, 16, 0);
   lv_obj_set_style_border_color(layer, lv_color_hex(theme::border), 0);
   lv_obj_set_style_border_width(layer, 1, 0);
-  label(layer, title, 15, 7, portraitPhoto?layerWidth-30:screen_.width-140, 23);
-  auto scroll = box(layer, 10, 42, portraitPhoto?layerWidth-20:screen_.width-120, mh-115, theme::surface);
-  label(scroll, text, 5, 0, portraitPhoto?layerWidth-30:screen_.width-145, 20);
+  label(layer, title, 15, 7, layerWidth-30, 23);
+  auto scroll = box(layer, 10, 42, layerWidth-20, mh-115, theme::surface);
+  modalScroll_=scroll;
+  label(scroll, text, 5, 0, layerWidth-30, 20);
   button(layer, "关闭", portraitPhoto?layerWidth-110:screen_.width-205, mh-66, 100, 44,
          [layer] { lv_obj_delete(layer); });
 }
 void App::chat() {
-  int width = screen_.width - 90;
+  int width = layout().bodyWidth();
   lv_obj_set_height(body_, screen_.height);
   // At the edge, rapid guarded swipes must not repeatedly stretch and snap
   // back.
@@ -1168,6 +1175,7 @@ void App::chat() {
   lv_obj_set_flex_flow(messageContent_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(messageContent_, 10, 0);
   lv_obj_set_style_pad_bottom(messageContent_, 74, 0);
+  if(layout().portrait())lv_obj_set_style_pad_top(messageContent_,56,0);
   lv_obj_set_scrollable(messageContent_, false);
   lv_obj_add_event_cb(
       body_,
@@ -1183,9 +1191,9 @@ void App::rebuildChatControls() {
   if (toBottom_) lv_obj_delete(toBottom_);
   composer_ = chatControls_ = toBottom_ = nullptr;
   chatControlsTarget_ = -1;
-  const int composerWidth = screen_.width - 130;
+  const int composerWidth = layout().composerWidth();
   chatControls_ =
-      box(screenObj_, 106, screen_.height - 58, composerWidth, 48, theme::surface);
+      box(screenObj_, layout().composerX(), screen_.height - 58, composerWidth, 48, theme::surface);
   lv_obj_set_scrollable(chatControls_, false);
   lv_obj_set_style_radius(chatControls_, 24, 0);
   auto attachment = icon(
@@ -1236,7 +1244,7 @@ void App::rebuildChatControls() {
   if (!sendEnabled)
     lv_obj_set_clickable(send, false);
   toBottom_ = icon(
-      screenObj_, "down", 106 + (composerWidth - 44) / 2, screen_.height - 114, 44, 44,
+      screenObj_, "down", layout().composerX() + (composerWidth - 44) / 2, screen_.height - 114, 44, 44,
       [this] { jumpToBottom(); }, theme::surface);
   lv_obj_set_style_border_color(toBottom_, lv_color_hex(theme::border), 0);
   lv_obj_set_style_border_width(toBottom_, 1, 0);
@@ -1912,10 +1920,12 @@ std::string App::pageKey() const {
 void App::pageHeader(const std::string &title, int top) {
   // Header and business content share one full-height reader. No overlay may
   // cover the space released when the title scrolls out.
-  const int width = screen_.width - 90;
+  const int width = layout().bodyWidth();
   pageHeader_ = box(body_, 0, top, width, 48);
   lv_obj_set_scrollable(pageHeader_, false);
-  pageHeading_ = label(pageHeader_, title, 10, 7, width - 20, 26);
+  if(layout().portrait())icon(pageHeader_,"back",12,2,44,44,[this]{goBack();});
+  const int titleX=layout().portrait()?68:10;
+  pageHeading_ = label(pageHeader_, title, titleX, 7, width-titleX-10,26);
   lv_label_set_long_mode(pageHeading_, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(pageHeading_,font(26)->line_height);
   pageContent_ = box(body_, 0, top + 48, width, LV_SIZE_CONTENT);
@@ -1927,11 +1937,11 @@ void App::pageHeader(const std::string &title, int top) {
   lv_obj_set_style_radius(body_, 3, LV_PART_SCROLLBAR);
 }
 lv_obj_t *App::pageAction(const std::string &title, int right, int width, std::function<void()> action) {
-  const int x = screen_.width - 86 - right - width;
+  const int x = layout().portrait()?layout().bodyWidth()-right-width-8:screen_.width-86-right-width;
   auto result = button(pageHeader_, title, x, 2, width, 44, std::move(action));
   pageActions_[title] = result;
   const int titleWidth = lv_obj_get_style_width(pageHeading_,LV_PART_MAIN);
-  lv_obj_set_width(pageHeading_, std::min(titleWidth,x-24));
+  lv_obj_set_width(pageHeading_, std::max(40,std::min(titleWidth,x-(layout().portrait()?80:24))));
   return result;
 }
 Json App::pageDiagnostic() const {
@@ -1942,6 +1952,7 @@ Json App::pageDiagnostic() const {
     const bool control=entry.first.compare(0,7,"effort:")==0 || entry.first.compare(0,8,"mapping:")==0;
     (control?controls:actions)[entry.first]=bounds(entry.second);
   }
+  for(const auto &entry:settingsControls_)controls[entry.first]=bounds(entry.second.row);
   return {{"viewport",bounds(body_)},{"heading",bounds(pageHeading_)},{"actions",actions},{"controls",controls},
           {"scrolling",lv_obj_is_scrolling(body_)}};
 }
@@ -2004,7 +2015,7 @@ Json App::settingsDiagnostic() const {
 void App::settingsPage() {
   pageHeader("设置");
   settingsHeading_ = pageHeading_;
-  const int width = screen_.width - 118;
+  const int width = layout().contentWidth();
   const int gap = 16, column = (width - gap) / 2;
   const int left = 10, right = left + column + gap;
   const auto config = db_.settings();
@@ -2115,7 +2126,7 @@ void App::fontSizePage() {
   pageHeader("字体大小");
   pageAction("恢复默认", 96, 120, [this] { updateFontPreview(100); });
   pageAction("保存", 0, 84, [this] { events_.push("reading_font_apply"); });
-  const int width = screen_.width - 118;
+  const int width = layout().contentWidth();
   label(pageContent_, "聊天正文、思考过程与公式同步缩放；菜单和键盘保持原大小。",
         10, 4, width - 20, 16, theme::muted);
   fontPercentLabel_ = label(pageContent_, "", 10, 29, width - 20, 20);
@@ -2162,7 +2173,7 @@ void App::reasoningDisplayPicker() {
   }
 }
 void App::providerPage() {
-  int w = screen_.width - 118;
+  int w = layout().contentWidth();
   pageHeader(providerForm_.empty()          ? "Provider / 模型"
              : providerForm_.contains("id") ? "编辑 Provider"
                                             : "添加 Provider", providerForm_.empty() ? 8 : 0);
@@ -2535,6 +2546,7 @@ void App::historyDrawer() {
                      LV_ANIM_OFF);
 }
 lv_point_t App::photoPoint(lv_point_t point) const {
+  if(layout().portrait())return point;
   // LVGL hit testing follows the rotated container; custom crop geometry needs
   // the same inverse transform before comparing with untransformed object bounds.
   const int x=point.x-screen_.width/2,y=point.y-screen_.height/2;
@@ -2560,7 +2572,7 @@ void App::cameraMode(bool automatic,int angle) {
 void App::cameraPage() {
   lv_obj_set_scrollable(body_, false);
   lv_obj_update_layout(body_);
-  const bool portrait=cameraAngle_%180;
+  const bool portrait=layout().portrait()||cameraAngle_%180;
   const int w=lv_obj_get_width(body_),h=lv_obj_get_height(body_);
   auto preview=box(body_,8,8,portrait?w-16:w-140,portrait?h-204:h-16,theme::sidebar);
   lv_obj_set_scrollable(preview,false);
@@ -2579,7 +2591,7 @@ void App::cameraPage() {
   status_=label(preview,cameraError_.empty()?"相机启动中…":cameraError_,12,12,lv_obj_get_width(preview)-24,19,theme::muted);
 }
 void App::albumPage() {
-  int w = screen_.width - 118;
+  int w = layout().contentWidth();
   pageHeader("相册");
   std::vector<std::pair<int64_t, std::string>> files;
   for (auto &dir :
@@ -2618,22 +2630,24 @@ void App::albumPage() {
   int begin = albumPage_ * 12, end = std::min(int(files.size()), begin + 12);
   for (int i = begin; i < end; ++i) {
     auto path = files[i].second;
-    int pos = i - begin, x = 10 + (pos % 3) * (w / 3), y = 4 + (pos / 3) * 145;
+    const int columns=layout().portrait()?std::max(1,w/160):3;
+    int pos = i - begin, x = 10 + (pos % columns) * (w / columns), y = 4 + (pos / columns) * 145;
     auto preview =
         scanPreviews.count(path) ? scanPreviews[path] : std::string();
-    image(pageContent_, preview.empty() ? path : preview, x, y, w / 3 - 15, 105,
+    image(pageContent_, preview.empty() ? path : preview, x, y, w / (layout().portrait()?std::max(1,w/160):3) - 15, 105,
           [this, path, preview] {
             Json image = {{"path", path}, {"source", "album"}};
             if (!preview.empty())
               image["previewPath"] = preview;
             attach(image);
           });
-    auto caption = label(pageContent_, basename(path), x, y + 108, w / 3 - 20, 15);
+    auto caption = label(pageContent_, basename(path), x, y + 108, w / (layout().portrait()?std::max(1,w/160):3) - 20, 15);
     lv_label_set_long_mode(caption, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_height(caption, font(15)->line_height);
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
   }
-  int y = 4 + ((end - begin + 2) / 3) * 145;
+  const int columns=layout().portrait()?std::max(1,w/160):3;
+  int y = 4 + ((end - begin + columns-1) / columns) * 145;
   if (albumPage_)
     button(pageContent_, "上一页", 10, y, 140, 44, [this] {
       --albumPage_;
@@ -3134,6 +3148,10 @@ void App::tick() {
     feedbackDirty_ = false; build();
   }
   for (auto &e : events_.drain()) {
+    if((e.type=="photo"||e.type=="camera_started"||e.type=="camera_error"||e.type=="camera_sensor"||e.type=="camera_orientation")&&e.data.value("generation",uint64_t(0))!=camera_.generation()) {
+      if(e.type=="photo")unlink(e.data.value("path",std::string()).c_str());
+      continue;
+    }
     if(e.type=="onboarding_action"){if(e.data.value("step",-1)==onboardingStep_)onboardingAction(e.data.value("action",std::string()));continue;}
     if(e.type=="open_onboarding"){openOnboarding();continue;}
     if (e.type == "update_release_fault") { feedback_->request("update_fault",e.data); continue; }

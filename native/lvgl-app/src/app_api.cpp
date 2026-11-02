@@ -2,7 +2,7 @@
 namespace penchat {
 void App::apiCompatibilityPage() {
   pageHeader("API 兼容模式");
-  const int width = screen_.width - 118;
+  const int width = layout().contentWidth();
   const int column = (width - 36) / 2;
   const int right = 26 + column;
   const auto config = objectField(providerForm_, "compatibility");
@@ -48,7 +48,7 @@ void App::httpSettingsPage() {
   pageAction("恢复默认", 24, 120, [this] {
     db_.setting("http_idle_seconds", 90); setHttpIdleSeconds(90); build();
   });
-  const int width = screen_.width - 118;
+  const int width = layout().contentWidth();
   const auto seconds = httpIdleSeconds();
   settingsRow("http_idle_seconds", "保留秒数", std::to_string(seconds) + "秒 · 允许15～600秒", 10, 4, width-20, [this, seconds] {
     edit(std::to_string(seconds), "连接保留时间（15～600秒）", [this](const std::string &text) {

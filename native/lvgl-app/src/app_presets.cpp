@@ -27,22 +27,23 @@ void App::applyPreset(const Json &preset) {
 void App::presetPicker() {
   closeAttachments();
   resetPull();
-  attachments_ = box(screenObj_, 86, 0, screen_.width - 86, screen_.height);
+  attachments_ = box(screenObj_,layout().gutter(),0,screen_.width-layout().gutter(),screen_.height);
   popupKind_ = "presets";
   lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::scrim), 0);
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
-  auto backdrop = button(attachments_, "", 0, 0, screen_.width - 86, screen_.height,
+  auto backdrop = button(attachments_, "", 0, 0, screen_.width-layout().gutter(), screen_.height,
                          [this] { closeAttachments(); });
   lv_obj_set_style_bg_opa(backdrop, LV_OPA_TRANSP, 0);
-  auto panel = box(attachments_, 20, 12, screen_.width - 130, screen_.height - 78, theme::surface);
+  const int panelWidth=screen_.width-(layout().portrait()?32:130);
+  auto panel = box(attachments_, 20, 12, panelWidth, screen_.height - 78, theme::surface);
   lv_obj_set_style_radius(panel, 16, 0);
   lv_obj_set_scroll_dir(panel, LV_DIR_VER);
   lv_obj_set_scroll_elastic(panel, false);
   lv_obj_set_scroll_momentum(panel, false);
   auto current = sessionPreferences_.value("preset_name", std::string("未选择预设"));
   if (sessionPreferences_.value("preset_adjusted", false)) current += " · 已调整";
-  auto heading = label(panel, "当前：" + current, 14, 4, screen_.width - 168, 17, theme::muted);
+  auto heading = label(panel, "当前：" + current, 14, 4, panelWidth-38, 17, theme::muted);
   lv_label_set_long_mode(heading, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(heading, 24);
   int y = 32;
@@ -50,9 +51,9 @@ void App::presetPicker() {
     bool selected = p["id"] == sessionPreferences_.value("preset_id", std::string());
     auto title = (selected ? "● " : "○ ") + p.value("name", std::string());
     if (selected && sessionPreferences_.value("preset_adjusted", false)) title += " · 已调整";
-    button(panel, title, 8, y, screen_.width - 154, 44,
+    button(panel, title, 8, y, panelWidth-24, 44,
            [this, p] { applyPreset(p); }, theme::surface, LV_TEXT_ALIGN_LEFT);
-    auto caption = label(panel, presetSummary(p), 22, y + 44, screen_.width - 180, 16, theme::muted);
+    auto caption = label(panel, presetSummary(p), 22, y + 44, panelWidth-50, 16, theme::muted);
     lv_label_set_long_mode(caption, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_height(caption, 22);
     lv_obj_set_clickable(caption, false);
@@ -61,7 +62,7 @@ void App::presetPicker() {
 }
 void App::presetsPage() {
   pageHeader("会话预设");
-  const int width = screen_.width - 118, column = (width - 14) / 2;
+  const int width = layout().contentWidth(), column = (width - 14) / 2;
   bool enabled = db_.settings().value("presets_enabled", false);
   button(pageContent_, enabled ? "启用预设入口：开" : "启用预设入口：关", 10, 4, column, 48,
          [this, enabled] { db_.setting("presets_enabled", !enabled); build(); });
@@ -97,7 +98,7 @@ void App::presetChoices(const std::string &field) {
   int y = 0;
   auto option = [&](const std::string &value, const std::string &name) {
     button(panel, (presetForm_.value(field, std::string()) == value ? "● " : "○ ") + name,
-           4, y, screen_.width - 144, 44, [this, field, value] {
+           4, y, layout().portrait()?layout().modalWidth()-28:screen_.width-144, 44, [this, field, value] {
              presetForm_[field] = value;
              build();
            }, theme::surface, LV_TEXT_ALIGN_LEFT);
@@ -127,7 +128,7 @@ void App::presetChoices(const std::string &field) {
 }
 void App::presetEditor() {
   pageHeader("编辑预设");
-  const int width = screen_.width - 118, column = (width - 14) / 2, right = 24 + column;
+  const int width = layout().contentWidth(), column = (width - 14) / 2, right = 24 + column;
   auto save = pageAction("保存", 24, 130, [this] {
     if (!presetHasText(presetForm_.value("name", std::string()))) { modal("请输入预设名称", "名称不能为空。"); return; }
     if (presetForm_.value("prompt_mode", std::string()) == "custom" && !presetHasText(presetForm_.value("prompt", std::string()))) {

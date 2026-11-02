@@ -266,8 +266,10 @@ void App::historyContext(const std::string &id) {
   lv_obj_set_height(historyFullTitle_,LV_SIZE_CONTENT);
   const auto stamp=historyTime(sessionChatTime(session),nowMs(),true);
   historyFullTime_=label(panel,stamp.empty()?"没有已记录的聊天时间":"最后聊天："+stamp,16,panelHeight-80,panelWidth-32,16,theme::muted);
-  const int actionWidth=(panelWidth-56)/5,actionY=panelHeight-60;
-  historyActions_["rename"]=button(panel, "重命名", 12, actionY, actionWidth, 50, [this, id, session] {
+  const int actionWidth=std::max(100,(panelWidth-56)/5),actionY=panelHeight-60;
+  auto actionRail=box(panel,0,actionY,panelWidth,50,theme::surface);
+  lv_obj_set_scroll_dir(actionRail,LV_DIR_HOR);lv_obj_set_scroll_elastic(actionRail,false);
+  historyActions_["rename"]=button(actionRail, "重命名", 12, 0, actionWidth, 50, [this, id, session] {
     closeHistoryContext();
     edit(
         session.value("title", std::string()), "重命名会话",
@@ -284,7 +286,7 @@ void App::historyContext(const std::string &id) {
   });
   bool pinned =
       objectField(session, "metadata_json").value("pinned_at", int64_t(0)) > 0;
-  historyActions_["pin"]=button(panel, pinned ? "取消置顶" : "置顶", 12+(actionWidth+8), actionY, actionWidth, 50,
+  historyActions_["pin"]=button(actionRail, pinned ? "取消置顶" : "置顶", 12+(actionWidth+8), 0, actionWidth, 50,
          [this, id, pinned] {
            closeHistoryContext();
            db_.pinSession(id, !pinned);
@@ -294,18 +296,18 @@ void App::historyContext(const std::string &id) {
              lv_obj_scroll_to_y(navigationList_, 0, LV_ANIM_OFF);
            historyDrawer();
          });
-  historyActions_["archive"]=button(panel, "归档", 12+2*(actionWidth+8), actionY, actionWidth, 50, [this, id] {
+  historyActions_["archive"]=button(actionRail, "归档", 12+2*(actionWidth+8), 0, actionWidth, 50, [this, id] {
     closeHistoryContext();
     retireSession(id, true);
   });
-  auto remove = button(panel, "删除", 12+3*(actionWidth+8), actionY, actionWidth, 50, [this, id] {
+  auto remove = button(actionRail, "删除", 12+3*(actionWidth+8), 0, actionWidth, 50, [this, id] {
     closeHistoryContext();
     retireSession(id, false);
   });
   historyActions_["delete"]=remove;
   lv_obj_set_style_text_color(lv_obj_get_child(remove, 0),
                               lv_color_hex(theme::danger), 0);
-  historyActions_["export"]=button(panel, "导出", 12+4*(actionWidth+8), actionY, actionWidth, 50, [this, id] {
+  historyActions_["export"]=button(actionRail, "导出", 12+4*(actionWidth+8), 0, actionWidth, 50, [this, id] {
     events_.push("transfer_open_session", {{"id", id}});
   });
 }
@@ -346,13 +348,14 @@ void App::archivesPage() {
   auto sessions = db_.sessions(archiveOffset_, true);
   if (sessions.empty())
     emptyState("没有归档会话", "长按历史对话可归档，在这里还原或删除。");
+  const bool portrait=layout().portrait();
   int y = 6;
   for (const auto &session : sessions) {
     auto id = session["id"].get<std::string>();
-    const int width=screen_.width-118;
-    auto holder=box(pageContent_,10,y,width-350,44);
+    const int width=layout().contentWidth();
+    auto holder=box(pageContent_,10,y,portrait?width:width-350,44);
     lv_obj_set_scrollable(holder,false);lv_obj_set_clickable(holder,true);
-    historyCaption(holder,session,0,9,width-350);
+    historyCaption(holder,session,0,9,portrait?width:width-350);
     auto title=historyCaptions_[id].title;
     struct Press {App *app;std::string id;lv_point_t start{};int distance=0;bool held=false;};
     auto data=new Press{this,id};
@@ -366,20 +369,20 @@ void App::archivesPage() {
       if(code==LV_EVENT_LONG_PRESSED&&!p->held&&p->distance<=144){p->held=true;p->app->events_.push("history_details",{{"id",p->id}});}
       if(code==LV_EVENT_CLICKED&&!p->held&&p->distance<=144)p->app->events_.push("archive_open",{{"id",p->id}});
     },LV_EVENT_ALL,data);
-    archiveViewButtons_[id]=button(pageContent_,"查看",width-330,y,100,44,[this,id]{events_.push("archive_open",{{"id",id}});});
+    archiveViewButtons_[id]=button(pageContent_,"查看",portrait?10:width-330,portrait?y+48:y,portrait?(width-16)/3:100,44,[this,id]{events_.push("archive_open",{{"id",id}});});
     if (id == archiveHighlight_)
       lv_obj_set_style_text_color(title, lv_color_hex(theme::link), 0);
     historyRows_.push_back({id, title});
-    button(pageContent_, "还原", width-220, y, 100, 44, [this, id] {
+    button(pageContent_, "还原", portrait?18+(width-16)/3:width-220, portrait?y+48:y, portrait?(width-16)/3:100, 44, [this, id] {
       db_.archiveSession(id, false);
       if (archiveOffset_ && db_.sessions(archiveOffset_, true).empty())
         archiveOffset_ = std::max(0, archiveOffset_ - 30);
       build();
     });
-    auto remove = button(pageContent_, "删除", width-110, y, 100, 44,
+    auto remove = button(pageContent_, "删除", portrait?26+2*((width-16)/3):width-110, portrait?y+48:y, portrait?(width-16)/3:100, 44,
            [this, id] { retireSession(id, false); });
     lv_obj_set_style_text_color(lv_obj_get_child(remove, 0), lv_color_hex(theme::danger), 0);
-    y += 52;
+    y += portrait?106:52;
   }
   if (archiveOffset_)
     button(pageContent_, "上一页", 10, y, 180, 44, [this] {
@@ -408,7 +411,7 @@ void App::archiveReaderPage() {
   lv_obj_set_flex_flow(pageContent_,LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_all(pageContent_,8,0);
   lv_obj_set_style_pad_row(pageContent_,8,0);
-  const int width=screen_.width-112;
+  const int width=layout().portrait()?layout().contentWidth()-16:screen_.width-112;
   label(pageContent_,"已归档 · 仅浏览",0,0,width,17,theme::muted);
   if(session.empty()||session.value("status",std::string())!="archived") {
     label(pageContent_,"归档会话已不存在",0,0,width,21);return;

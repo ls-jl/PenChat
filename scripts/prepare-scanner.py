@@ -34,7 +34,7 @@ for name, digest in lock['files'].items():
 target = ROOT/'assets/scanner'
 if a.stage: target.mkdir(parents=True, exist_ok=True)
 for name, entry in lock['resources'].items():
-    source = a.bundle/entry['source']
+    source = (ROOT/'native/scanner' if entry.get('root')=='project' else a.bundle)/entry['source']
     assert hashlib.sha256(source.read_bytes()).hexdigest() == entry['sha256'], name
     if a.stage: shutil.copy2(source, target/name)
 if a.stage:

@@ -39,6 +39,7 @@ public:
 };
 class Camera {
   std::atomic<bool> stop_{false};
+  std::atomic<uint64_t> generation_{0};
   std::thread thread_;
   std::mutex mutex_;
   std::vector<uint8_t> nv12_;
@@ -56,6 +57,7 @@ public:
   ~Camera() { stop(); }
   void start();
   void stop();
+  uint64_t generation() const { return generation_.load(); }
   void capture(int angle = 0) { captureOrientation_ = angle; save_ = true; }
   void orientation(bool automatic, int angle) { orientation_ = angle; manualOrientation_ = automatic ? -1 : angle; }
   std::shared_ptr<ImageFrame> frame();

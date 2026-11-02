@@ -205,3 +205,20 @@ test('launcher never forwards or reconstructs native touch coordinates', async (
   assert(!f.calls.some(c=>c[0]==='send'&&c[1].type==='touch'))
   assert(f.calls.some(c=>c[0]==='send'&&c[1].type==='visibility'&&c[1].visible===false))
 })
+
+test('cached native restart closes only the obsolete official editor and ignores late results', async () => {
+  const f=fixture();await f.page.boot()
+  f.page.openKeyboard({requestId:'edit-obsolete',text:'fixture'})
+  f.options.onHide.call(f.page)
+  assert.equal(f.page.keyboardOpen,true) // Official UI can itself hide this page.
+  f.page.running=false;f.native.alive=false
+  await f.page.boot()
+  assert.equal(f.page.keyboardOpen,false)
+  assert.equal(f.calls.filter(c=>c[0]==='closeEdit').length,1)
+  const results=()=>f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result')
+  f.edit('edit-1',JSON.stringify({editConfirmed:true,text:'late'}))
+  assert.equal(results().length,0)
+  f.page.resume();f.page.editorState({session:'new',sequence:1,active:true})
+  assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],false)
+  f.page.dispose()
+})

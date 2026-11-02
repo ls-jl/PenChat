@@ -176,3 +176,14 @@ RKNN SDK 头文件、RKNN 运行库、模型及校准资源均未取得本项目
 - 扫描核心7项主机测试和7项ASAN/UBSan测试、Y02模拟确认/PNG导出/丢弃、AArch64构建与生产AMR校验通过。ORANGE当前未连接，本次未进行真机回归，原有采集尺寸、曝光及校准逻辑保留。
 - 完整主机回归各项分段通过：`npm test`在末尾扫描UI之前收到SIGTERM（退出143），剩余扫描UI及许可证检查已单独补跑通过，不将该命令记为退出0。此前独立仓储测试一次在启动失败后的`/proc/self/task`计数断言失败，原样单项重跑及完整回归中的14项原生测试均通过，未改动仓储实现。`npm run check`仍仅报告原有可选cnpm缺失。
 - 真机入口：`python3 tests/device/display_config.py --serial MEA2300009007113 --scanner-profile`，隔离并恢复私有/公共目录，所有结果丢弃、不发送聊天。真实纸面质量与空场采集测试分开记录。
+
+### Y07 SC2356 (0.2.25)
+
+Y07 is an explicit board/sensor profile (752×440 NV12), not a Y02 fallback.
+Its LED-class path is driver-owned; never export GPIO43 or unload that driver.
+The capture guardian retains/restores LED brightness and the previous V4L2
+format. Raw transport has been verified at 24 consecutive frames without gaps.
+`calibration/y07-sc2356.json` is a separately locked **neutral**, not measured,
+flat field. White-paper illumination, optical orientation and forward text
+stitching still require physical validation before declaring Y07 scan acceptance.
+The 110MiB spill bound yields 348 queued original-size grayscale frames at this sensor size.

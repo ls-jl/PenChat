@@ -4,6 +4,7 @@
 #include "feedback.hpp"
 #include "update.hpp"
 #include "onboarding.hpp"
+#include "layout.hpp"
 #include "editor.hpp"
 #include "pinyin.hpp"
 #include "editor_layout.hpp"
@@ -33,6 +34,11 @@ class App {
     std::string tableKey;
     std::map<std::pair<int, int>, lv_obj_t *> tiles;
   };
+  AppLayout layout() const { return {screen_.width,screen_.height}; }
+  void portraitPage();
+  void arrangeModal();
+  lv_obj_t *modalScroll_=nullptr;
+  std::vector<lv_obj_t *> modalButtons_;
   std::unique_ptr<Onboarding> onboarding_;
   bool onboardingActive_=false,onboardingReplay_=false,onboardingConfig_=false,onboardingFinishing_=false;
   int onboardingStep_=0,onboardingTarget_=0,onboardingReturnScroll_=0;
@@ -395,8 +401,8 @@ class App {
   lv_obj_t *backHint_ = nullptr;
   void closeNavigation(bool resumeCamera = true);
   void cameraPage();
-  int photoWidth() const { return cameraAngle_%180 ? screen_.height : screen_.width; }
-  int photoHeight() const { return cameraAngle_%180 ? screen_.width : screen_.height; }
+  int photoWidth() const { return !layout().portrait()&&cameraAngle_%180 ? screen_.height : screen_.width; }
+  int photoHeight() const { return !layout().portrait()&&cameraAngle_%180 ? screen_.width : screen_.height; }
   lv_point_t photoPoint(lv_point_t point) const;
   void cameraMode(bool automatic, int angle);
   void startCamera();
