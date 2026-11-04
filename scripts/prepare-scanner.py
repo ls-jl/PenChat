@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Stage hash-locked scanner assets; never copy research or input captures."""
 import argparse, hashlib, json, pathlib, shutil, os
+import urllib.request
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT = pathlib.Path('/home/ls-jl/Documents/ChatGPT/词典笔扫描拼接/deliverables/stream32_complete_20261018')
 p = argparse.ArgumentParser()
@@ -23,7 +24,23 @@ if a.cross or a.stage:
     for name in ['zlib.h','zconf.h']:
         shutil.copy2(sdk/'zlib'/name,private/'include'/name)
     for name,entry in lock['runtime'].items():
-        source=({'bundle':a.bundle,'board':board}[entry['root']])/entry['source']
+        if entry['root']=='download':
+            source=ROOT/'.deps/scanner-rknn'/entry['source']
+            if not source.exists():
+                source.parent.mkdir(parents=True,exist_ok=True)
+                temporary=source.with_suffix('.download')
+                try:
+                    with urllib.request.urlopen(entry['url'],timeout=60) as response,temporary.open('wb') as output:
+                        size=0
+                        while chunk:=response.read(65536):
+                            size+=len(chunk)
+                            if size>16*1024*1024:raise ValueError('Scanner runtime download exceeds limit')
+                            output.write(chunk)
+                    assert hashlib.sha256(temporary.read_bytes()).hexdigest()==entry['sha256'],name
+                    temporary.replace(source)
+                finally:temporary.unlink(missing_ok=True)
+        else:
+            source=({'bundle':a.bundle,'board':board}[entry['root']])/entry['source']
         assert hashlib.sha256(source.read_bytes()).hexdigest()==entry['sha256'], name
         shutil.copy2(source,private/'lib'/name)
     # Linker name stays outside the production package.

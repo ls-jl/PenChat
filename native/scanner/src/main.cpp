@@ -520,8 +520,14 @@ public:
     if (mock_)
       backend = std::make_unique<TestInference>();
 #endif
-    if (!backend)
-      backend = makeRknn32(resources_ + "/pintu_32.rknn");
+    if (!backend) {
+      // Y07 firmware ships RKNN 1.4.0, which aborts on this model's CPU
+      // MaxPool dilations. Load the pinned private runtime only on that board.
+      const auto runtime = profile_.privateRuntime.empty()
+          ? std::string("librknnrt.so")
+          : resources_ + "/lib/" + profile_.privateRuntime;
+      backend = makeRknn32(resources_ + "/pintu_32.rknn", runtime);
+    }
     Limits limits;
     limits.maxSessions = 1;
     limits.idleModelMs = 0;

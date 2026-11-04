@@ -10,6 +10,9 @@ int main() {
   const auto y07=scanProfile("Rockchip RK3562 Y07 LP4 V10 Board","sc2356");
   assert(y07.id=="y07-sc2356"&&y07.width==752&&y07.height==440);
   assert(y07.light==ScanLight::LedClass&&!y07.ledBrightness.empty());
+  assert(y07.ledOnValue=="1"); // Vendor white-light mode, never LED_FULL (255).
+  assert(y07.privateRuntime=="librknnrt-y07.so");
+  assert(y02.privateRuntime.empty()&&orange.privateRuntime.empty());
   assert(y02.light==ScanLight::Gpio43&&!y02.gatesExposure);
   assert(orange.gatesExposure&&y07.gatesExposure);
   assert(scanProfile("ORANGE", "sc2356").supported());

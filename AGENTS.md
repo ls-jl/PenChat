@@ -209,9 +209,17 @@ min(unobstructed reader height, reader width/2), frozen at pointer-down.
 Preserve existing landscape geometry. Model fill buttons stay anchored to their
 field; album grids/archive readers keep their own layout rather than form reflow.
 Y07 SC2356 is an independent 752x440 profile using the driver LED class, never
-GPIO export/unbind. Its locked neutral flat field is provisional until white-paper
+GPIO export/unbind. The vendor brightness attribute is a mode: white=1, IR=127,
+off=0 (stock len_onoff.sh); never use generic LED_FULL=255. Its locked neutral flat field is provisional until white-paper
 and forward-text optical validation. Raw transport alone does not count as scan
 quality acceptance. The Y07 GC08A8 main path captures 3264x2448, separately from
 960x720 preview. A shutter during preview conversion remains pending for a true HD
 frame; never silently save preview pixels. Camera generation IDs reject late results.
 Do not treat Falcon video_direction as optical camera mounting calibration.
+
+Y07's system RKNN 1.4.0 aborts on the model MaxPool dilations; use only its locked
+private 1.6.0 runtime. Other boards keep system RKNN. Keep the scanner's exported
+no-execution system blocker and dynamic-binding test: the vendor import must never
+reach libc's command launcher. Do not remove the blocker or broaden package policy
+beyond the exact runtime hash and the scanner-defined stub. Do not claim seccomp:
+this Y07 kernel does not support the required filter.

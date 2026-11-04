@@ -63,3 +63,15 @@ JS 启动页及原生测试。应用自有运行代码没有发现 `system`、`p
 - ORANGE 的并发操作冲突仍待确认，本轮未占用该设备。
 
 原始日志、截图和设备测试数据保存在忽略的 `.work/` 中，不提交到 Git。
+
+
+## Y07 RKNN compatibility (0.2.26)
+
+The Y07 firmware RKNN 1.4.0 aborts on the scan model's MaxPool dilations.
+Its private 1.6.0 runtime is pinned by commit and SHA-256; other boards keep their system runtime.
+The vendor library imports `system`. The scanner exports an audited no-execution stub
+through `runtime-symbols.list`; it returns ENOTSUP, does not inspect/log arguments and
+never launches a process. A dynamically loaded test library verifies symbol binding.
+Real Y07 NPU inference is also checked with this blocker. The firmware does not support
+the attempted seccomp filter; no seccomp protection is claimed. Package symbol policy
+permits only the exact locked vendor artifact and the scanner's defined blocker.

@@ -14,7 +14,11 @@ for root in roots:
         if path.suffix not in ('.cpp', '.c', '.hpp', '.h'):
             continue
         source = path.read_text()
-        assert not pattern.search(source), str(path)
+        if str(path.relative_to(ROOT)) == 'native/scanner/src/runtime_guard.cpp':
+            assert len(pattern.findall(source)) == 1 and 'extern "C" int system(const char *command)' in source
+            assert 'errno = ENOTSUP;' in source and 'return -1;' in source
+        else:
+            assert not pattern.search(source), str(path)
         calls = re.findall(r'\b(fork|vfork|execv|execve|execl|posix_spawn)\s*\(', source)
         if calls:
             launches[str(path.relative_to(ROOT))] = sorted(calls)

@@ -187,3 +187,10 @@ format. Raw transport has been verified at 24 consecutive frames without gaps.
 flat field. White-paper illumination, optical orientation and forward text
 stitching still require physical validation before declaring Y07 scan acceptance.
 The 110MiB spill bound yields 348 queued original-size grayscale frames at this sensor size.
+
+
+Y07从0.2.26起使用应用私有、源码提交与SHA-256锁定的RKNN 1.6.0，修复系统1.4.0
+对模型MaxPool dilations触发SIGABRT。其他板型运行库路径不变。私有库仅进入忽略的
+生成资源，扫描程序导出拒绝执行的system符号，避免vendor调用启动shell；动态绑定
+测试及精确哈希包检查必须保留。白灯使用厂商模式1而非255，见
+[修正与实机记录](../../docs/Y07-LIGHT-0.2.26.md)。

@@ -61,6 +61,13 @@
       "root": "board",
       "source": "libstdc++.so.6.0.29",
       "sha256": "77280d912c04c9ee9eaea6f38442a223a348886e5ff06dddd3914b5fcb881036"
+    },
+    "librknnrt-y07.so": {
+      "root": "download",
+      "source": "v1.6.0/librknnrt.so",
+      "commit": "b25dadacc24b88eb7dfcaa47c9c525ecca89b319",
+      "url": "https://raw.githubusercontent.com/airockchip/rknn-toolkit2/b25dadacc24b88eb7dfcaa47c9c525ecca89b319/rknpu2/runtime/Linux/librknn_api/aarch64/librknnrt.so",
+      "sha256": "9c5e43179e83f82b3ec1f2c2f9b520559af23ab76327aca63500db30d63d6910"
     }
   },
   "png_source": {

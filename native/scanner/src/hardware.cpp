@@ -147,7 +147,9 @@ void setScanLight(bool on) {
     return okay;
   };
   if(profile.light==ScanLight::LedClass) {
-    require(write(profile.ledBrightness.c_str(),on?"255":"0"),"cannot switch Y07 scan LED");return;
+    require(!profile.ledOnValue.empty() &&
+                write(profile.ledBrightness.c_str(),on?profile.ledOnValue.c_str():"0"),
+            "cannot switch Y07 scan LED");return;
   }
   const char *value = "/sys/class/gpio/gpio43/value";
   if (access(value, F_OK) != 0) {

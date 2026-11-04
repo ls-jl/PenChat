@@ -10,7 +10,8 @@ struct CaptureProfile {
   std::string keyNode = "/dev/input/by-path/led_control";
   unsigned keyCode = 134;
   ScanLight light = ScanLight::Gpio43;
-  std::string ledBrightness;
+  std::string ledBrightness, ledOnValue;
+  std::string privateRuntime;
   bool gatesExposure = true;
   bool supported() const { return !id.empty(); }
 };
@@ -28,6 +29,10 @@ inline CaptureProfile scanProfile(const std::string &model,
     { CaptureProfile profile{"y07-sc2356", "sc2356", 752, 440};
       profile.light=ScanLight::LedClass;
       profile.ledBrightness="/sys/class/leds/flash-led-gpio/brightness";
+      // Y07's vendor driver treats brightness as a mode, not a duty cycle:
+      // stock len_onoff.sh uses 1 for white, 127 for IR and 0 for off.
+      profile.ledOnValue="1";
+      profile.privateRuntime="librknnrt-y07.so";
       return profile; }
   return {};
 }
