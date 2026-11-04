@@ -27,9 +27,15 @@ def run():
                 (2,25200,32,False,False,True),
                 (3,33600,32,False,False,True),
                 (3,40000,32,False,False,True),
-                (3,40001,32,False,False,False),
-                (4,35000,32,False,False,False),
-                (1,16800,32,True,False,False),
+                (3,40001,32,False,False,True),
+                (4,42000,32,False,False,True),
+                (7,67200,32,False,False,True),
+                (7,150000,32,False,False,True),
+                (8,75600,32,False,False,False),
+                (9,84000,32,False,False,False),
+                (1,16800,2,True,False,True),
+                (1,0,32,False,False,False),
+                (1,-1,32,False,False,False),
                 (0,8400,32,False,True,False),
             ]:
                 s.press()
@@ -44,11 +50,11 @@ def run():
                 gaps=result['frame_gaps'];assert gaps and len(gaps)<=16,result
                 assert gaps[0]['elapsed_us']==elapsed and gaps[0]['stable_frames']==16,gaps
                 if okay:
-                    assert result['counts']['received']==stable+1,result
-                    assert result['counts']['dropped_raw']==missing,result
-                    assert result['counts']['recovered_frames']==missing,result
-                    assert result['counts']['recovered_gaps']==1,result
-                    assert gaps[0]['recovered'],gaps
+                    assert result['counts']['received']==stable+1+int(repeated),result
+                    assert result['counts']['dropped_raw']==missing+int(repeated),result
+                    assert result['counts']['recovered_frames']==missing+int(repeated),result
+                    assert result['counts']['recovered_gaps']==1+int(repeated),result
+                    assert all(gap['recovered'] for gap in gaps),gaps
                 else:
                     assert result['reason']==('sensor_sequence_reset' if reset else 'sensor_sequence_gap'),result
                     assert not gaps[-1]['recovered'],gaps
@@ -64,6 +70,16 @@ def run():
             assert result['counts']['dropped_raw']==5 and result['counts']['recovered_frames']==5,result
             assert result['counts']['recovered_gaps']==3 and len(result['frame_gaps'])==3,result
             assert all(gap['recovered'] for gap in result['frame_gaps']),result
+            s.send('discard');s.receive('ready')
+            # Total missing frames may exceed eight; only a single continuous
+            # gap reaching eight stops capture. Repeated small gaps are visible.
+            s.press();sequences=list(range(32))+list(range(33,50,2))
+            for seq in sequences:
+                s.send('test.frame',rawSequence=seq,rawTimestamp=100000+seq*8400)
+            s.release();result=s.receive('finished')
+            assert result['status']==1 and result['counts']['received']==len(sequences),result
+            assert result['counts']['dropped_raw']==9 and result['counts']['recovered_frames']==9,result
+            assert len(result['frame_gaps'])==9 and all(g['recovered'] for g in result['frame_gaps']),result
             s.send('discard');s.receive('ready')
         finally:s.close()
     print('Y02 process: native 640x480 frames, explicit neutral profile, full-size PNG, review/confirmation and discard passed.')
