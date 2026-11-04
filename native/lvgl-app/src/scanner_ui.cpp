@@ -103,9 +103,12 @@ void App::scanPage() {
              std::to_string(c.value("selected", uint64_t(0))) + " 帧" +
              (c.value("warnings", 0u) ? "，存在光照估计回退，请核对"
                                       : "，请确认使用");
-    if (c.value("recovered_gaps", uint64_t(0)))
-      text = "传感器漏 " + std::to_string(c.value("recovered_gaps", uint64_t(0))) +
-             " 帧（已续扫） · " + text;
+    const auto lost = c.value("dropped_raw", uint64_t(0));
+    const auto recovered = c.value("recovered_frames",
+                                   c.value("recovered_gaps", uint64_t(0)));
+    if (lost)
+      text = "采集漏 " + std::to_string(lost) + " 帧（" +
+             std::to_string(recovered) + " 帧已续扫） · " + text;
     lv_label_set_text(scanLabel_, text.c_str());
   }
 }

@@ -3,6 +3,8 @@
 #include "png.hpp"
 #include "preview.hpp"
 #include "protocol.hpp"
+#include "sequence_gap.hpp"
+#include <array>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -153,6 +155,15 @@ class Worker {
   unsigned afterStop_ = 0;
   bool haveSequence_ = false;
   uint64_t lastSequence_ = 0, droppedRaw_ = 0, recoveredGaps_ = 0;
+  uint64_t recoveredFrames_ = 0;
+  struct GapDetail {
+    uint32_t before, after;
+    int64_t elapsedUs;
+    unsigned stableFrames;
+    bool recovered;
+  };
+  std::array<GapDetail, 16> gapDetails_{};
+  size_t gapDetailCount_ = 0;
   unsigned framesSinceGap_ = 16;
   int64_t lastRawTimestamp_ = 0;
   std::string captureFailure_;
@@ -184,6 +195,7 @@ class Worker {
             {"pending", c.pending + queued},          {"unlocated", c.unlocated},
             {"batches", c.inferenceBatches}, {"dropped_raw", droppedRaw_},
             {"recovered_gaps", recoveredGaps_},
+            {"recovered_frames", recoveredFrames_},
             {"queued", queued},
             {"queue_peak", ingress_ ? ingress_->peak() : 0},
             {"queue_capacity", ingress_ ? ingress_->capacity() : 0},
@@ -341,7 +353,8 @@ class Worker {
     firstFrame_ = 0;
     lastFrame_ = pressTime_;
     haveSequence_ = false;
-    droppedRaw_ = recoveredGaps_ = 0;
+    droppedRaw_ = recoveredGaps_ = recoveredFrames_ = 0;
+    gapDetailCount_ = 0;
     framesSinceGap_ = 16;
     lastRawTimestamp_ = 0;
     captureFailure_.clear();
@@ -631,13 +644,17 @@ public:
       // A backwards/reset sequence is not billions of missing frames.
       if (distance > 1 && distance < 0x80000000u)
         droppedRaw_ += distance - 1;
-      // The selector already removes redundant raw frames before matching.
-      // An isolated missing sensor frame at ~90fps need not terminate the scan;
-      // retain the next real frame, never synthesize pixels or conceal loss.
-      const bool recoverable = distance == 2 && timestamp > lastRawTimestamp_ &&
-          timestamp - lastRawTimestamp_ <= 35000 && framesSinceGap_ >= 16;
+      // Preserve the actual next image and report every lost source frame.
+      // Y02 permits only short bounded bursts; other boards retain single loss.
+      const auto elapsed = timestamp - lastRawTimestamp_;
+      const bool recoverable = recoverableSequenceGap(
+          profile_.id, distance, elapsed, framesSinceGap_);
+      if (gapDetailCount_ < gapDetails_.size())
+        gapDetails_[gapDetailCount_++] = {uint32_t(lastSequence_),
+            uint32_t(sequence), elapsed, framesSinceGap_, recoverable};
       if (recoverable) {
         ++recoveredGaps_;
+        recoveredFrames_ += distance - 1;
         framesSinceGap_ = 0;
       } else {
         captureFailure_ = distance > 1 && distance < 0x80000000u
@@ -743,8 +760,16 @@ public:
         state_ = "result";
         requestPreview(true);
         auto b = result_->bounds();
+        Json gaps = Json::array();
+        for (size_t i = 0; i < gapDetailCount_; ++i) {
+          const auto &gap = gapDetails_[i];
+          gaps.push_back({{"before", gap.before}, {"after", gap.after},
+              {"elapsed_us", gap.elapsedUs}, {"stable_frames", gap.stableFrames},
+              {"recovered", gap.recovered}});
+        }
         emit("finished",
-             {{"status", captureFailure_.empty() ? int(result_->status())
+             {{"frame_gaps", gaps},
+              {"status", captureFailure_.empty() ? int(result_->status())
                                                  : int(Status::Segmented)},
               {"reason",
                captureFailure_.empty() ? result_->reason() : captureFailure_},
