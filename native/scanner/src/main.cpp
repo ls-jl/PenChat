@@ -1,5 +1,5 @@
 #include "hardware.hpp"
-#include "frame_queue.hpp"
+#include "memory_policy.hpp"
 #include "png.hpp"
 #include "preview.hpp"
 #include "protocol.hpp"
@@ -149,6 +149,9 @@ class Worker {
   std::string resources_, directory_, session_, state_ = "disarmed";
   uint64_t generation_ = 0, request_ = 0, scan_ = 0;
   bool mock_ = false, armed_ = false, capturing_ = false, finished_ = false;
+#ifdef SCANNER_TEST_SOURCE
+  std::atomic<int> mockMemory_{0};
+#endif
   CaptureProfile profile_;
   bool requireRelease_ = false, keyDown_ = false, draining_ = false;
   bool retryWhenEmpty_ = false;
@@ -173,12 +176,11 @@ class Worker {
   int64_t ownerDeadline_ = 0, nextOwner_ = 0;
   int64_t nextPreview_ = 0, lastFrame_ = 0, pressTime_ = 0, firstFrame_ = 0,
           drainDeadline_ = 0, sourceCutoffUs_ = 0;
-  Json lease_, exported_;
+  Json lease_, exported_, memoryAtStop_ = Json::object();
   std::mutex eventMutex_;
   std::deque<Event> events_;
   Hardware hardware_;
-  std::unique_ptr<FrameQueue> ingress_;
-  bool engineSealed_ = false;
+  bool engineSealed_ = false, reclaimed_ = false;
   uint64_t discardedBacklog_ = 0;
   Light light_;
   Config config_;
@@ -189,19 +191,42 @@ class Worker {
   Json counts() {
     auto r = scan_ ? engine_->preview(scan_) : ResultHandle{};
     Counts c = r ? r->counts() : Counts{};
-    const auto queued = ingress_ ? ingress_->pending() : 0;
-    return {{"received", c.received + queued},        {"filtered", c.filtered},
+    auto m = engine_->metrics();
+    const auto queued = m.rawQueued + m.selectedQueued;
+    return {{"received", c.received},        {"filtered", c.filtered},
             {"selected", c.selected},        {"committed", c.committed},
-            {"pending", c.pending + queued},          {"unlocated", c.unlocated},
+            {"pending", c.pending},          {"unlocated", c.unlocated},
             {"batches", c.inferenceBatches}, {"dropped_raw", droppedRaw_},
             {"recovered_gaps", recoveredGaps_},
             {"recovered_frames", recoveredFrames_},
             {"queued", queued},
-            {"queue_peak", ingress_ ? ingress_->peak() : 0},
-            {"queue_capacity", ingress_ ? ingress_->capacity() : 0},
-            {"spilled", ingress_ ? ingress_->spilled() : 0},
+            {"raw_queued", m.rawQueued}, {"selected_queued", m.selectedQueued},
+            {"queue_peak", m.queuedPeak},
+            {"raw_peak", m.rawPeak}, {"selected_peak", m.selectedPeak},
+            {"frame_bytes", m.frameBytes}, {"canvas_bytes", m.canvasBytes},
+            {"peak_frame_bytes", m.peakFrameBytes}, {"peak_canvas_bytes", m.peakCanvasBytes},
+            {"rss_bytes", m.residentBytes}, {"rss_peak_bytes", m.peakResidentBytes}, {"swap_bytes", m.swapBytes},
+            {"system_available_bytes", m.systemAvailableBytes}, {"system_reserve_bytes", m.systemReserveBytes},
+            {"spilled", 0},
             {"discarded_backlog", discardedBacklog_},
+            {"memory_stop_code", captureFailure_ == "system_memory_low" ? 1 :
+                captureFailure_ == "system_memory_unavailable" ? 2 :
+                captureFailure_ == "memory_allocation_failed" ? 3 :
+                captureFailure_ == "canvas_allocation_failed" ? 4 :
+                captureFailure_ == "render_memory_allocation_failed" ? 5 : 0},
+            {"stop_rss_bytes", memoryAtStop_.value("rss_bytes", std::size_t(0))},
+            {"stop_swap_bytes", memoryAtStop_.value("swap_bytes", std::size_t(0))},
+            {"stop_frame_bytes", memoryAtStop_.value("frame_bytes", std::size_t(0))},
+            {"stop_canvas_bytes", memoryAtStop_.value("canvas_bytes", std::size_t(0))},
             {"warnings", warnings_.load()}};
+  }
+  void rememberStop() {
+    if (!memoryAtStop_.empty()) return;
+    const auto m = engine_->metrics();
+    memoryAtStop_ = {{"rss_bytes", m.residentBytes}, {"swap_bytes", m.swapBytes},
+      {"system_available_bytes", m.systemAvailableBytes}, {"system_reserve_bytes", m.systemReserveBytes},
+      {"frame_bytes", m.frameBytes}, {"canvas_bytes", m.canvasBytes},
+      {"raw_queued", m.rawQueued}, {"selected_queued", m.selectedQueued}};
   }
   void emit(const std::string &type, Json data = Json::object()) {
     data["v"] = ProtocolVersion;
@@ -278,10 +303,10 @@ class Worker {
       }
     exported_ = Json::object();
   }
-  void release() {
-    ingress_.reset();
+  void release(bool cancel = false) {
     preview_.cancelAndWait();
     if (scan_) {
+      if (cancel) engine_->cancelScan(scan_);
       engine_->endScan(scan_);
       auto r = engine_->wait(scan_);
       result_.reset();
@@ -292,6 +317,7 @@ class Worker {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     if (engine_->metrics().sessions)
       throw std::runtime_error("scan result still referenced");
+    engine_->reclaimIdle();
     scan_ = 0;
     capturing_ = false;
     finished_ = false;
@@ -310,15 +336,16 @@ class Worker {
     // Camera, key and guardian are restored before imposing an exit bound on
     // cancelled work. A stuck NPU call must not leave a detached worker alive.
     DrainDeadline deadline;
-    release();
+    release(true);
     lease_ = Json();
   }
   void begin() {
     if (!armed_ || scan_ || requireRelease_)
       return;
     mkdir(directory_.c_str(), 0700);
-    ingress_ = std::make_unique<FrameQueue>(directory_, config_.width, config_.height);
     engineSealed_ = false;
+    reclaimed_ = false;
+    memoryAtStop_ = Json::object();
     discardedBacklog_ = 0;
     const auto begin = engine_->beginScan(
         config_, {[this](const Event &e) {
@@ -340,7 +367,7 @@ class Worker {
           }
         }});
     if (begin.code != Code::Ok) {
-      fail("scan engine unavailable: " + std::to_string(int(begin.code)));
+      fail(*begin.reason ? begin.reason : "scan engine unavailable");
       return;
     }
     firstSelectedUs_ = 0;
@@ -489,7 +516,7 @@ class Worker {
     exported_["metadata"] = {
         {"status", captureFailure_.empty() ? int(result_->status())
                                            : int(Status::Segmented)},
-        {"counts", c},
+        {"counts", c}, {"memory_at_stop", memoryAtStop_},
         {"reason",
          captureFailure_.empty() ? result_->reason() : captureFailure_},
         {"calibration", config_.calibration->version},
@@ -544,6 +571,14 @@ public:
     Limits limits;
     limits.maxSessions = 1;
     limits.idleModelMs = 0;
+#ifdef SCANNER_TEST_SOURCE
+    if (mock_) limits.memoryProbe = [this] {
+      const auto state = mockMemory_.load();
+      if (state == 1) return SystemMemory{1024 * MiB, 0, true};
+      if (state == 2) return SystemMemory{};
+      return systemMemory();
+    };
+#endif
     backend = std::make_unique<ObservedInference>(std::move(backend), [this] {
       int64_t zero = 0;
       firstBatchUs_.compare_exchange_strong(zero, clockUs());
@@ -611,7 +646,9 @@ public:
       emit("ready");
     }
 #ifdef SCANNER_TEST_SOURCE
-    else if (mock_ && type == "test.press") {
+    else if (mock_ && type == "test.memory") {
+      mockMemory_ = std::max(0, std::min(2, j.value("state", 0)));
+    } else if (mock_ && type == "test.press") {
       keyEvent(j.value("pressed", false));
     } else if (mock_ && type == "test.frame" && capturing_) {
       std::vector<uint8_t> pixels(size_t(config_.width) * config_.height, 210);
@@ -671,42 +708,29 @@ public:
     lastRawTimestamp_ = timestamp;
     framesSinceGap_ = std::min(16u, framesSinceGap_ + 1);
     const bool wasDraining = draining_;
-    ingress_->push(pixels, stride, sequence, timestamp);
+    const auto pushed = engine_->pushFrame(scan_, pixels, config_.width, config_.height, stride, sequence, timestamp);
+    if (!pushed.accepted || pushed.code == Code::StopCapture) {
+      captureFailure_ = *pushed.reason ? pushed.reason : "memory_allocation_failed";
+      if (!pushed.accepted) ++discardedBacklog_;
+      rememberStop();
+      requireRelease_ = true;
+      drain(); seal();
+      return;
+    }
     if (!firstFrame_) firstFrame_ = lastFrame_;
     if (wasDraining && capturing_ && afterStop_ && --afterStop_ == 0)
       seal();
   }
   void pumpFrames() {
     if (!scan_ || finished_ || engineSealed_) return;
-    // Leave substantial headroom below the engine's 240-frame high-water mark.
-    // Deferred frames stay losslessly ordered in the bounded spill queue.
-    auto memory = engine_->metrics();
-    if (memory.frames >= 128) {
-      auto result = engine_->preview(scan_);
-      if (result && result->counts().unlocated)
-        throw std::runtime_error("NPU stitching failed with retained frames");
-    }
-    for (unsigned n = memory.frames; ingress_ && n < 128 && n < memory.frames + 16; ++n) {
-      FrameQueue::Frame frame;
-      if (!ingress_->pop(frame)) break;
-      auto pushed = engine_->pushFrame(scan_, frame.pixels.data(), config_.width, config_.height, config_.width,
-                                        frame.sequence, frame.timestamp);
-      if (pushed.code == Code::StopCapture || !pushed.accepted) {
-        captureFailure_ = "scan engine memory capacity";
-        discardedBacklog_ += ingress_->pending() + (pushed.accepted ? 0 : 1);
-        ingress_.reset();
-        requireRelease_ = true;
-        drain();
-        seal();
-        break;
-      }
-    }
-    if (!capturing_ && (!ingress_ || ingress_->pending() == 0)) {
+    if (!capturing_) {
       engineSealed_ = true;
       engine_->endScan(scan_);
     }
   }
   void tick() {
+    engine_->checkResources();
+    if (finished_ && !reclaimed_) reclaimed_ = engine_->reclaimIdle();
     if (capturing_) {
       const auto now = clockUs();
       maxCaptureLoopUs_ = std::max(maxCaptureLoopUs_, now - lastCaptureTickUs_);
@@ -750,8 +774,10 @@ public:
       if (e.scan != scan_)
         continue;
       if (e.kind == Event::Kind::StopRequested) {
+        if (captureFailure_.empty()) captureFailure_ = e.reason;
+        rememberStop();
         requireRelease_ = true;
-        drain();
+        drain(); seal();
         emit("stopped", {{"reason", e.reason}});
       }
       if (e.kind == Event::Kind::Finished) {
@@ -768,7 +794,7 @@ public:
               {"recovered", gap.recovered}});
         }
         emit("finished",
-             {{"frame_gaps", gaps},
+             {{"frame_gaps", gaps}, {"memory_at_stop", memoryAtStop_},
               {"status", captureFailure_.empty() ? int(result_->status())
                                                  : int(Status::Segmented)},
               {"reason",
@@ -802,8 +828,6 @@ public:
   void fail(const std::string &why) {
     if (scan_ && !finished_) {
       captureFailure_ = why;
-      discardedBacklog_ += ingress_ ? ingress_->pending() : 0;
-      ingress_.reset();
       engineSealed_ = true;
       light_.off();
       hardware_.close();
@@ -825,6 +849,7 @@ public:
 };
 } // namespace
 int main(int argc, char **argv) {
+  configureScannerAllocator();
   int fd = -1, preview = -1, processLock = -1;
   std::string resources, directory;
   bool mock = false;

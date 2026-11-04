@@ -3,6 +3,9 @@
 #include "pen_stream/stream.hpp"
 #include <atomic>
 #include <deque>
+#include <condition_variable>
+#include <thread>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <opencv2/core.hpp>
@@ -10,16 +13,71 @@
 #include <unistd.h>
 
 namespace pen::stream {
+struct MemoryError : std::bad_alloc {
+    const char *reason;
+    explicit MemoryError(const char *r) : reason(r) {}
+    const char *what() const noexcept override { return reason; }
+};
 struct Budget {
     Limits limits;
     std::recursive_mutex admission;
     std::atomic<std::size_t> frames{0}, canvas{0}, other{0};
-    std::atomic<std::size_t> observedRss{0};
+    std::atomic<std::size_t> framePeak{0}, canvasPeak{0};
     std::atomic<unsigned> frameCount{0}, sessions{0};
     std::atomic<bool> loaded{false};
-    explicit Budget(Limits l) : limits(l) {}
-    std::size_t total() const {
-        return frames + canvas + other;
+    std::atomic<std::size_t> available{0}, reserve{0};
+    std::size_t ceiling = 0;
+    std::chrono::steady_clock::time_point lastGood;
+    bool hasSample = false;
+    std::mutex monitorMutex;
+    std::condition_variable monitorCv;
+    bool monitorStopped = false;
+    std::thread monitor;
+    explicit Budget(Limits l) : limits(std::move(l)) {
+        refresh();
+        monitor = std::thread([this] {
+            std::unique_lock<std::mutex> lock(monitorMutex);
+            while (!monitorCv.wait_for(lock, std::chrono::milliseconds(100),
+                                       [this] { return monitorStopped; })) {
+                lock.unlock(); refresh(); lock.lock();
+            }
+        });
+    }
+    ~Budget() {
+        { std::lock_guard<std::mutex> lock(monitorMutex); monitorStopped = true; }
+        monitorCv.notify_all();
+        if (monitor.joinable()) monitor.join();
+    }
+    std::size_t total() const { return frames + canvas + other; }
+    void refresh() noexcept {
+        try {
+            // Serialize the sample with page allocation/free so allocations made
+            // after a sample cannot all spend the same unreserved headroom.
+            std::lock_guard<std::recursive_mutex> lock(admission);
+            const auto m = limits.memoryProbe ? limits.memoryProbe() : systemMemory();
+            if (!m.valid || !m.total || m.available > m.total) return;
+            available = m.available;
+            reserve = std::max(std::size_t(32 * MiB), m.total / 20);
+            const auto headroom = m.available > reserve ? m.available - reserve : 0;
+            ceiling = total() + headroom;
+            hasSample = true; lastGood = std::chrono::steady_clock::now();
+        } catch (...) { /* A failed sample expires, never grants more memory. */ }
+    }
+    const char *reason(std::size_t extra = 0) {
+        std::lock_guard<std::recursive_mutex> lock(admission);
+        if (!hasSample || std::chrono::steady_clock::now() - lastGood >= std::chrono::seconds(1))
+            return "system_memory_unavailable";
+        if (available <= reserve || total() > ceiling || extra > ceiling - total())
+            return "system_memory_low";
+        return "";
+    }
+    void require(std::size_t extra) {
+        const auto why = reason(extra);
+        if (*why) throw MemoryError(why);
+    }
+    void peak() {
+        framePeak.store(std::max(framePeak.load(), frames.load()));
+        canvasPeak.store(std::max(canvasPeak.load(), canvas.load()));
     }
 };
 class Pages {
@@ -37,28 +95,31 @@ class Pages {
     }
     void clear() {
         if (data_) {
+            std::lock_guard<std::recursive_mutex> guard(budget_->admission);
             munmap(data_, n_);
             *category_ -= n_;
         }
         data_ = nullptr;
         n_ = 0;
     }
-    void allocate(std::size_t n, const std::shared_ptr<Budget> &b, std::atomic<std::size_t> &c,
-                  std::size_t limit) {
+    void allocate(std::size_t n, const std::shared_ptr<Budget> &b, std::atomic<std::size_t> &c) {
         std::lock_guard<std::recursive_mutex> guard(b->admission);
+        if (!n || n > std::numeric_limits<std::size_t>::max() - 4095)
+            throw MemoryError("memory_allocation_failed");
         n = (n + 4095) & ~std::size_t(4095);
-        // Category admission is serialized by its owner (frame ingress or renderer).
-        if (c + n > limit || b->total() + n > b->limits.managedBytes)
-            throw std::bad_alloc();
+        b->require(n);
+        if (b->limits.allocationProbe && !b->limits.allocationProbe(n))
+            throw MemoryError("memory_allocation_failed");
         void *p = mmap(nullptr, n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (p == MAP_FAILED)
-            throw std::bad_alloc();
+            throw MemoryError("memory_allocation_failed");
         clear();
         data_ = p;
         n_ = n;
         budget_ = b;
         category_ = &c;
         c += n;
+        b->peak();
     }
     std::uint8_t *bytes() {
         return static_cast<std::uint8_t *>(data_);
@@ -72,7 +133,7 @@ class Pages {
 };
 struct Frame {
     std::shared_ptr<Budget> budget;
-    Pages storage;
+    Pages storage, model;
     int width = 0, height = 0;
     std::uint64_t sequence = 0, index = std::uint64_t(-1);
     std::int64_t timestamp = 0;
@@ -86,11 +147,11 @@ struct Frame {
         return storage.bytes();
     }
     std::uint8_t *match() {
-        return y() + std::size_t(width) * height;
+        return model.bytes();
     }
 };
 using FramePtr = std::shared_ptr<Frame>;
-std::pair<std::size_t, std::size_t> rss();
+std::pair<std::size_t, std::size_t> rss(std::size_t *swap = nullptr);
 void resizeCamera(const cv::Mat &, cv::Mat &, int, int);
 cv::Mat rotateY(const cv::Mat &, Rotation);
 // Independently specified pixel-center mapping; raw sensor -> model work coords.
@@ -126,12 +187,11 @@ class MemoryCanvas {
         bool pinned = false;
         explicit Tile(std::shared_ptr<Budget> b) : budget(std::move(b)) {
             std::lock_guard<std::recursive_mutex> guard(budget->admission);
-            if (budget->canvas + 256 > budget->limits.canvasBytes ||
-                budget->total() + 256 > budget->limits.managedBytes)
-                throw std::bad_alloc();
+            budget->require(256);
             budget->canvas += 256;
         }
         ~Tile() {
+            std::lock_guard<std::recursive_mutex> guard(budget->admission);
             budget->canvas -= 256;
         }
     };
@@ -158,6 +218,7 @@ class MemoryCanvas {
         tiles_.clear();
         bounds_ = {};
     }
+    void compact() noexcept;
     Code preview(int, int, std::uint8_t *, std::uint8_t *, std::size_t);
     Code row(int, std::uint8_t *, std::uint8_t *, std::size_t);
 };

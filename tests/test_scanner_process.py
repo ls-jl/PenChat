@@ -136,7 +136,8 @@ def backlog():
             worker.release();result=worker.receive('finished')
             assert result['status']==1 and result['counts']['received']==400,result
             assert result['counts']['committed']==400 and result['counts']['discarded_backlog']==0,result
-            assert result['counts']['spilled']>0,result
+            assert result['counts']['spilled']==0,result
+            assert result['counts']['selected_peak']>0,result
             assert not list((pathlib.Path(directory)/'pending').iterdir())
             worker.send('discard');worker.receive('ready');worker.press()
             for i in range(400):
@@ -144,6 +145,6 @@ def backlog():
             worker.send('cancel');worker.receive('released')
             assert not list((pathlib.Path(directory)/'pending').iterdir())
         finally:worker.close()
-    print('Scanner backlog: 400 continuous frames survive slow inference, ordered disk spill and release drain with no discarded input.')
+    print('Scanner backlog: 400 continuous frames survive slow inference, ordered all-memory backlog and release drain with no discarded input.')
 
 if __name__=='__main__':backlog()

@@ -60,9 +60,9 @@ def run(env):
   previous=d.state().get('scan_result',{}).get('scanId')
   d.shell('/tmp/penchat-display-key /dev/input/by-path/led_control 134 1 500 100')
   s=d.wait(lambda:(s if (s:=d.state()).get('scan_result',{}).get('type')=='finished' and s['scan_result'].get('scanId')!=previous else None),timeout=90)
-  scan=s['scan_result'];counts=scan['counts'];assert counts['received']>=5 and counts['queue_capacity']==348,scan
+  scan=s['scan_result'];counts=scan['counts'];assert counts['received']>=5 and counts['spilled']==0 and counts['system_reserve_bytes']>=32*1024*1024,scan
   assert d.shell('pidof penchat-scanner')==str(resident)
-  assert counts['discarded_backlog']==0 and counts['dropped_raw']==counts['recovered_gaps']
+  assert counts['discarded_backlog']==0 and counts['dropped_raw']==counts['recovered_frames']
   scans.append({'received':counts['received'],'usable':scan['usable'],'status':scan['status']})
   if cycle in (0,19):d.capture('portrait-scan-result-'+str(cycle))
   # Empty results accept a new pen press immediately. Nonempty results are discarded.

@@ -364,11 +364,12 @@ void ScanService::test(const Json &input) {
     return;
   std::lock_guard<std::mutex> l(p_->mutex);
   auto type = input.value("command", std::string());
-  if (type != "test.press" && type != "test.frame")
+  if (type != "test.press" && type != "test.frame" && type != "test.memory")
     return;
   auto j = p_->command(type);
   j["pressed"] = input.value("pressed", false);
   j["sequence"] = input.value("sequence", uint64_t(0));
+  if (type == "test.memory") j["state"] = input.value("state", 0);
   if (input.contains("rawSequence"))
     j["rawSequence"] = input.at("rawSequence");
   p_->commands.push_back(j);

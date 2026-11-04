@@ -7,6 +7,9 @@
 #include <opencv2/imgproc.hpp>
 #include <stdexcept>
 #include <thread>
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 
 namespace pen::stream {
 struct Result::Impl {
@@ -15,7 +18,7 @@ struct Result::Impl {
     ScanId scan = 0;
     std::size_t reservation = 0;
     Config config;
-    std::vector<float> rawGain;
+    Pages rawGain;
     MemoryCanvas canvas;
     std::vector<FramePtr> unlocated;
     Counts count;
@@ -26,7 +29,7 @@ struct Result::Impl {
     }
     ~Impl() {
         std::vector<FramePtr>().swap(unlocated);
-        std::vector<float>().swap(rawGain);
+        rawGain.clear();
         canvas.clear();
         config.calibration.reset();
         budget->other -= reservation;
@@ -81,13 +84,12 @@ struct Engine::Impl {
         ScanId id = 0;
         Callbacks cb;
         std::shared_ptr<Result::Impl> result;
-        std::deque<FramePtr> raw, window;
+        std::deque<FramePtr> raw, prepared, window;
         FramePtr first;
         Selection selector;
         WindowGeometry geometry;
-        bool sealed = false, preprocessed = false, capacity = false, haveBatch = false;
-        unsigned reserveRemaining = 0;
-        std::atomic<bool> broken{false};
+        bool sealed = false, preprocessed = false, npuSealed = false, capacity = false, haveBatch = false;
+        std::atomic<bool> broken{false}, cancelled{false};
         const char *pendingStop = nullptr;
         const char *capacityReason = nullptr;
         std::uint64_t seen = 0, selected = 0, start = 0;
@@ -108,23 +110,17 @@ struct Engine::Impl {
     mutable std::mutex mutex;
     std::condition_variable cv;
     std::map<ScanId, std::shared_ptr<Scan>> scans;
-    std::deque<Job> jobs;
     std::deque<Render> renders;
     ScanId next = 1, capturing = 0;
     bool stopping = false, preDone = false, npuDone = false, blocked = false;
-    bool inferBusy = false, renderBusy = false, warmRequested = false;
+    bool preBusy = false, inferBusy = false, renderBusy = false, warmRequested = false;
     std::thread preThread, npuThread, renderThread;
     std::vector<float> brightnessScratch;
+    std::size_t rawPeak = 0, selectedPeak = 0, queuedPeak = 0;
     explicit Impl(std::unique_ptr<Inference> i, Limits l)
         : budget(std::make_shared<Budget>(l)), inference(std::move(i)) {
-        if (!inference || l.maxFrames < 32 || l.maxFrames > 256 || l.managedBytes > 96 * MiB ||
-            l.rssSoftBytes > 240 * MiB || l.highFrames < 32 || l.highFrames > l.maxFrames ||
-            !l.maxSessions || l.maxSessions > 4 || l.managedBytes < 10 * MiB ||
-            l.frameBytes > 48 * MiB || l.canvasBytes > 32 * MiB)
+        if (!inference || !l.maxSessions || l.maxSessions > 4)
             throw std::invalid_argument("invalid_stream_limits");
-        // Conservative fixed reservation: 5.625 MiB feature buffer, two nine-
-        // head sets, CPU scratch, bounded queues and thread-local working maps.
-        budget->other = 8 * MiB;
         brightnessScratch.reserve(160 * 288);
         cv::setNumThreads(1);
         cv::ocl::setUseOpenCL(false);
@@ -149,7 +145,6 @@ struct Engine::Impl {
     }
     ~Impl() {
         stop();
-        budget->other -= 8 * MiB;
     }
     static void emit(const std::shared_ptr<Scan> &s, Event::Kind k, const char *why = "",
                      const FramePtr &f = {}, const cv::Matx33d *h = nullptr) noexcept {
@@ -179,13 +174,10 @@ struct Engine::Impl {
                 target->capacity = true;
                 target->pendingStop = reason;
                 target->capacityReason = reason;
-                target->reserveRemaining =
-                    std::min(16u, budget->limits.maxFrames - budget->limits.highFrames);
-                if (!target->reserveRemaining) {
-                    target->sealed = true;
-                    if (capturing == target->id)
-                        capturing = 0;
-                }
+                // Stop admitting new frames, but drain every already accepted
+                // frame through selection and the normal final window.
+                target->sealed = true;
+                if (capturing == target->id) capturing = 0;
             }
         };
         request(s);
@@ -198,14 +190,10 @@ struct Engine::Impl {
             request(scans.at(capturing));
         cv.notify_all();
     }
-    void enqueue(Job job) {
-        std::unique_lock<std::mutex> l(mutex);
-        cv.wait(l, [&] { return jobs.size() < 8; });
-        jobs.push_back(std::move(job));
-        cv.notify_all();
-    }
     void select(const std::shared_ptr<Scan> &s, FramePtr f, const cv::Mat &upright) {
+        if (s->cancelled) return;
         f->index = s->selected++;
+        f->model.allocate(80 * 144, budget, budget->frames);
         cv::Mat match(144, 80, CV_8UC1, f->match());
         resizeCamera(upright, match, 80, 144);
         cv::Mat small;
@@ -224,16 +212,15 @@ struct Engine::Impl {
             ++s->result->count.selected;
         }
         emit(s, Event::Kind::Selected, "", f);
-        s->window.push_back(std::move(f));
-        if (s->window.size() == 32) {
-            Job job{s, {s->window.begin(), s->window.end()}, s->start, false, false};
-            enqueue(std::move(job));
-            for (unsigned i = 0; i < 24; ++i)
-                s->window.pop_front();
-            s->start += 24;
-            s->haveBatch = true;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            s->prepared.push_back(std::move(f));
+            selectedPeak = std::max(selectedPeak, s->prepared.size());
+            queuedPeak = std::max(queuedPeak, s->raw.size() + s->prepared.size());
+            cv.notify_all();
         }
     }
+
     void filtered(const std::shared_ptr<Scan> &s, const FramePtr &f) {
         {
             std::lock_guard<std::mutex> l(s->result->mutex);
@@ -241,7 +228,19 @@ struct Engine::Impl {
         }
         emit(s, Event::Kind::Filtered, "original_selection", f);
     }
+    cv::Mat rotateFrame(const FramePtr &f, Pages &scratch, Rotation rotation) {
+        cv::Mat source(f->height, f->width, CV_8UC1, f->y());
+        if (rotation == Rotation::None) return source;
+        const auto bytes = std::size_t(f->width) * f->height;
+        if (scratch.size() < bytes) { scratch.clear(); scratch.allocate(bytes, budget, budget->other); }
+        const bool quarter = rotation != Rotation::HalfTurn;
+        cv::Mat out(quarter ? f->width : f->height, quarter ? f->height : f->width, CV_8UC1, scratch.bytes());
+        cv::rotate(source, out, rotation == Rotation::Clockwise90 ? cv::ROTATE_90_CLOCKWISE :
+                   rotation == Rotation::HalfTurn ? cv::ROTATE_180 : cv::ROTATE_90_COUNTERCLOCKWISE);
+        return out;
+    }
     void preLoop() {
+        Pages rotated;
         for (;;) {
             std::shared_ptr<Scan> s;
             FramePtr f;
@@ -283,6 +282,7 @@ struct Engine::Impl {
                     cv.wait(l);
                     continue;
                 }
+                preBusy = true;
             }
             if (notice) {
                 {
@@ -291,16 +291,16 @@ struct Engine::Impl {
                         s->result->failure = notice;
                 }
                 emit(s, Event::Kind::StopRequested, notice);
+                s.reset();
+                { std::lock_guard<std::mutex> lock(mutex); preBusy = false; cv.notify_all(); }
                 continue;
             }
             try {
-                if (f) {
-                    auto memory = rss();
-                    budget->observedRss = memory.first;
-                    if (memory.first >= budget->limits.rssSoftBytes)
-                        stopCapture(s, "rss_soft_high_water");
-                    auto upright = rotateY(cv::Mat(f->height, f->width, CV_8UC1, f->y()),
-                                           s->result->config.rotation);
+                if (f && s->cancelled) {
+                    // Explicit user discard, distinct from a resource stop.
+                    f.reset();
+                } else if (f) {
+                    auto upright = rotateFrame(f, rotated, s->result->config.rotation);
                     bool accepted = s->selector.accept(upright),
                          all = s->result->config.diagnosticAcceptAll;
                     if (s->first) {
@@ -314,21 +314,19 @@ struct Engine::Impl {
                     else
                         filtered(s, f);
                 } else if (finish) {
-                    if (s->first) {
+                    if (s->first && !s->cancelled) {
                         auto raw = s->first;
-                        auto upright = rotateY(cv::Mat(raw->height, raw->width, CV_8UC1, raw->y()),
-                                               s->result->config.rotation);
+                        auto upright = rotateFrame(raw, rotated, s->result->config.rotation);
                         if (Selection::texture(s->selector.previous) >= 100)
                             select(s, raw, upright);
                         else
                             filtered(s, raw);
                         s->first.reset();
                     }
-                    bool flush = s->haveBatch && s->window.size() == 8;
-                    Job tail{s, {s->window.begin(), s->window.end()}, s->start, true, flush};
-                    s->window.clear();
+                    s->first.reset();
                     s->selector.previous.release();
-                    enqueue(std::move(tail));
+                    rotated.clear();
+                    std::vector<float>().swap(brightnessScratch);
                     {
                         std::lock_guard<std::mutex> l(mutex);
                         s->preprocessed = true;
@@ -352,13 +350,13 @@ struct Engine::Impl {
                 };
                 keep(f);
                 keep(s->first);
-                for (const auto &item : s->window)
-                    keep(item);
                 s->first.reset();
-                s->window.clear();
-                stopCapture(s, "preprocessing_allocation_or_conversion_failure");
+                const auto memory = dynamic_cast<const MemoryError *>(&e);
+                stopCapture(s, memory ? memory->reason : "preprocessing_allocation_or_conversion_failure");
                 emit(s, Event::Kind::Error, "preprocessing_failure");
             }
+            f.reset(); s.reset();
+            { std::lock_guard<std::mutex> lock(mutex); preBusy = false; cv.notify_all(); }
         }
         {
             std::lock_guard<std::mutex> l(mutex);
@@ -367,12 +365,20 @@ struct Engine::Impl {
         }
     }
     bool idleLocked() const {
-        if (capturing || !jobs.empty() || !renders.empty() || inferBusy || renderBusy)
+        if (capturing || !renders.empty() || preBusy || inferBusy || renderBusy)
             return false;
         for (auto &e : scans)
-            if (!e.second->preprocessed)
+            if (!e.second->npuSealed)
                 return false;
         return true;
+    }
+    std::shared_ptr<Scan> batchReady() const {
+        for (const auto &entry : scans) {
+            const auto &s = entry.second;
+            if (!s->npuSealed && (s->prepared.size() + s->window.size() >= 32 || s->preprocessed))
+                return s;
+        }
+        return {};
     }
     void npuLoop() {
         bool opened = false, idleArmed = false;
@@ -381,7 +387,7 @@ struct Engine::Impl {
             Job job;
             {
                 std::unique_lock<std::mutex> l(mutex);
-                while (jobs.empty() && !preDone) {
+                while (!batchReady() && !preDone) {
                     if (warmRequested) {
                         warmRequested = false;
                         inferBusy = true;
@@ -422,10 +428,22 @@ struct Engine::Impl {
                         cv.wait(l);
                     }
                 }
-                if (jobs.empty() && preDone)
-                    break;
-                job = std::move(jobs.front());
-                jobs.pop_front();
+                auto s = batchReady();
+                if (!s && preDone) break;
+                if (!s) continue;
+                while (s->window.size() < 32 && !s->prepared.empty()) {
+                    s->window.push_back(std::move(s->prepared.front()));
+                    s->prepared.pop_front();
+                }
+                const bool full = s->window.size() == 32;
+                const bool flush = !full && s->haveBatch && s->window.size() == 8;
+                job = {s, {s->window.begin(), s->window.end()}, s->start, !full, flush};
+                if (full) {
+                    for (unsigned n = 0; n < 24; ++n) s->window.pop_front();
+                    s->start += 24; s->haveBatch = true;
+                } else {
+                    s->window.clear(); s->npuSealed = true;
+                }
                 idleArmed = false;
                 inferBusy = true;
                 cv.notify_all();
@@ -482,6 +500,7 @@ struct Engine::Impl {
         }
     }
     void retain(const std::shared_ptr<Scan> &s, const FramePtr &f) {
+        if (!f || s->cancelled) return;
         auto &r = *s->result;
         std::lock_guard<std::mutex> l(r.mutex);
         if (f->index < r.count.committed)
@@ -494,6 +513,7 @@ struct Engine::Impl {
         }
     }
     void renderLoop() {
+        Pages correctedPages;
         for (;;) {
             Render render;
             {
@@ -511,6 +531,13 @@ struct Engine::Impl {
             auto &r = *s->result;
             if (!render.error.empty()) {
                 s->broken = true;
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    s->sealed = true;
+                    if (capturing == s->id) capturing = 0;
+                    cv.notify_all();
+                }
+                emit(s, Event::Kind::StopRequested, "rknn_inference_failed");
                 std::lock_guard<std::mutex> l(r.mutex);
                 if (r.failure.empty())
                     r.failure = render.error;
@@ -532,9 +559,13 @@ struct Engine::Impl {
                     if (pose.index < job.start || pose.index - job.start >= job.frames.size())
                         throw std::runtime_error("commit_frame_range_mismatch");
                     auto f = job.frames[pose.index - job.start];
-                    cv::Mat corrected(f->height, f->width, CV_8UC1);
+                    const auto bytes = std::size_t(f->width) * f->height;
+                    if (correctedPages.size() < bytes) {
+                        correctedPages.clear(); correctedPages.allocate(bytes, budget, budget->other);
+                    }
+                    cv::Mat corrected(f->height, f->width, CV_8UC1, correctedPages.bytes());
                     pen_photo::apply_neon(f->y(), corrected.ptr<std::uint8_t>(),
-                                          std::size_t(f->width) * f->height, r.rawGain.data(),
+                                          std::size_t(f->width) * f->height, reinterpret_cast<const float *>(r.rawGain.bytes()),
                                           f->brightness);
                     auto small = rawToWork(f->width, f->height, r.config.rotation);
                     int ow = f->width, oh = f->height;
@@ -563,14 +594,20 @@ struct Engine::Impl {
 
                     if (!ok) {
                         s->broken = true;
-                        stopCapture(s, "canvas_capacity");
+                        stopCapture(s, *budget->reason() ? budget->reason() : "canvas_allocation_failed");
                         break;
                     }
                     emit(s, Event::Kind::Submitted, "", f, &h);
+                    // The drawing is now durable in the in-memory canvas.
+                    // Overlap users, if any, keep their own shared owner.
+                    job.frames[pose.index - job.start].reset();
                 }
+            } catch (const MemoryError &e) {
+                s->broken = true;
+                stopCapture(s, e.reason);
             } catch (const std::bad_alloc &) {
                 s->broken = true;
-                stopCapture(s, "render_memory_capacity");
+                stopCapture(s, "render_memory_allocation_failed");
             } catch (const std::exception &e) {
                 s->broken = true;
                 std::lock_guard<std::mutex> l(r.mutex);
@@ -582,6 +619,9 @@ struct Engine::Impl {
                     retain(s, f);
             emit(s, Event::Kind::Preview);
             if (job.last) {
+                correctedPages.clear();
+                // Losslessly compact the retained image once, off capture/UI.
+                { std::lock_guard<std::mutex> lock(r.canvasMutex); r.canvas.compact(); }
                 bool capacity;
                 const char *capacityReason;
                 {
@@ -604,10 +644,13 @@ struct Engine::Impl {
                 // Gain/calibration and frame pages are no longer needed once
                 // all queued jobs for this scan have drained.
                 r.rawGain.clear();
-                r.rawGain.shrink_to_fit();
                 r.config.calibration.reset();
                 emit(s, Event::Kind::Finished);
             }
+            // Drop job/result/frame owners before advertising quiescence.
+            // A waiter may release its last Result immediately after Finished.
+            s.reset();
+            render = Render{};
             {
                 std::lock_guard<std::mutex> l(mutex);
                 renderBusy = false;
@@ -651,110 +694,98 @@ BeginResult Engine::beginScan(const Config &c, Callbacks cb) {
             return {Code::MissingCalibration, 0};
     std::lock_guard<std::mutex> l(p_->mutex);
     auto b = p_->budget;
-    std::size_t frame = (std::size_t(c.width) * c.height + 80 * 144 + 4095) & ~std::size_t(4095);
-    if (p_->stopping)
-        return {Code::Closed, 0};
-    if (p_->blocked && b->frameCount == 0 && b->canvas == 0)
-        p_->blocked = false;
-    if (p_->capturing || p_->blocked || b->sessions >= b->limits.maxSessions ||
-        b->frameCount + 32 > b->limits.maxFrames || b->frames + frame * 32 > b->limits.frameBytes ||
-        rss().first >= b->limits.rssSoftBytes)
+    if (p_->stopping) return {Code::Closed, 0};
+    if (p_->blocked && b->frameCount == 0 && b->canvas == 0) p_->blocked = false;
+    if (p_->capturing || p_->blocked || b->sessions >= b->limits.maxSessions)
         return {Code::Busy, 0};
-    auto reserve = ((std::size_t(c.width) * c.height * sizeof(float) + sizeof(Calibration) +
-                     128 * 128 * 7 + 80 * 1024 + 4095) &
-                    ~std::size_t(4095));
+    const auto reserve = sizeof(Calibration) + sizeof(Result::Impl);
     std::lock_guard<std::recursive_mutex> admission(b->admission);
-    if (b->total() + reserve + frame * 32 > b->limits.managedBytes)
-        return {Code::Busy, 0};
+    const auto why = b->reason(reserve + std::size_t(c.width) * c.height * sizeof(float));
+    if (*why) return {Code::Busy, 0, why};
     try {
         auto r = std::make_shared<Result::Impl>(b);
         r->reservation = reserve;
         b->other += reserve;
         r->config = c;
         r->config.calibration = std::make_shared<const Calibration>(*k);
-        r->unlocated.reserve(b->limits.maxFrames);
+        r->unlocated.reserve(32);
         int ow = c.width, oh = c.height;
         if (c.rotation == Rotation::Clockwise90 || c.rotation == Rotation::CounterClockwise90)
             std::swap(ow, oh);
-        cv::Mat g(288, 160, CV_32F, const_cast<float *>(k->gain.data())), up;
-        cv::resize(g, up, {ow, oh});
-        auto inverse =
-            c.rotation == Rotation::Clockwise90
-                ? Rotation::CounterClockwise90
-                : (c.rotation == Rotation::CounterClockwise90 ? Rotation::Clockwise90 : c.rotation);
-        auto raw = rotateY(up, inverse);
-        r->rawGain.assign(raw.ptr<float>(), raw.ptr<float>() + std::size_t(c.width) * c.height);
+        r->rawGain.allocate(std::size_t(c.width) * c.height * sizeof(float), b, b->other);
+        cv::Mat g(288, 160, CV_32F, const_cast<float *>(k->gain.data()));
+        cv::Mat raw(c.height, c.width, CV_32F, r->rawGain.bytes());
+        if (c.rotation == Rotation::None) {
+            cv::resize(g, raw, {ow, oh});
+        } else {
+            Pages scaled; scaled.allocate(std::size_t(c.width) * c.height * sizeof(float), b, b->other);
+            cv::Mat up(oh, ow, CV_32F, scaled.bytes());
+            cv::resize(g, up, {ow, oh});
+            cv::rotate(up, raw, c.rotation == Rotation::Clockwise90 ? cv::ROTATE_90_COUNTERCLOCKWISE :
+                       c.rotation == Rotation::HalfTurn ? cv::ROTATE_180 : cv::ROTATE_90_CLOCKWISE);
+        }
         auto s = std::make_shared<Impl::Scan>();
         s->id = p_->next++;
         r->scan = s->id;
         s->cb = std::move(cb);
         s->result = std::move(r);
         p_->scans.emplace(s->id, s);
+        p_->rawPeak = p_->selectedPeak = p_->queuedPeak = 0;
+        b->framePeak = b->frames.load(); b->canvasPeak = b->canvas.load();
         p_->capturing = s->id;
         p_->warmRequested = true;
         p_->cv.notify_all();
         return {Code::Ok, s->id};
+    } catch (const MemoryError &e) {
+        return {Code::Busy, 0, e.reason};
     } catch (const std::bad_alloc &) {
-        return {Code::Busy, 0};
+        return {Code::Busy, 0, "memory_allocation_failed"};
     }
 }
 PushResult Engine::pushFrame(ScanId id, const std::uint8_t *y, int w, int h, std::size_t stride,
                              std::uint64_t seq, std::int64_t ts) {
     std::shared_ptr<Impl::Scan> s;
-    bool high = false, accepted = false, hadCapacity = false;
     {
         std::lock_guard<std::mutex> l(p_->mutex);
         auto it = p_->scans.find(id);
-        if (it == p_->scans.end())
-            return {Code::NotFound, false};
+        if (it == p_->scans.end()) return {Code::NotFound, false};
         s = it->second;
         if (!y || w != s->result->config.width || h != s->result->config.height ||
             stride < std::size_t(w) || stride > std::size_t(-1) / std::size_t(h))
             return {Code::InvalidArgument, false};
         if (s->sealed || p_->stopping)
-            return {s->capacity ? Code::StopCapture : Code::Closed, false};
-        auto b = p_->budget;
-        hadCapacity = s->capacity;
-        try {
-            if (b->frameCount >= b->limits.maxFrames)
-                throw std::bad_alloc();
-            auto f = std::make_shared<Frame>();
-            f->width = w;
-            f->height = h;
-            f->sequence = seq;
-            f->timestamp = ts;
-            f->storage.allocate(std::size_t(w) * h + 80 * 144, b, b->frames, b->limits.frameBytes);
-            f->budget = b;
-            ++b->frameCount;
-            for (int row = 0; row < h; ++row)
-                std::memcpy(f->y() + std::size_t(row) * w, y + std::size_t(row) * stride, w);
-            s->raw.push_back(std::move(f));
-            accepted = true;
-            if (hadCapacity && s->reserveRemaining && --s->reserveRemaining == 0) {
-                s->sealed = true;
-                if (p_->capturing == id)
-                    p_->capturing = 0;
-            }
-            {
-                std::lock_guard<std::mutex> r(s->result->mutex);
-                ++s->result->count.received;
-            }
-            high = b->frameCount >= b->limits.highFrames ||
-                   b->observedRss.load() >= b->limits.rssSoftBytes;
-            p_->cv.notify_all();
-        } catch (const std::bad_alloc &) {
-            high = true;
-        }
-        if (hadCapacity && accepted)
-            return {Code::StopCapture, true};
-        if (!high)
-            return {Code::Ok, true};
+            return {s->capacity ? Code::StopCapture : Code::Closed, false,
+                    s->capacityReason ? s->capacityReason : ""};
     }
-    // The high-water frame has been copied. A hard allocation failure did not
-    // accept the submitted frame, and the caller retains its original buffer.
-    p_->stopCapture(s, "ingress_capacity_or_rss_high_water", !accepted);
-    return {Code::StopCapture, accepted};
+    try {
+        // One copy from the camera; the same page owner reaches the renderer.
+        // Allocation/copy never holds the engine queue mutex.
+        auto b = p_->budget;
+        auto f = std::make_shared<Frame>();
+        f->width = w; f->height = h; f->sequence = seq; f->timestamp = ts;
+        f->storage.allocate(std::size_t(w) * h, b, b->frames);
+        f->budget = b; ++b->frameCount;
+        for (int row = 0; row < h; ++row)
+            std::memcpy(f->y() + std::size_t(row) * w, y + std::size_t(row) * stride, w);
+        std::lock_guard<std::mutex> l(p_->mutex);
+        if (s->sealed || p_->stopping)
+            return {s->capacity ? Code::StopCapture : Code::Closed, false,
+                    s->capacityReason ? s->capacityReason : ""};
+        s->raw.push_back(std::move(f));
+        p_->rawPeak = std::max(p_->rawPeak, s->raw.size());
+        p_->queuedPeak = std::max(p_->queuedPeak, s->raw.size() + s->prepared.size());
+        { std::lock_guard<std::mutex> r(s->result->mutex); ++s->result->count.received; }
+        p_->cv.notify_all();
+        return {Code::Ok, true};
+    } catch (const MemoryError &e) {
+        p_->stopCapture(s, e.reason, true);
+        return {Code::StopCapture, false, e.reason};
+    } catch (const std::bad_alloc &) {
+        p_->stopCapture(s, "memory_allocation_failed", true);
+        return {Code::StopCapture, false, "memory_allocation_failed"};
+    }
 }
+
 Code Engine::endScan(ScanId id) {
     std::lock_guard<std::mutex> l(p_->mutex);
     auto it = p_->scans.find(id);
@@ -764,6 +795,20 @@ Code Engine::endScan(ScanId id) {
     if (p_->capturing == id)
         p_->capturing = 0;
     p_->cv.notify_all();
+    return Code::Ok;
+}
+Code Engine::cancelScan(ScanId id) {
+    std::deque<FramePtr> raw, prepared, window;
+    {
+        std::lock_guard<std::mutex> lock(p_->mutex);
+        const auto it = p_->scans.find(id);
+        if (it == p_->scans.end()) return Code::NotFound;
+        const auto &s = it->second;
+        s->cancelled = true; s->broken = true; s->sealed = true;
+        raw.swap(s->raw); prepared.swap(s->prepared); window.swap(s->window);
+        if (p_->capturing == id) p_->capturing = 0;
+        p_->cv.notify_all();
+    }
     return Code::Ok;
 }
 Code Engine::query(ScanId id, Status &state, Counts &counts) const {
@@ -841,10 +886,38 @@ Code Engine::releaseResult(ScanId id) {
 }
 Metrics Engine::metrics() const {
     auto b = p_->budget;
-    auto mem = rss();
-    b->observedRss = mem.first;
-    return {b->frames,  b->canvas,     b->total(),  mem.first,
-            mem.second, b->frameCount, b->sessions, b->loaded};
+    std::size_t swap = 0;
+    auto mem = rss(&swap);
+    Metrics m;
+    m.swapBytes = swap;
+    m.frameBytes = b->frames; m.canvasBytes = b->canvas; m.managedBytes = b->total();
+    m.residentBytes = mem.first; m.peakResidentBytes = mem.second;
+    m.frames = b->frameCount; m.sessions = b->sessions; m.modelLoaded = b->loaded;
+    m.systemAvailableBytes = b->available; m.systemReserveBytes = b->reserve;
+    m.peakFrameBytes = b->framePeak; m.peakCanvasBytes = b->canvasPeak;
+    m.memoryReason = b->reason();
+    std::lock_guard<std::mutex> lock(p_->mutex);
+    for (const auto &entry : p_->scans) {
+        m.rawQueued += entry.second->raw.size(); m.selectedQueued += entry.second->prepared.size();
+    }
+    m.rawPeak = p_->rawPeak; m.selectedPeak = p_->selectedPeak; m.queuedPeak = p_->queuedPeak;
+    return m;
+}
+void Engine::checkResources() {
+    const auto why = p_->budget->reason();
+    if (!*why) return;
+    std::shared_ptr<Impl::Scan> scan;
+    { std::lock_guard<std::mutex> lock(p_->mutex);
+      if (p_->capturing) scan = p_->scans.at(p_->capturing); }
+    if (scan) p_->stopCapture(scan, why, true);
+}
+bool Engine::reclaimIdle() {
+    std::lock_guard<std::mutex> lock(p_->mutex);
+    if (!p_->idleLocked()) return false;
+#if defined(__GLIBC__)
+    malloc_trim(0);
+#endif
+    return true;
 }
 void Engine::shutdown() {
     p_->stop();

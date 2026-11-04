@@ -15,11 +15,11 @@ def run(c):
     state,wait,tap,shell=c['state'],c['wait'],c['tap'],c['shell'];W,H=c['W'],c['H']
     board=shell('cat /proc/device-tree/model');sensor=shell('cat /sys/class/video4linux/v4l-subdev2/name')
     if 'RK3562 Y02 ' in board:
-        assert 'sc035gs' in sensor;profile='y02-sc035gs';shape=(640,480);capacity=375
+        assert 'sc035gs' in sensor;profile='y02-sc035gs';shape=(640,480)
     elif 'RK3562 Y07 ' in board:
-        assert 'sc2356' in sensor;profile='y07-sc2356';shape=(752,440);capacity=348
+        assert 'sc2356' in sensor;profile='y07-sc2356';shape=(752,440)
     else:
-        assert 'RK3562 ORANGE ' in board and 'sc2356' in sensor;profile='orange-sc2356';shape=(496,360);capacity=640
+        assert 'RK3562 ORANGE ' in board and 'sc2356' in sensor;profile='orange-sc2356';shape=(496,360)
     def ready():
         s=wait(lambda:(d if (d:=state())['scanner'].get('type')=='ready' else None),timeout=20)
         assert s['scanner']['profile']==profile and (s['scanner']['sensor_width'],s['scanner']['sensor_height'])==shape
@@ -51,13 +51,13 @@ def run(c):
             cancel();wait(lambda:state()['view']=='chat');ready()
             if empty_retry:break
         assert empty_retry,'Could not exercise an empty result with a short physical press'
-    for cycle in range(20 if profile=='y07-sc2356' else 3):
+    for cycle in range(20):
         assert ready()['scanner']['worker_pid']==resident
         press(500)
         r=wait(lambda:(d['scan_result'] if (d:=state()).get('scan_result',{}).get('type')=='finished' else None),timeout=90)
         counts=r['counts'];assert r['profile']==profile and counts['received']>=5,r
-        assert counts['discarded_backlog']==0 and counts['queue_capacity']==capacity,r
-        assert counts['dropped_raw']==counts['recovered_gaps'],r
+        assert counts['discarded_backlog']==0 and counts['spilled']==0 and counts['system_reserve_bytes']>=32*1024*1024,r
+        assert counts['dropped_raw']==counts['recovered_frames'],r
         if profile=='y02-sc035gs':assert r['captureEndedUs'] and r['lastSourceFrameUs']<=r['captureEndedUs'],r
         assert light()=='0'
         results.append({'received':counts['received'],'selected':counts['selected'],'batches':counts['batches'],'status':r['status'],'reason':r.get('reason','')})
@@ -94,4 +94,4 @@ def run(c):
     shell('miniapp_cli start 8080222437664451');wait(lambda:not state()['visible']);released()
     assert shell('pidof penchat-scanner')==str(resident)
     shell('miniapp_cli start '+c['APP']['appid']);wait(lambda:state()['visible']);ready()
-    c['result']['scanner_profile']={'profile':profile,'native_shape':shape,'queue_capacity':capacity,'cycles':results,'resident_worker':True,'idle_npu_handles':npu_handles,'empty_result_tip_retry':empty_retry,'ocr_release':True,'background_release':True,'child_crash_restore':True,'discard_only':True,'paper_quality_validated':False}
+    c['result']['scanner_profile']={'profile':profile,'native_shape':shape,'temporary_frames':'memory_only','cycles':results,'resident_worker':True,'idle_npu_handles':npu_handles,'empty_result_tip_retry':empty_retry,'ocr_release':True,'background_release':True,'child_crash_restore':True,'discard_only':True,'paper_quality_validated':False}

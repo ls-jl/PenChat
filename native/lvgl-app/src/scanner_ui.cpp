@@ -10,9 +10,14 @@ std::string scanReason(const std::string &reason) {
     return "图片超过16MiB或保存失败，请缩短扫描后重试";
   if (reason == "sensor_sequence_gap" || reason == "sensor_sequence_reset")
     return "采集帧不连续";
-  if (reason.find("capacity") != std::string::npos ||
-      reason.find("rss") != std::string::npos)
-    return "扫描缓存已满";
+  if (reason == "system_memory_low")
+    return "系统可用内存不足，已保留本次结果";
+  if (reason == "system_memory_unavailable")
+    return "无法读取系统内存状态，已停止扫描";
+  if (reason == "canvas_allocation_failed" || reason == "render_memory_allocation_failed")
+    return "拼接画布内存申请失败";
+  if (reason == "memory_allocation_failed" || reason == "preprocessing_allocation_or_conversion_failure")
+    return "扫描内存申请或图像处理失败";
   if (reason.find("calibration") != std::string::npos)
     return "光照校准资源不匹配";
   if (reason.find("rknn") != std::string::npos)

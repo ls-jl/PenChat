@@ -98,6 +98,23 @@ def run():
                 snapshot(app,'partial')
                 app.send('scanner.test',command='test.press',pressed=False)
                 app.tap(840,108);wait_for(lambda:app.diag()['view']=='chat')
+                # The real worker budget path surfaces distinct resource errors.
+                for mode,reason in [(1,'system_memory_low'),(2,'system_memory_unavailable')]:
+                    app.send('scanner.test',command='test.press',pressed=True)
+                    wait_for(lambda:app.diag()['view']=='scan')
+                    for _ in range(32):app.send('scanner.test',command='test.frame')
+                    wait_for(lambda:app.diag()['scanner'].get('counts',{}).get('committed',0)>=24)
+                    app.send('scanner.test',command='test.memory',state=mode)
+                    wait_for(lambda:app.diag()['scan_result'].get('type')=='finished')
+                    stop=app.diag()['scan_result'];assert stop['reason']==reason,stop
+                    assert stop['memory_at_stop']['system_reserve_bytes']>=32*1024*1024,stop
+                    c=stop['counts'];assert c['received']==32 and c['committed']+c['unlocated']==32,c
+                    snapshot(app,'memory-'+reason)
+                    app.send('scanner.test',command='test.memory',state=0)
+                    time.sleep(.15)
+                    app.send('scanner.test',command='test.press',pressed=False)
+                    app.tap(840,108);wait_for(lambda:app.diag()['view']=='chat')
+                    wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
                 # Background cancels even a full pending result and never appends it.
                 scan(app,1)
                 app.send('visibility',visible=False)

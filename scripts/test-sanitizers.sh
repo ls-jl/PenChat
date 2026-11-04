@@ -14,7 +14,7 @@ cmake -S native/lvgl-app -B build/asan -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   '-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer' \
   '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined -no-pie'
 cmake --build build/asan -j4
-# The production engine's RSS guard remains active under the test allocator.
+# Keep sanitizer quarantine bounded; production uses system-memory admission.
 export ASAN_OPTIONS=detect_leaks=1:quarantine_size_mb=8:thread_local_quarantine_size_kb=64:malloc_context_size=10
 export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
 export LSAN_OPTIONS="suppressions=$task_root/tests/lsan.supp"

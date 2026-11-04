@@ -46,15 +46,14 @@ bool MemoryCanvas::compress(Tile &t) {
     const auto need = (out + 4095) & ~std::size_t(4095);
     if (need >= t.hot.size())
         return false;
-    // Scratch owns the exact lossless replacement while pages are exchanged.
-    t.hot.clear();
-    t.cold.allocate(out, budget_, budget_->canvas, budget_->limits.canvasBytes);
+    t.cold.allocate(out, budget_, budget_->canvas);
     std::memcpy(t.cold.bytes(), scratch_.data(), out);
     t.coldSize = out;
+    t.hot.clear();
     return true;
 }
 bool MemoryCanvas::room(std::size_t n) {
-    if (budget_->canvas + n <= budget_->limits.canvasBytes)
+    if (!*budget_->reason(n))
         return true;
     // Tile count is bounded by the canvas budget, no unbounded LRU history.
     std::vector<Tile *> candidates;
@@ -65,8 +64,8 @@ bool MemoryCanvas::room(std::size_t n) {
     std::sort(candidates.begin(), candidates.end(),
               [](auto *a, auto *b) { return a->age < b->age; });
     for (auto *t : candidates) {
-        compress(*t);
-        if (budget_->canvas + n <= budget_->limits.canvasBytes)
+        try { compress(*t); } catch (const std::bad_alloc &) { /* Preserve the hot tile. */ }
+        if (!*budget_->reason(n))
             return true;
     }
     return false;
@@ -77,17 +76,16 @@ bool MemoryCanvas::heat(Tile &t) {
         t.age = ++clock_;
         return true;
     }
-    std::size_t old = t.cold.size();
-    if (!room(hotBytes - old))
+    if (!room(hotBytes))
         return false;
     if (t.cold.size()) {
         unpack(t.cold.bytes(), t.coldSize, scratch_.data());
-        t.cold.clear();
     } else {
         std::fill(scratch_.begin(), scratch_.begin() + hotBytes, 0);
     }
-    t.hot.allocate(hotBytes, budget_, budget_->canvas, budget_->limits.canvasBytes);
+    t.hot.allocate(hotBytes, budget_, budget_->canvas);
     std::memcpy(t.hot.bytes(), scratch_.data(), hotBytes);
+    t.cold.clear();
     t.age = ++clock_;
     return true;
 }
@@ -122,7 +120,11 @@ bool MemoryCanvas::draw(const cv::Mat &gray, const cv::Matx33d &h, const cv::Mat
     int x0 = int(std::ceil(minx - 1e-7)), x1 = int(std::floor(maxx + 1e-7)),
         y0 = int(std::ceil(miny - 1e-7)), y1 = int(std::floor(maxy + 1e-7));
     std::size_t count = std::size_t(divide(x1) - divide(x0) + 1) * (divide(y1) - divide(y0) + 1);
-    if (count > budget_->limits.canvasBytes / 4096)
+    // Preserve the previous per-frame geometry sanity bound. This limits a
+    // pathological warp, not the accumulated canvas or process memory.
+    if (count > 8192) throw std::runtime_error("geometry_out_of_range");
+    if (count > std::numeric_limits<std::size_t>::max() / 256 ||
+        *budget_->reason(count * 256))
         return false;
     // Reserve all new tiles before touching pixels; a capacity failure never
     // leaves a half-painted accepted frame. Cold tile decoding uses scratch.
@@ -150,8 +152,7 @@ bool MemoryCanvas::draw(const cv::Mat &gray, const cv::Matx33d &h, const cv::Mat
                 auto t = std::make_unique<Tile>(budget_);
                 t->pinned = true;
                 try {
-                    t->hot.allocate(hotBytes, budget_, budget_->canvas,
-                                    budget_->limits.canvasBytes);
+                    t->hot.allocate(hotBytes, budget_, budget_->canvas);
                 } catch (const std::bad_alloc &) {
                     for (auto k : added)
                         tiles_.erase(k);
@@ -235,6 +236,15 @@ bool MemoryCanvas::draw(const cv::Mat &gray, const cv::Matx33d &h, const cv::Mat
             }
         }
     return true;
+}
+void MemoryCanvas::compact() noexcept {
+    // The existing representation is retained if optional compaction cannot
+    // acquire replacement pages. Never change already accepted pixels.
+    for (auto &entry : tiles_) {
+        auto &t = *entry.second;
+        if (!t.hot.size()) continue;
+        try { compress(t); } catch (...) { /* Keep the original hot tile. */ }
+    }
 }
 Code MemoryCanvas::row(int row, std::uint8_t *gray, std::uint8_t *mask, std::size_t capacity) {
     if (row < 0 || row >= bounds_.height || !gray || !mask || capacity < std::size_t(bounds_.width))

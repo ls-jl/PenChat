@@ -77,7 +77,14 @@ void Input::touch(int x, int y, bool down) {
   pressed_ = down;
   lv_indev_read(input_);
 }
-Input::~Input() { if(input_) lv_indev_delete(input_); }
+Input::~Input() {
+  if (input_) {
+    // LVGL 9.6's inertial-scroll animation retains the indev as its variable.
+    // Its deletion callback must run while the input device is still alive.
+    lv_anim_delete(input_, nullptr);
+    lv_indev_delete(input_);
+  }
+}
 Bridge::~Bridge() { if(fd_>=0) close(fd_); }
 void Input::cancel() {
   pressed_ = false;

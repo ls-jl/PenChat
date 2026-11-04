@@ -47,6 +47,9 @@ def run():
             snapshot(app,'empty')
             # Timing-sensitive device probes must not encode PNGs on the UI thread.
             image_time=(app.directory/'lvgl-diagnostic.png').stat().st_mtime_ns
+            # SIGUSR1 publishes the PNG before its JSON companion. Under ASAN
+            # the image can be complete while that atomic JSON write is pending.
+            wait_for(lambda:(app.directory/'lvgl-diagnostic.json').exists())
             old_time=json.loads((app.directory/'lvgl-diagnostic.json').read_text())['diagnostic_time']
             app.process.send_signal(signal.SIGUSR2)
             wait_for(lambda:json.loads((app.directory/'lvgl-diagnostic.json').read_text())['diagnostic_time']>old_time)

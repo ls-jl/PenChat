@@ -34,6 +34,10 @@ const std::set<std::string> numbers = {
   "status", "curl_code", "elapsed_ms", "dns_ms", "tcp_ms", "tls_ms", "first_byte_ms", "queue_ms",
   "new_connections", "connection_reused", "attempts", "count", "width", "height", "angle",
   "received", "filtered", "selected", "committed", "dropped_raw", "unlocated", "queue_peak", "queue_capacity",
+  "raw_queued", "selected_queued", "raw_peak", "selected_peak", "frame_bytes", "canvas_bytes",
+  "peak_frame_bytes", "peak_canvas_bytes", "rss_bytes", "rss_peak_bytes", "swap_bytes",
+  "system_available_bytes", "system_reserve_bytes", "memory_stop_code",
+  "stop_rss_bytes", "stop_swap_bytes", "stop_frame_bytes", "stop_canvas_bytes",
   "batches", "unsaved", "failed", "active", "code"};
 Json safeFields(const Json &input) {
   Json out = Json::object();

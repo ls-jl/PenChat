@@ -123,7 +123,22 @@ The user authorizes future ORANGE package installation and device testing withou
 
 Camera captures stay in camera-tmp until crop confirmation. Confirm attaches without auto-send. Persist saveCameraToAlbum; only explicit opt-in creates a new PenChat photo in /userdisk/Pictures. Never alter existing system photos; cancellation and exit discard temporary captures.
 
-Scanner ingress uses a lossless, ordered FrameQueue: bounded RAM inbox/prefetch, at most 640 pending frames and an unlinked disk ring below 110 MiB. Only its worker performs disk I/O. Feed the engine below 128 resident frames; seal only after queued input drains. ORANGE/Y07 recover only an isolated one-frame forward gap within 35ms and after 16 continuous frames. Y02 alone continues through 1-7 consecutive missing frames and stops at 8 or more consecutive missing frames (sequence distance >=9), as explicitly requested. Its former 40ms and stable-frame gap restrictions no longer apply; cumulative losses are not this threshold. Count every lost frame separately from recovered gap events; never synthesize pixels. Timestamp reversal, sequence reset, capture errors, stalls and resource protections remain active; ORANGE/Y07 still stop larger/repeated gaps. Keep larger/repeated hardware discontinuity, memory and storage-error guards explicit; never silently drop queued frames.
+Scanner ingress is RAM-only: copy a sensor Y plane once into releasable pages,
+select asynchronously, queue prepared owners without waiting for NPU, then use
+32/24/8 windows sharing those owners through rendering. Never reintroduce raw-frame
+spill files or duplicate full-resolution buffers. Release rejected frames promptly;
+committed originals live only as long as overlapping windows need them. Normal
+seal drains all accepted work; explicit cancellation may discard queued work.
+There are no fixed RSS/frame/canvas byte caps. A serialized 100ms system-memory
+sample grants dynamic allocation headroom above max(32MiB, MemTotal/20); allocations
+since the sample spend that headroom. Invalid samples expire after one second.
+Keep allocation/geometry/overflow checks and explicit partial results on pressure.
+Reclaim allocator pages only once processing is quiescent; retain the healthy model.
+Y02 alone continues through 1-7 consecutive missing frames and stops at 8 or more
+(sequence distance >=9); cumulative losses are not this threshold. ORANGE/Y07
+recover only an isolated one-frame forward gap within 35ms and after 16 continuous
+frames. Keep timestamp reset, capture failure and stall guards explicit. Count every
+lost frame, preserve the real stop reason, and never synthesize image pixels.
 
 Normalize bounded HTTP error text to valid UTF-8 before saving or displaying it; byte truncation can split a multibyte character. Manual retry reuses the latest failed/cancelled/interrupted assistant row, excludes its partial output and reasoning from input, and resets its reasoning metadata. Never retry automatically or duplicate user/image rows.
 
@@ -180,8 +195,8 @@ and ORANGE display targets using their config and discovered input device. Keep 
 scanner calibration guards even when display/input support expands to another board.
 Y02 is an explicit SC035GS 640×480 profile, not an ORANGE alias. Its neutral
 flat-field is separately identified; never substitute the SC2356 gain map. Restore
-the previous V4L2 format before resuming the system capture guardian. Keep the
-spill file below 110 MiB by reducing frame capacity for larger native images.
+the previous V4L2 format before resuming the system capture guardian. Use the shared dynamic system-memory admission for the native-size frame pages;
+no temporary frame spill files are permitted.
 
 The native editor owns libpinyinime on one background worker. Never reintroduce the Falcon
 shared decoder, system pinyin imports, symbol borrowing or a fallback bridge for candidates.

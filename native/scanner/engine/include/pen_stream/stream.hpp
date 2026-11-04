@@ -39,11 +39,17 @@ struct Config {
     // Diagnostic only: bypass selection to exercise exact window boundaries.
     bool diagnosticAcceptAll = false;
 };
+struct SystemMemory {
+    std::size_t total = 0, available = 0;
+    bool valid = false;
+};
+SystemMemory systemMemory();
 struct Limits {
-    std::size_t frameBytes = 48 * MiB, canvasBytes = 32 * MiB;
-    std::size_t managedBytes = 96 * MiB, rssSoftBytes = 240 * MiB;
-    unsigned maxFrames = 256, highFrames = 240, maxSessions = 4;
+    unsigned maxSessions = 4;
     unsigned idleModelMs = 5000; // 0 retains a healthy model until shutdown.
+    // Optional deterministic source for tests. Production reads procfs.
+    std::function<SystemMemory()> memoryProbe;
+    std::function<bool(std::size_t)> allocationProbe; // Optional allocation-failure injection.
 };
 struct Counts {
     std::uint64_t received = 0, filtered = 0, selected = 0, committed = 0;
@@ -63,10 +69,12 @@ struct Callbacks {
 struct PushResult {
     Code code = Code::Ok;
     bool accepted = false;
+    const char *reason = "";
 };
 struct BeginResult {
     Code code = Code::Ok;
     ScanId scan = 0;
+    const char *reason = "";
 };
 struct Bounds {
     int x = 0, y = 0, width = 0, height = 0;
@@ -76,6 +84,10 @@ struct Metrics {
                 peakResidentBytes = 0;
     unsigned frames = 0, sessions = 0;
     bool modelLoaded = false;
+    std::size_t systemAvailableBytes = 0, systemReserveBytes = 0;
+    std::size_t rawQueued = 0, selectedQueued = 0, rawPeak = 0, selectedPeak = 0;
+    std::size_t peakFrameBytes = 0, peakCanvasBytes = 0, queuedPeak = 0, swapBytes = 0;
+    const char *memoryReason = "";
 };
 struct RawFrameView {
     const std::uint8_t *y = nullptr;
@@ -132,6 +144,7 @@ class Engine {
     PushResult pushFrame(ScanId, const std::uint8_t *y, int width, int height, std::size_t stride,
                          std::uint64_t sourceSequence, std::int64_t timestamp);
     Code endScan(ScanId); // Seal only; processing continues.
+    Code cancelScan(ScanId); // Explicit discard: stop queued work, keep the model.
     Code query(ScanId, Status &, Counts &) const;
     ResultHandle preview(ScanId) const; // Read-only live handle; still counts until released.
     ResultHandle result(ScanId) const;  // Null until complete.
@@ -139,6 +152,8 @@ class Engine {
     Code releaseResult(ResultHandle &);
     Code releaseResult(ScanId); // Outstanding shared handles still count.
     Metrics metrics() const;
+    void checkResources(); // Non-blocking control check; never runs inference.
+    bool reclaimIdle(); // Only after all processing has become quiescent.
     void shutdown(); // Seals and drains accepted work, joins.
   private:
     struct Impl;

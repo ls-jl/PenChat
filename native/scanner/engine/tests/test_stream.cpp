@@ -150,68 +150,37 @@ static void coordinate() {
     require(std::abs(tail.back().work(0, 2) - 220) < 1e-4, "tail coordinate");
 }
 static void pressure() {
-    {
-        auto check = std::make_shared<Probe>();
-        Limits tight;
-        tight.managedBytes = 10 * MiB;
-        Engine admission(std::make_unique<Fake>(check), tight);
-        require(admission.beginScan(config(496, 360)).code == Code::Busy,
-                "begin requires 32-frame managed headroom");
-        admission.shutdown();
+    std::atomic<std::size_t> available{32 * MiB};
+    Limits limits;
+    limits.memoryProbe = [&] { return SystemMemory{1024 * MiB, available.load(), true}; };
+    auto probe = std::make_shared<Probe>(); probe->delay = 20;
+    Engine engine(std::make_unique<Fake>(probe), limits);
+    auto c = config(496, 360); auto pixels = image(c);
+    require(engine.beginScan(c).code == Code::Busy, "low system memory rejects begin");
+    available = 64 * MiB;
+    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    auto started = engine.beginScan(c); require(started.code == Code::Ok, "memory recovers");
+    unsigned accepted = 0; bool stopped = false;
+    for (unsigned i = 0; i < 2000; ++i) {
+        const auto pushed = engine.pushFrame(started.scan, pixels.data(), c.width, c.height, c.width, i, i);
+        accepted += pushed.accepted;
+        if (pushed.code == Code::StopCapture) { stopped = true; break; }
     }
-    auto p = std::make_shared<Probe>();
-    p->delay = 100;
-    Limits l;
-    l.maxFrames = 40;
-    l.highFrames = 36;
-    Engine e(std::make_unique<Fake>(p), l);
-    auto c = config(496, 360);
-    auto im = image(c);
-    auto s = e.beginScan(c);
-    unsigned accepted = 0;
-    for (unsigned i = 0; i < 1000; ++i) {
-        auto out = e.pushFrame(s.scan, im.data(), c.width, c.height, c.width, i, i);
-        if (out.accepted)
-            ++accepted;
-        if (out.code == Code::StopCapture)
-            break;
-    }
-    require(accepted >= 36 && accepted <= 40, "bounded high water");
-    require(e.beginScan(c).code == Code::Busy, "stop refuses new scan");
-    for (unsigned i = 0; i < 4; ++i) {
-        auto tail = e.pushFrame(s.scan, im.data(), c.width, c.height, c.width, 1000 + i, i);
-        require(tail.accepted && tail.code == Code::StopCapture,
-                "reserved in-flight frames accepted");
-        ++accepted;
-    }
-    require(!e.pushFrame(s.scan, im.data(), c.width, c.height, c.width, 2000, 0).accepted,
-            "reserve exhaustion seals scan");
-    e.endScan(s.scan);
-    auto r = e.wait(s.scan);
-    require(r->status() == Status::CapacityStopped, "capacity never complete");
-    auto n = r->counts();
-    require(n.received == accepted && n.committed + n.unlocated == accepted,
-            "accepted data retained under pressure");
-    require(e.metrics().managedBytes <= 96 * MiB, "managed budget");
-    e.releaseResult(s.scan);
-    require(e.beginScan(c).code == Code::Busy, "consumer handle still counts");
-    r.reset();
-    for (unsigned k = 0;
-         k < 100 && (e.metrics().frames || e.metrics().canvasBytes || e.metrics().sessions); ++k)
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    auto next = e.beginScan(c);
-    if (next.code != Code::Ok) {
-        auto m = e.metrics();
-        std::cerr << "pressure frames=" << m.frames << " bytes=" << m.frameBytes
-                  << " canvas=" << m.canvasBytes << " sessions=" << m.sessions
-                  << " rss=" << m.residentBytes << "\n";
-    }
-    require(next.code == Code::Ok, "capacity recovers after release");
-    e.endScan(next.scan);
-    e.wait(next.scan);
-    e.releaseResult(next.scan);
-    e.shutdown();
-    require(!e.metrics().frames, "pressure cleanup");
+    require(stopped && accepted > 0, "all-memory backlog stops at dynamic reservation");
+    require(!engine.pushFrame(started.scan, pixels.data(), c.width, c.height, c.width, 99999, 99999).accepted,
+            "stopped ingress refuses new frames");
+    engine.endScan(started.scan); auto result = engine.wait(started.scan);
+    const auto count = result->counts();
+    require(result->status() == Status::CapacityStopped, "pressure never reported complete");
+    require(count.received == accepted && count.committed + count.unlocated == accepted,
+            "every accepted frame survives pressure drain");
+    require(engine.beginScan(c).code == Code::Busy, "unreleased result counts");
+    engine.releaseResult(result);
+    available = 512 * MiB;
+    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    auto next = engine.beginScan(c); require(next.code == Code::Ok, "next scan recovers");
+    engine.endScan(next.scan); engine.wait(next.scan); engine.releaseResult(next.scan);
+    engine.shutdown(); require(!engine.metrics().frames, "pressure cleanup");
 }
 static void residentModel() {
     auto probe = std::make_shared<Probe>();
@@ -274,24 +243,31 @@ static void sessionsAndFailure() {
     fail->fail = true;
     Engine f(std::make_unique<Fake>(fail));
     auto b = f.beginScan(c);
-    for (unsigned j = 0; j < 65; ++j)
-        f.pushFrame(b.scan, im.data(), c.width, c.height, c.width, j, j);
+    unsigned accepted = 0;
+    for (unsigned j = 0; j < 65; ++j) {
+        if (!f.pushFrame(b.scan, im.data(), c.width, c.height, c.width, j, j).accepted) break;
+        ++accepted;
+    }
     f.endScan(b.scan);
     auto r = f.wait(b.scan);
-    require(r->status() == Status::LocalizationFailed && r->unlocatedCount() == 65,
+    require(r->status() == Status::LocalizationFailed && r->unlocatedCount() == accepted && accepted >= 32,
             "failure retains source views");
-    for (unsigned i = 0; i < 65; ++i)
+    for (unsigned i = 0; i < accepted; ++i)
         require(r->unlocatedFrame(i).sequence == i, "retained source identity");
     f.releaseResult(b.scan);
     f.shutdown();
-    require(f.metrics().frames == 65, "external result survives shutdown");
+    require(f.metrics().frames == accepted, "external result survives shutdown");
     r.reset();
     require(!f.metrics().frames, "external release frees frames");
 }
 static void canvasAndCopies() {
     Limits limits;
-    limits.canvasBytes = 240 * 1024;
-    auto b = std::make_shared<Budget>(limits);
+    std::atomic<Budget *> tracked{nullptr};
+    limits.memoryProbe = [&] {
+        auto b = tracked.load(); const auto used = b ? b->total() : 0;
+        return SystemMemory{640 * MiB, 32 * MiB + (used < 240 * 1024 ? 240 * 1024 - used : 0), true};
+    };
+    auto b = std::make_shared<Budget>(limits); tracked = b.get();
     MemoryCanvas canvas(b);
     cv::Mat image(48, 64, CV_8UC1, cv::Scalar(137));
     auto identity = cv::Matx33d::eye();
@@ -313,16 +289,15 @@ static void canvasAndCopies() {
         rejected = true;
     }
     require(rejected, "singular homography rejected safely");
-    require(stopped && b->canvas <= limits.canvasBytes, "lossless cold tiles obey global budget");
+    require(stopped && b->canvas <= 240 * 1024, "lossless cold tiles obey global budget");
     auto bounds = canvas.bounds();
     std::vector<std::uint8_t> g(bounds.width), m(bounds.width);
     require(canvas.row(20, g.data(), m.data(), g.size()) == Code::Ok, "read compressed row");
     for (int x = 0; x < 64; ++x)
         require(m[x] == 255 && g[x] == 137, "lossless compressed pixels preserved");
     auto probe = std::make_shared<Probe>();
-    probe->fail = true;
+    probe->fail = true; probe->delay = 25;
     Limits small;
-    small.canvasBytes = 64 * 1024;
     Engine engine(std::make_unique<Fake>(probe), small);
     auto c = config();
     auto source = image.clone();
@@ -345,8 +320,8 @@ static void canvasAndCopies() {
     auto slow = std::make_shared<Probe>();
     slow->delay = 50;
     Limits high;
-    high.maxFrames = 40;
-    high.highFrames = 32;
+    std::atomic<std::size_t> freeMemory{512 * MiB};
+    high.memoryProbe = [&] { return SystemMemory{1024 * MiB, freeMemory.load(), true}; };
     Engine e(std::make_unique<Fake>(slow), high);
     std::atomic<bool> called{false}, wrongThread{false};
     auto caller = std::this_thread::get_id();
@@ -363,6 +338,9 @@ static void canvasAndCopies() {
         if (r.code == Code::StopCapture)
             break;
     }
+    freeMemory = 0;
+    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    e.checkResources();
     e.endScan(id.scan);
     auto r = e.wait(id.scan);
     require(called && !wrongThread, "stop notification never runs in ingress callback");

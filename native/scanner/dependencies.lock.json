@@ -1,21 +1,26 @@
 {
   "source_commit": "21bfd280fbb97969ff7883d107aeaa8f21982fc7",
   "files": {
-    "engine/include/pen_stream/stream.hpp": "aae7c9ae92cf6a79fc355b0724b9e01eaf968c13643ad3d3c64b4bbef0a578cb",
+    "engine/include/pen_stream/stream.hpp": "a5efdade67080997d615114bcf1f87868481798c2008c878380b1289194ebe68",
     "engine/include/rknn/rknn_api.h": "c48e11a6f41b451a5fd1e4ad774ea60252d3d94f78bee9b21ea3d21b21deba9a",
-    "engine/src/canvas.cpp": "f99f14bac1972f298f4212179a4d2aa3727c5e89ca8c52265a346293ea970f32",
-    "engine/src/geometry.cpp": "7ab4adac94108557178c6d98d9a38b023db26f815dc7eb11bfccd5db873479ec",
+    "engine/src/canvas.cpp": "68f9d4d7a7acfd934f4b096054d5dd05cd7dc30040ff20c10ffa799f906fc427",
+    "engine/src/geometry.cpp": "c000d303ebc84aa9696b658dae838499c0e0fb9152814e539b70d84625132842",
     "engine/src/geometry_decoder.cpp": "044f6de680b4514277b3691ad972facef29d48038a83423e312e2dfb5c932766",
     "engine/src/geometry_decoder.hpp": "055c87481ee716559b58f22adf997d7a1a0e9bd96d118e65ca434ce2ab8b8fdd",
-    "engine/src/internal.hpp": "5b993b290e9db3709c3cdccbcf5aedb552b6d9fa3f7265fa83a7fdd8be579742",
+    "engine/src/internal.hpp": "e02a86ef966131a04db5eefc4a1850025fc0da53c9852cb6b2c1d6d4f9a713c6",
     "engine/src/photo_cpu.hpp": "aca85afe830e1da02cac8306e98a79da7613598e18c5062e25d681b97eb58a8a",
     "engine/src/resize_compat.cpp": "af0d7a5d2506e059b66f8b964a5bfe27856db6874a60ebeab25377c3bf147e98",
     "engine/src/rknn.cpp": "0012ef4a069673647aa6106f6aae151ac88fee3ef915755a89772fcc406ea442",
-    "engine/src/stream.cpp": "f807b97626144eb2db123e7c397efa1a7dcf156092516e43021ea48399c8fb0d",
+    "engine/src/stream.cpp": "a49050a930d42573700c9fc84e10a1199175e8b523ca099f1678b082a74ecf24",
     "engine/tests/fake_runtime.cpp": "2d7f7780a3faa239bb39c7e152a06a218554559a1f3b5f540602314a666a2da8",
     "engine/tests/test_adapter.cpp": "90d08f0fad9d704c7664f7c6c017638b7c9f24bc28fdff18bd3086de41e84cc0",
-    "engine/tests/test_stream.cpp": "839a2a252d7ed74aaeb6911e73125c5321605672166ff2f20e94dd0d34c7a5fe",
-    "tests/replay.cpp": "39064d6c26e1f1b000d6deda66fef62e9aa23875126849e8088af560aa1c4d38"
+    "engine/tests/test_stream.cpp": "220dea3aac2bb2c03887aff574c85426421aa3e50f2f6fd62803fe8ada8b3a80",
+    "tests/replay.cpp": "39064d6c26e1f1b000d6deda66fef62e9aa23875126849e8088af560aa1c4d38",
+    "tests/test_memory.cpp": "ec8a65107315dcdb57ab6b24426f7fa310720b1f23b1b7f8cf8ec445cea82cf8",
+    "tests/selection_golden.cpp": "ae11c32603f89a5a6236d374208c03a544729fba0b295731cd24f6dc43f6a5c3",
+    "tests/selection-golden.txt": "0d5ae0d70cf984cf8e2ace5f689fd64ac38999d9cb264bc6cbaef8b19fb72758",
+    "tests/compare_golden.cmake": "573372f0ce094fbf76b02cfeec037510c9bd5b7454b4f169af8a5fd7f3919875",
+    "src/memory_policy.hpp": "ad5ca5cb32d7debc4e0009a89f8d892ca6ee4b520de4c4b0790f5362f6077886"
   },
   "resources": {
     "pintu_32.rknn": {

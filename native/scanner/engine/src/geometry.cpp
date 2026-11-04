@@ -6,7 +6,23 @@
 #include <opencv2/imgproc.hpp>
 #include <stdexcept>
 namespace pen::stream {
-std::pair<std::size_t, std::size_t> rss() {
+SystemMemory systemMemory() {
+    int fd = ::open("/proc/meminfo", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return {};
+    char bytes[8192]; const auto n = read(fd, bytes, sizeof(bytes)-1); ::close(fd);
+    if (n <= 0) return {};
+    bytes[n] = 0;
+    auto value = [&](const char *key) {
+        const auto p = std::strstr(bytes, key);
+        unsigned long long number = 0;
+        if (!p || std::sscanf(p + std::strlen(key), "%llu", &number) != 1 ||
+            number > std::numeric_limits<std::size_t>::max()/1024) return std::size_t(0);
+        return std::size_t(number)*1024;
+    };
+    const auto total = value("MemTotal:"), available = value("MemAvailable:");
+    return {total, available, total != 0 && std::strstr(bytes, "MemAvailable:") != nullptr && available <= total};
+}
+std::pair<std::size_t, std::size_t> rss(std::size_t *swap) {
     // Read-only procfs, no logging or file creation. Fixed-size buffer.
     int fd = ::open("/proc/self/status", O_RDONLY | O_CLOEXEC);
     if (fd < 0)
@@ -29,6 +45,7 @@ std::pair<std::size_t, std::size_t> rss() {
         }
         return v * 1024;
     };
+    if (swap) *swap = value("VmSwap:");
     return {value("VmRSS:"), value("VmHWM:")};
 }
 cv::Mat rotateY(const cv::Mat &in, Rotation r) {
