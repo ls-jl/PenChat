@@ -7,5 +7,6 @@ export LD_LIBRARY_PATH="$task_bundle/third_party/opencv-host/lib/x86_64-linux-gn
 export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
 ctest --test-dir build/scanner-host --output-on-failure
 python3 tests/test_scanner_process.py
+python3 tests/test_scanner_preparation.py
 python3 tests/test_scanner_y02.py
 python3 tests/test_scanner_ui.py

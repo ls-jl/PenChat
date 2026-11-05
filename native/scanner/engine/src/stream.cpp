@@ -114,6 +114,8 @@ struct Engine::Impl {
     ScanId next = 1, capturing = 0;
     bool stopping = false, preDone = false, npuDone = false, blocked = false;
     bool preBusy = false, inferBusy = false, renderBusy = false, warmRequested = false;
+    bool prepareRequested = false;
+    ModelPreparation preparation;
     std::thread preThread, npuThread, renderThread;
     std::vector<float> brightnessScratch;
     std::size_t rawPeak = 0, selectedPeak = 0, queuedPeak = 0;
@@ -388,22 +390,51 @@ struct Engine::Impl {
             {
                 std::unique_lock<std::mutex> l(mutex);
                 while (!batchReady() && !preDone) {
-                    if (warmRequested) {
+                    if (warmRequested || prepareRequested) {
+                        const bool fullWarmup = prepareRequested;
+                        prepareRequested = false;
                         warmRequested = false;
                         inferBusy = true;
                         l.unlock();
+                        const auto started = std::chrono::steady_clock::now();
+                        std::string error;
                         try {
                             if (!opened) {
                                 inference->open();
                                 opened = true;
                                 budget->loaded = true;
                             }
+                            if (fullWarmup) {
+                                // Same contract as a normal full batch; no output is
+                                // decoded or committed to a scan. Reclaim temporaries
+                                // before opening V4L2, while retaining the context.
+                                std::array<std::uint8_t, 80 * 144> gray{};
+                                gray.fill(180);
+                                NetworkBatch batch;
+                                batch.validCount = 32;
+                                batch.gray.fill(gray.data());
+                                Heads heads;
+                                inference->infer(batch, heads);
+                            }
+                        } catch (const std::exception &e) {
+                            error = e.what();
+                            if (error.empty()) error = "model_preparation_failed";
+                            inference->close();
+                            opened = false;
+                            budget->loaded = false;
                         } catch (...) {
+                            error = "model_preparation_failed";
                             inference->close();
                             opened = false;
                             budget->loaded = false;
                         }
                         l.lock();
+                        if (fullWarmup) {
+                            preparation.state = error.empty() ? ModelState::Ready : ModelState::Failed;
+                            preparation.error = std::move(error);
+                            preparation.elapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::steady_clock::now() - started).count();
+                        }
                         inferBusy = false;
                         idleArmed = false;
                         cv.notify_all();
@@ -422,6 +453,7 @@ struct Engine::Impl {
                             opened = false;
                             budget->loaded = false;
                             l.lock();
+                            preparation = {};
                         }
                     } else {
                         idleArmed = false;
@@ -480,6 +512,11 @@ struct Engine::Impl {
                     inference->close();
                     opened = false;
                     budget->loaded = false;
+                    {
+                        std::lock_guard<std::mutex> guard(mutex);
+                        preparation.state = ModelState::Failed;
+                        preparation.error = render.error;
+                    }
                 }
             }
             {
@@ -495,6 +532,7 @@ struct Engine::Impl {
         budget->loaded = false;
         {
             std::lock_guard<std::mutex> l(mutex);
+            preparation = {};
             npuDone = true;
             cv.notify_all();
         }
@@ -681,6 +719,21 @@ struct Engine::Impl {
 Engine::Engine(std::unique_ptr<Inference> i, Limits l)
     : p_(std::make_unique<Impl>(std::move(i), l)) {}
 Engine::~Engine() = default;
+Code Engine::prepareModel() {
+    std::lock_guard<std::mutex> lock(p_->mutex);
+    if (p_->stopping) return Code::Closed;
+    if (p_->preparation.state == ModelState::Preparing ||
+        p_->preparation.state == ModelState::Ready) return Code::Ok;
+    if (!p_->idleLocked()) return Code::Busy;
+    p_->preparation = {ModelState::Preparing, {}, 0};
+    p_->prepareRequested = true;
+    p_->cv.notify_all();
+    return Code::Ok;
+}
+ModelPreparation Engine::modelPreparation() const {
+    std::lock_guard<std::mutex> lock(p_->mutex);
+    return p_->preparation;
+}
 BeginResult Engine::beginScan(const Config &c, Callbacks cb) {
     if (int(c.rotation) < 0 || int(c.rotation) > 3 || c.width < 2 || c.height < 2 ||
         std::size_t(c.width) * c.height > 1024 * 1024)
@@ -696,7 +749,8 @@ BeginResult Engine::beginScan(const Config &c, Callbacks cb) {
     auto b = p_->budget;
     if (p_->stopping) return {Code::Closed, 0};
     if (p_->blocked && b->frameCount == 0 && b->canvas == 0) p_->blocked = false;
-    if (p_->capturing || p_->blocked || b->sessions >= b->limits.maxSessions)
+    if (p_->capturing || p_->blocked || b->sessions >= b->limits.maxSessions ||
+        p_->preparation.state == ModelState::Preparing)
         return {Code::Busy, 0};
     const auto reserve = sizeof(Calibration) + sizeof(Result::Impl);
     std::lock_guard<std::recursive_mutex> admission(b->admission);

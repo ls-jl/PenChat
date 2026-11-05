@@ -227,6 +227,10 @@ void restoreScanLease(const Json &j) noexcept {
   }
 }
 void Hardware::open(const Json &lease) {
+  reserve(lease);
+  start();
+}
+void Hardware::reserve(const Json &lease) {
   close();
   lease_ = lease;
   try {
@@ -270,15 +274,29 @@ void Hardware::open(const Json &lease) {
             "wrong scan key");
     int one = 1;
     require(io(key_, EVIOCGRAB, &one) == 0, "scan key busy");
-    unsigned long keys[(KEY_MAX + 8 * sizeof(long)) / (8 * sizeof(long))]{};
-    require(io(key_, EVIOCGKEY(sizeof(keys)), keys) >= 0,
-            "cannot read scan key");
-    pressed_ = false;
-    waitRelease_ = false;
-    const unsigned code = profile_.keyCode;
-    waitRelease_ = (keys[code / (8 * sizeof(long))] &
-                    (1UL << (code % (8 * sizeof(long))))) != 0;
+    resetKey();
+  } catch (...) {
+    close();
+    throw;
+  }
+}
+void Hardware::resetKey() {
+  input_event event{};
+  while (::read(key_, &event, sizeof(event)) == sizeof(event)) {}
+  require(errno == EAGAIN || errno == EWOULDBLOCK, "cannot drain scan key");
+  unsigned long keys[(KEY_MAX + 8 * sizeof(long)) / (8 * sizeof(long))]{};
+  require(io(key_, EVIOCGKEY(sizeof(keys)), keys) >= 0, "cannot read scan key");
+  pressed_ = false;
+  const unsigned code = profile_.keyCode;
+  waitRelease_ = (keys[code / (8 * sizeof(long))] &
+                  (1UL << (code % (8 * sizeof(long))))) != 0;
+}
+void Hardware::start() {
+  try {
+    require(key_ >= 0 && video_ < 0 && !lease_.empty(), "scan hardware not reserved");
     openCamera();
+    // Presses made while preparing cannot become a delayed, empty scan.
+    resetKey();
   } catch (...) {
     close();
     throw;

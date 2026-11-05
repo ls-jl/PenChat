@@ -44,6 +44,7 @@ def check_native_payload(data, name):
         forbidden -= {'system'}
     if name in ('scanner', 'penchat-scanner', 'assets/bin/penchat-scanner'):
         assert 'system' in defined, (name, 'missing vendor command blocker')
+        assert 'ioctl' in defined, (name, 'missing scoped vendor DMA synchronization adapter')
         forbidden -= {'system'}
     assert not forbidden, (name, sorted(forbidden))
     for interpreter in (b'/bin/sh\0', b'/bin/bash\0', b'/system/bin/sh\0'):

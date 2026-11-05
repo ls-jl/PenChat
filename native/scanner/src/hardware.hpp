@@ -23,11 +23,15 @@ class Hardware {
   Json lease_;
   std::vector<Buffer> buffers_;
   void openCamera();
+  void resetKey();
 
 public:
   ~Hardware() { close(); }
   // Snapshot must already be retained by the parent before acquiring.
   void open(const Json &lease);
+  // Reserve guardian/key ownership without starting sensor or V4L2 buffers.
+  void reserve(const Json &lease);
+  void start();
   void close() noexcept;
   bool keyEvent(bool &down);
   bool readFrame(const std::function<void(const uint8_t *, int, uint64_t,

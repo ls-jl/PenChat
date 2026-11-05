@@ -5,7 +5,7 @@ ROOT=pathlib.Path(__file__).resolve().parents[1]
 BUNDLE=pathlib.Path(os.environ.get('PENCHAT_SCAN_BUNDLE','/home/ls-jl/Documents/ChatGPT/词典笔扫描拼接/deliverables/stream32_complete_20261018'))
 
 class Scanner:
-    def __init__(self,directory,slow_ms=0,profile="orange"):
+    def __init__(self,directory,slow_ms=0,profile="orange",wait_ready=True,fail_prepare=False):
         self.directory=pathlib.Path(directory)
         self.socket,child=socket.socketpair(socket.AF_UNIX,socket.SOCK_SEQPACKET)
         self.socket.settimeout(10);self.fd=os.memfd_create('scanner-test',0)
@@ -13,9 +13,11 @@ class Scanner:
         self.generation=1;self.scan=0;self.request=0;self.session='fixture'
         env=dict(os.environ,LD_LIBRARY_PATH=str(BUNDLE/'third_party/opencv-host/lib/x86_64-linux-gnu')+':'+str(BUNDLE/'third_party/opencv-host/lib/x86_64-linux-gnu/openblas-pthread'),OPENBLAS_NUM_THREADS='1')
         env['PENCHAT_TEST_SCAN_INFER_MS']=str(slow_ms)
+        if fail_prepare:env['PENCHAT_TEST_SCAN_FAIL_PREPARE']='1'
         self.log=(self.directory/'worker.log').open('wb')
         self.process=subprocess.Popen([os.environ.get('PENCHAT_SCANNER_TEST_BINARY',str(ROOT/'build/scanner-host/penchat-scanner')),'--bridge-fd',str(child.fileno()),'--preview-fd',str(self.fd),'--resources',str(BUNDLE/'resources/illumination'),'--data-dir',str(self.directory/'pending'),'--simulate-y02' if profile=='y02' else '--simulate'],pass_fds=[child.fileno(),self.fd],env=env,stdout=self.log,stderr=self.log)
-        child.close();self.send('arm');self.receive('ready')
+        child.close();self.send('arm')
+        if wait_ready:self.receive('ready')
     def send(self,kind,**values):
         self.request+=1
         self.socket.send(json.dumps(dict(v=1,type=kind,generation=self.generation,requestId=self.request,scanId=self.scan,session=self.session,**values)).encode())

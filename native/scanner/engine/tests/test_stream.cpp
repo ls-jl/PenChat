@@ -15,6 +15,7 @@ struct Probe {
     std::atomic<unsigned> calls{0}, opens{0}, closes{0};
     unsigned delay = 0;
     bool fail = false;
+    bool emptyFailure = false;
 };
 class Fake final : public Inference {
     std::shared_ptr<Probe> p;
@@ -35,7 +36,7 @@ class Fake final : public Inference {
         if (p->delay)
             std::this_thread::sleep_for(std::chrono::milliseconds(p->delay));
         if (p->fail)
-            throw std::runtime_error("injected_npu_failure");
+            throw std::runtime_error(p->emptyFailure ? "" : "injected_npu_failure");
         require(b.validCount > 1 && b.validCount <= 32, "valid count");
         for (unsigned i = 0; i < b.validCount; ++i)
             require(b.gray[i], "frame view alive");
@@ -208,6 +209,65 @@ static void residentModel() {
     require(!engine.metrics().modelLoaded && probe->closes == 1,
             "shutdown releases resident model");
 }
+static ModelPreparation prepared(Engine &engine) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    for (;;) {
+        auto state = engine.modelPreparation();
+        if (state.state != ModelState::Preparing) return state;
+        require(std::chrono::steady_clock::now() < deadline, "preparation bounded");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+}
+static void preparation() {
+    auto probe = std::make_shared<Probe>();
+    probe->delay = 50;
+    Limits limits; limits.idleModelMs = 0;
+    Engine engine(std::make_unique<Fake>(probe), limits);
+    require(engine.modelPreparation().state == ModelState::Cold, "initially cold");
+    require(engine.prepareModel() == Code::Ok, "request warmup");
+    require(engine.beginScan(config()).code == Code::Busy, "cannot capture during warmup");
+    for (int i = 0; i < 10; ++i)
+        require(engine.prepareModel() == Code::Ok, "duplicate request is coalesced");
+    auto warm = prepared(engine);
+    require(warm.state == ModelState::Ready && warm.error.empty() && warm.elapsedUs > 0,
+            "real warmup acknowledged");
+    require(probe->opens == 1 && probe->calls == 1 && probe->closes == 0,
+            "warmup uses exactly one resident context and one batch");
+    require(engine.metrics().sessions == 0 && engine.metrics().frames == 0,
+            "preparation creates no scan or source frames");
+    require(engine.prepareModel() == Code::Ok && probe->calls == 1, "ready warmup is reused");
+    auto start = engine.beginScan(config());
+    require(start.code == Code::Ok, "begin after warmup");
+    engine.endScan(start.scan);
+    auto empty = engine.wait(start.scan);
+    require(empty->counts().inferenceBatches == 0 && probe->calls == 1,
+            "synthetic warmup does not enter scan counters");
+    engine.releaseResult(empty); engine.releaseResult(start.scan);
+    engine.shutdown();
+    require(engine.prepareModel() == Code::Closed && probe->closes == 1, "shutdown joins warmup");
+
+    auto failing = std::make_shared<Probe>(); failing->fail = true;
+    Engine retry(std::make_unique<Fake>(failing), limits);
+    require(retry.prepareModel() == Code::Ok, "request failing warmup");
+    auto failure = prepared(retry);
+    require(failure.state == ModelState::Failed && failure.error == "injected_npu_failure" &&
+            !retry.metrics().modelLoaded, "failure is visible before capture");
+    failing->emptyFailure = true;
+    require(retry.prepareModel() == Code::Ok, "request empty-error preparation");
+    failure = prepared(retry);
+    require(failure.state == ModelState::Failed && failure.error == "model_preparation_failed",
+            "empty exception text must not masquerade as ready");
+    failing->fail = false;
+    require(retry.prepareModel() == Code::Ok && prepared(retry).state == ModelState::Ready,
+            "explicit rearm retries failed preparation");
+    retry.shutdown();
+
+    auto slow = std::make_shared<Probe>(); slow->delay = 30;
+    Engine closing(std::make_unique<Fake>(slow), limits);
+    require(closing.prepareModel() == Code::Ok, "prepare before shutdown");
+    closing.shutdown();
+    require(!closing.metrics().modelLoaded, "shutdown during preparation leaves no model");
+}
 static void sessionsAndFailure() {
     auto p = std::make_shared<Probe>();
     p->delay = 5;
@@ -367,6 +427,7 @@ static void synchronousFacade() {
 }
 int main() {
     try {
+        preparation();
         std::fprintf(stderr, "TEST coordinates\n");
         coordinate();
         std::fprintf(stderr, "TEST boundaries\n");

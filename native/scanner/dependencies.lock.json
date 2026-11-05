@@ -1,7 +1,7 @@
 {
   "source_commit": "21bfd280fbb97969ff7883d107aeaa8f21982fc7",
   "files": {
-    "engine/include/pen_stream/stream.hpp": "a5efdade67080997d615114bcf1f87868481798c2008c878380b1289194ebe68",
+    "engine/include/pen_stream/stream.hpp": "79719a9ea2cada1d94f38cde984764a503d0b6931fa0b89a9c8ffa4d9c5100cb",
     "engine/include/rknn/rknn_api.h": "c48e11a6f41b451a5fd1e4ad774ea60252d3d94f78bee9b21ea3d21b21deba9a",
     "engine/src/canvas.cpp": "68f9d4d7a7acfd934f4b096054d5dd05cd7dc30040ff20c10ffa799f906fc427",
     "engine/src/geometry.cpp": "c000d303ebc84aa9696b658dae838499c0e0fb9152814e539b70d84625132842",
@@ -11,16 +11,23 @@
     "engine/src/photo_cpu.hpp": "aca85afe830e1da02cac8306e98a79da7613598e18c5062e25d681b97eb58a8a",
     "engine/src/resize_compat.cpp": "af0d7a5d2506e059b66f8b964a5bfe27856db6874a60ebeab25377c3bf147e98",
     "engine/src/rknn.cpp": "0012ef4a069673647aa6106f6aae151ac88fee3ef915755a89772fcc406ea442",
-    "engine/src/stream.cpp": "a49050a930d42573700c9fc84e10a1199175e8b523ca099f1678b082a74ecf24",
+    "engine/src/stream.cpp": "1248d527ee3ea795cc0f36a9ab21aee82d5b279af990edd090b0da369266c0d4",
     "engine/tests/fake_runtime.cpp": "2d7f7780a3faa239bb39c7e152a06a218554559a1f3b5f540602314a666a2da8",
     "engine/tests/test_adapter.cpp": "90d08f0fad9d704c7664f7c6c017638b7c9f24bc28fdff18bd3086de41e84cc0",
-    "engine/tests/test_stream.cpp": "220dea3aac2bb2c03887aff574c85426421aa3e50f2f6fd62803fe8ada8b3a80",
+    "engine/tests/test_stream.cpp": "7eed65667c7dd25cd097571dfc644cf75125dd2b9f1be23a1dd23d2d830aaae0",
     "tests/replay.cpp": "39064d6c26e1f1b000d6deda66fef62e9aa23875126849e8088af560aa1c4d38",
     "tests/test_memory.cpp": "ec8a65107315dcdb57ab6b24426f7fa310720b1f23b1b7f8cf8ec445cea82cf8",
     "tests/selection_golden.cpp": "ae11c32603f89a5a6236d374208c03a544729fba0b295731cd24f6dc43f6a5c3",
     "tests/selection-golden.txt": "0d5ae0d70cf984cf8e2ace5f689fd64ac38999d9cb264bc6cbaef8b19fb72758",
     "tests/compare_golden.cmake": "573372f0ce094fbf76b02cfeec037510c9bd5b7454b4f169af8a5fd7f3919875",
-    "src/memory_policy.hpp": "ad5ca5cb32d7debc4e0009a89f8d892ca6ee4b520de4c4b0790f5362f6077886"
+    "src/memory_policy.hpp": "ad5ca5cb32d7debc4e0009a89f8d892ca6ee4b520de4c4b0790f5362f6077886",
+    "src/runtime_io.hpp": "1920f786a5faf268e9f14a21274690b8c280fa5006a234d1a9c251e4f857ef94",
+    "src/runtime_guard.cpp": "2866a54afd4e71a58e84e8362392cc462cbadebda95cdcd85f32514a30c50fb9",
+    "src/main.cpp": "ab578b9a7375d56367fba9b7123a2be27822f877706c436aeea34d6655f9f0cb",
+    "runtime-symbols.list": "868ca8503bbdbfab6029fe3fca3aceb20e76b4908f63be8bfdcf0f9c9ac92951",
+    "tests/test_runtime_io.cpp": "726a9a9e417ad3520743a286ae755f0c857a7b164d74b7b9ea22525c31fd7d05",
+    "src/hardware.cpp": "36f85742414aea8125e4eb83f7c91d13f977c3fb7c4f1f0704d7cc1d6d448947",
+    "src/hardware.hpp": "2381f23aef1658157c8155cf867a8f339ca872dbb6a01c6a890d0d95db705f7d"
   },
   "resources": {
     "pintu_32.rknn": {

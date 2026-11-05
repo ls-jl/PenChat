@@ -1,5 +1,6 @@
 #include "hardware.hpp"
 #include "memory_policy.hpp"
+#include "runtime_io.hpp"
 #include "png.hpp"
 #include "preview.hpp"
 #include "protocol.hpp"
@@ -110,8 +111,14 @@ public:
 };
 #ifdef SCANNER_TEST_SOURCE
 class TestInference final : public Inference {
+  bool attempted_ = false;
 public:
-  void open() override {}
+  void open() override {
+    const bool first = !attempted_;
+    attempted_ = true;
+    if (first && getenv("PENCHAT_TEST_SCAN_FAIL_PREPARE"))
+      throw std::runtime_error("injected_model_preparation_failure");
+  }
   void close() noexcept override {}
   size_t managedBytes() const noexcept override { return 0; }
   void infer(const NetworkBatch &, Heads &h) override {
@@ -129,17 +136,25 @@ public:
 class ObservedInference final : public Inference {
   std::unique_ptr<Inference> backend_;
   std::function<void()> started_;
+  bool sliceSync_ = false;
 
 public:
-  ObservedInference(std::unique_ptr<Inference> b, std::function<void()> f)
-      : backend_(std::move(b)), started_(std::move(f)) {}
-  void open() override { backend_->open(); }
-  void close() noexcept override { backend_->close(); }
+  ObservedInference(std::unique_ptr<Inference> b, std::function<void()> f, bool sliceSync)
+      : backend_(std::move(b)), started_(std::move(f)), sliceSync_(sliceSync) {}
+  void open() override {
+    RuntimeIoScope scope(sliceSync_);
+    backend_->open();
+  }
+  void close() noexcept override {
+    RuntimeIoScope scope(sliceSync_);
+    backend_->close();
+  }
   size_t managedBytes() const noexcept override {
     return backend_->managedBytes();
   }
   void infer(const NetworkBatch &b, Heads &h) override {
     started_();
+    RuntimeIoScope scope(sliceSync_);
     backend_->infer(b, h);
   }
 };
@@ -192,11 +207,14 @@ class Worker {
     auto r = scan_ ? engine_->preview(scan_) : ResultHandle{};
     Counts c = r ? r->counts() : Counts{};
     auto m = engine_->metrics();
+    const auto io = runtimeIoMetrics();
     const auto queued = m.rawQueued + m.selectedQueued;
     return {{"received", c.received},        {"filtered", c.filtered},
             {"selected", c.selected},        {"committed", c.committed},
             {"pending", c.pending},          {"unlocated", c.unlocated},
             {"batches", c.inferenceBatches}, {"dropped_raw", droppedRaw_},
+            {"cache_sync_operations", io.operations}, {"cache_sync_slices", io.slices},
+            {"cache_sync_max_call_us", io.maxSliceUs},
             {"recovered_gaps", recoveredGaps_},
             {"recovered_frames", recoveredFrames_},
             {"queued", queued},
@@ -582,7 +600,7 @@ public:
     backend = std::make_unique<ObservedInference>(std::move(backend), [this] {
       int64_t zero = 0;
       firstBatchUs_.compare_exchange_strong(zero, clockUs());
-    });
+    }, profile_.id == "y02-sc035gs");
     engine_ = std::make_unique<Engine>(std::move(backend), limits);
     calibration();
   }
@@ -606,9 +624,10 @@ public:
       session_ = j.at("session").get<std::string>();
       request_ = j.value("requestId", uint64_t(0));
       if (mock_) {
-        armed_ = true;
-        state_ = "ready";
-        emit("ready");
+        if (engine_->prepareModel() != Code::Ok)
+          throw std::runtime_error("model preparation unavailable");
+        state_ = "warming";
+        emit("preparing", {{"phase", "model_warmup"}});
       } else {
         state_ = "waiting_owner";
         ownerDeadline_ = clockUs() + 5000000;
@@ -622,11 +641,13 @@ public:
       return;
     request_ = j.value("requestId", request_);
     if (type == "lease_ack" && state_ == "preparing") {
-      hardware_.open(lease_);
-      armed_ = true;
-      requireRelease_ = false;
-      state_ = "ready";
-      emit("ready");
+      // Reserve the key and pause the stock capture owner before model work,
+      // but do not start our sensor. The parent already retained the lease.
+      hardware_.reserve(lease_);
+      if (engine_->prepareModel() != Code::Ok)
+        throw std::runtime_error("model preparation unavailable");
+      state_ = "warming";
+      emit("preparing", {{"phase", "model_warmup"}});
     } else if (type == "disarm" || type == "cancel") {
       disarm();
       emit("released");
@@ -730,6 +751,25 @@ public:
   }
   void tick() {
     engine_->checkResources();
+    if (state_ == "warming") {
+      const auto model = engine_->modelPreparation();
+      if (model.state == ModelState::Failed)
+        throw std::runtime_error(model.error.empty() ? "model_preparation_failed" : model.error);
+      if (model.state == ModelState::Ready) {
+        engine_->reclaimIdle();
+        if (mock_) {
+          armed_ = true;
+          state_ = "ready";
+          emit("ready", {{"model_prepared_us", model.elapsedUs}});
+        } else {
+          hardware_.start();
+          armed_ = true;
+          requireRelease_ = false;
+          state_ = "ready";
+          emit("ready", {{"model_prepared_us", model.elapsedUs}});
+        }
+      }
+    }
     if (finished_ && !reclaimed_) reclaimed_ = engine_->reclaimIdle();
     if (capturing_) {
       const auto now = clockUs();

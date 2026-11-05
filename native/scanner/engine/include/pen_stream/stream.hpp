@@ -76,6 +76,12 @@ struct BeginResult {
     ScanId scan = 0;
     const char *reason = "";
 };
+enum class ModelState { Cold, Preparing, Ready, Failed };
+struct ModelPreparation {
+    ModelState state = ModelState::Cold;
+    std::string error;
+    std::int64_t elapsedUs = 0;
+};
 struct Bounds {
     int x = 0, y = 0, width = 0, height = 0;
 };
@@ -140,6 +146,11 @@ class Engine {
   public:
     explicit Engine(std::unique_ptr<Inference>, Limits = {});
     ~Engine();
+    // Asynchronous, on the backend owner thread. Call before opening capture.
+    // One synthetic fixed32 inference warms CPU fallbacks and vendor buffers;
+    // it never enters a scan, its counts, selection or canvas.
+    Code prepareModel();
+    ModelPreparation modelPreparation() const;
     BeginResult beginScan(const Config &, Callbacks = {});
     PushResult pushFrame(ScanId, const std::uint8_t *y, int width, int height, std::size_t stride,
                          std::uint64_t sourceSequence, std::int64_t timestamp);
