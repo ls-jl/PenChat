@@ -88,10 +88,12 @@ struct Engine::Impl {
         FramePtr first;
         Selection selector;
         WindowGeometry geometry;
+        GeometryQuality quality;
         bool sealed = false, preprocessed = false, npuSealed = false, capacity = false, haveBatch = false;
         std::atomic<bool> broken{false}, cancelled{false};
         const char *pendingStop = nullptr;
         const char *capacityReason = nullptr;
+        const char *localizationStop = nullptr;
         std::uint64_t seen = 0, selected = 0, start = 0;
     };
     struct Job {
@@ -597,6 +599,22 @@ struct Engine::Impl {
                     if (pose.index < job.start || pose.index - job.start >= job.frames.size())
                         throw std::runtime_error("commit_frame_range_mismatch");
                     auto f = job.frames[pose.index - job.start];
+                    if (const char *reason = s->quality.accept(pose.work, f->match(), budget)) {
+                        s->broken = true;
+                        {
+                            std::lock_guard<std::mutex> lock(mutex);
+                            s->sealed = true;
+                            s->localizationStop = reason;
+                            if (capturing == s->id) capturing = 0;
+                            cv.notify_all();
+                        }
+                        {
+                            std::lock_guard<std::mutex> lock(r.mutex);
+                            if (r.failure.empty()) r.failure = reason;
+                        }
+                        emit(s, Event::Kind::StopRequested, reason);
+                        break;
+                    }
                     const auto bytes = std::size_t(f->width) * f->height;
                     if (correctedPages.size() < bytes) {
                         correctedPages.clear(); correctedPages.allocate(bytes, budget, budget->other);
@@ -657,6 +675,7 @@ struct Engine::Impl {
                     retain(s, f);
             emit(s, Event::Kind::Preview);
             if (job.last) {
+                s->quality.clear();
                 correctedPages.clear();
                 // Losslessly compact the retained image once, off capture/UI.
                 { std::lock_guard<std::mutex> lock(r.canvasMutex); r.canvas.compact(); }
@@ -808,8 +827,8 @@ PushResult Engine::pushFrame(ScanId id, const std::uint8_t *y, int w, int h, std
             stride < std::size_t(w) || stride > std::size_t(-1) / std::size_t(h))
             return {Code::InvalidArgument, false};
         if (s->sealed || p_->stopping)
-            return {s->capacity ? Code::StopCapture : Code::Closed, false,
-                    s->capacityReason ? s->capacityReason : ""};
+            return {s->capacity || s->localizationStop ? Code::StopCapture : Code::Closed, false,
+                    s->localizationStop ? s->localizationStop : (s->capacityReason ? s->capacityReason : "")};
     }
     try {
         // One copy from the camera; the same page owner reaches the renderer.
@@ -823,8 +842,8 @@ PushResult Engine::pushFrame(ScanId id, const std::uint8_t *y, int w, int h, std
             std::memcpy(f->y() + std::size_t(row) * w, y + std::size_t(row) * stride, w);
         std::lock_guard<std::mutex> l(p_->mutex);
         if (s->sealed || p_->stopping)
-            return {s->capacity ? Code::StopCapture : Code::Closed, false,
-                    s->capacityReason ? s->capacityReason : ""};
+            return {s->capacity || s->localizationStop ? Code::StopCapture : Code::Closed, false,
+                    s->localizationStop ? s->localizationStop : (s->capacityReason ? s->capacityReason : "")};
         s->raw.push_back(std::move(f));
         p_->rawPeak = std::max(p_->rawPeak, s->raw.size());
         p_->queuedPeak = std::max(p_->queuedPeak, s->raw.size() + s->prepared.size());

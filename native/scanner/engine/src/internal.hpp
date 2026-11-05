@@ -177,6 +177,19 @@ class WindowGeometry {
     std::vector<Pose> flush();
     static cv::Matx33d construct(const y07::DecodedFrame &, float x, float y, float scale);
 };
+// Validate before painting: a plausible finite homography can still fold or
+// misalign a lifted/turning tail over already committed text. Only small model
+// images are retained; no source-frame ownership or model output is changed.
+class GeometryQuality {
+    static constexpr unsigned History = 8, Pixels = 80 * 144;
+    Pages images_;
+    std::array<cv::Matx33d, History> poses_;
+    unsigned used_ = 0, next_ = 0;
+
+  public:
+    const char *accept(const cv::Matx33d &, const std::uint8_t *, const std::shared_ptr<Budget> &);
+    void clear() { images_.clear(); used_ = next_ = 0; }
+};
 class MemoryCanvas {
     static constexpr int T = 128, N = T * T;
     struct Tile {

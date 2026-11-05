@@ -10,3 +10,4 @@ python3 tests/test_scanner_process.py
 python3 tests/test_scanner_preparation.py
 python3 tests/test_scanner_y02.py
 python3 tests/test_scanner_ui.py
+python3 tests/test_scanner_geometry.py

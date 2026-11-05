@@ -112,6 +112,7 @@ public:
 #ifdef SCANNER_TEST_SOURCE
 class TestInference final : public Inference {
   bool attempted_ = false;
+  unsigned calls_ = 0;
 public:
   void open() override {
     const bool first = !attempted_;
@@ -122,13 +123,14 @@ public:
   void close() noexcept override {}
   size_t managedBytes() const noexcept override { return 0; }
   void infer(const NetworkBatch &, Heads &h) override {
+    const bool badTail = calls_++ && getenv("PENCHAT_TEST_SCAN_BAD_TAIL");
     if (const char *delay = getenv("PENCHAT_TEST_SCAN_INFER_MS"))
       std::this_thread::sleep_for(std::chrono::milliseconds(std::max(0, std::min(500, atoi(delay)))));
     const unsigned bins[9] = {384, 384, 512, 512, 512, 512, 512, 512, 1};
     for (unsigned k = 0; k < 9; ++k) {
       h[k].assign(32 * bins[k], -80);
       for (unsigned t = 0; t < 32; ++t)
-        h[k][t * bins[k] + bins[k] / 2 + (k == 0 ? 2 : 0)] = 0;
+        h[k][t * bins[k] + bins[k] / 2 + (k == 0 ? 2 : (badTail && k == 2 && t >= 30 ? 160 : 0))] = 0;
     }
   }
 };

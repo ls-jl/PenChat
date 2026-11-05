@@ -10,6 +10,8 @@ std::string scanReason(const std::string &reason) {
     return "图片超过16MiB或保存失败，请缩短扫描后重试";
   if (reason == "sensor_sequence_gap" || reason == "sensor_sequence_reset")
     return "采集帧不连续";
+  if (reason == "geometry_unstable")
+    return "角度或对齐异常，请贴纸平稳扫描";
   if (reason == "system_memory_low")
     return "系统可用内存不足，已保留本次结果";
   if (reason == "system_memory_unavailable")

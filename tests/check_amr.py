@@ -45,6 +45,7 @@ with zipfile.ZipFile(path) as archive:
     assert scanner == (ROOT/'assets/bin/penchat-scanner').read_bytes()
     assert b'test.press' not in scanner and b'scanner.test' not in binary
     assert b'PENCHAT_TEST_SCAN_FAIL_PREPARE' not in scanner
+    assert b'PENCHAT_TEST_SCAN_BAD_TAIL' not in scanner
     scanlock=json.loads((ROOT/'native/scanner/dependencies.lock.json').read_text())
     assert archive.read('assets/scanner/dependencies.lock.json') == (ROOT/'native/scanner/dependencies.lock.json').read_bytes()
     expected_scan_files=set(scanlock['resources']) | {'NOTICE','dependencies.lock.json',

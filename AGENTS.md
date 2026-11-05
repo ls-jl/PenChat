@@ -151,6 +151,12 @@ object and direction; no retries, cancellation or skipped synchronization within
 a vendor call. Unknown drivers/flags and other boards must pass through unchanged.
 Retain the scanner's tested ioctl export when stripping/packaging.
 
+Validate model-space geometry before painting. The bounded eight-thumbnail
+history belongs to the render owner and dynamic budget, never full sensor-frame
+copies. A failed geometric/image-consistency check stops with an explicit partial
+result and retains unlocated originals; do not clamp angles, fabricate pixels or
+silently drop a tail. Stable image-supported rotation must remain usable.
+
 Normalize bounded HTTP error text to valid UTF-8 before saving or displaying it; byte truncation can split a multibyte character. Manual retry reuses the latest failed/cancelled/interrupted assistant row, excludes its partial output and reasoning from input, and resets its reasoning metadata. Never retry automatically or duplicate user/image rows.
 
 Camera/crop surfaces may be quarter-turned without changing the 960×266 bridge/display coordinates. Map custom crop touches through photoPoint exactly once; freeze pose at the shutter and rotate saved RGB pixels once. Crop zoom (1–16×) only changes the view, never the saved pixel geometry; keep preview decoding bounded. The source-built penchat-sensor-guard shares Camera's sensor lock and restores only reporting it enabled, including parent EOF; never modify wake/calibration/frequency settings.
