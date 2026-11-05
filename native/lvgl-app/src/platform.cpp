@@ -1,4 +1,5 @@
 #include "platform.hpp"
+#include "camera_logic.h"
 #include "stb_image_write.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -11,7 +12,6 @@ namespace penchat {
 Display::Display(const Screen &s, bool headless)
     : screen_(s), headless_(headless) {
   buffer_.resize(size_t(s.width) * s.height * 4);
-  rgba_.resize(buffer_.size());
   if (!headless_) {
     camera::HoleRect r(0, 0, s.width, s.height, s.width, s.height, s.rotation,
                        0, 0, s.xoffset, s.yoffset);
@@ -35,14 +35,8 @@ Display::~Display() {
     lv_display_delete(display_);
 }
 void Display::flush(lv_display_t *d, const lv_area_t *, uint8_t *) {
-  for (size_t i = 0; i < buffer_.size(); i += 4) {
-    rgba_[i] = buffer_[i + 2];
-    rgba_[i + 1] = buffer_[i + 1];
-    rgba_[i + 2] = buffer_[i];
-    rgba_[i + 3] = buffer_[i + 3];
-  }
   if (shown_ && !headless_)
-    overlay_.presentRgba(rgba_.data(), screen_.width, screen_.height);
+    overlay_.presentBgra(buffer_.data(), screen_.width, screen_.height);
   if(lv_display_flush_is_last(d)) trimFontCache();
   lv_display_flush_ready(d);
 }
@@ -57,8 +51,10 @@ void Display::visible(bool value) {
 }
 void Display::screenshot(const std::string &path) {
   lv_refr_now(display_);
+  std::vector<uint8_t> rgba(buffer_.size());
+  camera::rgbaToBgra(buffer_.data(), rgba.data(), rgba.size() / 4);
   if (!stbi_write_png(path.c_str(), screen_.width, screen_.height, 4,
-                      rgba_.data(), screen_.width * 4))
+                      rgba.data(), screen_.width * 4))
     throw std::runtime_error("Screenshot failed");
 }
 Input::Input() {

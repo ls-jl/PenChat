@@ -32,7 +32,6 @@ export default {
     this.setBackPolicy(true)
     this.setNativeEditorPolicy(false)
     this.stopOcr()
-    this.visible = false
     this.send('visibility', { visible: false })
     clearInterval(this._poll); this._poll = null
   },
@@ -68,7 +67,6 @@ export default {
       this.setNativeEditorPolicy(false)
       this._nativeEditor = null; this._editorPolicySequence = 0
       this._nativeReady = false
-      this._screen = null
       this._requestSequence = 0
       this.errorText = ''
       try {
@@ -97,7 +95,6 @@ export default {
             const screen = event.screen
             if (!screen || !Number.isInteger(screen.width) || !Number.isInteger(screen.height) || screen.width <= 0 || screen.height <= 0)
               throw new Error('Invalid Falcon display configuration')
-            this._screen = screen
             this.send('display.area', { x: 0, y: 0, width: screen.width, height: screen.height })
           }
           else if (event.type === 'ready') { this._nativeReady = true; clearTimeout(this._readyTimer); this._readyTimer = null; if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
@@ -140,7 +137,6 @@ export default {
         if (!page || typeof page.setSupportTopPanel !== 'function') return false
         const blocked = active || (!!this._nativeImage && this.visible && !this._disposed && !this.keyboardOpen)
         page.setSupportTopPanel(!blocked)
-        this._topPanelBlocked = blocked
         return true
       } catch (_) { return false }
     },

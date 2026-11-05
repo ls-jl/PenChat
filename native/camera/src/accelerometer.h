@@ -15,6 +15,5 @@ bool parseAcceleration(const std::string& text, Acceleration* result);
 Acceleration startAccelerometer(const std::string& workspace);
 Acceleration readAccelerometer(int session);
 bool stopAccelerometer(int session = 0);
-bool accelerometerRunning();
 
 }  // namespace camera

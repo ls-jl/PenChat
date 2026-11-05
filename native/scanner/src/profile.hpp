@@ -1,9 +1,13 @@
 #pragma once
 #include <string>
+#include <utility>
 
 namespace penchat_scan {
 enum class ScanLight { Gpio43, LedClass };
 struct CaptureProfile {
+  CaptureProfile() = default;
+  CaptureProfile(std::string name, std::string sensorName, int w, int h)
+      : id(std::move(name)), sensor(std::move(sensorName)), width(w), height(h) {}
   std::string id, sensor;
   int width = 0, height = 0;
   std::string videoNode = "/dev/video23", sensorNode = "/dev/v4l-subdev2";

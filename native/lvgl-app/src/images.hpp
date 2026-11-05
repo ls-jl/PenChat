@@ -12,7 +12,7 @@ class Images {
   struct Request {
     std::string path, key;
     int width, height;
-    bool upscale, detail;
+    bool upscale;
   };
   std::mutex mutex_;
   std::condition_variable condition_;
@@ -33,7 +33,7 @@ public:
   ~Images();
   void stop();
   std::string request(const std::string &path, int width, int height,
-                      bool upscale = false, bool detail = false);
+                      bool upscale = false);
   std::shared_ptr<ImageFrame> get(const std::string &key);
   bool failed(const std::string &key);
 };
@@ -42,8 +42,6 @@ class Camera {
   std::atomic<uint64_t> generation_{0};
   std::thread thread_;
   std::mutex mutex_;
-  std::vector<uint8_t> nv12_;
-  int width_ = 0, height_ = 0;
   std::shared_ptr<ImageFrame> frame_;
   Events &events_;
   std::atomic<bool> save_{false};

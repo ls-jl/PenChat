@@ -11,7 +11,7 @@ void App::openImageViewer(const std::string &path) {
   lv_obj_stop_scroll_anim(body_);
   viewerScroll_=std::max(0,int(lv_obj_get_scroll_y(body_)));
   if(view_=="chat")chatFollowing_=false;
-  viewerPointer_=viewerCanvasTouch_=false;viewerLastTap_=0;
+  viewerLastTap_=0;
   imageGesture_={};imageTouchPeak_=imagePinchUpdates_=0;viewerReturnAt_=0;
   viewerFailed_=false;viewerZoom_=1;viewerPanX_=viewerPanY_=0;viewerFrame_.reset();
   imageViewer_=box(lv_screen_active(),0,0,screen_.width,screen_.height,theme::sidebar);
@@ -23,7 +23,7 @@ void App::openImageViewer(const std::string &path) {
   viewerStatus_=label(viewerCanvas_,"正在加载原图…",12,0,screen_.width-24,20,theme::muted);
   lv_obj_set_style_text_align(viewerStatus_,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(viewerStatus_);
   viewerClose_=icon(imageViewer_,"close",screen_.width-60,8,44,44,[this]{events_.push("image_view_close");},theme::surface);
-  viewerKey_=images_.request(path,32768,32768,false,true);
+  viewerKey_=images_.request(path,32768,32768);
   lv_obj_update_layout(imageViewer_);lv_obj_move_foreground(imageViewer_);
   scanner_.eligible(false,session_);
   refreshImageViewer();
@@ -33,7 +33,7 @@ void App::closeImageViewer(bool restore) {
   auto root=imageViewer_;imageViewer_=nullptr;
   viewerCanvas_=viewerImage_=viewerStatus_=viewerClose_=nullptr;
   imageGesture_={};viewerReturnAt_=0;
-  viewerPointer_=viewerCanvasTouch_=false;viewerLastTap_=0;viewerKey_.clear();
+  viewerLastTap_=0;viewerKey_.clear();
   // The image owns its descriptor/frame until its DELETE event, independently
   // of chat rebuilds and the chat thumbnail texture map.
   lv_obj_delete(root);viewerFrame_.reset();
@@ -67,8 +67,6 @@ void App::refreshImageViewer() {
   },LV_EVENT_DELETE,t);
   lv_image_set_src(viewerImage_,&t->descriptor);lv_obj_set_hidden(viewerStatus_,true);
   zoomImageViewer(1);
-  viewerStartX_=viewerLastX_;viewerStartY_=viewerLastY_;
-  viewerStartPanX_=viewerPanX_;viewerStartPanY_=viewerPanY_;
 }
 double App::imageViewerFit() const {
   if(!viewerFrame_)return 1;

@@ -29,7 +29,8 @@
     "src/hardware.cpp": "36f85742414aea8125e4eb83f7c91d13f977c3fb7c4f1f0704d7cc1d6d448947",
     "src/hardware.hpp": "2381f23aef1658157c8155cf867a8f339ca872dbb6a01c6a890d0d95db705f7d",
     "engine/src/geometry_quality.cpp": "d513e838a60c818614d77b72322161e1e4b9d919a294c76ca5c45d4faa531a41",
-    "tests/test_geometry_quality.cpp": "b66e7c45a3d0832c64ab3d8114147c6d395d192c6de0af23aaaf6855e2ab7086"
+    "tests/test_geometry_quality.cpp": "b66e7c45a3d0832c64ab3d8114147c6d395d192c6de0af23aaaf6855e2ab7086",
+    "src/profile.hpp": "a26680bb4253426348b82e0f37fde141a261b6ebdd62e44db43f52a6319e1553"
   },
   "resources": {
     "pintu_32.rknn": {

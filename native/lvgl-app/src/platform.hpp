@@ -6,7 +6,7 @@ namespace penchat {
 class Display {
   camera::Overlay overlay_;
   lv_display_t *display_ = nullptr;
-  std::vector<uint8_t> buffer_, rgba_;
+  std::vector<uint8_t> buffer_;
   Screen screen_;
   bool shown_ = true, headless_ = false;
 

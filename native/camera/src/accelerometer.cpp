@@ -151,11 +151,5 @@ bool stopAccelerometer(int session)
     return stopped;
 }
 
-bool accelerometerRunning()
-{
-    pthread_mutex_lock(&sensorMutex);
-    const bool running = !reapGuard();
-    pthread_mutex_unlock(&sensorMutex);
-    return running;
-}
+
 }  // namespace camera

@@ -9,7 +9,6 @@ bool inside(double x,double y,const lv_area_t &a) {
 }
 void App::finishImageGesture(bool animate) {
   imageGesture_ = {};
-  viewerPointer_ = viewerCanvasTouch_ = false;
   if(imageViewer_ && viewerFrame_ && viewerZoom_<1) {
     if(animate) {viewerReturnZoom_=viewerZoom_;viewerReturnAt_=ticks();}
     else {viewerReturnAt_=0;viewerZoom_=1;updateImageViewer();}

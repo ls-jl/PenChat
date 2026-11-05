@@ -3,9 +3,6 @@
 namespace penchat {
 namespace {
 std::string scanReason(const std::string &reason) {
-  if (reason.find("temporary queue storage stalled") != std::string::npos ||
-      reason.find("temporary queue I/O") != std::string::npos)
-    return "扫描暂存写入过慢或失败，请稍后重试";
   if (reason.find("16 MiB") != std::string::npos)
     return "图片超过16MiB或保存失败，请缩短扫描后重试";
   if (reason == "sensor_sequence_gap" || reason == "sensor_sequence_reset")

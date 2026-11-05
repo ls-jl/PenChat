@@ -91,7 +91,6 @@ Capture::Capture()
     , height_(0)
     , yStride_(0)
     , uvStride_(0)
-    , focusRegion_(false)
 {
 }
 
@@ -148,39 +147,12 @@ std::vector<std::string> Capture::listDevices()
     return ordered;
 }
 
-bool Capture::openControls()
-{
-    close();
-    const std::vector<std::string> devices = listDevices();
-    for (size_t i = 0; i < devices.size(); ++i) {
-        const int fd = ::open(devices[i].c_str(), O_RDWR | O_CLOEXEC);
-        if (fd < 0) continue;
-        v4l2_capability cap;
-        memset(&cap, 0, sizeof(cap));
-        if (xioctl(fd, VIDIOC_QUERYCAP, &cap) < 0) {
-            ::close(fd);
-            continue;
-        }
-        const unsigned caps = cap.device_caps ? cap.device_caps : cap.capabilities;
-        if (!(caps & (V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_CAPTURE_MPLANE))) {
-            ::close(fd);
-            continue;
-        }
-        fd_ = fd;
-        device_ = devices[i];
-        if (queryControls()) return true;
-        close();
-    }
-    return false;
-}
-
 bool Capture::open(const std::string& device, int width, int height)
 {
     close();
     std::vector<std::string> candidates;
     if (!device.empty()) candidates.push_back(device);
-    const std::vector<std::string> listed = listDevices();
-    candidates.insert(candidates.end(), listed.begin(), listed.end());
+    else candidates = listDevices();
 
     const std::vector<std::string> prefer = preferredDevicePaths();
     bool preferredExists = false;
@@ -360,7 +332,6 @@ bool Capture::open(const std::string& device, int width, int height)
         height_ = outH;
         yStride_ = yStride > 0 ? yStride : outW;
         uvStride_ = uvStride > 0 ? uvStride : yStride_;
-        queryControls();
         CAMLOG("operation=open device=%s format=%s %dx%d planes=%d stride=%d",
             path.c_str(), fourccText(pix).c_str(), width_, height_, nplanes_, yStride_);
         return true;
@@ -388,7 +359,6 @@ void Capture::close()
         ::close(fd_);
         fd_ = -1;
     }
-    controls_.clear();
 }
 
 bool Capture::grab(CaptureFrame* frame, int timeoutMs)
@@ -462,69 +432,6 @@ bool Capture::release(int index)
             planes[p].length = static_cast<__u32>(buffers_[static_cast<size_t>(index)].planes[p].length);
     }
     return xioctl(fd_, VIDIOC_QBUF, &buf) == 0;
-}
-
-bool Capture::setControl(int id, int value)
-{
-    if (fd_ < 0) return false;
-    v4l2_control ctrl;
-    memset(&ctrl, 0, sizeof(ctrl));
-    ctrl.id = static_cast<unsigned>(id);
-    ctrl.value = value;
-    if (xioctl(fd_, VIDIOC_S_CTRL, &ctrl) < 0) return false;
-    for (size_t i = 0; i < controls_.size(); ++i) {
-        if (controls_[i].id == id) controls_[i].value = ctrl.value;
-    }
-    return true;
-}
-
-bool Capture::getControl(int id, int* value)
-{
-    if (fd_ < 0) return false;
-    v4l2_control ctrl;
-    memset(&ctrl, 0, sizeof(ctrl));
-    ctrl.id = static_cast<unsigned>(id);
-    if (xioctl(fd_, VIDIOC_G_CTRL, &ctrl) < 0) return false;
-    if (value) *value = ctrl.value;
-    return true;
-}
-
-bool Capture::queryControls()
-{
-    controls_.clear();
-    if (fd_ < 0) return false;
-    v4l2_queryctrl q;
-    memset(&q, 0, sizeof(q));
-    q.id = V4L2_CTRL_FLAG_NEXT_CTRL;
-    while (xioctl(fd_, VIDIOC_QUERYCTRL, &q) == 0) {
-        if (!(q.flags & V4L2_CTRL_FLAG_DISABLED) &&
-            (q.type == V4L2_CTRL_TYPE_INTEGER || q.type == V4L2_CTRL_TYPE_BOOLEAN ||
-                q.type == V4L2_CTRL_TYPE_MENU)) {
-            V4l2Control c;
-            c.id = static_cast<int>(q.id);
-            c.name = reinterpret_cast<char*>(q.name);
-            c.type = q.type == V4L2_CTRL_TYPE_BOOLEAN ? "bool" :
-                     (q.type == V4L2_CTRL_TYPE_MENU ? "menu" : "int");
-            c.min = q.minimum;
-            c.max = q.maximum;
-            c.step = q.step;
-            c.def = q.default_value;
-            c.value = q.default_value;
-            getControl(c.id, &c.value);
-            controls_.push_back(c);
-        }
-        q.id |= V4L2_CTRL_FLAG_NEXT_CTRL;
-    }
-    return !controls_.empty();
-}
-
-bool Capture::setFocusPoint(float nx, float ny)
-{
-    (void)nx;
-    (void)ny;
-    focusRegion_ = false;
-    CAMLOG("%s", "operation=setFocusPoint result=unsupported no-region-control");
-    return false;
 }
 
 }  // namespace camera

@@ -125,13 +125,12 @@ class App {
            *viewerStatus_ = nullptr, *viewerClose_ = nullptr;
   std::string viewerKey_;
   std::shared_ptr<ImageFrame> viewerFrame_;
-  double viewerZoom_ = 1, viewerPanX_ = 0, viewerPanY_ = 0,
-         viewerStartPanX_ = 0, viewerStartPanY_ = 0;
-  int viewerScroll_ = 0, viewerStartX_ = 0, viewerStartY_ = 0,
+  double viewerZoom_ = 1, viewerPanX_ = 0, viewerPanY_ = 0;
+  int viewerScroll_ = 0,
       viewerLastX_ = 0, viewerLastY_ = 0, viewerDistance_ = 0,
       viewerLastTapX_ = 0, viewerLastTapY_ = 0;
   int64_t viewerLastTap_ = 0;
-  bool viewerPointer_ = false, viewerCanvasTouch_ = false, viewerFailed_ = false;
+  bool viewerFailed_ = false;
   void requestImageViewer(const std::string &path);
   void openImageViewer(const std::string &path);
   void closeImageViewer(bool restore = true);
@@ -161,7 +160,7 @@ class App {
   bool switchDraft(const std::string &next);
   struct ReplyControls {lv_obj_t *bar,*copy,*retry,*branch;bool body,question;};
   std::map<std::string,ReplyControls> replyControls_;
-  std::string replyConfirmId_,replyToken_,replySession_;
+  std::string replyConfirmId_,replyToken_;
   Json replyConfirmModel_=Json::object();
   std::thread replyWorker_;
   std::atomic<bool> replyCancel_{false};

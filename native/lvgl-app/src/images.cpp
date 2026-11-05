@@ -40,9 +40,9 @@ void Images::trimCache(size_t incoming) {
   }
 }
 std::string Images::request(const std::string &path, int w, int h,
-                            bool upscale, bool detail) {
+                            bool upscale) {
   auto key = path + ":" + std::to_string(w) + "x" + std::to_string(h) +
-             (upscale ? ":up" : "") + (detail ? ":detail" : "");
+             (upscale ? ":up" : "");
   std::lock_guard<std::mutex> lock(mutex_);
   if (stopped_) return key;
   if (!cache_.count(key) && pending_.insert(key).second) {
@@ -51,7 +51,7 @@ std::string Images::request(const std::string &path, int w, int h,
       events_.pushLatest("image_error", {{"key", key}, {"error", "图片队列已满，请稍后重新打开"}});
       return key;
     }
-    queue_.push_back({path, key, w, h, upscale, detail});
+    queue_.push_back({path, key, w, h, upscale});
     condition_.notify_one();
   }
   return key;
@@ -143,11 +143,7 @@ void Images::work() {
       if (!data)
         throw std::runtime_error("Image decode failed");
       float scale = std::min(float(r.width) / w, float(r.height) / h);
-      if (r.detail) {
-        // Retain long, narrow scan details without allocating an unbounded
-        // full-resolution bitmap. A detailed cached frame is at most 16 MiB.
-        scale = std::min(scale, float(std::sqrt(4000000.0 / (double(w)*h))));
-      }
+      // Every cached image, including long scan details, is at most 16 MiB.
       scale = std::min(scale, float(std::sqrt(4000000.0 / (double(w) * h))));
       if (!r.upscale)
         scale = std::min(1.f, scale);
@@ -204,7 +200,6 @@ void Camera::stop() {
     thread_.join();
   std::lock_guard<std::mutex> lock(mutex_);
   frame_.reset();
-  nv12_.clear();
 }
 std::shared_ptr<ImageFrame> Camera::frame() {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -302,9 +297,6 @@ void Camera::work() {
       {
         std::lock_guard<std::mutex> lock(mutex_);
         frame_ = frame;
-        width_ = f.width;
-        height_ = f.height;
-        if(!highResolution)nv12_ = bytes;
       }
       // A shutter arriving during preview conversion stays pending until the
       // next high-resolution frame; never save that in-flight preview as a photo.

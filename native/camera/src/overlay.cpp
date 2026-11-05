@@ -1,6 +1,5 @@
 #include "overlay.h"
 
-#include "util.h"
 #include "camera_logic.h"
 
 #include <dlfcn.h>
@@ -87,50 +86,10 @@ void nv12ToBgra(const uint8_t* yPlane, const uint8_t* uvPlane, int width, int he
     }
 }
 
-void rgbaContain(const uint8_t* src, int srcW, int srcH, uint8_t* dst, int dstW, int dstH,
-    int* outX, int* outY, int* outW, int* outH)
-{
-    memset(dst, 0, static_cast<size_t>(dstW) * dstH * 4);
-    if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0) return;
-    const float srcA = static_cast<float>(srcW) / srcH;
-    const float dstA = static_cast<float>(dstW) / dstH;
-    int w = dstW;
-    int h = dstH;
-    if (srcA > dstA) h = static_cast<int>(dstW / srcA + 0.5f);
-    else w = static_cast<int>(dstH * srcA + 0.5f);
-    if (w < 1) w = 1;
-    if (h < 1) h = 1;
-    const int x = (dstW - w) / 2;
-    const int y = (dstH - h) / 2;
-    for (int dy = 0; dy < h; ++dy) {
-        const int sy = dy * srcH / h;
-        for (int dx = 0; dx < w; ++dx) {
-            const int sx = dx * srcW / w;
-            memcpy(dst + ((y + dy) * dstW + (x + dx)) * 4, src + (sy * srcW + sx) * 4, 4);
-        }
-    }
-    if (outX) *outX = x;
-    if (outY) *outY = y;
-    if (outW) *outW = w;
-    if (outH) *outH = h;
-}
-
-void rgbaScaleRotate(const uint8_t* src, int srcW, int srcH, uint8_t* dst, int dstW, int dstH, int rotate)
-{
-    for (int dy = 0; dy < dstH; ++dy) {
-        for (int dx = 0; dx < dstW; ++dx) {
-            int sx = 0, sy = 0;
-            mapRotatedSrc(dx, dy, dstW, dstH, srcW, srcH, rotate, &sx, &sy);
-            memcpy(dst + (dy * dstW + dx) * 4, src + (sy * srcW + sx) * 4, 4);
-        }
-    }
-}
-
 Overlay::Overlay()
     : fd_(-1)
     , drm_(0)
     , crtcId_(0)
-    , connId_(0)
     , planeId_(0)
     , zpos_(0)
     , minZpos_(0)
@@ -139,7 +98,6 @@ Overlay::Overlay()
     , crtcH_(0)
     , useNv12_(false)
     , atomic_(false)
-    , enabled_(false)
     , cur_(0)
     , propFb_(0)
     , propCrtc_(0)
@@ -166,6 +124,7 @@ Overlay::Overlay()
 Overlay::~Overlay()
 {
     close();
+    if (drm_) dlclose(drm_);
     pthread_mutex_destroy(&mu_);
 }
 
@@ -254,7 +213,6 @@ bool Overlay::pickResources()
         error_ = "no connected drm connector";
         return false;
     }
-    connId_ = conn->connector_id;
     uint32_t encId = conn->encoder_id;
     if (!encId && conn->count_encoders) encId = conn->encoders[0];
     drmModeEncoder* enc = encId ? getEnc(fd_, encId) : 0;
@@ -391,20 +349,14 @@ uint32_t Overlay::findProp(uint32_t objId, uint32_t objType, const char* name, u
     return found;
 }
 
-bool Overlay::allocBuf(DrmBuf* buf, int width, int height, uint32_t format)
+bool Overlay::allocBuf(DrmBuf* buf, int width, int height)
 {
     freeBuf(buf);
     struct drm_mode_create_dumb creq;
     memset(&creq, 0, sizeof(creq));
-    if (format == kFormatNv12) {
-        creq.bpp = 8;
-        creq.width = static_cast<uint32_t>(width);
-        creq.height = static_cast<uint32_t>(height) * 3 / 2;
-    } else {
-        creq.bpp = 32;
-        creq.width = static_cast<uint32_t>(width);
-        creq.height = static_cast<uint32_t>(height);
-    }
+    creq.bpp = 32;
+    creq.width = static_cast<uint32_t>(width);
+    creq.height = static_cast<uint32_t>(height);
     if (ioctl(fd_, DRM_IOCTL_MODE_CREATE_DUMB, &creq) != 0) {
         error_ = "CREATE_DUMB failed";
         return false;
@@ -413,7 +365,6 @@ bool Overlay::allocBuf(DrmBuf* buf, int width, int height, uint32_t format)
     buf->pitch = creq.pitch;
     buf->height = static_cast<uint32_t>(height);
     buf->size = creq.size;
-    buf->format = format;
     struct drm_mode_map_dumb mreq;
     memset(&mreq, 0, sizeof(mreq));
     mreq.handle = creq.handle;
@@ -431,13 +382,8 @@ bool Overlay::allocBuf(DrmBuf* buf, int width, int height, uint32_t format)
     uint32_t handles[4] = {creq.handle, 0, 0, 0};
     uint32_t pitches[4] = {creq.pitch, 0, 0, 0};
     uint32_t offsets[4] = {0, 0, 0, 0};
-    if (format == kFormatNv12) {
-        handles[1] = creq.handle;
-        pitches[1] = creq.pitch;
-        offsets[1] = creq.pitch * static_cast<uint32_t>(height);
-    }
     decltype(&drmModeAddFB2) addFb = DRM_SYM(drmModeAddFB2);
-    if (!addFb || addFb(fd_, width, height, format, handles, pitches, offsets, &buf->fbId, 0) != 0) {
+    if (!addFb || addFb(fd_, width, height, kFormatArgb, handles, pitches, offsets, &buf->fbId, 0) != 0) {
         error_ = "AddFB2 failed";
         return false;
     }
@@ -462,9 +408,8 @@ void Overlay::freeBuf(DrmBuf* buf)
 void Overlay::close()
 {
     pthread_mutex_lock(&mu_);
-    if (fd_ >= 0 && planeId_) {
+    if (presented_ && ownsCurrentPlane()) {
         commit(0, 0, 0, 0, 0, 1, 1);
-        enabled_ = false;
     }
     freeBuf(&bufs_[0]);
     freeBuf(&bufs_[1]);
@@ -473,7 +418,17 @@ void Overlay::close()
         fd_ = -1;
     }
     planeId_ = 0;
+    presented_ = false;
     pthread_mutex_unlock(&mu_);
+}
+
+bool Overlay::ownsCurrentPlane() const
+{
+    if (fd_ < 0 || !planeId_) return false;
+    struct drm_mode_get_plane plane = {};
+    plane.plane_id = planeId_;
+    if (ioctl(fd_, DRM_IOCTL_MODE_GETPLANE, &plane) != 0) return false;
+    return plane.fb_id && (plane.fb_id == bufs_[0].fbId || plane.fb_id == bufs_[1].fbId);
 }
 
 void Overlay::setHole(const HoleRect& hole)
@@ -526,20 +481,13 @@ void Overlay::mapRectToCrtc(int x, int y, int w, int h, int* dx, int* dy, int* d
     if (dh) *dh = rh;
 }
 
-void Overlay::setViewport(double zoom, double centerX, double centerY)
-{
-    pthread_mutex_lock(&mu_);
-    viewZoom_ = zoom; viewCenterX_ = centerX; viewCenterY_ = centerY;
-    pthread_mutex_unlock(&mu_);
-}
-
 void Overlay::fitSourceToCrtc(int srcW, int srcH, int* dx, int* dy, int* dw, int* dh) const
 {
     int x = 0, y = 0, w = 0, h = 0;
     mapToCrtc(&x, &y, &w, &h);
     const CropRect hole = {x, y, w, h, true};
     const CropRect content = fitPhysicalViewport(hole, srcW, srcH, imageRotation(),
-        hole_.fit != 0, viewZoom_, viewCenterX_, viewCenterY_);
+        hole_.fit != 0, 1, .5, .5);
     *dx = content.left; *dy = content.top; *dw = content.width; *dh = content.height;
 }
 
@@ -580,7 +528,7 @@ bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int sr
         const int commitError = errno;
         freeReq(req);
         if (rc == 0) {
-            enabled_ = fbId != 0;
+            presented_ = fbId != 0;
             return true;
         }
         if (commitError == EBUSY || commitError == EAGAIN) return false;
@@ -601,7 +549,7 @@ bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int sr
         const int retryError = errno;
         freeReq(req);
         if (rc2 == 0) {
-            enabled_ = fbId != 0;
+            presented_ = fbId != 0;
             return true;
         }
         if (retryError == EBUSY || retryError == EAGAIN) return false;
@@ -610,7 +558,7 @@ bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int sr
     decltype(&drmModeSetPlane) setPlane = DRM_SYM(drmModeSetPlane);
     if (!setPlane) return false;
     const int rc = setPlane(fd_, planeId_, crtcId_, fbId, 0, x, y, w, h, 0, 0, srcW << 16, srcH << 16);
-    if (rc == 0) enabled_ = fbId != 0;
+    if (rc == 0) presented_ = fbId != 0;
     return rc == 0;
 }
 
@@ -620,9 +568,8 @@ bool Overlay::commitPlacedBgra(const uint8_t* bgra, int cw, int ch, int cx, int 
     int hx = 0, hy = 0, hw = 0, hh = 0;
     mapToCrtc(&hx, &hy, &hw, &hh);
     DrmBuf* buf = &bufs_[cur_];
-    if (!buf->map || static_cast<int>(buf->height) != hh || static_cast<int>(buf->pitch / 4) < hw ||
-        buf->format != kFormatArgb) {
-        if (!allocBuf(buf, hw, hh, kFormatArgb)) return false;
+    if (!buf->map || static_cast<int>(buf->height) != hh || static_cast<int>(buf->pitch / 4) < hw) {
+        if (!allocBuf(buf, hw, hh)) return false;
     }
     uint8_t* dst = static_cast<uint8_t*>(buf->map);
     memset(dst, 0, buf->size);
@@ -643,81 +590,10 @@ bool Overlay::commitPlacedBgra(const uint8_t* bgra, int cw, int ch, int cx, int 
     return true;
 }
 
-bool Overlay::presentNv12(const uint8_t* y, int width, int height, int yStride, int uvStride,
-    const uint8_t* uvPlane)
+bool Overlay::presentBgra(const uint8_t* bgra, int width, int height)
 {
     pthread_mutex_lock(&mu_);
-    if (!y || width < 2 || height < 2 || yStride < width) {
-        pthread_mutex_unlock(&mu_);
-        return false;
-    }
-    if (fd_ < 0 || !planeId_) {
-        pthread_mutex_unlock(&mu_);
-        if (!open()) return false;
-        pthread_mutex_lock(&mu_);
-    }
-    const uint8_t* uv = uvPlane ? uvPlane : y + static_cast<size_t>(yStride) * static_cast<size_t>(height);
-    const int rot = imageRotation();
-    int cx = 0, cy = 0, cw = 0, ch = 0;
-    fitSourceToCrtc(width, height, &cx, &cy, &cw, &ch);
-    int hx = 0, hy = 0, hw = 0, hh = 0;
-    mapToCrtc(&hx, &hy, &hw, &hh);
-    hw &= ~1;
-    hh &= ~1;
-    cw &= ~1;
-    ch &= ~1;
-    if (hw < 2 || hh < 2 || cw < 2 || ch < 2) {
-        pthread_mutex_unlock(&mu_);
-        return false;
-    }
-    bool ok = false;
-    if (useNv12_) {
-        DrmBuf* buf = &bufs_[cur_];
-        if (!buf->map || buf->format != kFormatNv12 || static_cast<int>(buf->height) != hh ||
-            static_cast<int>(buf->pitch) < hw) {
-            if (!allocBuf(buf, hw, hh, kFormatNv12)) {
-                pthread_mutex_unlock(&mu_);
-                return false;
-            }
-        }
-        const int pitch = static_cast<int>(buf->pitch);
-        const size_t bytes = static_cast<size_t>(pitch) * hh * 3 / 2;
-        if (scratch_.size() < bytes) scratch_.resize(bytes);
-        // Scale/transpose in cached RAM, then upload sequentially. Pixel-wise writes to
-        // the DRM DMA mapping were throttling portrait video even with hardware encoding.
-        uint8_t* dstY = scratch_.data();
-        uint8_t* dstUv = dstY + static_cast<size_t>(pitch) * static_cast<size_t>(hh);
-        const int uvStep = uvStride > 0 ? uvStride : yStride;
-        // A portrait panel made the old per-pixel divisions dominate the capture loop.
-        // Precompute separable coordinates, then tile the transpose to retain source cache locality.
-        if (!resampleNv12Viewport(y, uv, width, height, yStride, uvStep,
-            dstY, dstUv, hw, hh, pitch, cx - hx, cy - hy, cw, ch, rot)) {
-            pthread_mutex_unlock(&mu_);
-            return false;
-        }
-        memcpy(buf->map, scratch_.data(), bytes);
-        ok = commit(buf->fbId, hx, hy, hw, hh, hw, hh);
-        if (ok) cur_ = 1 - cur_;
-    } else {
-        const size_t need = static_cast<size_t>(hw) * static_cast<size_t>(hh) * 4;
-        if (scratch_.size() < need) scratch_.resize(need);
-        const int fallbackStride = uvStride > 0 ? uvStride : yStride;
-        std::vector<uint8_t> viewport(static_cast<size_t>(hw) * hh * 3 / 2);
-        ok = resampleNv12Viewport(y, uv, width, height, yStride, fallbackStride,
-            viewport.data(), viewport.data() + hw * hh, hw, hh, hw, cx - hx, cy - hy, cw, ch, rot);
-        if (ok) {
-            nv12ToBgra(viewport.data(), viewport.data() + hw * hh, hw, hh, hw, hw, scratch_.data(), hw, hh, 0);
-            ok = commitPlacedBgra(scratch_.data(), hw, hh, hx, hy);
-        }
-    }
-    pthread_mutex_unlock(&mu_);
-    return ok;
-}
-
-bool Overlay::presentRgba(const uint8_t* rgba, int width, int height)
-{
-    pthread_mutex_lock(&mu_);
-    if (!rgba || width < 1 || height < 1) {
+    if (!bgra || width < 1 || height < 1) {
         pthread_mutex_unlock(&mu_);
         return false;
     }
@@ -732,9 +608,7 @@ bool Overlay::presentRgba(const uint8_t* rgba, int width, int height)
     mapToCrtc(&hx, &hy, &hw, &hh);
     const size_t need = static_cast<size_t>(hw) * static_cast<size_t>(hh) * 4;
     if (scratch_.size() < need) scratch_.resize(need);
-    resampleRgbaViewport(rgba, width, height, scratch_.data(), hw, hh, cx - hx, cy - hy, cw, ch, imageRotation());
-    // ARGB8888 is stored as B,G,R,A bytes. stb's RGBA must not be copied unchanged.
-    rgbaToBgra(&scratch_[0], &scratch_[0], static_cast<size_t>(hw) * hh);
+    resampleRgbaViewport(bgra, width, height, scratch_.data(), hw, hh, cx - hx, cy - hy, cw, ch, imageRotation());
     const bool ok = commitPlacedBgra(&scratch_[0], hw, hh, hx, hy);
     pthread_mutex_unlock(&mu_);
     return ok;
@@ -743,12 +617,12 @@ bool Overlay::presentRgba(const uint8_t* rgba, int width, int height)
 void Overlay::disable()
 {
     pthread_mutex_lock(&mu_);
-    if (fd_ < 0 || !planeId_) {
+    if (!presented_) {
         pthread_mutex_unlock(&mu_);
         return;
     }
-    commit(0, 0, 0, 0, 0, 1, 1);
-    enabled_ = false;
+    if (ownsCurrentPlane()) commit(0, 0, 0, 0, 0, 1, 1);
+    else presented_ = false;
     pthread_mutex_unlock(&mu_);
 }
 

@@ -1,9 +1,9 @@
-# ORANGE / Y02 Stream32 扫描接入
+# ORANGE / Y02 / Y07 Stream32 扫描接入
 
 基于核心提交 21bfd280fbb97969ff7883d107aeaa8f21982fc7。本分支已接入
 UI 提交 b2f55c2，保留历史菜单、自动标题、默认强度和按有效阅读高度换算的上拉手势。
 
-**当前状态：已合入应用并安装 ORANGE 候选包，正向中英文纸面已人工确认。** 主机完整功能、核心 ASAN/UBSan、
+**首版 ORANGE 验收记录（历史）：已合入应用并安装候选包，正向中英文纸面已人工确认。** 主机完整功能、核心 ASAN/UBSan、
 双进程扫描确认流程、AArch64 编译和 AMR 资源校验通过。真实 NPU 中文回放118帧选中100帧、
 4批，灰度最大差1且掩码一致；英文86帧选中69帧、3批，灰度和掩码逐像素一致。
 正向纸面中文221帧选中207帧、9批全部入画；英文214帧选中186帧、8批全部入画，均无丢帧/未定位/光照回退，用户确认文字正常。中文原图4761×548及缩略图已按确认操作保存。
@@ -199,7 +199,8 @@ format. Raw transport has been verified at 24 consecutive frames without gaps.
 `calibration/y07-sc2356.json` is a separately locked **neutral**, not measured,
 flat field. White-paper illumination, optical orientation and forward text
 stitching still require physical validation before declaring Y07 scan acceptance.
-The 110MiB spill bound yields 348 queued original-size grayscale frames at this sensor size.
+The old 110MiB spill bound was removed in 0.2.29; current raw and selected queues
+use RAM-only shared frame owners and system-memory admission, as described above.
 
 
 Y07从0.2.26起使用应用私有、源码提交与SHA-256锁定的RKNN 1.6.0，修复系统1.4.0

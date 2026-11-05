@@ -752,7 +752,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
       attachmentMenuTouch_ = x >= menu.x1 && x <= menu.x2 && y >= menu.y1 && y <= menu.y2;
     }
     // Read resting viewport bounds, not its animated pull translation. The
-    // launcher has already applied rotation and touch offsets exactly once.
+    // NativeTouch has already applied rotation and touch offsets exactly once.
     if (view_ == "chat" && body_ && chatControls_) {
       lv_obj_update_layout(body_);
       lv_area_t bounds;
@@ -2837,7 +2837,7 @@ void App::suspend(bool value) {
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
   resetBack();
   backStart_ = Json::object();
-  viewerPointer_ = viewerCanvasTouch_ = false; viewerLastTap_ = 0;
+  viewerLastTap_ = 0;
   finishImageGesture(false);nonImageMulti_=false;
   if(imageViewer_ || view_=="crop")imageGesture_.mode=-2;
   touchInput_.close();

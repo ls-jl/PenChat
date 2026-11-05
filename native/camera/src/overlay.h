@@ -32,7 +32,6 @@ public:
     bool open();
     void close();
     bool ready() const { return fd_ >= 0 && planeId_ != 0; }
-    bool nv12() const { return useNv12_; }
     uint32_t planeId() const { return planeId_; }
     uint32_t zpos() const { return zpos_; }
     int crtcWidth() const { return crtcW_; }
@@ -40,14 +39,11 @@ public:
     std::string lastError() const { return error_; }
 
     void setHole(const HoleRect& hole);
-    void setViewport(double zoom, double centerX = 0.5, double centerY = 0.5);
     HoleRect hole() const { return hole_; }
     void mapToCrtc(int* dx, int* dy, int* dw, int* dh) const;
 
-    bool presentNv12(const uint8_t* y, int width, int height, int yStride, int uvStride,
-        const uint8_t* uvPlane = 0);
-    // Decoded/stb pixels are four-byte RGBA; only the DRM upload converts to BGRA.
-    bool presentRgba(const uint8_t* rgba, int width, int height);
+    // LVGL ARGB8888 is B,G,R,A in memory, already in DRM upload order.
+    bool presentBgra(const uint8_t* bgra, int width, int height);
     void disable();
 
 private:
@@ -62,22 +58,20 @@ private:
         uint32_t height;
         size_t size;
         void* map;
-        int primeFd;
-        uint32_t format;
     };
 
     bool loadDrm();
     bool pickResources();
-    bool allocBuf(DrmBuf* buf, int width, int height, uint32_t format);
+    bool allocBuf(DrmBuf* buf, int width, int height);
     void freeBuf(DrmBuf* buf);
     bool commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int srcH);
     uint32_t findProp(uint32_t objId, uint32_t objType, const char* name, uint64_t* value = 0);
     bool addProp(void* req, uint32_t objId, uint32_t propId, uint64_t value);
+    bool ownsCurrentPlane() const;
 
     int fd_;
     void* drm_;
     uint32_t crtcId_;
-    uint32_t connId_;
     uint32_t planeId_;
     uint32_t zpos_;
     uint32_t minZpos_;
@@ -86,9 +80,8 @@ private:
     int crtcH_;
     bool useNv12_;
     bool atomic_;
-    bool enabled_;
+    bool presented_ = false;
     HoleRect hole_;
-    double viewZoom_ = 1, viewCenterX_ = 0.5, viewCenterY_ = 0.5;
     DrmBuf bufs_[2];
     int cur_;
     std::string error_;
@@ -109,7 +102,5 @@ private:
 
 void nv12ToBgra(const uint8_t* yPlane, const uint8_t* uvPlane, int width, int height,
     int yStride, int uvStride, uint8_t* dst, int dstW, int dstH, int rotate);
-void rgbaContain(const uint8_t* src, int srcW, int srcH, uint8_t* dst, int dstW, int dstH,
-    int* outX, int* outY, int* outW, int* outH);
 
 }  // namespace camera

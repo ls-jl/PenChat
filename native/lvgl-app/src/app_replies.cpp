@@ -106,7 +106,7 @@ void App::branchReply(const std::string &id) {
   if(!model.empty()) {
     preferences["model_id"]=model["id"];const auto effort=model.value("effective_effort",std::string());preferences["effort"]=effort.empty()?"api_default":effort;
   }
-  closeAttachments();resetPull();replyCancel_=false;replyBusy_=true;replyToken_=uid("branch");replySession_=session_;
+  closeAttachments();resetPull();replyCancel_=false;replyBusy_=true;replyToken_=uid("branch");
   modal("正在创建分支","正在复制到所选回复，并移动草稿和待发送图片…");
   lv_label_set_text(lv_obj_get_child(lv_obj_get_child(modal_,-1),0),"取消");
   // Deleting this progress panel requests cancellation, without waiting on SQLite.
