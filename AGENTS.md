@@ -252,6 +252,10 @@ Caret hit testing resolves the nearest grapheme insertion boundary, including af
 the rightmost glyph. Captured horizontal drags may leave the field. Clamp only the
 magnifier bubble to visible editor sides and screen safe bounds; never use its
 clamped coordinates to restrict caret movement.
+At a soft wrap, retain the visual upstream/downstream affinity of the finger's
+row. A horizontal drag beyond a full line must stay drawn at that line end,
+including after release; moving vertically selects another visual row. Keep the
+rendered caret, magnifier and selection handles on that same visual boundary.
 `tests/device/display_config.py --serial <explicit serial>` covers the user-authorized Y02
 and ORANGE display targets using their config and discovered input device. Keep ORANGE
 scanner calibration guards even when display/input support expands to another board.

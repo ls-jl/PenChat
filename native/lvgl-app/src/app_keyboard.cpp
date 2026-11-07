@@ -5,6 +5,17 @@
 #include <cctype>
 namespace penchat {
 namespace {
+int keyboardClusterWidth(lv_obj_t *label,size_t first,size_t last) {
+  const char *text=lv_label_get_text(label),*begin=text,*end=text;
+  for(size_t index=0;*end&&index<last;++index) {
+    if(index==first)begin=end;
+    ++end;while(*end&&(static_cast<unsigned char>(*end)&192)==128)++end;
+  }
+  const std::string cluster(begin,end);
+  lv_point_t size{};lv_text_get_size(&size,cluster.c_str(),lv_obj_get_style_text_font(label,LV_PART_MAIN),
+      lv_obj_get_style_text_letter_space(label,LV_PART_MAIN),0,LV_COORD_MAX,LV_TEXT_FLAG_EXPAND);
+  return size.x;
+}
 std::string keyboardPunctuation(const std::string &key,bool chinese) {
   if(!chinese)return key;
   static const std::map<std::string,std::string> punctuation={
@@ -46,6 +57,7 @@ void App::edit(const std::string &text, const std::string &placeholder,
   }
   const int preferred=editor_.preferredChinese;
   editor_ = EditorState{};editor_.preferredChinese=preferred;
+  editorUpstream_=std::string::npos;editorAffinityPhase_=-1;
   editor_.active = true; editor_.text = text; editor_.position(editLength(text));
   editor_.id = uid("input"); editor_.placeholder = placeholder;
   editor_.limit = maxLength; editor_.multiline = multiline; editor_.secret = secret;
@@ -205,6 +217,7 @@ void App::editorBuild() {
   if(editorInPlace()) {editorViewport();editorAttachTarget();}
   else {
   editorText_=lv_textarea_create(editorRoot_);
+  editorBindCaret();
   lv_obj_set_pos(editorText_,layout.textX,layout.textY); lv_obj_set_size(editorText_,layout.textAreaWidth,layout.textHeight);
   lv_obj_set_style_text_font(editorText_,font(20),0);
   lv_obj_set_style_text_color(editorText_,lv_color_hex(theme::text),0);
@@ -492,6 +505,7 @@ bool App::editorCanExpand() const {
       !editorCandidates_.empty();
 }
 void App::editorChanged() {
+  editorUpstream_=std::string::npos;
   editorFollowCursor_=true;
   ++editorRevision_; editorChoicesDirty_=true;editorRefreshPending_=true; editorCandidates_=editorExact_=editorCandidateDetails_=Json::array(); editorDue_=ticks()+35; editorExpanded_=false; editor_.notice.clear();
 }
@@ -737,15 +751,32 @@ void App::editorAction(const std::string &a) {
   if(a!="expand"&&a!="reveal")editorOcrShown_=false;
   editorRefreshPending_=true;
 }
-lv_point_t App::editorPoint(size_t index) const {
+lv_point_t App::editorCaretPosition(size_t index) const {
   lv_point_t point{};
   if(!editorText_)return point;
-  auto text=lv_textarea_get_label(editorText_);lv_area_t area;lv_obj_get_coords(text,&area);
-  lv_label_get_letter_pos(text,index,&point);point.x+=area.x1;
-  point.y+=area.y1+lv_obj_get_style_text_font(text,LV_PART_MAIN)->line_height+8;
+  auto text=lv_textarea_get_label(editorText_);lv_label_get_letter_pos(text,index,&point);
+  if(index!=editorUpstream_||!index)return point;
+  const size_t previous=editBoundary(editor_.text,index-1);
+  const auto cluster=editor_.text.substr(editByte(editor_.text,previous),editByte(editor_.text,index)-editByte(editor_.text,previous));
+  if(cluster.empty()||cluster[0]=='\n'||cluster[0]=='\r')return point;
+  lv_label_get_letter_pos(text,previous,&point);
+  point.x+=keyboardClusterWidth(text,previous,index);
   return point;
 }
-size_t App::editorPositionAt(int x,int y) const {
+lv_point_t App::editorPoint(size_t index) const {
+  auto point=editorCaretPosition(index);
+  if(!editorText_)return point;
+  auto text=lv_textarea_get_label(editorText_);lv_area_t area;lv_obj_get_coords(text,&area);
+  point.x+=area.x1;
+  point.y+=area.y1+lv_obj_get_style_text_font(text,LV_PART_MAIN)->line_height+8;
+  if(index==editorUpstream_) {
+    const auto bounds=editorTextArea();
+    if(bounds.width)point.x=std::max(bounds.x,std::min(bounds.x+bounds.width-1,int(point.x)));
+  }
+  return point;
+}
+size_t App::editorPositionAt(int x,int y) {
+  editorUpstream_=std::string::npos;editorAffinityTime_=ticks();editorAffinityPhase_=-1;
   if(!editorText_)return editor_.cursor;
   auto text=lv_textarea_get_label(editorText_);lv_area_t a;lv_obj_get_coords(text,&a);
   lv_area_t bounds;lv_obj_get_content_coords(editorText_,&bounds);
@@ -757,19 +788,49 @@ size_t App::editorPositionAt(int x,int y) const {
   lv_point_t point{x-a.x1,std::max(0,std::min(y-a.y1,int(end.y)+lv_obj_get_style_text_font(text,LV_PART_MAIN)->line_height-1))};
   const size_t length=editLength(editor_.text);
   const size_t start=editBoundary(editor_.text,std::min(size_t(lv_label_get_letter_on(text,&point,true)),length));
-  if(start==length)return length;
+  if(start==length) {if(length)editorUpstream_=length;return length;}
   const size_t next=editBoundary(editor_.text,start+1,true);
   const auto cluster=editor_.text.substr(editByte(editor_.text,start),editByte(editor_.text,next)-editByte(editor_.text,start));
   if(cluster[0]=='\n'||cluster[0]=='\r')return start;
   lv_point_t left{},right{};lv_label_get_letter_pos(text,start,&left);lv_label_get_letter_pos(text,next,&right);
-  if(left.y!=right.y) {
+  const bool wrapped=left.y!=right.y;
+  if(wrapped) {
     // A soft wrap moves the next caret onto the next line. The current glyph
     // still has a right half, including when its advance reaches the field edge.
-    lv_point_t size{};lv_text_get_size(&size,cluster.c_str(),lv_obj_get_style_text_font(text,LV_PART_MAIN),
-        lv_obj_get_style_text_letter_space(text,LV_PART_MAIN),0,LV_COORD_MAX,LV_TEXT_FLAG_EXPAND);
-    right.x=left.x+size.x;
+    right.x=left.x+keyboardClusterWidth(text,start,next);
   }
-  return std::abs(point.x-right.x)<=std::abs(point.x-left.x)?next:start;
+  const bool after=std::abs(point.x-right.x)<=std::abs(point.x-left.x);
+  if(after&&(wrapped||next==length))editorUpstream_=next;
+  return after?next:start;
+}
+void App::editorBindCaret() {
+  lv_obj_add_event_cb(editorText_,[](lv_event_t *event) {
+    static_cast<App *>(lv_event_get_user_data(event))->editorDrawCaret(event);
+  },LV_EVENT_DRAW_POST,this);
+}
+void App::editorSyncCaret() {
+  if(!editorText_)return;
+  const auto selector=LV_PART_CURSOR|LV_STATE_FOCUSED;
+  if(editorUpstream_==editor_.cursor) {
+    lv_obj_set_style_border_opa(editorText_,LV_OPA_TRANSP,selector);
+    lv_obj_set_style_bg_opa(editorText_,LV_OPA_TRANSP,selector);
+  } else {
+    lv_obj_remove_local_style_prop(editorText_,LV_STYLE_BORDER_OPA,selector);
+    lv_obj_remove_local_style_prop(editorText_,LV_STYLE_BG_OPA,selector);
+  }
+  lv_obj_invalidate(editorText_);
+}
+void App::editorDrawCaret(lv_event_t *event) {
+  if(!editor_.active||lv_event_get_target_obj(event)!=editorText_||editorUpstream_!=editor_.cursor||keyboard_)return;
+  if(!editorPointer_&&((ticks()-editorAffinityTime_)/500)%2)return;
+  const auto clip=editorTextArea();if(clip.width<2||clip.height<1)return;
+  const auto point=editorPoint(editor_.cursor);
+  const int height=lv_obj_get_style_text_font(lv_textarea_get_label(editorText_),LV_PART_MAIN)->line_height;
+  const int x=std::max(clip.x,std::min(clip.x+clip.width-2,int(point.x)));
+  lv_area_t area{x,std::max(clip.y,int(point.y)-height-8),x+1,std::min(clip.y+clip.height-1,int(point.y)-9)};
+  if(area.y1>area.y2)return;
+  lv_draw_rect_dsc_t draw;lv_draw_rect_dsc_init(&draw);draw.bg_color=lv_color_hex(theme::caret);
+  lv_draw_rect(lv_event_get_layer(event),&draw,&area);
 }
 void App::editorScroll(int y) {
   if(!editorText_)return;
@@ -832,6 +893,7 @@ void App::editorSyncText(bool text) {
   lv_label_set_text_selection_start(label,editor_.selected()?r.first:LV_LABEL_TEXT_SELECTION_OFF);
   lv_label_set_text_selection_end(label,editor_.selected()?r.second:LV_LABEL_TEXT_SELECTION_OFF);
   lv_obj_update_layout(editorText_);
+  editorSyncCaret();
   if(editorCursorDrag_||editorHandle_>=0)editorScroll(scroll);
   for(int i=0;i<2;++i)if(editorHandles_[i]) {
     auto point=editorPoint(i?r.second:r.first);
@@ -1073,6 +1135,10 @@ void App::editorInterrupt() {
 void App::editorTick() {
   if (!editor_.active || keyboard_ || !visible_) { editorAutoScrollAt_=0;return; }
   const auto now=ticks();
+  if(editorText_&&editorUpstream_==editor_.cursor) {
+    const int phase=editorPointer_?0:int((now-editorAffinityTime_)/500)%2;
+    if(phase!=editorAffinityPhase_){editorAffinityPhase_=phase;lv_obj_invalidate(editorText_);}
+  }
   if(editorOcrPreparing_&&editorOcrActive_&&editorOcrPrepareSent_&&now-editorOcrPrepareSent_>2000)
     editorOcrPrepared({{"requestId",editorOcrId_},{"session",editor_.id},{"ok",false}});
   if(editorInlineChat_&&chatControls_) {
@@ -1179,7 +1245,8 @@ Json App::editorDiagnostic() const {
     {"layout_menu",editorLayoutMenu_},{"expanded",editorExpanded_},{"punctuation_menu",editorPunctuation_},{"exact_count",editorExact_.size()},
     {"parked_count",int(!editor_.parked[0].raw.empty())+int(!editor_.parked[1].raw.empty())},
     {"pending",editorInFlight_!=0||editorDue_!=0},{"chinese",editor_.chinese},{"shift",editor_.shift},{"multiline",editor_.multiline},{"secret",editor_.secret},
-    {"length",editLength(editor_.text)},{"painted_length",editorText_?editLength(lv_textarea_get_text(editorText_)):0},{"cursor",editor_.cursor},{"preedit_length",editor_.preedit.size()},
+    {"length",editLength(editor_.text)},{"painted_length",editorText_?editLength(lv_textarea_get_text(editorText_)):0},{"cursor",editor_.cursor},{"caret_upstream",editorUpstream_==editor_.cursor},
+    {"line_height",editorText_?lv_obj_get_style_text_font(lv_textarea_get_label(editorText_),LV_PART_MAIN)->line_height:0},{"preedit_length",editor_.preedit.size()},
     {"selection_start",editor_.range().first},{"selection_end",editor_.range().second},{"selected",editor_.selected()},
     {"clipboard_count",editorClipboard_.records.size()},{"clipboard_open",editorClipboardOpen_},{"menu",editorMenu_},{"undo_menu",editorUndoMenu_},{"undo_popup",undoPopup},{"text_bounds",textBounds},
     {"notice_present",!editor_.notice.empty()},{"ocr_request",editorOcrId_},{"ocr_preparing",editorOcrPreparing_},{"ocr_active",editorOcrActive_},{"ocr_multi",editorOcrMulti_},{"ocr_busy",editorOcrBusy_},{"top_panel_blocked",editorTopBlocked_},

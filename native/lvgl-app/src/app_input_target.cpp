@@ -127,6 +127,7 @@ void App::editorAttachTarget() {
   const int h=chat?lv_obj_get_height(editorTarget_):style==3?44:std::max(24,int(lv_obj_get_height(editorTarget_))-y-(chat?layout().composerInset():2));
   if(!editorText_) {
     editorText_=lv_textarea_create(editorTarget_);
+    editorBindCaret();
     lv_obj_add_event_cb(editorText_,[](lv_event_t *e){
       auto self=static_cast<App *>(lv_event_get_user_data(e));
       if(self->editorText_==lv_event_get_target_obj(e))self->editorText_=nullptr;
@@ -173,6 +174,7 @@ void App::editorAttachTarget() {
     editor_.position(editorPositionAt(a.x1+editorInitialPoint_.x,a.y1+editorInitialPoint_.y));
     lv_textarea_set_cursor_pos(editorText_,editor_.cursor);editorPlaceCursor_=false;
   }
+  editorSyncCaret();
 }
 bool App::editorAccept() {
   if(!editor_.preedit.empty()&&!editor_.raw()) {editor_.notice="已达到长度上限";editorBuild();return false;}
