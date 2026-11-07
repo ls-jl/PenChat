@@ -1,5 +1,6 @@
 #include "onboarding.hpp"
 #include "icons.hpp"
+#include "src/misc/cache/instance/lv_image_cache.h"
 namespace penchat {
 namespace {
 const char *titles[] = {"直接扫描，得到图片", "打开键盘，扫描变成文字", "配置 API，连接你的模型", "用预设切换用途", "管理与继续聊天", "选择模型与推理强度", "长对话与数据管理"};
@@ -74,11 +75,10 @@ void Onboarding::scene(int phase,lv_obj_t *p) {
   const int s=step_;
   if(s==0) {
     if(phase==0||phase==3)chat(p,phase==3);
-    if(phase<2) {
-      if(phase==1)words(p,"正在扫描…",16,4,280,17);
+    if(phase==1) {
+      words(p,"正在扫描…",16,4,280,17);
       paper(p,30,48,330,61);
-      auto pen=part(p,30,43,8,70,theme::accent,4);
-      motions_[phase].push_back({pen,30*sceneWidth_/400,43*sceneHeight_/150,280*sceneWidth_/400,0});
+      // The dictionary pen is a solid mesh rendered above this paper texture.
     } else if(phase==2) {
       paper(p,24,24,352,70);part(p,244,108,132,34,theme::accent);
       words(p,"使用图片",266,113,110,17);symbol(p,"close",26,112);
@@ -94,7 +94,7 @@ void Onboarding::scene(int phase,lv_obj_t *p) {
         auto letter=text(key,rows[row].substr(k,1),0,0,33*sceneWidth_/400,13);
         lv_obj_set_style_text_align(letter,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(letter);
       }
-      if(phase==1) {paper(p,214,28,160,30);symbol(p,"newchat",176,24,28,theme::accent);}
+      if(phase==1)paper(p,30,48,330,61);
       else {auto caret=part(p,phase==2?190:218,20,2,22,theme::caret,0);motions_[phase].push_back({caret,(phase==2?190:218)*sceneWidth_/400,20*sceneHeight_/150,24,0});}
     } else {
       const std::string rows[]={"QWERTYUIOP","ASDFGHJKL","ZXCVBNM"};
@@ -109,7 +109,7 @@ void Onboarding::scene(int phase,lv_obj_t *p) {
       words(p,"单行扫描",226,106,100,15,theme::muted);
       words(p,"完成",332,106,60,15,theme::link);
       words(p,phase==1?"划扫后识别文字":phase==2?"请解释这道题":"请解释这道题。",226,32,164,16);
-      if(phase==1) {paper(p,25,38,166,49);symbol(p,"newchat",146,63,30,theme::accent);}
+      if(phase==1)paper(p,30,48,330,61);
       else {auto caret=part(p,phase==2?350:280,57,2,22,theme::caret,0);motions_[phase].push_back({caret,(phase==2?350:280)*sceneWidth_/400,57*sceneHeight_/150,phase==2?-40:35,0});}
     }
   } else if(s==2) {
@@ -144,7 +144,7 @@ void Onboarding::scene(int phase,lv_obj_t *p) {
     else {auto arc=lv_arc_create(p);lv_obj_set_size(arc,66,66);lv_obj_set_pos(arc,25,45);lv_arc_set_range(arc,0,100);lv_arc_set_bg_angles(arc,0,360);lv_arc_set_rotation(arc,270);lv_obj_set_style_bg_opa(arc,LV_OPA_TRANSP,LV_PART_KNOB);lv_arc_set_value(arc,phase==2?35:78);lv_obj_remove_style(arc,nullptr,LV_PART_KNOB);lv_obj_set_style_arc_color(arc,lv_color_hex(theme::accent),LV_PART_INDICATOR);lv_obj_set_clickable(arc,false);words(p,phase==2?"占用 35%":"占用 78%",119,49,250,20);words(p,phase==1?"保存压缩前副本":phase==2?"原消息和图片仍保留":"加号 → 压缩上下文",119,89,260,16,theme::muted);}
   }
   // A single moving touch indicator makes the demonstrated path visible.
-  if(motions_[phase].empty()) {
+  if(motions_[phase].empty() && !(step_<2 && phase==1)) {
     auto touch=part(p,phase==0?25:310,phase==0?12:112,12,12,theme::link,6);
     motions_[phase].push_back({touch,(phase==0?25:310)*sceneWidth_/400,(phase==0?12:112)*sceneHeight_/150,phase==0?45:-24,0});
   }
@@ -158,10 +158,29 @@ Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool repla
   const int demoH=portrait?std::min(520,int(height*.43)):height-80;
   auto demo=rect(root_,16,12,portrait?width-32:split-28,demoH,theme::sidebar,14);
   text(demo,"操作演示",14,8,portrait?width-64:split-60,16,theme::muted);
-  sceneWidth_=portrait?width-48:split-44;
-  sceneHeight_=portrait?sceneWidth_*150/400:height-130;
+  sceneWidth_=std::min(640,portrait?width-48:split-44);
+  sceneHeight_=std::min(360,portrait?sceneWidth_*150/400:height-130);
   const int sceneY=portrait?42+(demoH-50-sceneHeight_)/2:42;
-  for(int n=0;n<4;++n){stages_[n]=rect(demo,8,sceneY,sceneWidth_,sceneHeight_,theme::sidebar,0);scene(n,stages_[n]);lv_obj_set_hidden(stages_[n],true);}
+  for(int n=0;n<4;++n){stages_[n]=rect(demo,8,sceneY,sceneWidth_,sceneHeight_,theme::background,0);scene(n,stages_[n]);lv_obj_set_hidden(stages_[n],true);}
+  // Snapshot only the active synthetic stage into one reused texture. The image
+  // owns no GPU/display resources and is deleted before its backing buffers.
+  try {
+    const int canvasH=std::min(360,demoH-40);
+    renderer_.reset(new Onboarding3D(std::min(640,sceneWidth_),canvasH));
+    texture_=lv_snapshot_create_draw_buf(stages_[0],LV_COLOR_FORMAT_ARGB8888);
+    if(!texture_)throw std::bad_alloc();
+    renderDescriptor_.header.magic=LV_IMAGE_HEADER_MAGIC;
+    renderDescriptor_.header.cf=LV_COLOR_FORMAT_XRGB8888;
+    renderDescriptor_.header.w=renderer_->width();renderDescriptor_.header.h=renderer_->height();
+    renderDescriptor_.header.stride=renderer_->width()*4;
+    renderDescriptor_.data_size=renderer_->width()*renderer_->height()*4;
+    renderDescriptor_.data=reinterpret_cast<const uint8_t *>(renderer_->pixels());
+    renderImage_=lv_image_create(demo);lv_obj_set_pos(renderImage_,8,32+(demoH-40-canvasH)/2);
+    lv_obj_set_clickable(renderImage_,false);lv_image_set_src(renderImage_,&renderDescriptor_);
+  } catch(const std::exception &) {
+    renderer_.reset();if(texture_){lv_draw_buf_destroy(texture_);texture_=nullptr;}
+    renderFailed_=true;
+  }
   const int top=portrait?demoH+92:13;
   text(root_,std::to_string(step+1)+" / 7"+(step<3?" · 必看":" · 功能介绍"),right,top,measure,16,theme::muted);
   text(root_,titles[step],right,top+30,measure,portrait?28:24);
@@ -178,7 +197,34 @@ Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool repla
   else if(step>=3||replaying)control("finish",replaying?"关闭引导":"结束引导",right,footer,112);
   tick(true);
 }
-Onboarding::~Onboarding(){if(root_)lv_obj_delete(root_);}
+Onboarding::~Onboarding(){
+  if(renderImage_)lv_image_set_src(renderImage_,nullptr);
+  lv_image_cache_drop(&renderDescriptor_);
+  if(root_)lv_obj_delete(root_);
+  if(texture_)lv_draw_buf_destroy(texture_);
+}
+void Onboarding::render(int phase,float progress,bool changed) {
+  if(!renderer_)return;
+  const auto started=std::chrono::steady_clock::now();
+  lv_result_t result=LV_RESULT_OK;
+  if(changed || texturePhase_!=phase) {
+    lv_obj_set_hidden(stages_[phase],false);
+    result=lv_snapshot_take_to_draw_buf(stages_[phase],LV_COLOR_FORMAT_ARGB8888,texture_);
+    lv_obj_set_hidden(stages_[phase],true);
+    texturePhase_=phase;++textureSnapshots_;
+  }
+  if(result!=LV_RESULT_OK) {
+    // Keep the tutorial navigable when a bounded snapshot cannot be allocated.
+    lv_image_set_src(renderImage_,nullptr);lv_obj_set_hidden(renderImage_,true);
+    lv_image_cache_drop(&renderDescriptor_);renderer_.reset();renderFailed_=true;
+    lv_draw_buf_destroy(texture_);texture_=nullptr;lv_obj_set_hidden(stages_[phase],false);return;
+  }
+  renderer_->render({texture_->data,int(texture_->header.w),int(texture_->header.h),int(texture_->header.stride)},
+                    step_,phase,progress,theme::sidebar,theme::accent);
+  lv_image_cache_drop(&renderDescriptor_);lv_obj_invalidate(renderImage_);
+  const auto us=std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-started).count();
+  renderMaxUs_=std::max<int64_t>(renderMaxUs_,us);renderTotalUs_+=us;++renderSamples_;
+}
 void Onboarding::tick(bool visible) {
   const auto now=ticks();
   if(visible&&!paused_&&last_)elapsed_+=std::min<int64_t>(now-last_,100);
@@ -186,15 +232,26 @@ void Onboarding::tick(bool visible) {
   if(!visible||(paused_&&phase_>=0)||now-drawn_<34)return;
   drawn_=now;
   const int phase=int(elapsed_%6400)/1600;
-  if(phase_!=phase){for(int n=0;n<4;++n)lv_obj_set_hidden(stages_[n],n!=phase);phase_=phase;lv_label_set_text(actions_.at("caption"),captions[step_][phase]);}
+  if(phase_!=phase){for(int n=0;n<4;++n)lv_obj_set_hidden(stages_[n],renderer_||n!=phase);phase_=phase;lv_label_set_text(actions_.at("caption"),captions[step_][phase]);}
   const double t=double(elapsed_%1600)/1600;
-  for(const auto &m:motions_[phase])lv_obj_set_pos(m.object,m.x+int(m.dx*t),m.y+int(m.dy*t));
+  bool changed=false;
+  for(const auto &m:motions_[phase]) {
+    const int x=m.x+int(m.dx*t),y=m.y+int(m.dy*t);
+    if(lv_obj_get_x(m.object)!=x || lv_obj_get_y(m.object)!=y) {
+      lv_obj_set_pos(m.object,x,y);changed=true;
+    }
+  }
+  render(phase,float(t),changed);
 }
 void Onboarding::toggle(){paused_=!paused_;last_=0;lv_label_set_text(lv_obj_get_child(pause_,0),paused_?"继续":"暂停");}
 void Onboarding::replay(){elapsed_=0;phase_=-1;last_=0;paused_=false;lv_label_set_text(lv_obj_get_child(pause_,0),"暂停");tick(true);}
 void Onboarding::busy(bool b){busy_=b;for(auto &e:actions_)if(e.first!="caption"){if(b)lv_obj_add_state(e.second,LV_STATE_DISABLED);else lv_obj_remove_state(e.second,LV_STATE_DISABLED);}}
 Json Onboarding::diagnostic() const {
   Json actions=Json::object();for(const auto &e:actions_){if(e.first=="caption")continue;lv_area_t a;lv_obj_get_coords(e.second,&a);actions[e.first]=Json::array({a.x1,a.y1,a.x2,a.y2});}
-  return {{"step",step_},{"phase",phase_},{"elapsed",elapsed_},{"paused",paused_},{"busy",busy_},{"actions",actions},{"objects",lv_obj_get_child_count(root_)}};
+  return {{"step",step_},{"phase",phase_},{"elapsed",elapsed_},{"paused",paused_},{"busy",busy_},{"actions",actions},{"objects",lv_obj_get_child_count(root_)},
+    {"renderer",renderer_?"software_3d":"flat"},{"render_failed",renderFailed_},
+    {"render_snapshots",textureSnapshots_},{"render_frames",renderSamples_},{"render_mean_us",renderSamples_?renderTotalUs_/renderSamples_:0},
+    {"render_max_us",renderMaxUs_},{"render_bytes",renderer_?renderer_->bytes()+texture_->data_size:0},
+    {"render_triangles",renderer_?renderer_->triangles():0}};
 }
 } // namespace penchat

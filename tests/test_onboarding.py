@@ -22,15 +22,19 @@ for w,h in [(960,266),(936,280),(568,1210)]:
    assert a.diag()['view']=='onboarding';baseline=counts(p)
    for step in range(7):
     d=a.diag()['onboarding'];assert d['step']==step
+    assert d['renderer']=='software_3d' and not d['render_failed'],d
+    assert 0<d['render_bytes']<=640*360*12 and 10<=d['render_triangles']<=80
     assert ('finish' in d['actions'])==(step>=3)
     assert ('back' in d['actions'])==(step>0)
     for b in d['actions'].values():assert b[0]>=0 and b[1]>=0 and b[2]<w and b[3]<h and b[3]-b[1]+1>=44
     action(a,'replay');shot(a,f'{w}-{h}-{step}-start')
     # Verify animation really progresses, can pause, and stays paused in background.
     t.wait_for(lambda:a.diag()['onboarding']['phase']>=1,timeout=4);action(a,'pause');before=a.diag()['onboarding'];time.sleep(.12)
-    assert a.diag()['onboarding']['elapsed']==before['elapsed'];shot(a,f'{w}-{h}-{step}-middle')
+    assert a.diag()['onboarding']['elapsed']==before['elapsed']
+    assert a.diag()['onboarding']['render_frames']==before['render_frames'];shot(a,f'{w}-{h}-{step}-middle')
     a.send('visibility',visible=False);time.sleep(.15);a.send('visibility',visible=True)
-    assert a.diag()['onboarding']['elapsed']==before['elapsed'];action(a,'pause')
+    assert a.diag()['onboarding']['elapsed']==before['elapsed']
+    assert a.diag()['onboarding']['render_frames']==before['render_frames'];action(a,'pause')
     t.wait_for(lambda:a.diag()['onboarding']['phase']==3,timeout=6);action(a,'pause');shot(a,f'{w}-{h}-{step}-end')
     assert a.diag()['onboarding']['objects']==before['objects']
     assert not a.diag()['editor']['active'] and not a.diag()['keyboard']

@@ -1,3 +1,5 @@
+# Patch bumps must regenerate identity even for an incremental cmake --build.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ROOT}/package.json")
 file(READ "${ROOT}/package.json" APP_PACKAGE)
 foreach(KEY name appid version author aiContributor homepage)
   string(REGEX MATCH "\"${KEY}\"[ \t\r\n]*:[ \t\r\n]*\"([^\"]+)\"" MATCHED "${APP_PACKAGE}")

@@ -1,5 +1,6 @@
 #pragma once
 #include "platform.hpp"
+#include "onboarding_3d.hpp"
 #include "theme.hpp"
 #include <array>
 #include <map>
@@ -12,6 +13,16 @@ class Onboarding {
   std::array<std::vector<Motion>, 4> motions_;
   std::map<std::string, lv_obj_t *> actions_;
   std::function<void(const std::string &)> action_;
+  std::unique_ptr<Onboarding3D> renderer_;
+  lv_obj_t *renderImage_ = nullptr;
+  lv_draw_buf_t *texture_ = nullptr;
+  lv_image_dsc_t renderDescriptor_{};
+  int texturePhase_ = -1;
+  unsigned textureSnapshots_ = 0;
+  int64_t renderMaxUs_ = 0, renderTotalUs_ = 0;
+  unsigned renderSamples_ = 0;
+  bool renderFailed_ = false;
+  void render(int phase, float progress, bool changed);
   int step_ = 0, phase_ = -1, sceneWidth_ = 0, sceneHeight_ = 0;
   int64_t elapsed_ = 0, last_ = 0, drawn_ = 0;
   bool paused_ = false, busy_ = false;
