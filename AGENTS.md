@@ -246,6 +246,12 @@ commits complete type-B SYN_REPORT frames and maps touch rotation/offsets once.
 Do not reintroduce Falcon page touch forwarding, system backpressed completion or
 a touch fallback. Use read-only, nonexclusive fds; close them on background, official
 IME and shutdown. Native left-edge back handles child pages and root exit.
+Y07's system panel can open without page onHide or loss of window focus. Observe
+both $am focus and the existing Falcon panel's exported read-only visibility;
+yield the DRM plane and native touch fd through window.focus, without pretending
+the page has exited. Preserve drawers, composition, reading position and owned
+scan results. Only native touch messages enter top-edge gesture arbitration;
+interleaved panel/lifecycle/exit packets must always pass. See docs/SYSTEM-OVERLAYS.md.
 Use EditorLayout for keyboard controls, decorations and touch bounds. Test fixtures may
 specify explicit resolutions; camera sensor capture sizes are independent of display sizes.
 Caret hit testing resolves the nearest grapheme insertion boundary, including after

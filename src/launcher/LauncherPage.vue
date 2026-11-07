@@ -16,6 +16,7 @@ import globalModule from 'global'
 import { OcrSession } from './ocr'
 import { UpdateInstall } from './update'
 import pm from 'pm'
+import am from '$am'
 
 let generationSeed = 0
 function parse(value) {
@@ -50,6 +51,7 @@ export default {
       if (!this.running) { if (!this._starting && !this.errorText) this.boot(); return }
       clearInterval(this._poll)
       this._poll = setInterval(() => this.poll(), 20)
+      this.syncWindowFocus(true)
       this.send('visibility', { visible: true })
     },
     send(type, payload) {
@@ -67,6 +69,7 @@ export default {
       this.setNativeEditorPolicy(false)
       this._nativeEditor = null; this._editorPolicySequence = 0
       this._nativeReady = false
+      this._windowFocused = true; this._focusSequence = 0; this._focusNextCheck = 0; this._focusPending = false; this._overlayStatus = ''
       this._requestSequence = 0
       this.errorText = ''
       try {
@@ -78,6 +81,7 @@ export default {
         this.running = true
         this.send('init', {})
         this.send('visibility', { visible: this.visible })
+        this.syncWindowFocus(true)
         // Arm before polling: Falcon may deliver an already queued ready event
         // during interval registration. A stale timeout cannot close a ready page.
         this._readyTimer = setTimeout(() => {
@@ -89,6 +93,7 @@ export default {
     },
     poll() {
       try {
+        this.syncWindowFocus()
         for (const event of launcher.poll() || []) {
           if (event.generation !== undefined && event.generation !== this._generation && event.type !== 'booted' && event.type !== 'fatal' && event.type !== 'exit') continue
           if (event.type === 'booted') {
@@ -137,10 +142,37 @@ export default {
       try {
         const page = this.$page && this.$page.$npage
         if (!page || typeof page.setSupportTopPanel !== 'function') return false
-        const blocked = active || (!!this._nativeImage && this.visible && !this._disposed && !this.keyboardOpen)
+        const focused = this._windowFocused !== false
+        const blocked = focused && (active || (!!this._nativeImage && this.visible && !this._disposed && !this.keyboardOpen))
         page.setSupportTopPanel(!blocked)
         return true
       } catch (_) { return false }
+    },
+    syncWindowFocus(force = false) {
+      if (!this.running || !this.visible || this._disposed) return
+      const now = Date.now()
+      if (!force && now < (this._focusNextCheck || 0)) return
+      this._focusNextCheck = now + 100
+      let focused
+      try { if (am && typeof am.hasWindowFocus === 'function') focused = am.hasWindowFocus() } catch (_) {}
+      const status = { window_api: !!(am && typeof am.hasWindowFocus === 'function'), window_valid: typeof focused === 'boolean', app_focused: focused === true, panel_api: typeof launcher.systemOverlay === 'function', panel_available: false, panel_supported: false, panel_visible: false }
+      // Y07's global panel does not take window focus or trigger onHide. Its
+      // actual visibility must also yield the native DRM plane and evdev input.
+      try {
+        const panel = typeof launcher.systemOverlay === 'function' ? launcher.systemOverlay() : null
+        status.panel_available = !!(panel && panel.available === true)
+        status.panel_supported = !!(panel && panel.supported === true)
+        status.panel_visible = !!(panel && panel.visible === true)
+        if (panel && panel.supported === true && typeof panel.visible === 'boolean') focused = focused !== false && !panel.visible
+      } catch (_) {}
+      const signature = JSON.stringify(status)
+      if (signature !== this._overlayStatus && this.send('system.overlay.status', status)) this._overlayStatus = signature
+      if (typeof focused !== 'boolean' || (focused === this._windowFocused && !this._focusPending)) return
+      this._windowFocused = focused
+      this.setBackPolicy(!focused)
+      this.setNativeEditorPolicy(!!this._nativeEditor && !this.keyboardOpen)
+      if (!focused) this.stopOcr()
+      this._focusPending = !this.send('window.focus', { focused, sequence: ++this._focusSequence })
     },
     setBackPolicy(allow) {
       try {
@@ -155,7 +187,7 @@ export default {
       this._navigationSequence = event.sequence
       this._nativeImage = event.imageWorkspace === true
       this.setNativeEditorPolicy(!!this._nativeEditor && this.visible && !this.keyboardOpen)
-      const allow = !this.visible
+      const allow = !this.visible || this._windowFocused === false
       const ok = this.setBackPolicy(allow)
       this.send('navigation.policy', { sequence: event.sequence, ok, blocked: ok && !allow })
     },
@@ -163,13 +195,13 @@ export default {
       if (event.sequence <= (this._editorPolicySequence || 0)) return
       this._editorPolicySequence = event.sequence
       this._nativeEditor = event.active ? event.session : null
-      this.setBackPolicy(!this.visible)
-      const active = !!event.active && this.visible && !this.keyboardOpen
+      this.setBackPolicy(!this.visible || this._windowFocused === false)
+      const active = !!event.active && this.visible && this._windowFocused !== false && !this.keyboardOpen
       const ok = this.setNativeEditorPolicy(active)
       this.send('editor.policy', { session: event.session, sequence: event.sequence, ok, blocked: ok && active })
     },
     startOcr(event, prepareOnly = false) {
-      if (!this.visible || this.keyboardOpen) { this.send('ocr.result', { requestId: event.requestId, confirmed: false, error: '当前无法启动扫描。' }); return }
+      if (!this.visible || this._windowFocused === false || this.keyboardOpen) { this.send('ocr.result', { requestId: event.requestId, confirmed: false, error: '当前无法启动扫描。' }); return }
       try {
       if (!this._global) this._global = new globalModule.Global()
       const generation = this._generation
@@ -204,7 +236,7 @@ export default {
     openKeyboard(event) {
       this.setNativeEditorPolicy(false)
       this.stopOcr()
-      if (this.keyboardOpen || !this.visible) { this.send('keyboard.result', { requestId: event.requestId, confirmed: false, text: '' }); return }
+      if (this.keyboardOpen || !this.visible || this._windowFocused === false) { this.send('keyboard.result', { requestId: event.requestId, confirmed: false, text: '' }); return }
       this.keyboardOpen = true
       this.setBackPolicy(false)
       this._keyboardRequest = event.requestId

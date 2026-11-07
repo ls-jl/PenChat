@@ -5,10 +5,10 @@ const vm = require('node:vm')
 function fixture() {
   const calls = [], timers = new Map()
   let clock = 0, editCallback
-  const native = { alive: true, status: () => ({ alive: native.alive }), start: async value => { native.alive = true; calls.push(['start', value]) }, send: value => { calls.push(['send', value]); return true }, poll: () => [], stop: async () => calls.push(['stop']) }
+  const native = { alive: true, focused: true, panelVisible: false, focusQueries: 0, systemOverlay: () => ({supported:true,visible:native.panelVisible}), status: () => ({ alive: native.alive }), start: async value => { native.alive = true; calls.push(['start', value]) }, send: value => { calls.push(['send', value]); return true }, poll: () => [], stop: async () => calls.push(['stop']) }
   const keyboard = { textEditFinished: { on: fn => { editCallback = fn }, off: () => calls.push(['off']) }, startTextEdit: config => { calls.push(['startTextEdit', JSON.parse(config)]); return 'edit-1' }, closeTextEdit: () => calls.push(['closeEdit']) }
   const context = vm.createContext({
-    console, appConfig: JSON.parse(fs.readFileSync('package.json', 'utf8')), launcher: native, globalModule: { Global: function () { return keyboard } }, module: {},
+    console, appConfig: JSON.parse(fs.readFileSync('package.json', 'utf8')), launcher: native, am: { hasWindowFocus: () => { ++native.focusQueries; return native.focused } }, globalModule: { Global: function () { return keyboard } }, module: {},
     $workspace: '/package', $dataDir: '/data', $falcon: { jsapi: { storage: { getStorage: async () => { throw new Error('Storage must not be read') } } } },
     setInterval: fn => { timers.set(++clock, fn); return clock }, clearInterval: id => timers.delete(id),
     setTimeout: fn => { timers.set(++clock, fn); return clock }, clearTimeout: id => timers.delete(id),
@@ -232,4 +232,61 @@ test('portrait OCR preparation rejects constructor failure without stopping the 
   const response=f.calls.find(c=>c[0]==='send'&&c[1].type==='ocr.prepared')[1]
   assert.equal(response.requestId,'prepare-1');assert.equal(response.ok,false)
   assert(!f.calls.some(c=>c[0]==='stop'));f.page.dispose()
+})
+
+test('global window focus yields native overlay/input without a fake page hide', async () => {
+  const f=fixture();await f.page.boot()
+  f.native.focused=false;f.page.syncWindowFocus(true)
+  let packets=f.calls.filter(c=>c[0]==='send'&&c[1].type==='window.focus').map(c=>c[1])
+  assert.equal(packets.length,1);assert.equal(packets[0].focused,false)
+  assert.equal(f.page.visible,true);assert.equal(f.timers.size,2)
+  assert.equal(f.calls.filter(c=>c[0]==='systemBack').at(-1)[1],true)
+  f.page.editorState({session:'editor',sequence:1,active:true})
+  f.page.navigationState({sequence:1,imageWorkspace:true})
+  assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],true)
+  f.page.syncWindowFocus(true)
+  assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='window.focus').length,1)
+  f.native.focused=true;f.page.syncWindowFocus(true)
+  packets=f.calls.filter(c=>c[0]==='send'&&c[1].type==='window.focus').map(c=>c[1])
+  assert.equal(packets.length,2);assert.equal(packets[1].focused,true);assert(packets[1].sequence>packets[0].sequence)
+  assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],false)
+  assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='visibility'&&!c[1].visible).length,0)
+  f.page.dispose();assert.equal(f.timers.size,0)
+})
+
+test('window focus queries are bounded and unavailable APIs preserve old behavior', async () => {
+  const f=fixture();await f.page.boot();let now=1000;f.context.Date={now:()=>now}
+  f.page.syncWindowFocus(true);const before=f.native.focusQueries
+  for(let i=0;i<20;++i)f.page.poll()
+  assert.equal(f.native.focusQueries,before)
+  now=1100;f.page.poll();assert.equal(f.native.focusQueries,before+1)
+  f.context.am={hasWindowFocus:()=>{throw new Error('unsupported')}}
+  f.page.syncWindowFocus(true);assert.equal(f.page.running,true);assert.equal(f.page._windowFocused,true)
+  f.context.am={};f.native.systemOverlay=()=>({supported:false});f.page.syncWindowFocus(true);assert.equal(f.page._windowFocused,true)
+  f.page.dispose()
+})
+
+test('focus handoff retries a rejected IPC send and rejects late input handoffs under overlay', async () => {
+  const f=fixture();await f.page.boot();const send=f.native.send;let rejected=false
+  f.native.send=value=>{if(value.type==='window.focus'&&!rejected){rejected=true;return false};return send(value)}
+  f.native.focused=false;f.page.syncWindowFocus(true);assert.equal(f.page._focusPending,true)
+  f.page.syncWindowFocus(true);assert.equal(f.page._focusPending,false)
+  assert(f.calls.some(c=>c[0]==='send'&&c[1].type==='window.focus'&&!c[1].focused))
+  f.page.openKeyboard({requestId:'late',text:'fixture'})
+  assert(!f.calls.some(c=>c[0]==='startTextEdit'))
+  f.page.startOcr({requestId:'late-ocr',session:'editor',mode:'single'})
+  assert(!f.page._ocr)
+  f.page.dispose()
+})
+
+test('Y07 global panel visibility overrides unchanged window focus', async () => {
+  const f=fixture();await f.page.boot();f.native.panelVisible=true;f.page.syncWindowFocus(true)
+  assert.equal(f.native.focused,true);assert.equal(f.page._windowFocused,false)
+  let packet=f.calls.filter(c=>c[0]==='send'&&c[1].type==='window.focus').at(-1)[1]
+  assert.equal(packet.focused,false)
+  f.native.panelVisible=false;f.page.syncWindowFocus(true)
+  packet=f.calls.filter(c=>c[0]==='send'&&c[1].type==='window.focus').at(-1)[1];assert.equal(packet.focused,true)
+  f.native.systemOverlay=()=>({supported:false,visible:false});f.native.focused=false;f.page.syncWindowFocus(true)
+  assert.equal(f.page._windowFocused,false)
+  f.page.dispose()
 })

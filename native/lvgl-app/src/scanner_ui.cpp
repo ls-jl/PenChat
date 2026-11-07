@@ -28,6 +28,10 @@ std::string scanReason(const std::string &reason) {
 } // namespace
 void App::syncScanner() {
   bool active = view_ == "scan" && scanId_ && scanSession_ == session_;
+  // A transient global overlay must not disarm and destroy the result that
+  // this page (or its original-image reader) still owns. Real backgrounding
+  // continues through suspend() and its normal cancel/join/release path.
+  if(active&&pageVisible_&&!windowFocused_)return;
   bool eligible = bridge_.generation() > 0 && visible_ && !keyboard_ &&
                   !editor_.active && (!imageViewer_ || viewerScanResult_) && !imageStoreBusy_ && !contextBusy_ && !replyBusy_ && !editorOcrActive_ &&
                   !navigationOpen_ && !modal_ && !attachments_ && !pulling_ &&

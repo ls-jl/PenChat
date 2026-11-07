@@ -258,6 +258,10 @@ class App {
   int messageOffset_ = 0, historyOffset_ = 0, networkGeneration_ = 0;
   bool shutdownComplete_ = false;
   bool generating_ = false, visible_ = true, keyboard_ = false;
+  bool pageVisible_=true, windowFocused_=true;
+  uint64_t windowFocusSequence_=0;
+  Json systemOverlayStatus_=Json::object();
+  bool systemEdgeDown_=false, systemEdgeGesture_=false;
   std::atomic<bool> cancel_{false};
   std::thread network_;
   std::thread modelWorker_;
@@ -637,6 +641,7 @@ public:
   void waitInput(unsigned milliseconds) const { touchInput_.wait(milliseconds); }
   void handle(const Json &message);
   void suspend(bool value);
+  void windowFocus(bool focused);
   void shutdown();
   bool updateExit() const { return updateExit_; }
   bool interactive() const { return visible_ && !keyboard_; }

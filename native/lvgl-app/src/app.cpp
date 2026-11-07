@@ -2863,6 +2863,7 @@ void App::attach(const Json &image) {
   });
 }
 void App::suspend(bool value) {
+  pageVisible_=!value;
   diagnosticRecord("lifecycle", value ? "background" : "foreground");
   if(onboarding_)onboarding_->tick(false);
   if (value && feedback_) feedback_->background();
@@ -2873,6 +2874,7 @@ void App::suspend(bool value) {
   finishImageGesture(false);nonImageMulti_=false;
   if(imageViewer_ || view_=="crop")imageGesture_.mode=-2;
   touchInput_.close();
+  systemEdgeDown_=systemEdgeGesture_=false;
   if (value && imageStoreWorker_.joinable())
     imageStoreWorker_.join();
   if (value) {replyCancel_=true;if(contextRegenerating_)cancelContext();editorInterrupt();}
@@ -2893,14 +2895,40 @@ void App::suspend(bool value) {
   resetPull();
   touchDown_ = false;
   pullTrackActivity_ = false;
-  visible_ = !value;
+  visible_ = pageVisible_&&windowFocused_;
   input_.release();
-  display_.visible(!value && !keyboard_);
+  display_.visible(visible_ && !keyboard_);
   if (value) {
     camera_.stop();
-  } else if (editor_.active && !keyboard_) {editorPolicy(!editorSelectionOnly_);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
-  else if (view_ == "camera")
+  } else if (visible_ && editor_.active && !keyboard_) {editorPolicy(!editorSelectionOnly_);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
+  else if (visible_ && view_ == "camera")
     startCamera();
+}
+void App::windowFocus(bool focused) {
+  if(windowFocused_==focused)return;
+  windowFocused_=focused;
+  const bool foreground=pageVisible_&&focused;
+  if(visible_==foreground)return;
+  visible_=foreground;
+  // Global panels do not deliver page onHide/onShow. Yield the native plane
+  // and input without closing the current page, drawer or prepared scan result.
+  touchInput_.close();input_.cancel();resetPull();resetBack();
+  systemEdgeDown_=systemEdgeGesture_=false;
+  touchDown_=readerDown_=readerPointer_=readerVertical_=readerSettle_=false;
+  pullTrackActivity_=false;viewerLastTap_=0;
+  finishImageGesture(false);nonImageMulti_=false;
+  if(imageViewer_||view_=="crop")imageGesture_.mode=-2;
+  if(!foreground) {
+    editorCancelKeys();editorMagnify(false);editorOcrStop();editorTopBlocked_=false;
+    editorPointer_=editorTextTouch_=editorCursorDrag_=false;editorHandle_=-1;editorHeld_=-1;editorRepeat_=0;editorLastTap_=0;
+    camera_.stop();
+    display_.visible(false);
+  } else {
+    if(editor_.active&&!keyboard_) {editorPolicy(!editorSelectionOnly_);editorFollowCursor_=false;editorOcrStart();editorRefresh();}
+    else if(view_=="camera"&&!keyboard_)startCamera();
+    display_.visible(!keyboard_);
+  }
+  syncScanner();
 }
 void App::shutdown() {
   if (shutdownComplete_) return;
@@ -3098,6 +3126,16 @@ void App::handle(const Json &m) {
     // Production input has one owner. Never replay Falcon or delayed IPC touches.
     if (touchInput_.enabled() && m.value("source", std::string()) != "native-evdev") return;
     lastTouch_ = m;
+    const bool down=m.value("pressed",false)&&!m.value("cancelled",false);
+    if(down&&!systemEdgeDown_)
+      systemEdgeGesture_=layout().portrait()&&!editor_.active&&!imageViewer_&&view_!="crop"&&m.value("y",0)<layout().safeTop();
+    systemEdgeDown_=down;
+    if(systemEdgeGesture_) {
+      // The portrait safe top edge belongs to the system pull-down gesture.
+      // Do not scroll the chat underneath the panel during focus handoff.
+      if(!down)systemEdgeGesture_=false;
+      return;
+    }
     const bool multi=m.contains("points") && m["points"].is_array() && m["points"].size()>1;
     if(editor_.active && !imageViewer_ && view_!="crop" && !nonImageMulti_ && editorKeyTouch(m)) {
       resetBack();
@@ -3108,6 +3146,14 @@ void App::handle(const Json &m) {
     } else if (!backTouch(m)) routeTouch(m);
   } else if (type == "visibility")
     suspend(!m.value("visible", false));
+  else if(type=="window.focus") {
+    const auto sequence=m.value("sequence",uint64_t(0));
+    if(sequence>windowFocusSequence_){windowFocusSequence_=sequence;windowFocus(m.value("focused",false));}
+  }
+  else if(type=="system.overlay.status") {
+    for(const char *key:{"window_api","window_valid","app_focused","panel_api","panel_available","panel_supported","panel_visible"})
+      if(m.contains(key)&&m[key].is_boolean())systemOverlayStatus_[key]=m[key];
+  }
   else if (type == "keyboard.result") {
     if (!keyboard_ || m.value("requestId", std::string()) != keyboardId_)
       return;
@@ -3782,6 +3828,8 @@ Json App::diagnostics() const {
       {"display_visible", display_.visible()},
       {"ocr", editorOcrActive_},
       {"visible", visible_},
+      {"page_visible",pageVisible_},{"window_focused",windowFocused_},
+      {"system_overlay",systemOverlayStatus_},
       {"width", screen_.width},
       {"height", screen_.height},
       {"rotation", screen_.rotation}};

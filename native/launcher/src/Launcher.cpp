@@ -10,6 +10,7 @@
 #include <dlfcn.h>
 #include "update.hpp"
 #include "HeadKeyRoute.hpp"
+#include "SystemOverlay.hpp"
 namespace JQuick { class PackageInfo; }
 #include <signal.h>
 #include <sys/resource.h>
@@ -31,6 +32,7 @@ void saveInstallTicket(const std::string &path,const penchat::Json &ticket) {
 class Launcher : public JQBaseObject {
   std::mutex mutex_;
   penchat::HeadKeyRoute headRoute_{penchat::HeadKeyRoute::realSystem()};
+  penchat::SystemOverlay systemOverlay_{penchat::SystemOverlay::realSystem()};
   int fd_ = -1;
   pid_t pid_ = -1;
   std::string ownId_, ownData_;
@@ -197,6 +199,10 @@ public:
     info.GetReturnValue().Set(
         Bson::object{{"alive", pid_ > 0 && fd_ >= 0}, {"pid", int(pid_)}});
   }
+  void systemOverlay(JQFunctionInfo &info) {
+    const auto state=systemOverlay_.state();
+    info.GetReturnValue().Set(Bson::object{{"available",systemOverlay_.available()},{"supported",state.supported},{"visible",state.visible}});
+  }
   void ocrRoute(JQFunctionInfo &info) {
     const auto p=info.toParamsHolder();
     if(!p[0].is_bool()){info.GetReturnValue().Set(false);return;}
@@ -278,6 +284,7 @@ int init(JSContext *ctx, JSModuleDef *module) {
   tpl->SetProtoMethod("ocrRoute", &Launcher::ocrRoute);
   tpl->SetProtoMethod("ocrStroke", &Launcher::ocrStroke);
   tpl->SetProtoMethod("status", &Launcher::status);
+  tpl->SetProtoMethod("systemOverlay", &Launcher::systemOverlay);
   tpl->SetProtoMethodPromise("stop", &Launcher::stop);
   env->setModuleExport("launcher", tpl->CallConstructor());
   env->setModuleExportDone(JS_UNDEFINED, exports);
