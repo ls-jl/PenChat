@@ -293,12 +293,19 @@ its existing composer above composition/candidates/actions; form fields retain
 their original location, with long multiline fields expanding in the form. The
 function row stays directly above the keys; globe and hide/finish sit in the lower
 utility row. Chat has only hide (retains draft), while form Cancel still restores
-the original field. The portrait composer starts at 94px, grows upward to 3x for
-wrapped lines, then scrolls; keep 25px around its 44px send circle. Chinese
+the original field. The empty portrait composer with keyboard hidden is one 94px row. With text or
+an open keyboard, give text its own full-width region above attachment/gauge/send;
+grow upward to 3x the original height, then scroll. Preserve 25px around the 44px
+send circle. Landscape drafts likewise place text above their existing controls. Chinese
 composition uses the same row as the official/OCR/clipboard actions; never add
 a separate candidate row in portrait. The borderless globe is 1.5x, below and
 slightly left of comma, centered between comma and screen bottom. Switching fields commits the prior
-field (including raw unfinished preedit) once before focusing the next. Cancel
+field (including raw unfinished preedit) once before focusing the next. Retain the
+keyboard root, viewport and top-panel policy during that transfer; compatible
+fields reuse key caps and layout. Replace field-scoped OCR registration without
+releasing scanner ownership; new field IDs reject old OCR/pinyin results. Undo and
+secret visibility stay isolated per field. A non-input action must close a retained
+transfer and clear all pointers/actions into the keyboard it deletes. Cancel
 restores the original value; Provider edits still require explicit Save.
 Candidate/clipboard overlays may cover the reader, never move the keys. Ordinary
 page scrolling and field focus remain available above the keyboard. Rebind focused

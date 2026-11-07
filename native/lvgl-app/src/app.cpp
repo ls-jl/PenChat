@@ -1222,22 +1222,24 @@ void App::rebuildChatControls() {
     icon(
         chatControls_, "gauge", composerWidth - (layout().portrait()?layout().composerInset()+100:100), 2, 44, 44, [this] { if(editor_.active&&editorInPlace()&&!editorAccept())return;effortPicker(); },
         theme::surface, theme::muted);
+  auto compose = [this] {
+    if (contextBusy_ || !composerTapAllowed_)
+      return;
+    composerTapAllowed_ = false;
+    edit(
+        draft_, "请输入消息",
+        [this](const std::string &s) {
+          draft_ = s;
+          build();
+        },
+        8192, "ZhCNPreferred", {}, true, false, false, true);
+  };
   composer_ = button(
       chatControls_, draft_.empty() ? "询问 " PENCHAT_NAME : draft_, entryLeft, 2,
       composerWidth - entryLeft - layout().composerEntryRight(gauge), 44,
-      [this] {
-        if (contextBusy_ || !composerTapAllowed_)
-          return;
-        composerTapAllowed_ = false;
-        edit(
-            draft_, "请输入消息",
-            [this](const std::string &s) {
-              draft_ = s;
-              build();
-            },
-            8192, "ZhCNPreferred", {}, true, false, false, true);
-      },
+      compose,
       theme::surface, LV_TEXT_ALIGN_LEFT);
+  onClick(chatControls_,compose);
   if(layout().portrait())inputTarget(composer_,"chat-composer");
   if (draft_.empty())
     lv_obj_set_style_text_color(lv_obj_get_child(composer_, 0),
@@ -1345,7 +1347,7 @@ void App::chatScrolled() {
 void App::updateChatControls(bool animate) {
   if (!chatControls_ || !toBottom_)
     return;
-  lv_obj_set_hidden(toBottom_, chatFollowing_ || atLatestBottom() || pulling_);
+  lv_obj_set_hidden(toBottom_, !hasConversationContent_ || chatFollowing_ || atLatestBottom() || pulling_);
   bool overContent = false;
   if (messageContent_) {
     lv_area_t buttonArea;
@@ -1364,7 +1366,7 @@ void App::updateChatControls(bool animate) {
   lv_obj_set_style_border_opa(toBottom_, overContent ? 160 : 255, 0);
   const bool editingComposer=editor_.active&&editorInPlace()&&editorInlineChat_;
   const int target = editingComposer ? chatComposerY() :
-      (chatFollowing_ || atLatestBottom()) && !pulling_ ? chatComposerY() : screen_.height + 2;
+      (!hasConversationContent_ || chatFollowing_ || atLatestBottom()) && !pulling_ ? chatComposerY() : screen_.height + 2;
   if(editingComposer)animate=false;
   if (chatControlsTarget_ == target)
     return;
@@ -3009,7 +3011,7 @@ void App::routeTouch(const Json &m) {
     if (view_ == "chat" && composer_ && !modal_ && !navigationOpen_ &&
         !attachments_ && !lv_obj_is_hidden(chatControls_)) {
       lv_area_t bounds;
-      lv_obj_get_coords(composer_, &bounds);
+      lv_obj_get_coords(chatControls_, &bounds);
       composerTapAllowed_ = x >= bounds.x1 && x <= bounds.x2 &&
                             y >= bounds.y1 && y <= bounds.y2;
     }
@@ -3575,7 +3577,8 @@ Json App::diagnostics() const {
   if (!reasoningHeaders_.empty())
     lv_obj_get_coords(reasoningHeaders_.back(), &reasonHeader);
 
-  lv_area_t active{}, capsule{}, send{};
+  lv_area_t active{}, capsule{}, send{}, entry{};
+  if(composer_)lv_obj_get_coords(composer_,&entry);
   if (chatControls_) {
     lv_obj_get_coords(chatControls_, &capsule);
     lv_obj_get_coords(lv_obj_get_child(chatControls_, -1), &send);
@@ -3672,6 +3675,7 @@ Json App::diagnostics() const {
       {"capsule_endcap_x2", 2 * capsule.x2 - (capsule.y2 - capsule.y1)},
       {"capsule_center_y2", capsule.y1 + capsule.y2},
       {"composer_bounds", {capsule.x1,capsule.y1,capsule.x2,capsule.y2}},
+      {"composer_text_bounds", {entry.x1,entry.y1,entry.x2,entry.y2}},
       {"navigation_open", navigationOpen_},
       {"session_info", view_ == "session_info" ? sessionInfoData_ : Json::object()},
       {"session_info_busy", sessionInfoBusy_},

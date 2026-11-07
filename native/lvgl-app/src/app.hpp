@@ -467,6 +467,9 @@ class App {
   uint64_t inputTargetSerial_=0;
   int inputOrdinal_=0,editorTargetHeight_=0;
   bool editorFocusSwitch_=false,editorPendingBuild_=false,editorPlaceCursor_=false;
+  bool editorTransfer_=false,editorEnglishOnly_=false;
+  std::string editorKeyboardId_;
+  void editorDiscardTransfer();
   lv_point_t inputSourcePoint_{},editorInitialPoint_{};
   void inputTarget(lv_obj_t *,const std::string &,int style=0);
   void inputAction(lv_obj_t *,const std::function<void()> &);

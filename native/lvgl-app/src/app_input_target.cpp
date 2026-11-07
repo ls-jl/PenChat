@@ -27,18 +27,29 @@ void App::inputAction(lv_obj_t *object,const std::function<void()> &action) {
     // Commit first while retaining the existing page objects. The copied action
     // may then focus another field or save the form without using freed widgets.
     editorFocusSwitch_=true;
-    try {if(!editorAccept()){editorFocusSwitch_=false;return;}}catch(...){editorFocusSwitch_=false;throw;}
+    try {if(!editorAccept()){editorFocusSwitch_=false;return;}}catch(...){editorFocusSwitch_=false;editorDiscardTransfer();throw;}
     editorFocusSwitch_=false;
     found=inputTargets_.find(object);
     if(found==inputTargets_.end()||found->second.serial!=serial||view_!=view||modal_!=previousModal) {
-      if(editorPendingBuild_&&!modal_)build();return;
+      editorDiscardTransfer();if(editorPendingBuild_&&!modal_)build();return;
     }
   }
   inputSource_=object;
   inputSourcePoint_=relative;
-  try {action();}catch(...){inputSource_=nullptr;throw;}
+  try {action();}catch(...){inputSource_=nullptr;editorDiscardTransfer();throw;}
   if(inputSource_==object)inputSource_=nullptr;
+  editorDiscardTransfer();
   if(editorPendingBuild_&&!editor_.active&&!modal_&&!attachments_)build();
+}
+void App::editorDiscardTransfer() {
+  if(!editorTransfer_)return;
+  editorTransfer_=false;editorInterrupt();editorViewport();
+  editorLocalActions_.clear();
+  editorPreeditLabel_=editorChoices_=editorExpand_=editorExactList_=editorQueryLabel_=nullptr;
+  if(editorRoot_)lv_obj_delete(editorRoot_);
+  editorRoot_=editorText_=nullptr;editorHandles_[0]=editorHandles_[1]=nullptr;editorKeys_.clear();
+  const int preferred=editor_.preferredChinese;editor_=EditorState{};editor_.preferredChinese=preferred;
+  editorKeyboardId_.clear();editorSelectionOnly_=false;syncScanner();
 }
 EditorLayout::Popup App::editorTextArea() const {
   if(!editorText_||lv_obj_is_hidden(editorText_))return {0,0,0,0};
@@ -52,36 +63,55 @@ EditorLayout::Popup App::editorTextArea() const {
   return {a.x1,a.y1,std::max(0,int(a.x2-a.x1+1)),std::max(0,int(a.y2-a.y1+1))};
 }
 int App::chatComposerHeight() const {
-  const int base=layout().composerHeight();if(!layout().portrait())return base;
+  const int base=layout().composerHeight();
   const bool editing=editor_.active&&editorInPlace()&&editorInlineChat_;
   const auto &text=editing?editor_.text:draft_;
-  const bool gauge=sessionPreferences_.value("gauge",!effortMemory_.empty());
-  const int width=std::max(44,layout().composerWidth()-layout().composerEntryLeft()-layout().composerEntryRight(gauge)-24);
-  lv_point_t size{};
-  lv_text_get_size(&size,text.c_str(),font(20),0,0,width,LV_TEXT_FLAG_NONE);
-  return std::min(base*3,base+std::max(0,int(size.y)-font(20)->line_height));
+  if(!editing&&text.empty())return base;
+  const int pad=layout().portrait()?layout().composerInset():12;
+  const int width=std::max(44,layout().composerWidth()-2*pad);
+  lv_point_t size{};lv_text_get_size(&size,text.c_str(),font(20),0,0,width,LV_TEXT_FLAG_NONE);
+  const int minimum=2*pad+font(20)->line_height+8+44;
+  return std::min(std::max(minimum,base*3),2*pad+std::max(int(font(20)->line_height),int(size.y))+8+44);
 }
 int App::chatComposerY() const {
   const bool docked=editor_.active&&editorInPlace()&&view_=="chat";
   return (docked?editorLayout().panelTop-4:screen_.height-layout().safeBottom())-chatComposerHeight();
 }
 void App::layoutChatComposer() {
-  if(!layout().portrait()||!chatControls_||!composer_)return;
-  const int height=chatComposerHeight();lv_obj_set_height(chatControls_,height);
+  if(!chatControls_||!composer_)return;
+  const bool editing=editor_.active&&editorInPlace()&&editorInlineChat_;
+  const bool expanded=editing||!draft_.empty();
+  const bool previous=chatLayout_;chatLayout_=true;
+  const int oldHeight=lv_obj_get_height(chatControls_);
+  const int height=chatComposerHeight(),width=layout().composerWidth();
+  const int pad=expanded?(layout().portrait()?layout().composerInset():12):layout().composerInset();
+  lv_obj_set_height(chatControls_,height);
+  lv_obj_set_style_radius(chatControls_,expanded?28:height/2,0);
   if(toBottom_)lv_obj_set_y(toBottom_,chatComposerY()-56);
-  const int inset=layout().composerInset();
-  lv_obj_set_y(composer_,0);lv_obj_set_height(composer_,height);
+  const bool gauge=sessionPreferences_.value("gauge",!effortMemory_.empty());
+  const int x=expanded?pad:layout().composerEntryLeft();
+  const int y=expanded?pad:(height-44)/2;
+  const int w=expanded?width-2*pad:width-x-layout().composerEntryRight(gauge);
+  const int h=expanded?height-2*pad-8-44:44;
+  lv_obj_set_pos(composer_,x,y);lv_obj_set_size(composer_,w,h);
   for(uint32_t i=0;i<lv_obj_get_child_count(chatControls_);++i) {
     auto child=lv_obj_get_child(chatControls_,i);if(child==composer_)continue;
-    if(i+1==lv_obj_get_child_count(chatControls_))lv_obj_align(child,LV_ALIGN_BOTTOM_RIGHT,-inset,-inset);
-    else lv_obj_set_y(child,height-inset-44);
+    const bool send=i+1==lv_obj_get_child_count(chatControls_);
+    const int cx=send?width-pad-44:i==0?pad:width-pad-96;
+    lv_obj_set_align(child,LV_ALIGN_TOP_LEFT);lv_obj_set_pos(child,cx,height-pad-44);
   }
   auto value=lv_obj_get_child(composer_,0);
   if(value) {
-    const int pad=std::max(0,(layout().composerHeight()-2*layout().composerInset()-font(20)->line_height)/2);
-    lv_label_set_long_mode(value,LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_pos(value,12,inset+pad);lv_obj_set_height(value,height-2*inset-2*pad);
+    lv_label_set_long_mode(value,expanded?LV_LABEL_LONG_MODE_WRAP:LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_align(value,LV_ALIGN_TOP_LEFT);
+    lv_obj_set_pos(value,expanded?0:12,expanded?0:std::max(0,(44-font(20)->line_height)/2));
+    lv_obj_set_size(value,expanded?w:std::max(0,w-24),expanded?h:font(20)->line_height);
   }
+  if(oldHeight!=height&&(editing||!hasConversationContent_||chatFollowing_||atLatestBottom())) {
+    lv_anim_delete(chatControls_,nullptr);chatControlsTarget_=chatComposerY();
+    lv_obj_set_y(chatControls_,chatControlsTarget_);
+  }
+  lv_obj_update_layout(chatControls_);chatLayout_=previous;
 }
 void App::editorAttachTarget() {
   if(!editor_.active||!editorInPlace()||!editorTarget_)return;
@@ -90,9 +120,9 @@ void App::editorAttachTarget() {
   auto value=lv_obj_get_child(editorTarget_,style==2?1:0);
   if(value)lv_obj_set_hidden(value,true);
   const bool chat=editorInlineChat_;
-  const int y=chat?layout().composerInset():style==1?23:style==2?28:2;
-  const int x=chat?12:style==1?12:style==2?12:4;
-  const int h=style==3?44:std::max(24,int(lv_obj_get_height(editorTarget_))-y-(chat?layout().composerInset():2));
+  const int y=chat?0:style==1?23:style==2?28:2;
+  const int x=chat?0:style==1?12:style==2?12:4;
+  const int h=chat?lv_obj_get_height(editorTarget_):style==3?44:std::max(24,int(lv_obj_get_height(editorTarget_))-y-(chat?layout().composerInset():2));
   if(!editorText_) {
     editorText_=lv_textarea_create(editorTarget_);
     lv_obj_add_event_cb(editorText_,[](lv_event_t *e){
@@ -105,8 +135,7 @@ void App::editorAttachTarget() {
     lv_obj_set_style_border_width(editorText_,0,0);lv_obj_set_style_radius(editorText_,0,0);
     lv_obj_set_style_pad_all(editorText_,0,0);
     if(chat) {
-      const int pad=std::max(0,(layout().composerHeight()-2*layout().composerInset()-font(20)->line_height)/2);
-      lv_obj_set_style_pad_top(editorText_,pad,0);lv_obj_set_style_pad_bottom(editorText_,pad,0);
+      lv_obj_set_style_pad_top(editorText_,0,0);lv_obj_set_style_pad_bottom(editorText_,0,0);
       lv_obj_set_style_text_line_space(editorText_,0,0);lv_obj_set_style_text_letter_space(editorText_,0,0);
     }
     lv_obj_set_style_border_color(editorText_,lv_color_hex(theme::caret),LV_PART_CURSOR|LV_STATE_FOCUSED);

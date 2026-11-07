@@ -115,7 +115,8 @@ def run():
                 assert len(a.read_messages())==2 # Done never sends.
                 d=a.diag()
                 if d['to_bottom_visible']:a.tap(d['to_bottom_x']+22,d['to_bottom_y']+22)
-                t.wait_for(lambda:a.diag()['toolbar_y']==1088)
+                t.wait_for(lambda:a.diag()['composer_bounds'][3]==1181)
+                assert a.diag()['composer_bounds'][3]-a.diag()['composer_bounds'][1]+1>94
                 a.tap(280,1158);t.wait_for(lambda:a.diag()['editor']['active'])
                 assert a.diag()['editor']['length']==4
                 a.editor_action('chat-send');t.wait_for(lambda:not a.diag()['editor']['active'])
@@ -219,7 +220,8 @@ def run():
                 a.tap(280,1155);t.wait_for(lambda:a.diag()['editor']['active'])
                 key(a,'language');key(a,'a')
                 initial=a.diag()['composer_bounds'];bottom=initial[3]
-                assert initial[3]-initial[1]+1==94
+                assert initial[3]-initial[1]+1>94
+                assert a.diag()['editor']['text_bounds'][3]<a.diag()['editor']['actions']['chat-send'][1]
                 shot(a,'composer-one-line')
                 heights=[]
                 for i in range(10):
