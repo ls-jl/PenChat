@@ -1,0 +1,104 @@
+{
+  "device": "Cvitek Cv1826 for Youdao Plum V0 version",
+  "redistribute": false,
+  "libraries": {
+    "libsample.so": {
+      "source": "/usr/lib/libsample.so",
+      "sha256": "73d0c2dd024882befcf8a0e0c2f04c992b99a9cf594ab77690350cf71c0adeae",
+      "bytes": 157260
+    },
+    "libvpu.so": {
+      "source": "/usr/lib/libvpu.so",
+      "sha256": "d28a11869dfa5569d7312a65fd5a54f30e849d77d2884d4a480bd4fb8bc65a60",
+      "bytes": 269108
+    },
+    "libisp.so": {
+      "source": "/usr/lib/libisp.so",
+      "sha256": "d046861bfa16397ae1f963a503e3de1be17973f709b06c17681d124a58b12678",
+      "bytes": 599524
+    },
+    "libisp_algo.so": {
+      "source": "/usr/lib/libisp_algo.so",
+      "sha256": "8a6d9c88ef2db3bf21ee4131c018ef76f1961fe5300a2f602b36856d5714bf1a",
+      "bytes": 140512
+    },
+    "libawb.so": {
+      "source": "/usr/lib/libawb.so",
+      "sha256": "5f115ed959cc9a21d44607486d20a4fe5b23be6391e21873cfa9d4f6b67da6e5",
+      "bytes": 55068
+    },
+    "libae.so": {
+      "source": "/usr/lib/libae.so",
+      "sha256": "650e0b5d7dde853339f99674892cf4bf77dbfbeb8f4d6f894acd8b902f44ac75",
+      "bytes": 141940
+    },
+    "libaf.so": {
+      "source": "/usr/lib/libaf.so",
+      "sha256": "33dea47766041ac8acfa3805abc01d35e9408cf161eb7dfe72514e0901e89378",
+      "bytes": 3068
+    },
+    "libsys.so": {
+      "source": "/usr/lib/libsys.so",
+      "sha256": "72a7023c0075d045e1bca08b0e0bbc68a8b5a2aca82f30732ca3aa3796b9a068",
+      "bytes": 92944
+    },
+    "libsns_full.so": {
+      "source": "/usr/lib/libsns_full.so",
+      "sha256": "4625613f23bbb8fd73004d89fc36b9f78ca7380a39ba07ac937d41030650670a",
+      "bytes": 49340
+    },
+    "libini.so": {
+      "source": "/usr/lib/libini.so",
+      "sha256": "3e4287e9daf146f5ea2496d61178d9770807d1cdee5ef1519f282788ff1a658c",
+      "bytes": 3104
+    },
+    "libcvitracer.so": {
+      "source": "/usr/lib/libcvitracer.so",
+      "sha256": "62e60924de5f5e1c2373350d315b0cc50fca05c4b852e0a5c5a7af77353a9eb7",
+      "bytes": 5920
+    },
+    "libvenc.so": {
+      "source": "/usr/lib/libvenc.so",
+      "sha256": "8f1fdd6ab0c3592b7426d06f0e4082333f5c922f4593cfac53736c7818bacfb9",
+      "bytes": 94272
+    },
+    "libvdec.so": {
+      "source": "/usr/lib/libvdec.so",
+      "sha256": "13a13738869e9785cf485b69531918ad4c6540a9b199728cae250d9a90ab9509",
+      "bytes": 40828
+    }
+  },
+  "opencv": {
+    "version": "3.4.3",
+    "sha256": "4eef85759d5450b183459ff216b4c0fa43e87a4f6aa92c8af649f89336f002ec",
+    "bytes": 87598899,
+    "url": "https://github.com/opencv/opencv/archive/refs/tags/3.4.3.tar.gz"
+  },
+  "png": {
+    "include/png.h": {
+      "bytes": 142860,
+      "sha256": "f8e248049a97831f5e9fb24ec0c7c6b7cacb3b3ba7303300b4f5b2b90bae3c40"
+    },
+    "include/pngconf.h": {
+      "bytes": 22846,
+      "sha256": "0ba884e89c5bfa8f86ad9286fedc4d26bb6f51f0dba7aaaf67e70baa6fd17a30"
+    },
+    "include/pnglibconf.h": {
+      "bytes": 7625,
+      "sha256": "2f3a206eca397c8bf969a39f6c5287120063477bf1faefc047a0ae01681ac9c4"
+    },
+    "lib/libpng16.so.16": {
+      "bytes": 149704,
+      "sha256": "cd8710613e4cf5f19d6969e0400100f01516139f0dfac6c0a49454d72789627e"
+    },
+    "lib/libz.so.1": {
+      "bytes": 103396,
+      "sha256": "75d12b3e54a1f62024ee128d747baa4315f77bb8a4918fe06341e4db5849ddc7"
+    }
+  },
+  "adapters": {
+    "native/camera/src/cvi_display.cpp": "bf09e16b601ea67489c11a0a3b8855c8a3a49ac01b6f77ef99dfd493c2ae263a",
+    "native/camera/src/cvi_ion_anchor.h": "6c3fd9e1a8451f660f592acc8f2f73cdff39edd638608e908a45aee188a88a6c",
+    "native/camera/src/cvi_media_abi.h": "321748c5672aa9ca80413476e53a3ddb357cd069f0e90b2c63843302f3fda59c"
+  }
+}

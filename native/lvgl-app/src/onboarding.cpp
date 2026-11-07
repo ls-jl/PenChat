@@ -184,8 +184,8 @@ Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool repla
   const int top=portrait?demoH+92:13;
   text(root_,std::to_string(step+1)+" / 7"+(step<3?" · 必看":" · 功能介绍"),right,top,measure,16,theme::muted);
   text(root_,titles[step],right,top+30,measure,portrait?28:24);
-  auto description=text(root_,copy[step],right,top+70,measure,portrait?21:18);
-  lv_obj_set_style_text_line_space(description,5,0);
+  auto description=text(root_,copy[step],right,top+70,measure,portrait?21:(measure<340?16:18));
+  lv_obj_set_style_text_line_space(description,measure<340&&!portrait?3:5,0);
   if(step==2&&configured)text(root_,"已配置模型，可直接继续",right,portrait?top+176:174,measure,16,theme::link);
   if(step==6)text(root_,"可在“关于 PenChat”中重看引导",right,portrait?top+176:174,measure,16,theme::muted);
   const int playbackY=portrait?demoH+28:footer;

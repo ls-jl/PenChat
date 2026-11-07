@@ -1,11 +1,27 @@
 #include "app.hpp"
+#include "device_profile.h"
 #include <csignal>
 #include <fcntl.h>
 #include <iostream>
 #include <unistd.h>
+#ifdef PENCHAT_CVI_PLATFORM
+#include <ucontext.h>
+#endif
 namespace {
 volatile sig_atomic_t running = 1, snapshotRequested = 0;
 void stop(int) { running = 0; }
+#ifdef PENCHAT_CVI_PLATFORM
+void mediaFault(int signal,siginfo_t *,void *context) {
+  // Address-only diagnostic, no heap allocation or application content.
+  auto *cpu=static_cast<ucontext_t *>(context);
+  char line[]="S6_NATIVE_FAULT pc=00000000 lr=00000000\n";
+  const unsigned long values[2]={cpu->uc_mcontext.arm_pc,cpu->uc_mcontext.arm_lr};
+  for(int n=0;n<2;++n)for(int i=0;i<8;++i)
+    line[(n?31:19)+i]="0123456789abcdef"[(values[n]>>(28-4*i))&15];
+  ::write(STDERR_FILENO,line,sizeof(line)-1);
+  _exit(128+signal);
+}
+#endif
 void snapshot(int) { snapshotRequested = 2; }
 void diagnostic(int) {
   if (!snapshotRequested)
@@ -58,6 +74,10 @@ int main(int argc, char **argv) {
       fontPath = "/etc/miniapp/resources/fonts/HarmonyOS_Sans_SC_Regular.ttf";
     if (resources.empty())
       resources = join(workspace, "assets/microtex");
+#ifdef PENCHAT_CVI_PLATFORM
+    struct sigaction fault{};fault.sa_sigaction=mediaFault;fault.sa_flags=SA_SIGINFO;
+    sigemptyset(&fault.sa_mask);sigaction(SIGSEGV,&fault,nullptr);sigaction(SIGBUS,&fault,nullptr);
+#endif
     signal(SIGUSR1, snapshot);
     signal(SIGUSR2, diagnostic);
     signal(SIGTERM, stop);
@@ -67,11 +87,16 @@ int main(int argc, char **argv) {
     if (configuration.empty())
       throw std::runtime_error("Cannot read Falcon screen configuration: " + screenConfig);
     const auto parsedConfiguration = Json::parse(configuration);
-    const auto screen = Screen::fromConfig(parsedConfiguration);
+    const auto capabilities=camera::deviceCapabilities();
+    if(!headless && *capabilities.requiredBoard && fileText("/proc/device-tree/model",4096).find(capabilities.requiredBoard)==std::string::npos)
+      throw std::runtime_error("This native build does not support the detected device");
+    const bool physicalPanel=capabilities.physicalScreenConfig;
+    const auto screen = Screen::fromConfig(parsedConfiguration,physicalPanel);
     lv_init();
     lv_tick_set_cb([]() -> uint32_t { return uint32_t(ticks()); });
     initializeFonts(fontPath, join(workspace, "assets/fonts/DejaVuSans.ttf"));
     struct FontCleanup { ~FontCleanup() { lv_deinit(); shutdownFonts(); } } fontCleanup;
+    if(!headless&&capabilities.sharedCaptureDisplay)ScanService::recoverHardware(data);
     Display display(screen, headless);
     Input input;
     const bool standalone = headless && fd < 0;
@@ -95,6 +120,7 @@ int main(int argc, char **argv) {
       app.tick();
       if(app.updateExit())break;
       const auto nextTimer = lv_timer_handler();
+      display.check();
       if (snapshotRequested) {
         const bool includeImage = snapshotRequested == 2;
         snapshotRequested = 0;

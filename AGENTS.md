@@ -1,6 +1,7 @@
 # Repository Guidelines
 
-PenChat is a native LVGL app for explicit ORANGE, Y02, Y07 and MELON RK3562/AArch64 profiles.
+PenChat shares native LVGL UI/business components across explicit Rockchip/AArch64
+and S6/CV1826/ARMv7 profiles. Hardware backends and payloads are target-isolated.
 Read display geometry/rotation from Falcon, never a device-specific screen fallback.
 The Falcon AMR is a thin launcher with a full-screen hole, system IME and
 lifecycle forwarding. Do not put business UI or networking back into Vue.
@@ -106,7 +107,9 @@ and `npm run build:prod` when the user explicitly requests a new release.
 use targeted ORANGE verification when necessary; do not automatically test and
 install on every device for each change.
 Device test helpers use real touchscreen events. Authorized targets are ORANGE
-MEB0400008900794, Y02 MEA2300009007113 and Y07 7G12000010905426; do not target other devices.
+MEB0400008900794, Y02 MEA2300009007113 and Y07 7G12000010905426. This
+`s6-armv7` task additionally authorizes only S6 JDA0700006552216. Do not operate
+Y07 from this worktree or target unlisted devices.
 The user has temporarily forbidden all Y02/113 device operations; do not access
 MEA2300009007113 until the user explicitly resumes it. This restriction overrides
 the allowlist.
@@ -297,3 +300,15 @@ JDA0700006552216 is an explicit CV1826/ARMv7 target; reuse the accepted CVI INT8
 bundle and public runtime in place, never load RKNN or copy device libraries into
 the system. Follow docs/S6-ARMV7-DEV.md. Do not touch the other worktree's
 uncommitted Y07 work. Y02/113 remains forbidden.
+
+S6 uses the same LVGL pages and keyboard state machine, scaled as a whole on its
+narrow landscape screen. Physical panel dimensions and rotation come from Falcon;
+CVI video origin additionally follows read-only cvifb start_x/start_y. Never use
+touch offsets to shift the display. Its SDK requires complete display descriptor
+and VMA release before stock CaptureFrame transitions; join VO workers first.
+Retain the public-API 4KiB process ION anchor until final exit: the verified libsys
+otherwise frees its last-entry hashmap without resetting its open ION fd.
+S6 capture must start the VPSS consumer before enabling VI output; use full native
+320x240 PAG7920 frames, never the stock downscaled/cropped outputs. CVI media DSOs
+remain on the device, with hash-locked ABI references; do not redistribute them.
+Use `docs/S6-ARMV7-DEV.md` for target builds and current acceptance limits.

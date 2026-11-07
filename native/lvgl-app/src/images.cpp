@@ -1,3 +1,4 @@
+#include "device_profile.h"
 #include "images.hpp"
 #include "accelerometer.h"
 #include "photo_orientation.hpp"
@@ -214,10 +215,12 @@ void Camera::work() {
   bool highResolution=false;
   int64_t nextSensor = 0;
   try {
+    if(!camera::deviceCapabilities().photoCamera)
+      throw std::runtime_error("此机型没有独立拍照设备，可使用笔头扫描或相册");
     highResolution=fileText("/proc/device-tree/model",4096).find("RK3562 Y07 ")!=std::string::npos;
     if(highResolution&&fileText("/sys/class/video4linux/v4l-subdev7/name",4096).find("gc08a8")==std::string::npos)
       throw std::runtime_error("Y07相机传感器与高清配置不匹配");
-#ifdef __aarch64__
+#ifdef PENCHAT_NATIVE_DEVICE
     if (manualOrientation_ < 0) {
       const auto sensor = camera::startAccelerometer(workspace_);
       if (sensor.ok) sensorSession = sensor.session;

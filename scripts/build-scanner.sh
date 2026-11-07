@@ -2,6 +2,7 @@
 set -euo pipefail
 task_root="$(cd "$(dirname "$0")/.." && pwd)"
 task_target="${1:-host}"
+if [ "$task_target" = s6 ]; then exec bash "$task_root/scripts/build-scanner-s6.sh"; fi
 task_bundle="${PENCHAT_SCAN_BUNDLE:-/home/ls-jl/Documents/ChatGPT/词典笔扫描拼接/deliverables/stream32_complete_20261018}"
 python3 "$task_root/scripts/prepare-scanner.py" --bundle "$task_bundle"
 if [ "$task_target" = host ]; then

@@ -1,6 +1,6 @@
 <template>
-  <div class="native-page">
-    <hole class="native-hole"></hole>
+  <div class="native-page" :style="nativeAreaStyle">
+    <hole class="native-hole" :style="nativeAreaStyle"></hole>
     <div v-if="errorText" class="failure-panel">
       <text class="failure-title">{{ appName }}</text>
       <text class="failure-text">{{ errorText }}</text>
@@ -23,7 +23,7 @@ function parse(value) {
   try { return JSON.parse(value) } catch (err) { return null }
 }
 export default {
-  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false } },
+  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeAreaStyle: {} } },
   mounted() { this.boot() },
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
@@ -95,6 +95,7 @@ export default {
             const screen = event.screen
             if (!screen || !Number.isInteger(screen.width) || !Number.isInteger(screen.height) || screen.width <= 0 || screen.height <= 0)
               throw new Error('Invalid Falcon display configuration')
+            this.nativeAreaStyle = { left: '0px', top: '0px', width: screen.width + 'px', height: screen.height + 'px' }
             this.send('display.area', { x: 0, y: 0, width: screen.width, height: screen.height })
           }
           else if (event.type === 'ready') { this._nativeReady = true; clearTimeout(this._readyTimer); this._readyTimer = null; if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }

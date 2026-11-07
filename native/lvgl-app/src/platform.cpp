@@ -13,11 +13,7 @@ Display::Display(const Screen &s, bool headless)
     : screen_(s), headless_(headless) {
   buffer_.resize(size_t(s.width) * s.height * 4);
   if (!headless_) {
-    camera::HoleRect r(0, 0, s.width, s.height, s.width, s.height, s.rotation,
-                       0, 0, s.xoffset, s.yoffset);
-    overlay_.setHole(r);
-    if (!overlay_.open())
-      throw std::runtime_error(overlay_.lastError());
+    surface_=camera::makeDisplaySurface({s.width,s.height,s.rotation,s.xoffset,s.yoffset,s.panelWidth,s.panelHeight});
   }
   display_ = lv_display_create(s.width, s.height);
   lv_display_set_color_format(display_, LV_COLOR_FORMAT_ARGB8888);
@@ -30,23 +26,39 @@ Display::Display(const Screen &s, bool headless)
       });
 }
 Display::~Display() {
-  overlay_.close();
+  surface_.reset();
   if (display_)
     lv_display_delete(display_);
 }
 void Display::flush(lv_display_t *d, const lv_area_t *, uint8_t *) {
-  if (shown_ && !headless_)
-    overlay_.presentBgra(buffer_.data(), screen_.width, screen_.height);
+  if (shown_ && !headless_ && surface_) {
+    try {surface_->present(buffer_.data(), screen_.width, screen_.height);}
+    catch(const std::exception &e) {
+      error_=e.what();shown_=false;
+      try{surface_->hide();}catch(...){}
+    }
+  }
   if(lv_display_flush_is_last(d)) trimFontCache();
   lv_display_flush_ready(d);
 }
 void Display::visible(bool value) {
   shown_ = value;
-  if (!value && !headless_)
-    overlay_.disable();
+  if (!value && !headless_ && surface_)
+    surface_->hide();
   if (value) {
+    if(!surface_&&!mediaPaused_&&!headless_)mediaHandoff(false);
     lv_obj_invalidate(lv_screen_active());
     lv_refr_now(display_);
+  }
+}
+void Display::mediaHandoff(bool release) {
+  if(headless_)return;
+  mediaPaused_=release;
+  if(release)surface_.reset();
+  else if(!surface_&&shown_) {
+    surface_=camera::makeDisplaySurface({screen_.width,screen_.height,screen_.rotation,
+      screen_.xoffset,screen_.yoffset,screen_.panelWidth,screen_.panelHeight});
+    if(shown_)lv_obj_invalidate(lv_screen_active());
   }
 }
 void Display::screenshot(const std::string &path) {

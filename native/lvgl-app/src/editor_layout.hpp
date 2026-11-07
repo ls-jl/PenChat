@@ -8,13 +8,17 @@ namespace penchat {
 // Keyboard geometry is in Falcon logical coordinates. Fixed values below are
 // padding/control sizes, never a fallback display resolution.
 struct EditorLayout {
+  int nativeWidth, nativeHeight;
+  bool scaled=false;
   int width, height, split, textX, textWidth, textY = 78, textHeight;
   int actionsY, bottomY, rowHeight, keyTop=6, bottomHeight=44, candidateY=6, compositionY=54;
   bool portrait=false, docked=false;
   int panelTop=0, textAreaWidth=0, keyboardLift=0;
   int keyInset=0, keySpan=0;
   double keyWidth;
-  EditorLayout(int w, int h, bool selectionOnly = false, bool chatComposer = false) : width(w), height(h) {
+  EditorLayout(int w, int h, bool selectionOnly = false, bool chatComposer = false) : nativeWidth(w),nativeHeight(h),width(w),height(h) {
+    scaled=h<=w && w<936;
+    if(scaled){w=width=960;h=height=266;}
     split = w - std::max(352, w * 2 / 5 - 8);
     textX = split + 8;
     textWidth = w - textX - 8;
@@ -50,6 +54,10 @@ struct EditorLayout {
     if (selectionOnly) { split=86;textX=96;textWidth=w-106;textY=56;textHeight=h-66;if(portrait){const AppLayout safe{w,h};split=w;textX=keyInset;textWidth=keySpan;textY=56+safe.safeTop();textHeight=h-textY-safe.safeBottom();} }
     textAreaWidth=textWidth-(docked&&chatComposer?56:0);
   }
+  int fromNativeX(int x) const {return scaled?int(std::lround(double(x)*width/nativeWidth)):x;}
+  int fromNativeY(int y) const {return scaled?int(std::lround(double(y)*height/nativeHeight)):y;}
+  int scaleX() const {return scaled?int(std::lround(256.*nativeWidth/width)):256;}
+  int scaleY() const {return scaled?int(std::lround(256.*nativeHeight/height)):256;}
   int overlayY() const { return docked?AppLayout{width,height}.safeTop():textY; }
   int overlayHeight() const { return docked?compositionY-overlayY()-10:textHeight; }
   struct Popup {

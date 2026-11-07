@@ -16,6 +16,7 @@ struct CaptureProfile {
   ScanLight light = ScanLight::Gpio43;
   std::string ledBrightness, ledOnValue;
   std::string privateRuntime;
+  bool cvi = false;
   bool gatesExposure = true;
   bool ov7251Startup = false;
   unsigned gpio = 0;
@@ -26,6 +27,11 @@ struct CaptureProfile {
 // Match a known board AND its actual pen sensor. Display geometry is unrelated.
 inline CaptureProfile scanProfile(const std::string &model,
                                   const std::string &sensor) {
+  if(model.find("Cvitek Cv1826 for Youdao Plum V0 version")!=std::string::npos &&
+      sensor.find("PIXART_PAG7920_MIPI_240P_100FPS_10BIT")!=std::string::npos) {
+    CaptureProfile p{"s6-pag7920","pag7920",320,240};p.cvi=true;p.gatesExposure=false;
+    p.videoNode.clear();p.sensorNode.clear();p.light=ScanLight::ConfiguredGpio;return p;
+  }
   if (model.find("ORANGE") != std::string::npos &&
       sensor.find("sc2356") != std::string::npos)
     return {"orange-sc2356", "sc2356", 496, 360};

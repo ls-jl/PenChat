@@ -76,7 +76,7 @@ std::vector<std::string> characters(const std::string &v) {
   }
   return result;
 }
-Screen Screen::fromConfig(const Json &cfg) {
+Screen Screen::fromConfig(const Json &cfg, bool physicalPanel) {
   Screen s;
   if (!cfg.contains("screen") || !cfg.at("screen").is_object())
     throw std::runtime_error("Falcon configuration has no screen section");
@@ -105,6 +105,9 @@ Screen Screen::fromConfig(const Json &cfg) {
   if (s.rotation != 0 && s.rotation != 90 && s.rotation != 180 &&
       s.rotation != 270)
     throw std::runtime_error("Invalid screen rotation");
+  s.panelWidth = s.width; s.panelHeight = s.height;
+  if (physicalPanel && (s.rotation == 90 || s.rotation == 270))
+    std::swap(s.width,s.height);
   return s;
 }
 Json Screen::descriptor() const {

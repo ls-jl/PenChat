@@ -8,9 +8,11 @@ class ScanService {
   std::unique_ptr<Impl> p_;
 
 public:
+  static void recoverHardware(const std::string &data);
   ScanService(Events &, const std::string &workspace, const std::string &data);
   ~ScanService();
   void stop();
+  void mediaReleased(uint64_t token);
   void eligible(bool enabled, const std::string &session);
   uint64_t prepareReview(uint64_t scan);
   void cancelReview(uint64_t scan);
@@ -21,7 +23,7 @@ public:
   uint64_t generation() const;
   Json state() const;
   std::shared_ptr<ImageFrame> preview(uint64_t scan);
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
   void test(const Json &command);
 #endif
 };

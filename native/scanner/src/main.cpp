@@ -171,6 +171,22 @@ class Worker {
   std::atomic<int> mockMemory_{0};
 #endif
   CaptureProfile profile_;
+  std::deque<Json> deferredControl_;
+  uint64_t mediaToken_=0;
+  void yieldMedia() {
+    if(!running)return;
+    const auto token=++mediaToken_;emit("media_yield",{{"token",token}});
+    const auto end=clockUs()+3000000;
+    while(clockUs()<end) {
+      const auto packet=receivePacket(fd_);
+      if(packet.is_boolean())throw ControlDisconnected();
+      if(packet.is_null()){pollfd p{fd_,POLLIN,0};poll(&p,1,10);continue;}
+      if(packet.value("type",std::string())=="media_ack"&&packet.value("token",uint64_t(0))==token)return;
+      if(deferredControl_.size()>=32)throw std::runtime_error("media handoff command queue full");
+      deferredControl_.push_back(packet);
+    }
+    throw std::runtime_error("native display release timed out");
+  }
   bool requireRelease_ = false, keyDown_ = false, draining_ = false;
   bool retryWhenEmpty_ = false;
   unsigned afterStop_ = 0;
@@ -281,7 +297,7 @@ class Worker {
       k->sensorHeight=profile_.height;k->rotation=config_.rotation;k->gain.fill(gain);
       config_.calibration=k;config_.diagnosticAcceptAll=mock_;return;
     }
-    if (profile_.id == "y02-sc035gs" || profile_.id == "melon-ov7251") {
+    if (profile_.id == "y02-sc035gs" || profile_.id == "melon-ov7251" || profile_.cvi) {
       // Independent neutral flat-field, NOT the ORANGE illumination resource.
       // Keep raw SC035GS detail; per-frame photometric estimation still runs.
       auto k = std::make_shared<Calibration>();
@@ -606,6 +622,7 @@ public:
         directory_(std::move(directory)), mock_(mock), profile_(profile), light_(mock) {
     if (!profile_.supported())
       throw std::runtime_error("unsupported scan board or pen sensor");
+    if(profile_.cvi)hardware_.beforeRestore([this]{yieldMedia();});
     std::unique_ptr<Inference> backend;
 #ifdef SCANNER_TEST_SOURCE
     if (mock_)
@@ -617,7 +634,11 @@ public:
       const auto runtime = profile_.privateRuntime.empty()
           ? std::string("librknnrt.so")
           : resources_ + "/lib/" + profile_.privateRuntime;
+#ifdef PENCHAT_CVI_CAPTURE
+      backend = makeCvi32(resources_ + "/pintu_rgb32_int8.cvimodel", "/oem/YoudaoDictPen/output/libs/libcviruntime.so");
+#else
       backend = makeRknn32(resources_ + "/pintu_32.rknn", runtime);
+#endif
     }
     Limits limits;
     limits.maxSessions = 1;
@@ -645,6 +666,9 @@ public:
     DrainDeadline deadline;
     result_.reset();
     engine_.reset();
+  }
+  void drainDeferred() {
+    while(!deferredControl_.empty()){auto commandPacket=std::move(deferredControl_.front());deferredControl_.pop_front();command(commandPacket);}
   }
   void command(const Json &j) {
     auto type = j.value("type", std::string());
@@ -998,6 +1022,7 @@ int main(int argc, char **argv) {
       if (p.revents & (POLLHUP | POLLERR | POLLNVAL))
         break;
       try {
+        worker.drainDeferred();
         for (int n = 0; n < 32; ++n) {
           auto j = receivePacket(fd);
           if (j.is_boolean()) {

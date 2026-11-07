@@ -25,6 +25,33 @@ struct ScanService::Impl {
   std::string session;
   uint64_t generation = 0, request = 0;
   Json status = Json::object(), lease;
+  const bool sharedMedia=detectedScanProfile().cvi;
+  uint64_t mediaToken=0,mediaAck=0;bool displayHeld=false;
+  void yieldDisplay() {
+    if(!sharedMedia||displayHeld)return;
+    std::unique_lock<std::mutex> lock(mutex);const auto token=++mediaToken;
+    events.push("scan_media_release",{{"token",token}});
+    if(!cv.wait_for(lock,std::chrono::seconds(3),[&]{return mediaAck>=token||stopped;}))
+      throw std::runtime_error("native display handoff timed out");
+    displayHeld=true;
+  }
+  void resumeDisplay(bool systemOwner=false) {
+    if(!sharedMedia||!displayHeld||stopped)return;
+    if(systemOwner) {
+      // The stock owner must finish rebuilding its two VPSS outputs before a
+      // new VO file description is opened. Never race its broad SYS init.
+      const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(4);
+      int stable=0;
+      while(std::chrono::steady_clock::now()<end) {
+        const auto text=fileText("/proc/cvitek/vpss",65536);
+        if(text.find("NV12")!=std::string::npos&&text.find("YUV_400")!=std::string::npos)++stable;else stable=0;
+        if(stable>=3)break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+      if(stable<3)throw std::runtime_error("system capture recovery timed out");
+    }
+    displayHeld=false;events.push("scan_media_resume");
+  }
   std::deque<Json> commands;
   int socket = -1, memory = -1, processLock = -1;
   pid_t child = -1;
@@ -33,15 +60,15 @@ struct ScanService::Impl {
       : events(e), workspace(std::move(w)), data(std::move(d)) {
     binary = join(workspace, "assets/bin/penchat-scanner");
     resources = join(workspace, "assets/scanner");
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
     if (const auto p = getenv("PENCHAT_SCANNER_BINARY"))
       binary = p;
     if (const auto p = getenv("PENCHAT_SCAN_RESOURCES"))
       resources = p;
 #endif
     available = access(binary.c_str(), R_OK) == 0 &&
-                access(join(resources, "demo_gain.json").c_str(), R_OK) == 0;
-#ifdef __aarch64__
+                access(join(resources, detectedScanProfile().cvi ? "pintu_rgb32_int8.cvimodel" : "demo_gain.json").c_str(), R_OK) == 0;
+#ifdef PENCHAT_NATIVE_DEVICE
     // Only explicit board/sensor capture profiles may own the pen hardware.
     available = available && detectedScanProfile().supported();
 #else
@@ -69,7 +96,7 @@ struct ScanService::Impl {
   }
   void start() {
     bool mock = false;
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
     mock = getenv("PENCHAT_SCANNER_TEST") != nullptr;
 #endif
     if (!mock)
@@ -117,7 +144,7 @@ struct ScanService::Impl {
       args.push_back("--lease-fd");
       args.push_back("5");
     }
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
     if (getenv("PENCHAT_SCANNER_TEST"))
       args.push_back("--simulate");
 #endif
@@ -138,7 +165,7 @@ struct ScanService::Impl {
         environment.push_back(value);
     }
     std::string libraries = join(resources, "lib");
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
     if (const char *p = getenv("LD_LIBRARY_PATH"))
       libraries = std::string(p) + ":" + libraries;
 #endif
@@ -182,6 +209,7 @@ struct ScanService::Impl {
       throw std::runtime_error("cannot start scanner");
   }
   void cleanup() {
+    if(sharedMedia)try{yieldDisplay();}catch(...){}
     if (socket >= 0) {
       close(socket);
       socket = -1;
@@ -213,8 +241,10 @@ struct ScanService::Impl {
       child = -1;
     }
     // Last resort after a killed child, never before its light worker exits.
-    if (!lease.empty())
+    if (!lease.empty()) {
       restoreScanLease(lease);
+      if(sharedMedia&&scanLeaseRestored(lease))unlink(join(data,"scanner-lease.json").c_str());
+    }
     lease = Json();
     // Keep the shared flock through waitpid and fallback restoration. A new
     // worker must not acquire the same guardian while old cleanup is pending.
@@ -252,9 +282,11 @@ struct ScanService::Impl {
       try {
         if (socket < 0 && !outgoing.empty())
           start();
-        for (auto &j : outgoing)
-          if (!sendPacket(socket, j))
-            throw std::runtime_error("scanner command failed");
+        for (auto &j : outgoing) {
+          const auto type=j.value("type",std::string());
+          if(type=="disarm"||type=="cancel")yieldDisplay();
+          if (!sendPacket(socket, j))throw std::runtime_error("scanner command failed");
+        }
         if (socket < 0)
           continue;
         pollfd p{socket, POLLIN, 0};
@@ -272,8 +304,15 @@ struct ScanService::Impl {
           if (type == "fatal")
             throw std::runtime_error(
                 j.value("error", std::string("scanner failed")));
+          if(type=="media_yield") {
+            yieldDisplay();auto ack=j;ack["type"]="media_ack";
+            if(!sendPacket(socket,ack))throw std::runtime_error("media release acknowledgement failed");
+            continue;
+          }
           if (type == "lease") {
+            yieldDisplay();
             lease = j.at("lease");
+            if(sharedMedia)atomicText(join(data,"scanner-lease.json"),lease.dump());
             Json ack = j;
             ack["type"] = "lease_ack";
             ack.erase("lease");
@@ -287,11 +326,17 @@ struct ScanService::Impl {
               continue;
             status = j;
             if (type == "released") {
-              disarmed = true;
+              disarmed = !sharedMedia;
+              if(sharedMedia&&scanLeaseRestored(lease))unlink(join(data,"scanner-lease.json").c_str());
               lease = Json();
             }
             if (type == "error" || type == "fatal")
-              disarmed = true;
+              disarmed = !sharedMedia;
+          }
+          if(type=="ready")resumeDisplay();
+          if(type=="released"||type=="error") {
+            resumeDisplay(true);
+            std::lock_guard<std::mutex> l(mutex);disarmed=true;
           }
           if (type == "preview" || type == "progress")
             events.pushLatest("scan_" + type, j);
@@ -309,16 +354,33 @@ struct ScanService::Impl {
           j["error"] = e.what();
           status = j;
         }
+        try{resumeDisplay(true);}catch(...){}
         events.push("scan_error", j);
       }
     }
     cleanup();
   }
 };
+void ScanService::recoverHardware(const std::string &data) {
+  if(!detectedScanProfile().cvi)return;
+  const auto path=join(data,"scanner-lease.json");
+  if(access(path.c_str(),F_OK))return;
+  const int lock=acquireScanProcessLock(2000);
+  struct Close {int fd;~Close(){::close(fd);}} guard{lock};
+  const auto lease=Json::parse(fileText(path,65536));
+  if(lease.value("profile",std::string())!="s6-pag7920")
+    throw std::runtime_error("Unexpected capture recovery profile");
+  restoreScanLease(lease);
+  if(!scanLeaseRestored(lease))throw std::runtime_error("System capture recovery failed");
+  unlink(path.c_str());
+}
 ScanService::ScanService(Events &e, const std::string &w, const std::string &d)
     : p_(new Impl(e, w, d)) {}
 ScanService::~ScanService() = default;
 void ScanService::stop() { p_->stop(); }
+void ScanService::mediaReleased(uint64_t token) {
+  std::lock_guard<std::mutex> lock(p_->mutex);p_->mediaAck=std::max(p_->mediaAck,token);p_->cv.notify_all();
+}
 void ScanService::eligible(bool enabled, const std::string &session) {
   std::lock_guard<std::mutex> l(p_->mutex);
   if (!p_->available || p_->stopped)
@@ -367,7 +429,7 @@ Json ScanService::state() const {
   std::lock_guard<std::mutex> l(p_->mutex);
   return p_->status;
 }
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
 void ScanService::test(const Json &input) {
   if (!getenv("PENCHAT_SCANNER_TEST"))
     return;

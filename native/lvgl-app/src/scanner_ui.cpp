@@ -150,6 +150,10 @@ void App::viewScanResult() {
   openImageViewer("",true);scanViewRequest_=scanner_.prepareReview(scanId_);
 }
 void App::scanEvent(const Event &event) {
+  if(event.type=="scan_media_release") {
+    display_.mediaHandoff(true);scanner_.mediaReleased(event.data.at("token").get<uint64_t>());return;
+  }
+  if(event.type=="scan_media_resume") {display_.mediaHandoff(false);return;}
   const auto &j = event.data;
   if (j.value("generation", uint64_t(0)) != scanner_.generation() ||
       j.value("session", std::string()) != session_)

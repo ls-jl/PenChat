@@ -16,7 +16,7 @@
 namespace penchat { namespace updates {
 Config Config::build() {
   Config value;
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
   value.autoCheck=false;
   if(const auto path=getenv("PENCHAT_TEST_UPDATE_CONFIG")) {
     const auto json=Json::parse(fileText(path,16384));
@@ -159,7 +159,7 @@ struct Transport::Impl {
       const auto route=host+":"+std::to_string(port)+":"+target+":"+std::to_string(port);
       t->route=curl_slist_append(nullptr,route.c_str());if(!t->route)throw std::runtime_error("无法创建更新路由");SET(CURLOPT_CONNECT_TO,t->route);
     }
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
     if(const auto ca=getenv("PENCHAT_TEST_CA"))SET(CURLOPT_CAINFO,ca);
 #endif
 #undef SET

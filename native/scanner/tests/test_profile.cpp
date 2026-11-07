@@ -4,6 +4,11 @@
 #include <iostream>
 using namespace penchat_scan;
 int main() {
+  const auto s6=scanProfile("Cvitek Cv1826 for Youdao Plum V0 version","PIXART_PAG7920_MIPI_240P_100FPS_10BIT");
+  assert(s6.id=="s6-pag7920"&&s6.cvi&&s6.width==320&&s6.height==240&&!s6.gatesExposure);
+  assert(s6.light==ScanLight::ConfiguredGpio&&s6.videoNode.empty());
+  assert(!scanProfile("unknown Plum","PIXART_PAG7920_MIPI_240P_100FPS_10BIT").supported());
+  assert(!scanProfile("Cvitek Cv1826 for Youdao Plum V0 version","sc2356").supported());
   const auto orange = scanProfile("Rockchip RK3562 ORANGE LP4 V10 Board", "m00_f_sc2356 5-0030");
   const auto y02 = scanProfile("Rockchip RK3562 Y02 LP4 V10 Board", "m00_f_sc035gs 5-0030");
   assert(orange.id == "orange-sc2356" && orange.width == 496 && orange.height == 360);

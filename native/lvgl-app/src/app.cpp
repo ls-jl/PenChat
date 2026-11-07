@@ -2880,6 +2880,9 @@ void App::suspend(bool value) {
     startCamera();
 }
 void App::shutdown() {
+#ifdef PENCHAT_CVI_PLATFORM
+  display_.mediaHandoff(true);
+#endif
   if (shutdownComplete_) return;
   shutdownComplete_ = true;
   if(onboarding_)onboarding_->tick(false);
@@ -3006,7 +3009,7 @@ void App::routeTouch(const Json &m) {
 }
 void App::handle(const Json &m) {
   auto type = m.value("type", std::string());
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
   if(type=="update.test" && std::getenv("PENCHAT_TEST_UPDATE_CONFIG")){updater_->request(m.value("operation",std::string()),m.value("args",Json::object()));return;}
   if (type == "feedback.test" && std::getenv("PENCHAT_TEST_FEEDBACK_CONFIG")) {
     feedback_->request(m.value("operation",std::string()),m.value("args",Json::object()));

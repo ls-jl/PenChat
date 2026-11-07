@@ -25,7 +25,7 @@ bool bit(const unsigned char *bits, unsigned value) {
   return bits[value / 8] & (1u << (value % 8));
 }
 std::vector<std::string> inputPaths() {
-#if !defined(__aarch64__) || defined(PENCHAT_KEY_CAPTURE_TEST)
+#if !defined(PENCHAT_NATIVE_DEVICE) || defined(PENCHAT_KEY_CAPTURE_TEST)
   // Tests use only explicitly created private uinput nodes; never host buttons.
   if (const auto file = getenv("PENCHAT_TEST_FEEDBACK_KEYS")) {
     const auto config = Json::parse(fileText(file, 8192));
@@ -46,7 +46,7 @@ std::vector<std::string> inputPaths() {
   return paths;
 }
 int64_t captureLimit() {
-#if !defined(__aarch64__) || defined(PENCHAT_KEY_CAPTURE_TEST)
+#if !defined(PENCHAT_NATIVE_DEVICE) || defined(PENCHAT_KEY_CAPTURE_TEST)
   if (const auto file = getenv("PENCHAT_TEST_FEEDBACK_KEYS")) {
     const auto config = Json::parse(fileText(file, 8192));
     return std::max(50, std::min(30000, config.value("timeout_ms", 30000)));
