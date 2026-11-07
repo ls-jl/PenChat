@@ -673,6 +673,11 @@ public:
   void command(const Json &j) {
     auto type = j.value("type", std::string());
     auto generation = j.value("generation", uint64_t(0));
+#ifdef SCANNER_TEST_SOURCE
+    if(mock_&&type=="test.media_disarm") {
+      yieldMedia();disarm();emit("released");return;
+    }
+#endif
     if (type == "arm") {
       if (generation <= generation_)
         return;
@@ -948,7 +953,7 @@ public:
       emit("error", {{"error", why}});
     }
   }
-  bool idle() const { return state_ == "disarmed"; }
+  bool idle() const { return state_ == "disarmed" && deferredControl_.empty(); }
 };
 } // namespace
 int main(int argc, char **argv) {

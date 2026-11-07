@@ -27,6 +27,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-focus-') as directory:
         focus(True);time.sleep(.38);app.tap(40,32)
         state=app.diag();assert not state['navigation_open'] and not state['input_focused']
         assert state['visible'] and state['display_visible']
+        time.sleep(1.3);assert not app.diag()['display_visible']
         focus(True);app.tap(40,32);assert app.diag()['navigation_open']
     finally:app.close()
 print('Actual LVGL focus: overlay, stale messages, cancelled release, expiry and recovery passed.')

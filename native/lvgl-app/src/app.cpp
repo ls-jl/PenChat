@@ -64,7 +64,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
             join(workspace, "assets/fonts/DejaVuSans.ttf")),
       workspace_(std::move(workspace)), dataDir_(std::move(dataDir)) {
   inputFocus_ = InputFocus(nativeTouch);
-  inputFocused_ = !nativeTouch;
+  inputFocused_ = touchLeaseActive_ = !nativeTouch;
   initializeMessageEdits();
   feedback_.reset(new Feedback(events_, dataDir_, feedbackScreen(configuration, s), nativeTouch));
   transfer_.reset(new Transfer(db_, events_, dataDir_));
@@ -2841,26 +2841,30 @@ void App::attach(const Json &image) {
       sendMessage();
   });
 }
+void App::cancelNativeInteraction() {
+  touchInput_.close(); input_.cancel();
+  readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
+  navigationBackdrop_ = navigationPointerDown_ = false;
+  resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
+  finishImageGesture(false); nonImageMulti_ = false; viewerLastTap_ = 0;
+  if (imageViewer_ || view_ == "crop") imageGesture_.mode = -2;
+  if (editor_.active) editorInterrupt();
+}
 void App::updateInputFocus() {
-  const bool allowed = visible_ && !keyboard_ && inputFocus_.allowed(ticks());
-  if (inputFocused_ == allowed) return;
-  inputFocused_ = allowed;
-  if (!allowed) {
-    // Cancel, never synthesize a release/click in the underlying page.
-    touchInput_.close(); input_.cancel();
-    readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
-    navigationBackdrop_ = navigationPointerDown_ = false;
-    resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
-    finishImageGesture(false); nonImageMulti_ = false; viewerLastTap_ = 0;
-    if (imageViewer_ || view_ == "crop") imageGesture_.mode = -2;
-    if (editor_.active) editorInterrupt();
-  } else if (editor_.active) {
-    editorPolicy(!editorSelectionOnly_); editorChanged(); editorOcrStart();
+  const bool media = visible_ && !keyboard_ && inputFocus_.mediaAllowed(ticks());
+  if(inputFocused_!=media) {
+    inputFocused_=media;
+    display_.visible(media);
+    syncScanner();
   }
-  syncScanner();
+  const bool touch=media&&inputFocus_.allowed(ticks());
+  if(touchLeaseActive_==touch)return;
+  touchLeaseActive_=touch;
+  if(!touch)cancelNativeInteraction();
+  else if(editor_.active){editorPolicy(!editorSelectionOnly_);editorChanged();editorOcrStart();}
 }
 void App::suspend(bool value) {
-  if(value)inputFocus_.block();
+  if(value){inputFocus_.block();display_.visible(false);}
   diagnosticRecord("lifecycle", value ? "background" : "foreground");
   if(onboarding_)onboarding_->tick(false);
   if (value && feedback_) feedback_->background();
@@ -2894,7 +2898,7 @@ void App::suspend(bool value) {
   visible_ = !value;
   updateInputFocus();
   input_.cancel();
-  display_.visible(!value && !keyboard_);
+  display_.visible(!value && !keyboard_ && (inputFocused_ || !display_.presented()));
   if (value) {
     camera_.stop();
   } else if (editor_.active && !keyboard_) {editorPolicy(!editorSelectionOnly_);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
@@ -3123,7 +3127,7 @@ void App::handle(const Json &m) {
         else { editor_.notice = "官方输入超过长度上限，请调整";editorPolicy(true);editorBuild();editorOcrStart(); }
       } else {editorPolicy(true);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
     }
-    display_.visible(visible_);
+    display_.visible(visible_ && inputFocused_);
 
   } else if(type=="navigation.policy") {
     if(m.value("sequence",uint64_t(0))==backPolicySequence_) {
@@ -3154,7 +3158,7 @@ void App::tick() {
     startupReadyPending_ = false;
     bridge_.send("ready");
   }
-  auto touches=touchInput_.poll(visible_ && !keyboard_ && inputFocused_);
+  auto touches=touchInput_.poll(visible_ && !keyboard_ && touchLeaseActive_);
   for(const auto &touch:touches){
     if(!visible_ || keyboard_ || !inputFocused_ || !inputFocus_.allowed(ticks())) { updateInputFocus();touchInput_.close();break; }
     handle(touch);
@@ -3258,7 +3262,7 @@ void App::tick() {
         modal("使用匹配值", "点击填充图标只替换对应字段；其他设置不变，保存后生效。");
       continue;
     }
-    if (e.type == "editor_action") { if (editor_.active && visible_ && inputFocused_ && !keyboard_ && e.data.value("id",std::string()) == editor_.id) editorAction(e.data.value("action",std::string())); continue; }
+    if (e.type == "editor_action") { if (editor_.active && visible_ && touchLeaseActive_ && !keyboard_ && e.data.value("id",std::string()) == editor_.id) editorAction(e.data.value("action",std::string())); continue; }
     if (e.type.find("scan_") == 0) {
       scanEvent(e);
       continue;
@@ -3781,7 +3785,7 @@ Json App::diagnostics() const {
       {"keyboard", keyboard_},
       {"display_visible", display_.visible()}, {"display_present_pending",display_.pending()},
       {"ocr", editorOcrActive_},
-      {"visible", visible_}, {"input_focused",inputFocused_},
+      {"visible", visible_}, {"input_focused",touchLeaseActive_},
       {"width", screen_.width},
       {"height", screen_.height},
       {"rotation", screen_.rotation}};

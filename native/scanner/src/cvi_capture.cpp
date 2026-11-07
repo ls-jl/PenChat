@@ -2,6 +2,7 @@
 #include "cvi_capture.hpp"
 #include "../../camera/src/cvi_media_abi.h"
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <dlfcn.h>
@@ -139,6 +140,10 @@ public:
       sensor_=true;
       check(fn<int(*)(void *)>(sample_,"SAMPLE_COMM_VI_StartSensor")(vi_.data()),"sensor_start");
       check(fn<int(*)(void *)>(sample_,"SAMPLE_COMM_VI_StartDev")(vi_.data()),"device_start");
+      // StartDev only enables the input device; it does not bind its pipe.
+      // A stale binding left by the stock process made this appear to work on
+      // some runs. Establish ownership explicitly on every capture startup.
+      check(fn<int(*)(void *)>(sample_,"SAMPLE_COMM_VI_BindPipeDev")(vi_.data()),"bind_sensor_pipe");
       check(fn<int(*)(void *)>(sample_,"SAMPLE_COMM_VI_StartMIPI")(vi_.data()),"mipi_start");
       Pipe pipe;check(fn<int(*)(int,Pipe *)>(vpu_,"CVI_VI_CreatePipe")(0,&pipe),"pipe_create");
       check(fn<int(*)(int)>(vpu_,"CVI_VI_StartPipe")(0),"pipe_start");
@@ -158,6 +163,17 @@ public:
       check(fn<int(*)(void *)>(sample_,"SAMPLE_COMM_VI_StartViChn")(vi_.data()),"vi_channel");
       get_=fn<decltype(get_)>(vpu_,"CVI_VPSS_GetChnFrame");release_=fn<decltype(release_)>(vpu_,"CVI_VPSS_ReleaseChnFrame");
       map_=fn<decltype(map_)>(sys_,"CVI_SYS_Mmap");unmap_=fn<decltype(unmap_)>(sys_,"CVI_SYS_Munmap");
+      // Configuration success alone is not camera readiness. Drain three real
+      // full-field frames before allowing VO resume or reporting scan ready.
+      unsigned frames=0;std::uint32_t previous=0;std::int64_t previousTime=0;
+      const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+      while(frames<3&&std::chrono::steady_clock::now()<deadline)
+        read([&](const std::uint8_t *,int,std::uint64_t sequence,std::int64_t timestamp){
+          frames=frames&&std::uint32_t(sequence)==previous+1&&timestamp>previousTime?frames+1:1;
+          previous=std::uint32_t(sequence);previousTime=timestamp;
+        });
+      if(frames<3)throw std::runtime_error("CVI sensor startup produced no continuous frames");
+      std::fprintf(stderr,"CVI_STAGE sensor_frames_ready %u\n",frames);
     }catch(...){close();throw;}
   }
   ~CviCapture()override{close();}

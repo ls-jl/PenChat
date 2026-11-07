@@ -17,7 +17,14 @@ public:
   }
   void block() { active_ = false; }
   bool allowed(std::int64_t now) const {
-    return !required_ || (active_ && now >= renewed_ && now - renewed_ < 300);
+    return valid(now,300);
+  }
+  // Do not tear down/rearm media for a single slow native draw. Input still
+  // expires at 300ms; explicit focus loss revokes both immediately.
+  bool mediaAllowed(std::int64_t now) const {return valid(now,1500);}
+private:
+  bool valid(std::int64_t now,std::int64_t duration) const {
+    return !required_ || (active_ && now >= renewed_ && now - renewed_ < duration);
   }
 };
 }

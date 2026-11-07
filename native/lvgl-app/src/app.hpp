@@ -261,6 +261,8 @@ class App {
   bool generating_ = false, visible_ = true, keyboard_ = false;
   InputFocus inputFocus_;
   bool inputFocused_ = false, startupReadyPending_ = false;
+  bool touchLeaseActive_ = false;
+  void cancelNativeInteraction();
   void updateInputFocus();
   std::atomic<bool> cancel_{false};
   std::thread network_;

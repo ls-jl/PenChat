@@ -4,10 +4,15 @@
 #include <iostream>
 #include <chrono>
 #include <thread>
+#include <sys/stat.h>
+#include <unistd.h>
 namespace {volatile sig_atomic_t stop=0;void stopped(int){stop=1;}}
 int main(int argc,char **argv) {
   using namespace penchat_scan;
   try {
+    umask(0077);
+    const int lock=acquireScanProcessLock(2000);
+    struct Lock {int fd;~Lock(){::close(fd);}} held{lock};
     const std::string leasePath="/tmp/penchat-s6-capture-lease.json";
     if(argc==2&&std::string(argv[1])=="--restore") {
       std::ifstream saved(leasePath);Json j;saved>>j;restoreScanLease(j);return 0;
@@ -18,8 +23,11 @@ int main(int argc,char **argv) {
     Hardware hardware;
     try {
       hardware.open(lease);hardware.light(true);std::uint64_t frames=0,last=0;bool savedFrame=false;
-      const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+      const int seconds=(argc==3&&std::string(argv[1])=="--seconds")?std::max(1,std::min(15,std::stoi(argv[2]))):3;
+      auto report=std::chrono::steady_clock::now();
+      const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(seconds);
       while(!stop&&std::chrono::steady_clock::now()<end) {
+        if(std::chrono::steady_clock::now()-report>=std::chrono::seconds(1)){std::cerr<<"CAPTURE_PROGRESS frames="<<frames<<"\n";report=std::chrono::steady_clock::now();}
         hardware.readFrame([&](const std::uint8_t *pixels,int stride,std::uint64_t seq,std::int64_t timestamp){
           unsigned low=255,high=0;std::uint64_t sum=0;
           for(int y=0;y<240;++y)for(int x=0;x<320;++x){unsigned v=pixels[y*stride+x];low=std::min(low,v);high=std::max(high,v);sum+=v;}
@@ -29,7 +37,7 @@ int main(int argc,char **argv) {
           if(frames==1)std::cerr<<"RAW_FRAME stride="<<stride<<" sequence="<<seq<<" timestamp="<<timestamp<<'\n';
         });
       }
-      hardware.close();std::cout<<"CVI_CAPTURE frames="<<frames<<" last="<<last<<'\n';return frames?0:1;
+      hardware.close();unlink(leasePath.c_str());std::cout<<"CVI_CAPTURE frames="<<frames<<" last="<<last<<'\n';return frames?0:1;
     }catch(...){hardware.close();throw;}
   }catch(const std::exception &e){std::cerr<<"S6_CAPTURE_ERROR "<<e.what()<<'\n';return 1;}
 }

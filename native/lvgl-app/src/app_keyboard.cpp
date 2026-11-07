@@ -785,7 +785,7 @@ void App::editorInterrupt() {
 }
 void App::editorTick() {
   const auto layout=editorLayout();
-  if (!editor_.active || keyboard_ || !visible_ || !inputFocused_) { editorAutoScrollAt_=0;return; }
+  if (!editor_.active || keyboard_ || !visible_ || !touchLeaseActive_) { editorAutoScrollAt_=0;return; }
   const auto now=ticks();
   const auto send=editorLocalActions_.find("chat-send");
   if(editorInlineChat_&&send!=editorLocalActions_.end()) {

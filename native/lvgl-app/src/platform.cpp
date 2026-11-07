@@ -54,8 +54,10 @@ void Display::check() {
 void Display::visible(bool value) {
   shown_ = value;
   if(!value)pending_=false;
-  if (!value && !headless_ && surface_)
-    surface_->hide();
+  if (!value && !headless_ && surface_) {
+    if(surface_->releaseOnHide())surface_.reset();
+    else surface_->hide();
+  }
   if (value) {
     if(!surface_&&!mediaPaused_&&!headless_)mediaHandoff(false);
     lv_obj_invalidate(lv_screen_active());

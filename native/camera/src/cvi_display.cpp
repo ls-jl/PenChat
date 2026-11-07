@@ -63,16 +63,15 @@ class CviDisplay final : public DisplaySurface {
   U32 sequence_=0;
   int (*pts_)(U64 *)=nullptr;
   bool deviceOpen_=false;
-  U32 pool_=~0u;bool layer_=false,channel_=false,shown_=false,haveLayer_=false,haveChannel_=false;
-  Layer oldLayer_{};Channel oldChannel_{};
+  U32 pool_=~0u;bool channel_=false,shown_=false;
   struct Buffer {U32 block=~0u;U64 address=0;std::uint8_t *map=nullptr;};
   Buffer buffers_[3];FrameSlots<3> slots_;
   U32 stride_=0,size_=0,yBytes_=0,uvBytes_=0;
   std::vector<std::uint8_t> converted_;
   int (*users_)(U32,U32 *)=nullptr;
   int (*layerSet_)(int,Layer *)=nullptr,(*channelSet_)(int,int,Channel *)=nullptr;
-  int (*layerDisable_)(int)=nullptr,(*channelDisable_)(int,int)=nullptr;
-  int (*show_)(int,int)=nullptr,(*hide_)(int,int)=nullptr,(*clear_)(int,int,std::uint8_t)=nullptr;
+  int (*channelDisable_)(int,int)=nullptr;
+  int (*show_)(int,int)=nullptr;
   int (*send_)(int,int,FrameInfo *,int)=nullptr;
   U32 (*create_)(Pool *)=nullptr,(*get_)(U32,U32,const char *)=nullptr;
   int (*destroy_)(U32)=nullptr,(*release_)(U32)=nullptr,(*unmap_)(void *,U32)=nullptr;
@@ -83,19 +82,19 @@ class CviDisplay final : public DisplaySurface {
   static void check(int rc){if(rc)throw std::runtime_error("CVI display error "+std::to_string(rc));}
   void close() noexcept {
     if(deviceOpen_)std::fprintf(stderr,"S6_MEDIA display.release.begin\n");
-    if(shown_&&hide_)hide_(0,0);
-    if(channel_&&clear_)clear_(0,0,1);
+    // A second video109 open invalidates the previous V4L2 file handle in
+    // this firmware. In particular HideChn/DisableVideoLayer/attribute restore
+    // would run S_EXT_CTRLS against freed ctrl refs after a system scan opens.
+    // Teardown must use only worker join, queue/resource release and fd close.
+    // Never repaint or restore global device settings over its new owner.
     if(channel_&&channelDisable_)channelDisable_(0,0);
-    if(layer_&&layerDisable_)layerDisable_(0);
-    if(haveChannel_&&channelSet_&&oldChannel_.rect.w&&oldChannel_.rect.h)channelSet_(0,0,&oldChannel_);
-    if(haveLayer_&&layerSet_&&oldLayer_.w&&oldLayer_.h)layerSet_(0,&oldLayer_);
     for(auto &b:buffers_) {
       if(b.map&&unmap_)unmap_(b.map,size_);
       if(b.block!=~0u&&release_)release_(b.block);
       b=Buffer{};
     }
     if(pool_!=~0u&&destroy_)destroy_(pool_);
-    pool_=~0u;shown_=channel_=layer_=haveChannel_=haveLayer_=false;
+    pool_=~0u;shown_=channel_=false;
     if(formatFd_>=0)::close(formatFd_);formatFd_=-1;
     // DisableChn joins the VO event thread before closing our final display fd.
     // Keeping that fd open while the stock camera closes its own display fd
@@ -164,17 +163,18 @@ public:
       check(reinterpret_cast<int(*)()>(helper)());
       layerSet_=load<decltype(layerSet_)>(vpu_,"CVI_VO_SetVideoLayerAttr");
       channelSet_=load<decltype(channelSet_)>(vpu_,"CVI_VO_SetChnAttr");
-      layerDisable_=load<decltype(layerDisable_)>(vpu_,"CVI_VO_DisableVideoLayer");
       channelDisable_=load<decltype(channelDisable_)>(vpu_,"CVI_VO_DisableChn");
-      show_=load<decltype(show_)>(vpu_,"CVI_VO_ShowChn");hide_=load<decltype(hide_)>(vpu_,"CVI_VO_HideChn");
-      clear_=load<decltype(clear_)>(vpu_,"CVI_VO_ClearChnBuf");send_=load<decltype(send_)>(vpu_,"CVI_VO_SendFrame");
+      show_=load<decltype(show_)>(vpu_,"CVI_VO_ShowChn");
+      send_=load<decltype(send_)>(vpu_,"CVI_VO_SendFrame");
       pts_=load<decltype(pts_)>(sys_,"CVI_SYS_GetCurPTS");
       users_=load<decltype(users_)>(sys_,"CVI_VB_InquireUserCnt");
       create_=load<decltype(create_)>(sys_,"CVI_VB_CreatePool");get_=load<decltype(get_)>(sys_,"CVI_VB_GetBlock");
       destroy_=load<decltype(destroy_)>(sys_,"CVI_VB_DestroyPool");release_=load<decltype(release_)>(sys_,"CVI_VB_ReleaseBlock");
       physical_=load<decltype(physical_)>(sys_,"CVI_VB_Handle2PhysAddr");map_=load<decltype(map_)>(sys_,"CVI_SYS_Mmap");unmap_=load<decltype(unmap_)>(sys_,"CVI_SYS_Munmap");
-      haveLayer_=load<int(*)(int,Layer *)>(vpu_,"CVI_VO_GetVideoLayerAttr")(0,&oldLayer_)==0;
-      haveChannel_=load<int(*)(int,int,Channel *)>(vpu_,"CVI_VO_GetChnAttr")(0,0,&oldChannel_)==0;
+      // Suspend intentionally avoids controls on the retired file handle. Once
+      // this fresh fd is the current owner, clear the SDK's retained layer flag
+      // through its public API before configuring the new surface.
+      check(load<int(*)(int)>(vpu_,"CVI_VO_DisableVideoLayer")(0));
       const int originX=driverOrigin("x",g.xoffset),originY=driverOrigin("y",g.yoffset);
       Layer layer{{originX,originY,U32(g.panelWidth),U32(g.panelHeight)},U32(g.panelWidth),U32(g.panelHeight),60,18};
       check(layerSet_(0,&layer));
@@ -216,7 +216,7 @@ public:
       if(stride_>16384||yBytes_<std::uint64_t(stride_)*g.panelHeight||uvBytes_<std::uint64_t(stride_)*g.panelHeight/2||
          std::uint64_t(yBytes_)+uvBytes_>64*1024*1024)throw std::runtime_error("CVI display buffer size invalid");
       check(load<int(*)()>(sys_,"init_disp_device")());
-      check(load<int(*)(int)>(vpu_,"CVI_VO_EnableVideoLayer")(0));layer_=true;
+      check(load<int(*)(int)>(vpu_,"CVI_VO_EnableVideoLayer")(0));
       check(load<int(*)(int,int)>(vpu_,"CVI_VO_EnableChn")(0,0));channel_=true;
       size_=yBytes_+uvBytes_;converted_.resize(size_);Pool cfg{size_,3,1,"penchat-display"};pool_=create_(&cfg);
       if(pool_==~0u)throw std::runtime_error("CVI display pool allocation failed");
@@ -229,7 +229,8 @@ public:
     }catch(...){close();throw;}
   }
   ~CviDisplay() override {close();}
-  void hide() override {if(shown_){check(hide_(0,0));shown_=false;check(clear_(0,0,1));}}
+  bool releaseOnHide() const override {return true;}
+  void hide() override {close();}
   bool present(const std::uint8_t *pixels,int w,int h) override {
     if(!pixels||w!=geometry_.width||h!=geometry_.height)throw std::runtime_error("CVI source geometry mismatch");
     const int selected=slots_.writable([this](std::size_t index) {
