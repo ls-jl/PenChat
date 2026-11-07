@@ -207,6 +207,11 @@ struct PinyinService::Impl {
           profile=Json::array();dirty=true;if(engine){pinyin_ime_destroy(engine);engine=nullptr;}last=Json::object();choices=Json::array();save();
           events.push("pinyin.cleared",{{"ok",!dirty}});
         } else {
+#ifndef __aarch64__
+          // Deterministic slow-dictionary integration tests; never a device path.
+          if(op=="query")if(const auto delay=getenv("PENCHAT_TEST_PINYIN_DELAY_MS"))
+            std::this_thread::sleep_for(std::chrono::milliseconds(std::max(0,std::min(2000,atoi(delay)))));
+#endif
           auto result=op=="choose"?choose(request):query(request);
           events.pushLatest("pinyin.result",std::move(result));
         }

@@ -482,6 +482,15 @@ class App {
   bool editorInPlace() const {return layout().portrait()&&!editorSelectionOnly_;}
   bool editorSelectionOnly_ = false, editorInlineChat_ = false, editorReaderTouch_ = false;
   void editorViewport();
+  void editorRefresh();
+  void editorRefreshCandidates();
+  uint64_t editorPaintKey() const;
+  std::string editorCompositionText() const;
+  lv_obj_t *editorPreeditLabel_=nullptr, *editorChoices_=nullptr, *editorExpand_=nullptr, *editorExactList_=nullptr, *editorQueryLabel_=nullptr;
+  bool editorRefreshPending_=false, editorChoicesDirty_=false, editorChoicesEmpty_=false, editorSelectPending_=false;
+  std::string editorChosenWord_;
+  uint64_t editorPaintedKey_=0, editorBuildCount_=0, editorRefreshCount_=0;
+
   EditorLayout editorLayout() const { return EditorLayout(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_); }
   EditorState editor_;
   Json editorLearning_ = Json::array(), editorExact_ = Json::array(), editorPinyinPending_;
@@ -522,6 +531,16 @@ class App {
   struct EditorKey { int x,y,w,h; std::string value; lv_obj_t *object; EditorLayout::Popup hit; };
   std::vector<EditorKey> editorKeys_;
   EditorKey editorPress_{};
+  struct EditorContact {
+    std::string id;
+    EditorKey key;
+    bool released=false, slid=false;
+    int repeats=0;
+    uint64_t repeatAt=0;
+  };
+  std::vector<EditorContact> editorContacts_;
+  bool editorKeyTouch(const Json &message);
+  void editorCancelKeys();
   bool editorChoosing_ = false, editorRebuild_ = false,editorFollowCursor_=true;
   uint64_t editorLatency_ = 0;
   std::vector<std::string> editorDeferred_;

@@ -251,6 +251,13 @@ flat-field is separately identified; never substitute the SC2356 gain map. Resto
 the previous V4L2 format before resuming the system capture guardian. Use the shared dynamic system-memory admission for the native-size frame pages;
 no temporary frame spill files are permitted.
 
+Native keyboard key caps accept two-contact rollover by tracking ID, preserving
+press order while each pointer releases or cancels independently. Keep text,
+candidate/control mixed touches and three-contact cancellation separate; never
+route keyboard rollover into LVGL's single-pointer or page-back handling. Preserve
+key objects during typing/results and active touches; repaint only changed text
+and candidate subtrees. Pending space/Done selection must retain subsequent keys
+in bounded order, not reject them because a dictionary query is still pending.
 The native editor owns libpinyinime on one background worker. Never reintroduce the Falcon
 shared decoder, system pinyin imports, symbol borrowing or a fallback bridge for candidates.
 The official text editor remains a manually selected fallback; OCR is independent. Keep

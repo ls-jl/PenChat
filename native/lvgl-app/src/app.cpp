@@ -3097,7 +3097,9 @@ void App::handle(const Json &m) {
     if (touchInput_.enabled() && m.value("source", std::string()) != "native-evdev") return;
     lastTouch_ = m;
     const bool multi=m.contains("points") && m["points"].is_array() && m["points"].size()>1;
-    if(multi || nonImageMulti_ || imageGesture_.multi || imageGesture_.mode<0) {
+    if(editor_.active && !imageViewer_ && view_!="crop" && !nonImageMulti_ && editorKeyTouch(m)) {
+      resetBack();
+    } else if(multi || nonImageMulti_ || imageGesture_.multi || imageGesture_.mode<0) {
       resetBack();
       if(imageViewer_ || view_=="crop") routeTouch(m);
       else {nonImageMulti_=m.value("pressed",false);auto cancel=m;cancel["cancelled"]=true;cancel["pressed"]=false;routeTouch(cancel);}
