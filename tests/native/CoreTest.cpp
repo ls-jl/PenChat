@@ -78,8 +78,8 @@ int main(int argc, char **argv) {
       const EditorLayout keyboard(size.first,size.second);
       assert(page.portrait() && page.gutter()==0);
       assert(page.composerX()+page.composerWidth()==size.first-page.safeSide());
-      assert(page.composerY()+48==size.second-page.safeBottom());
-      assert(keyboard.keyInset==page.safeSide() && keyboard.keySpan==size.first-2*page.safeSide());
+      assert(page.composerY()+page.composerHeight()==size.second-page.safeBottom());
+      assert(keyboard.keyInset==0 && keyboard.keySpan==size.first);
       assert(keyboard.portrait && keyboard.docked && keyboard.panelTop==keyboard.compositionY-4 && keyboard.textBottom()<keyboard.compositionY);
       assert(keyboard.compositionY+20<=keyboard.candidateY);
       assert(keyboard.candidateY+44<=keyboard.actionsY);

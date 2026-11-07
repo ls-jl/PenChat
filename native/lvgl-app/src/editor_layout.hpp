@@ -1,7 +1,7 @@
 #pragma once
 #include "layout.hpp"
 #include <algorithm>
-#include <array>
+#include <vector>
 #include <cmath>
 
 namespace penchat {
@@ -26,8 +26,8 @@ struct EditorLayout {
     portrait=h>w;keySpan=split;
     if(portrait) {
       const AppLayout safe{w,h};
-      split=w;keyInset=safe.safeSide();keySpan=w-2*keyInset;
-      textX=keyInset;textWidth=keySpan;textY=safe.safeTop();
+      split=w;keyInset=0;keySpan=w;
+      textX=safe.safeSide();textWidth=w-2*textX;textY=safe.safeTop();
       const int baseRow=std::max(52,std::min(72,int(w*.12)));
       const int baseBottom=std::max(44,std::min(60,int(w*.10)));
       // Lift by one former bottom row (rounded to 10px), then grow the entire
@@ -48,7 +48,7 @@ struct EditorLayout {
       panelTop=compositionY-4;
       textHeight=44;textY=panelTop-52;
     }
-    if (selectionOnly) { split=86;textX=96;textWidth=w-106;textY=56;textHeight=h-66;if(portrait){const AppLayout safe{w,h};split=w;textX=keyInset;textWidth=keySpan;textY=56+safe.safeTop();textHeight=h-textY-safe.safeBottom();} }
+    if (selectionOnly) { split=86;textX=96;textWidth=w-106;textY=56;textHeight=h-66;if(portrait){const AppLayout safe{w,h};split=w;textX=safe.safeSide();textWidth=w-2*textX;textY=56+safe.safeTop();textHeight=h-textY-safe.safeBottom();} }
     textAreaWidth=textWidth;
     (void)chatComposer;
   }
@@ -80,18 +80,26 @@ struct EditorLayout {
     const int w=(readOnly?2:4)*92+4;
     return floatingPopup(x-w/2,y-60-(portrait?52:0),w,52);
   }
-  struct Action { const char *name; int x, width; };
-  std::array<Action,5> actions() const {
-    if(portrait){const int gap=std::max(4,(textWidth-456)/4);int x=textX;
-      std::array<Action,5> a={{{"cancel",0,84},{"official",0,84},{"ocr-mode",0,112},{"done",0,128},{"clipboard",0,48}}};
-      for(auto &v:a){v.x=x;x+=v.width+gap;}return a;
+  int utilityY() const { return bottomY+bottomHeight+6; }
+  struct Action { const char *name; int x, width, y; };
+  std::vector<Action> actions(bool chat=false) const {
+    if(portrait) {
+      std::vector<Action> a;
+      if(!chat)a.push_back({"cancel",0,84,actionsY});
+      a.push_back({"official",0,84,actionsY});a.push_back({"ocr-mode",0,112,actionsY});
+      a.push_back({"clipboard",0,48,actionsY});
+      int total=0;for(const auto &v:a)total+=v.width;
+      const int gap=(textWidth-total)/int(a.size()-1);int x=textX;
+      for(auto &v:a){v.x=x;x+=v.width+gap;}
+      a.push_back({"done",width-textX-64,64,utilityY()});
+      return a;
     }
     const int cancelWidth=textWidth-64-48-104-44-16;
-    return {{{"cancel",textX,cancelWidth},
-             {"official",textX+cancelWidth+4,64},
-             {"ocr-mode",width-212,48},
-             {"done",width-160,104},
-             {"clipboard",width-52,44}}};
+    return {{"cancel",textX,cancelWidth,actionsY},
+            {"official",textX+cancelWidth+4,64,actionsY},
+            {"ocr-mode",width-212,48,actionsY},
+            {"done",width-160,104,actionsY},
+            {"clipboard",width-52,44,actionsY}};
   }
   int px(double value) const { return int(std::lround(value)); }
   int textBottom() const { return textY + textHeight; }

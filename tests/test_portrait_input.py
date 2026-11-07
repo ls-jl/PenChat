@@ -72,7 +72,7 @@ def run():
             a=t.Native(BINARY,p,screen={'width':568,'height':1210,'direction':180,'tp_direction':180},official_adapter=False)
             try:
                 state=a.diag();assert state['safe_insets']==[24,24,24,28]
-                assert state['toolbar_y']==1134
+                assert state['toolbar_y']==1128
                 shot(a,'chat-safe')
                 a.tap(280,1158);t.wait_for(lambda:a.diag()['editor']['active'])
                 state=a.diag();e=state['editor'];assert e['docked'] and e['inline_chat'] and 400<e['panel_top']<600
@@ -80,9 +80,13 @@ def run():
                 assert e['target_bounds'][0]<=e['text_bounds'][0]<e['text_bounds'][2]<=e['target_bounds'][2]
                 assert e['target_bounds'][1]<=e['text_bounds'][1]<e['text_bounds'][3]<=e['target_bounds'][3]
                 for k in e['keys']:
-                    x,y,r,b=k['bounds'];assert x>=24 and r<=544 and b<=1122 and r-x>=44 and b-y>=84,k
+                    x,y,r,b=k['bounds'];assert x>=0 and r<=568 and b<=1172 and r-x>=44 and b-y>=(44 if k['key']=='language' else 84),k
                 assert min(k['bounds'][1] for k in e['keys'])==705
-                assert max(k['bounds'][3] for k in e['keys'])==1122
+                assert max(k['bounds'][3] for k in e['keys'] if k['key']!='language')==1122
+                assert 'cancel' not in e['actions']
+                assert e['actions']['done'][1]>1122
+                assert next(k for k in e['keys'] if k['key']=='language')['bounds'][1]>1122
+                assert next(k for k in e['keys'] if k['key']=='space')['bounds'][2]-next(k for k in e['keys'] if k['key']=='space')['bounds'][0]>210
                 shot(a,'chat-keyboard')
                 key(a,'language')
                 for c in 'test':key(a,c)
@@ -109,7 +113,7 @@ def run():
                 assert a.diag()['editor']['length']==4 and a.diag()['editor']['docked']
                 a.editor_action('done');t.wait_for(lambda:not a.diag()['editor']['active'])
                 assert len(a.read_messages())==2 # Done never sends.
-                a.tap(284,1100);t.wait_for(lambda:a.diag()['toolbar_y']==1134)
+                a.tap(284,1100);t.wait_for(lambda:a.diag()['toolbar_y']==1128)
                 a.tap(280,1158);t.wait_for(lambda:a.diag()['editor']['active'])
                 assert a.diag()['editor']['length']==4
                 a.editor_action('chat-send');t.wait_for(lambda:not a.diag()['editor']['active'])
@@ -177,7 +181,8 @@ def run():
                 a.editor_action('clipboard');shot(a,'clipboard');a.editor_action('clip-close')
                 a.send('visibility',visible=False);a.send('visibility',visible=True)
                 t.wait_for(lambda:a.diag()['editor']['active'] and a.diag()['editor']['docked'])
-                a.editor_action('cancel')
+                if a.diag()['editor']['preedit_length']:key(a,'enter')
+                a.editor_action('done')
             except BaseException:
                 state=a.diag();(OUT/'failure.json').write_text(json.dumps(state,ensure_ascii=False,indent=2));shot(a,'failure');raise
             finally:a.close()
@@ -198,8 +203,35 @@ def run():
                 shot(a,'reply-finished-draft-preserved')
                 a.editor_action('official');request=a.receive('keyboard.open');assert request['text']=='q'
                 a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
-                t.wait_for(lambda:not a.diag()['keyboard']);a.editor_action('cancel')
+                t.wait_for(lambda:not a.diag()['keyboard']);a.editor_action('done')
                 assert len(a.read_messages())==2
+            finally:a.close()
+        # The real composer grows upward, caps at 3x, and then scrolls.
+        with tempfile.TemporaryDirectory(prefix='penchat-input-grow-') as directory:
+            a=t.Native(BINARY,pathlib.Path(directory),screen={'width':568,'height':1210},official_adapter=False)
+            try:
+                a.tap(280,1155);t.wait_for(lambda:a.diag()['editor']['active'])
+                key(a,'language');key(a,'a')
+                initial=a.diag()['composer_bounds'];bottom=initial[3]
+                assert initial[3]-initial[1]+1==54
+                shot(a,'composer-one-line')
+                heights=[]
+                for i in range(7):
+                    key(a,'enter');key(a,'a');d=a.diag();b=d['composer_bounds'];heights.append(b[3]-b[1]+1)
+                    assert b[3]==bottom and 54<heights[-1]<=162
+                    arrow=d['editor']['actions']['chat-send']
+                    assert b[2]-arrow[2]==5 and b[3]-arrow[3]==5,(b,arrow)
+                    if i==1:shot(a,'composer-three-lines')
+                assert heights==sorted(heights) and heights[-1]==162
+                shot(a,'composer-max-scroll')
+                assert a.diag()['editor']['text_scroll']>0,a.diag()['editor']
+                for _ in range(12):key(a,'delete')
+                b=a.diag()['composer_bounds'];assert 54<b[3]-b[1]+1<162 and b[3]==bottom
+                for _ in range(42):key(a,'a')
+                b=a.diag()['composer_bounds'];assert 78<b[3]-b[1]+1<=162
+                shot(a,'composer-wrapped')
+                a.editor_action('done');assert not a.diag()['editor']['active']
+                assert a.diag()['draft_length']>0 and not a.read_messages()
             finally:a.close()
         # Same launcher geometry in landscape keeps the existing editor.
         with tempfile.TemporaryDirectory(prefix='penchat-landscape-input-') as directory:

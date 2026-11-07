@@ -158,7 +158,7 @@ class Native:
         with sqlite3.connect(self.directory/'penchat.db') as db:
             return db.execute('select role,status,output_text,error_json from chat_messages order by created_at,seq').fetchall()
     def edit(self,value):
-        screen=self.diag();wait_for(lambda:self.diag()['toolbar_y']==screen['height']-48-screen.get('safe_insets',[0,0,0,10])[3])
+        screen=self.diag();wait_for(lambda:self.diag()['toolbar_y']==screen['height']-(54 if screen['height']>screen['width'] else 48)-screen.get('safe_insets',[0,0,0,10])[3])
         self.tap(screen['width']//2,screen['height']-34);request=self.receive('keyboard.open')
         self.send('keyboard.result',requestId='stale',confirmed=True,text='must not appear')
         assert self.diag()['keyboard'] is True

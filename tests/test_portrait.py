@@ -79,7 +79,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-portrait-') as folder:
   a.tap(tx,ty);a.tap(tx,ty);assert a.diag()['editor']['selected']
   a.long_press(tx,ty);t.wait_for(lambda:a.diag()['editor']['menu']);shot(a,'keyboard-selection-menu')
   a.tap(140,ty);a.tap(150,ty+50)
-  a.send('touch',x=tx,y=ty,pressed=True);time.sleep(.5);a.send('touch',x=120,y=ty,pressed=True)
+  a.send('touch',x=tx,y=ty,pressed=True);time.sleep(.5);a.send('touch',x=tx+60,y=ty,pressed=True)
   t.wait_for(lambda:a.diag()['editor']['magnifier']);shot(a,'keyboard-magnifier')
   a.send('touch',x=280,y=950,pressed=True);time.sleep(.1)
   assert a.diag()['editor']['cursor_drag'] and a.diag()['editor']['text_scroll']==0
@@ -89,7 +89,9 @@ with tempfile.TemporaryDirectory(prefix='penchat-portrait-') as folder:
   key(a,'t9:6');key(a,'t9:4');t.wait_for(lambda:a.diag()['editor']['candidate_count']>0);shot(a,'keyboard-zh9-candidates')
   a.editor_action('clipboard');shot(a,'keyboard-clipboard');a.tap(515,40)
   a.editor_action('official');request=a.receive('keyboard.open');a.send('keyboard.result',requestId=request['requestId'],confirmed=False);t.wait_for(lambda:not a.diag()['keyboard'])
-  assert a.diag()['editor']['active'];a.editor_action('cancel');t.wait_for(lambda:not a.diag()['editor']['active'])
+  assert a.diag()['editor']['active'];
+  if a.diag()['editor']['preedit_length']:key(a,'enter')
+  a.editor_action('done');t.wait_for(lambda:not a.diag()['editor']['active'])
   begin(a,p,w=800,h=600);shot(a,'crop');x,y,w,h=a.diag()['crop_selection'];pinch(a,x+w/2,y+h/2,scale=2,crop=True);shot(a,'crop-zoom');action(a,'reset');assert a.diag()['crop_source_rect']==[0,0,800,600]
   action(a,'confirm');t.wait_for(lambda:a.diag()['view']=='chat');shot(a,'pending-photo')
  finally:a.close()

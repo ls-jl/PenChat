@@ -51,15 +51,47 @@ EditorLayout::Popup App::editorTextArea() const {
   }
   return {a.x1,a.y1,std::max(0,int(a.x2-a.x1+1)),std::max(0,int(a.y2-a.y1+1))};
 }
+int App::chatComposerHeight() const {
+  const int base=layout().composerHeight();if(!layout().portrait())return base;
+  const bool editing=editor_.active&&editorInPlace()&&editorInlineChat_;
+  const auto &text=editing?editor_.text:draft_;
+  const bool gauge=sessionPreferences_.value("gauge",!effortMemory_.empty());
+  const int width=std::max(44,layout().composerWidth()-62-(gauge?106:54)-24);
+  lv_point_t size{};
+  lv_text_get_size(&size,text.c_str(),font(20),0,0,width,LV_TEXT_FLAG_NONE);
+  return std::min(base*3,base+std::max(0,int(size.y)-font(20)->line_height));
+}
+int App::chatComposerY() const {
+  const bool docked=editor_.active&&editorInPlace()&&view_=="chat";
+  return (docked?editorLayout().panelTop-4:screen_.height-layout().safeBottom())-chatComposerHeight();
+}
+void App::layoutChatComposer() {
+  if(!layout().portrait()||!chatControls_||!composer_)return;
+  const int height=chatComposerHeight();lv_obj_set_height(chatControls_,height);
+  if(toBottom_)lv_obj_set_y(toBottom_,chatComposerY()-56);
+  lv_obj_set_y(composer_,5);lv_obj_set_height(composer_,height-10);
+  for(uint32_t i=0;i<lv_obj_get_child_count(chatControls_);++i) {
+    auto child=lv_obj_get_child(chatControls_,i);if(child==composer_)continue;
+    if(i+1==lv_obj_get_child_count(chatControls_))lv_obj_align(child,LV_ALIGN_BOTTOM_RIGHT,-5,-5);
+    else lv_obj_set_y(child,height-49);
+  }
+  auto value=lv_obj_get_child(composer_,0);
+  if(value) {
+    const int pad=std::max(0,(layout().composerHeight()-10-font(20)->line_height)/2);
+    lv_label_set_long_mode(value,LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_pos(value,12,pad);lv_obj_set_height(value,height-10-2*pad);
+  }
+}
 void App::editorAttachTarget() {
   if(!editor_.active||!editorInPlace()||!editorTarget_)return;
   auto found=inputTargets_.find(editorTarget_);if(found==inputTargets_.end())return;
   const int style=found->second.style;
   auto value=lv_obj_get_child(editorTarget_,style==2?1:0);
   if(value)lv_obj_set_hidden(value,true);
-  const int y=style==1?23:style==2?28:2;
-  const int x=style==1?12:style==2?12:4;
-  const int h=style==3?44:std::max(24,int(lv_obj_get_height(editorTarget_))-y-2);
+  const bool chat=editorInlineChat_;
+  const int y=chat?0:style==1?23:style==2?28:2;
+  const int x=chat?12:style==1?12:style==2?12:4;
+  const int h=style==3?44:std::max(24,int(lv_obj_get_height(editorTarget_))-y-(chat?0:2));
   if(!editorText_) {
     editorText_=lv_textarea_create(editorTarget_);
     lv_obj_add_event_cb(editorText_,[](lv_event_t *e){
@@ -71,6 +103,11 @@ void App::editorAttachTarget() {
     lv_obj_set_style_bg_opa(editorText_,LV_OPA_TRANSP,0);
     lv_obj_set_style_border_width(editorText_,0,0);lv_obj_set_style_radius(editorText_,0,0);
     lv_obj_set_style_pad_all(editorText_,0,0);
+    if(chat) {
+      const int pad=std::max(0,(layout().composerHeight()-10-font(20)->line_height)/2);
+      lv_obj_set_style_pad_top(editorText_,pad,0);lv_obj_set_style_pad_bottom(editorText_,pad,0);
+      lv_obj_set_style_text_line_space(editorText_,0,0);lv_obj_set_style_text_letter_space(editorText_,0,0);
+    }
     lv_obj_set_style_border_color(editorText_,lv_color_hex(theme::caret),LV_PART_CURSOR|LV_STATE_FOCUSED);
     lv_obj_set_style_bg_color(editorText_,lv_color_hex(theme::border),LV_PART_SELECTED);
     lv_obj_set_style_text_color(editorText_,lv_color_hex(theme::text),LV_PART_SELECTED);
@@ -86,8 +123,19 @@ void App::editorAttachTarget() {
   lv_textarea_set_password_mode(editorText_,editor_.secret&&!editor_.reveal);
   if(editor_.text!=lv_textarea_get_text(editorText_))lv_textarea_set_text(editorText_,editor_.text.c_str());
   lv_textarea_set_cursor_pos(editorText_,editor_.cursor);
-  if(!editorFollowCursor_)lv_obj_scroll_to_y(editorText_,editorTextScroll_,LV_ANIM_OFF);
+  if(editorFollowCursor_&&chat) {
+    // Resizing is immediate; do not leave a cursor-scroll animation that the
+    // second layout pass would cancel before revealing the new last line.
+    lv_obj_update_layout(editorText_);lv_point_t point{};
+    lv_label_get_letter_pos(lv_textarea_get_label(editorText_),editor_.cursor,&point);
+    const int visible=lv_obj_get_content_height(editorText_);
+    int scroll=lv_obj_get_scroll_y(editorText_);
+    if(point.y<scroll)scroll=point.y;
+    else if(point.y+font(20)->line_height>scroll+visible)scroll=point.y+font(20)->line_height-visible;
+    editorScroll(scroll);
+  } else if(!editorFollowCursor_)lv_obj_scroll_to_y(editorText_,editorTextScroll_,LV_ANIM_OFF);
   editorFollowCursor_=false;lv_obj_update_layout(editorText_);
+  editorTextScroll_=lv_obj_get_scroll_y(editorText_);
   if(editorPlaceCursor_) {
     lv_area_t a;lv_obj_get_coords(editorTarget_,&a);
     editor_.position(editorPositionAt(a.x1+editorInitialPoint_.x,a.y1+editorInitialPoint_.y));

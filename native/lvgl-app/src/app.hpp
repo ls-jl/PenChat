@@ -470,6 +470,9 @@ class App {
   lv_point_t inputSourcePoint_{},editorInitialPoint_{};
   void inputTarget(lv_obj_t *,const std::string &,int style=0);
   void inputAction(lv_obj_t *,const std::function<void()> &);
+  int chatComposerHeight() const;
+  int chatComposerY() const;
+  void layoutChatComposer();
   void editorAttachTarget();
   void editorDetachTarget();
   bool editorAccept();

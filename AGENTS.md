@@ -267,12 +267,16 @@ Anthropic Messages is a separate protocol, never an OpenAI payload fallback. Kee
 
 Y07 portrait uses shared AppLayout and EditorLayout: full-width reader and a
 docked bottom keyboard retaining the original page. Apply their shared rounded-
-corner safe insets to composer, keyboard hit areas and edge navigation; landscape
+corner safe insets to composer and edge navigation. Portrait letter keys use the
+full width with 4px cap margins; bottom globe/hide controls keep safe insets. Landscape
 geometry stays unchanged. Portrait editing attaches the native textarea directly
 inside the focused original control; never add a second bottom editor. Chat raises
 its existing composer above composition/candidates/actions; form fields retain
 their original location, with long multiline fields expanding in the form. The
-function row stays directly above the keys. Switching fields commits the prior
+function row stays directly above the keys; globe and hide/finish sit in the lower
+utility row. Chat has only hide (retains draft), while form Cancel still restores
+the original field. The portrait composer starts at 54px, grows upward to 3x for
+wrapped lines, then scrolls; keep 5px around its 44px send circle. Switching fields commits the prior
 field (including raw unfinished preedit) once before focusing the next. Cancel
 restores the original value; Provider edits still require explicit Save.
 Candidate/clipboard overlays may cover the reader, never move the keys. Ordinary

@@ -11,7 +11,8 @@ struct AppLayout {
   int safeSide() const { return portrait() ? std::max(24, std::min(32, width / 24)) : 0; }
   int safeTop() const { return safeSide(); }
   int safeBottom() const { return portrait() ? safeSide() + 4 : 10; }
-  int composerY() const { return height - 48 - safeBottom(); }
+  int composerHeight() const { return portrait() ? 54 : 48; }
+  int composerY() const { return height - composerHeight() - safeBottom(); }
   int gutter() const { return portrait() ? 0 : 86; }
   int bodyWidth() const { return width - gutter() - 4; }
   int contentWidth() const { return width - (portrait() ? 32 : 118); }

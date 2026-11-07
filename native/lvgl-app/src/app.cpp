@@ -770,7 +770,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
           pullGeometry({bounds.x1 - tx, bounds.y1 - ty, bounds.x2 + 1 - tx,
                         bounds.y2 + 1 - ty},
                        screen_.width, screen_.height,
-                       layout().composerY(), pullSensitivityOffset_);
+                       chatComposerY(), pullSensitivityOffset_);
     }
     const bool inReader = pullGeometry_.contains(x, y);
     bool inComposer = false;
@@ -1189,7 +1189,7 @@ void App::chat() {
   messageContent_ = box(body_, 0, 0, width, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(messageContent_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(messageContent_, 10, 0);
-  lv_obj_set_style_pad_bottom(messageContent_, 64+layout().safeBottom(), 0);
+  lv_obj_set_style_pad_bottom(messageContent_, chatComposerHeight()+16+layout().safeBottom(), 0);
   if(layout().portrait())lv_obj_set_style_pad_top(messageContent_,56+layout().safeTop(),0);
   lv_obj_set_scrollable(messageContent_, false);
   lv_obj_add_event_cb(
@@ -1208,9 +1208,9 @@ void App::rebuildChatControls() {
   chatControlsTarget_ = -1;
   const int composerWidth = layout().composerWidth();
   chatControls_ =
-      box(screenObj_, layout().composerX(), layout().composerY(), composerWidth, 48, theme::surface);
+      box(screenObj_, layout().composerX(), layout().composerY(), composerWidth, layout().composerHeight(), theme::surface);
   lv_obj_set_scrollable(chatControls_, false);
-  lv_obj_set_style_radius(chatControls_, 24, 0);
+  lv_obj_set_style_radius(chatControls_, layout().composerHeight()/2, 0);
   auto attachment = icon(
       chatControls_, "plus", 2, 2, 44, 44, [this] { if(editor_.active&&editorInPlace()&&!editorAccept())return;toggleAttachments(); },
       theme::surface);
@@ -1256,15 +1256,16 @@ void App::rebuildChatControls() {
           sendMessage();
       },
       sendEnabled ? theme::text : theme::border, theme::background);
-  // Equal 2px insets keep the circle concentric with the capsule end cap.
-  lv_obj_align(send, LV_ALIGN_RIGHT_MID, -2, 0);
+  // Portrait leaves 5px around the send circle; landscape keeps its 2px inset.
+  lv_obj_align(send, LV_ALIGN_RIGHT_MID, layout().portrait()?-5:-2, 0);
   if (!sendEnabled)
     lv_obj_set_clickable(send, false);
   toBottom_ = icon(
-      screenObj_, "down", layout().composerX() + (composerWidth - 44) / 2, layout().composerY() - 56, 44, 44,
+      screenObj_, "down", layout().composerX() + (composerWidth - 44) / 2, chatComposerY() - 56, 44, 44,
       [this] { jumpToBottom(); }, theme::surface);
   lv_obj_set_style_border_color(toBottom_, lv_color_hex(theme::border), 0);
   lv_obj_set_style_border_width(toBottom_, 1, 0);
+  layoutChatComposer();
   updateChatControls(false);
   if(editor_.active&&editorInPlace()&&editorRoot_) {
     editorViewport();editorSyncText();lv_obj_move_foreground(editorRoot_);
@@ -1362,8 +1363,8 @@ void App::updateChatControls(bool animate) {
   lv_obj_set_style_bg_opa(toBottom_, overContent ? 160 : 255, 0);
   lv_obj_set_style_border_opa(toBottom_, overContent ? 160 : 255, 0);
   const bool editingComposer=editor_.active&&editorInPlace()&&editorInlineChat_;
-  const int target = editingComposer ? editorLayout().compositionY-56 :
-      (chatFollowing_ || atLatestBottom()) && !pulling_ ? layout().composerY() : screen_.height + 2;
+  const int target = editingComposer ? chatComposerY() :
+      (chatFollowing_ || atLatestBottom()) && !pulling_ ? chatComposerY() : screen_.height + 2;
   if(editingComposer)animate=false;
   if (chatControlsTarget_ == target)
     return;
@@ -3666,6 +3667,7 @@ Json App::diagnostics() const {
       {"send_center_y2", send.y1 + send.y2},
       {"capsule_endcap_x2", 2 * capsule.x2 - (capsule.y2 - capsule.y1)},
       {"capsule_center_y2", capsule.y1 + capsule.y2},
+      {"composer_bounds", {capsule.x1,capsule.y1,capsule.x2,capsule.y2}},
       {"navigation_open", navigationOpen_},
       {"session_info", view_ == "session_info" ? sessionInfoData_ : Json::object()},
       {"session_info_busy", sessionInfoBusy_},
