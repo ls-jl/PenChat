@@ -15,6 +15,13 @@ int main() {
     const auto middle=l.magnifierPopup(size.first/2,size.second/2);
     assert(middle.x==size.first/2-90);
     assert(middle.y==std::max(top,size.second/2-96-(l.portrait?58:0)));
+    for(auto edges:{std::make_pair(side+12,size.first-side-12),std::make_pair(100,160)}) {
+      for(int x:{-100,edges.first,edges.second,size.first+100}) {
+        const auto p=l.magnifierPopup(x,size.second/2,edges.first,edges.second);
+        assert(p.x>=edges.first&&p.x+p.width<=edges.second);
+        assert(p.width==std::min(180,edges.second-edges.first));
+      }
+    }
   }
   // A constrained viewport must resize the lens instead of preserving dimensions
   // that cannot fit. Safe edges take precedence even over its normal height.

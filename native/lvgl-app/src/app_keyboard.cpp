@@ -749,13 +749,27 @@ size_t App::editorPositionAt(int x,int y) const {
   if(!editorText_)return editor_.cursor;
   auto text=lv_textarea_get_label(editorText_);lv_area_t a;lv_obj_get_coords(text,&a);
   lv_area_t bounds;lv_obj_get_content_coords(editorText_,&bounds);
-  // Captured drags may cross the keyboard; hit-test only inside the editor and
-  // the actual last text line, never the empty area below it.
-  x=std::max(int(bounds.x1),std::min(int(bounds.x2),x));
+  // A captured finger can leave either side of the field. Resolve the nearest
+  // text insertion boundary, independently of the floating lens placement.
+  // Keep vertical hit testing on real text rather than inventing empty lines.
   y=std::max(int(bounds.y1),std::min(int(bounds.y2),y));
   lv_point_t end{};lv_label_get_letter_pos(text,editLength(editor_.text),&end);
   lv_point_t point{x-a.x1,std::max(0,std::min(y-a.y1,int(end.y)+lv_obj_get_style_text_font(text,LV_PART_MAIN)->line_height-1))};
-  return editBoundary(editor_.text,std::min(size_t(lv_label_get_letter_on(text,&point,true)),editLength(editor_.text)));
+  const size_t length=editLength(editor_.text);
+  const size_t start=editBoundary(editor_.text,std::min(size_t(lv_label_get_letter_on(text,&point,true)),length));
+  if(start==length)return length;
+  const size_t next=editBoundary(editor_.text,start+1,true);
+  const auto cluster=editor_.text.substr(editByte(editor_.text,start),editByte(editor_.text,next)-editByte(editor_.text,start));
+  if(cluster[0]=='\n'||cluster[0]=='\r')return start;
+  lv_point_t left{},right{};lv_label_get_letter_pos(text,start,&left);lv_label_get_letter_pos(text,next,&right);
+  if(left.y!=right.y) {
+    // A soft wrap moves the next caret onto the next line. The current glyph
+    // still has a right half, including when its advance reaches the field edge.
+    lv_point_t size{};lv_text_get_size(&size,cluster.c_str(),lv_obj_get_style_text_font(text,LV_PART_MAIN),
+        lv_obj_get_style_text_letter_space(text,LV_PART_MAIN),0,LV_COORD_MAX,LV_TEXT_FLAG_EXPAND);
+    right.x=left.x+size.x;
+  }
+  return std::abs(point.x-right.x)<=std::abs(point.x-left.x)?next:start;
 }
 void App::editorScroll(int y) {
   if(!editorText_)return;
@@ -773,7 +787,8 @@ void App::editorMagnify(bool show) {
     return;
   }
   auto point=editorPoint(editor_.cursor);point.y-=font(20)->line_height+8-font(20)->line_height/2;
-  const auto popup=layout.magnifierPopup(point.x,point.y);
+  const auto area=editorTextArea();
+  const auto popup=layout.magnifierPopup(point.x,point.y,area.x,area.x+area.width);
   if(!editorMagnifier_) {
     auto buffer=lv_snapshot_create_draw_buf(editorText_,LV_COLOR_FORMAT_ARGB8888);
     if(!buffer)return;
