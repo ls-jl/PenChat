@@ -1,7 +1,7 @@
 {
   "source_commit": "21bfd280fbb97969ff7883d107aeaa8f21982fc7",
   "files": {
-    "engine/include/pen_stream/stream.hpp": "79719a9ea2cada1d94f38cde984764a503d0b6931fa0b89a9c8ffa4d9c5100cb",
+    "engine/include/pen_stream/stream.hpp": "8632774c68097c3dbdf2a74207d546681fcb2153531a6abb458e285e2ebf9787",
     "engine/include/rknn/rknn_api.h": "c48e11a6f41b451a5fd1e4ad774ea60252d3d94f78bee9b21ea3d21b21deba9a",
     "engine/src/canvas.cpp": "68f9d4d7a7acfd934f4b096054d5dd05cd7dc30040ff20c10ffa799f906fc427",
     "engine/src/geometry.cpp": "c000d303ebc84aa9696b658dae838499c0e0fb9152814e539b70d84625132842",
@@ -33,7 +33,12 @@
     "src/profile.hpp": "4d3b3b65550677272d689ad15a6872bfc7bd37a72c98bef5c7847570f4b9047c",
     "src/sequence_gap.hpp": "31845a54cf97b3093835573e75234083f6b80f6422510b973c7b92c9135dc7f3",
     "src/melon_config.hpp": "8802e8743bdbea6c17d23c5cf746cdc02ab73036d165d4530e3bc2258f91445f",
-    "src/start_policy.hpp": "5b338526db025c0609dbe0905ae6f6f704bd942b9b1aff56094d8a30913aa430"
+    "src/start_policy.hpp": "5b338526db025c0609dbe0905ae6f6f704bd942b9b1aff56094d8a30913aa430",
+    "engine/include/cvi/runtime_abi.hpp": "97d39be74967f3c2f6ca12ad91220a211ffc5ecd3eff5fa8caafdf05c66da121",
+    "engine/src/cvi.cpp": "2f96936294c0144eecb355349f7b56c3b847731af588befbe63a3200e8cbe56c",
+    "engine/tests/fake_cvi_runtime.cpp": "352cca4828a9b3622921bd26ff7eca73b33e76da26fe8c7a60bc5f6788b5bfb2",
+    "engine/tests/test_cvi_adapter.cpp": "c3b0dec66cdd413db803e17db6ecc5e0aa67ac33c9075a438140ed7942a10887",
+    "tests/cvi_replay.cpp": "9f86b4f4334a48037c1c9ba9cff5026c0f7ea635468d4f78a928ba78a0364575"
   },
   "resources": {
     "pintu_32.rknn": {

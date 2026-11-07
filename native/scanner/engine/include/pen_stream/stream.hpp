@@ -142,6 +142,8 @@ class Inference {
 // Dynamically loads only public RKNN ABI; no vendor stitch library or GPU.
 std::unique_ptr<Inference> makeRknn32(std::string modelPath,
                                       std::string runtimePath = "librknnrt.so");
+// CV1826 RGB3 fixed32 model; uses the device's public CVI runtime only.
+std::unique_ptr<Inference> makeCvi32(std::string modelPath, std::string runtimePath);
 class Engine {
   public:
     explicit Engine(std::unique_ptr<Inference>, Limits = {});

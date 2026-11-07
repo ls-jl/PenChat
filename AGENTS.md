@@ -291,3 +291,9 @@ no-execution system blocker and dynamic-binding test: the vendor import must nev
 reach libc's command launcher. Do not remove the blocker or broaden package policy
 beyond the exact runtime hash and the scanner-defined stub. Do not claim seccomp:
 this Y07 kernel does not support the required filter.
+
+S6 adaptation is authorized on branch s6-armv7 only, from committed dev. S6
+JDA0700006552216 is an explicit CV1826/ARMv7 target; reuse the accepted CVI INT8
+bundle and public runtime in place, never load RKNN or copy device libraries into
+the system. Follow docs/S6-ARMV7-DEV.md. Do not touch the other worktree's
+uncommitted Y07 work. Y02/113 remains forbidden.
