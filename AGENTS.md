@@ -295,8 +295,9 @@ function row stays directly above the keys; globe and hide/finish sit in the low
 utility row. Chat has only hide (retains draft), while form Cancel still restores
 the original field. The empty portrait composer with keyboard hidden is one 94px row. With text or
 an open keyboard, give text its own full-width region above attachment/gauge/send;
-grow upward to 3x the original height, then scroll. Preserve 25px around the 44px
-send circle. Landscape drafts likewise place text above their existing controls. Chinese
+grow upward to 3x the original height, then scroll. Expanded composers share the
+landscape 12px inner inset and bottom-aligned tool row; the collapsed portrait
+pill alone keeps 25px around the 44px send circle. Chinese
 composition uses the same row as the official/OCR/clipboard actions; never add
 a separate candidate row in portrait. The borderless globe is 1.5x, below and
 slightly left of comma, centered between comma and screen bottom. Switching fields commits the prior

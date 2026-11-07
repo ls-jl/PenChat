@@ -67,7 +67,9 @@ int App::chatComposerHeight() const {
   const bool editing=editor_.active&&editorInPlace()&&editorInlineChat_;
   const auto &text=editing?editor_.text:draft_;
   if(!editing&&text.empty())return base;
-  const int pad=layout().portrait()?layout().composerInset():12;
+  // The expanded composer shares the landscape text-over-tools layout. The
+  // larger portrait pill inset belongs only to the collapsed single row.
+  const int pad=12;
   const int width=std::max(44,layout().composerWidth()-2*pad);
   lv_point_t size{};lv_text_get_size(&size,text.c_str(),font(20),0,0,width,LV_TEXT_FLAG_NONE);
   const int minimum=2*pad+font(20)->line_height+8+44;
@@ -84,7 +86,7 @@ void App::layoutChatComposer() {
   const bool previous=chatLayout_;chatLayout_=true;
   const int oldHeight=lv_obj_get_height(chatControls_);
   const int height=chatComposerHeight(),width=layout().composerWidth();
-  const int pad=expanded?(layout().portrait()?layout().composerInset():12):layout().composerInset();
+  const int pad=expanded?12:layout().composerInset();
   lv_obj_set_height(chatControls_,height);
   lv_obj_set_style_radius(chatControls_,expanded?28:height/2,0);
   if(toBottom_)lv_obj_set_y(toBottom_,chatComposerY()-56);

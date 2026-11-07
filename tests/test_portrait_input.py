@@ -228,7 +228,7 @@ def run():
                     key(a,'enter');key(a,'a');d=a.diag();b=d['composer_bounds'];heights.append(b[3]-b[1]+1)
                     assert b[3]==bottom and 94<heights[-1]<=282
                     arrow=d['editor']['actions']['chat-send']
-                    assert b[2]-arrow[2]==25 and b[3]-arrow[3]==25,(b,arrow)
+                    assert b[2]-arrow[2]==12 and b[3]-arrow[3]==12,(b,arrow)
                     if i==1:shot(a,'composer-three-lines')
                 assert heights==sorted(heights) and heights[-1]==282
                 shot(a,'composer-max-scroll')
