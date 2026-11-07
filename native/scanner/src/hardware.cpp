@@ -539,6 +539,10 @@ void Hardware::cameraToOcr() {
   key_ = -1;
   close(); // Restore camera/guardian while retaining the same evdev grab.
   key_ = key; waitRelease_ = waitRelease;
+  // The launcher has already masked only its own host head-key clients. Let
+  // CaptureFrame receive the physical edge too: it owns lamp/start/stop, while
+  // this nonexclusive reader forwards the same edge to OCR without home UI.
+  require(io(key_, EVIOCGRAB, nullptr)==0,"cannot release OCR capture key grab");
 }
 void Hardware::close() noexcept {
   if (sensor_ >= 0 && profile_.sensor == "sc2356") {

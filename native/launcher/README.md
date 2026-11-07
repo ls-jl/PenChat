@@ -103,9 +103,15 @@ Portrait keyboard handoff additionally uses `ocr.prepare` / `ocr.prepared`
 before the existing `ocr.start`. Preparation binds and registers the page route
 without enabling capture. Native switches its Y07 scan child to a key-only lease and enables system OCR only after a
 matching successful acknowledgement. Camera/light/guardian ownership returns to
-the system while the same native pen-key lease remains; matching pen edges call
-the already loaded vendor OCR engine by exported symbol name. This bypasses the
-Y07 home page’s unconditional physical-key image preview. Missing symbols fail
+the system. Before releasing the scanner's exclusive pen grab, `ocrRoute(true)`
+snapshots and masks only KEY134 on the host process's own led_control clients.
+The scanner keeps a nonexclusive reader; CaptureFrame still receives physical
+edges to light and acquire frames. Matching pen edges call the already loaded
+vendor OCR engine by exported symbol name, then restore text mode using the
+public setter (the vendor press entry forces image mode). This bypasses the
+Y07 home page’s unconditional physical-key image preview without blocking capture.
+`ocrRoute(false)`, native exit and IPC EOF restore original masks and close
+retained descriptors. Unsupported per-client masks reject the handoff. Missing symbols fail
 explicitly with manual/official input available. Keyboard close, background and
 bridge shutdown release the key; healthy scan models remain resident. Continuous replacement retains routing,
 while cancelling old subscriptions/results. Failed preparation temporarily blocks

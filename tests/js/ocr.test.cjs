@@ -2,14 +2,14 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
-function fixture(stroke) {
+function fixture(stroke,route) {
   const timers = new Map(), calls = [], events = []; let clock = 0
   const signal = () => { const callbacks = new Set(); return { callbacks, on: f => callbacks.add(f), off: f => callbacks.delete(f), fire: (...a) => [...callbacks].forEach(f => f(...a)) } }
   const manager = Object.fromEntries(['ocrStartChanged','scanWordResultChanged','ocrCompleteChanged','ocrStopChanged','ocrResultChanged','scanErrorChanged'].map(k => [k,signal()]))
   for (const name of ['addUseOcrAppId','deleteUseOcrAppId','setIsOpenScan','setShowImgScanMode','setCurrentAppId','startScan']) manager[name] = (...args) => calls.push([name,...args])
   const context = vm.createContext({ module: {}, setTimeout: f => { timers.set(++clock,f);return clock }, clearTimeout: id => timers.delete(id) })
   vm.runInContext(fs.readFileSync('src/launcher/ocr.js','utf8').replace('export class OcrSession','module.exports = class OcrSession'),context)
-  const session = new context.module.exports(manager,'test-app',(type,data) => events.push({type,...data}), stroke)
+  const session = new context.module.exports(manager,'test-app',(type,data) => events.push({type,...data}), stroke, route)
   return { session, manager, timers, calls, events, flush: () => { for (const [id,f] of [...timers.entries()]) { if(timers.delete(id)) f() } } }
 }
 test('single-line system OCR preserves case and cleans up before delivering text', () => {
@@ -149,4 +149,32 @@ test('unavailable direct OCR interface keeps input and reports a terminal failur
   f.session.pen({down:true,sequence:1,requestId:'one',session:'editor'})
   assert(f.events.some(e=>e.type==='ocr.result'&&!e.confirmed&&e.terminal))
   assert(f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===false));f.session.stop()
+})
+
+test('native pen preparation masks only host dispatch before camera handoff and restores it on stop',()=>{
+  const routes=[];const f=fixture(()=>true,enabled=>{routes.push(enabled);return true})
+  f.session.start('prepare',{continuous:true,session:'editor',prepareOnly:true,nativePen:true})
+  assert(f.events.some(e=>e.type==='ocr.prepared'&&e.ok));assert.deepEqual(routes,[true])
+  assert(!f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===true))
+  f.session.start('active',{continuous:true,session:'editor',nativePen:true})
+  f.session.start('mode',{continuous:true,session:'editor',nativePen:true,mode:'multi'})
+  assert.deepEqual(routes,[true]);f.session.stop();assert.deepEqual(routes,[true,false])
+  f.session.stop();assert.deepEqual(routes,[true,false])
+})
+test('unavailable native event mask refuses camera handoff rather than exposing the home handler',()=>{
+  const f=fixture(()=>true,()=>false)
+  f.session.start('fail',{continuous:true,session:'editor',prepareOnly:true,nativePen:true})
+  assert(f.events.some(e=>e.type==='ocr.prepared'&&!e.ok))
+  assert(!f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===true));f.session.stop()
+})
+
+test('forwarded pen edges reassert text mode after the vendor press forces image mode',()=>{
+  let f;f=fixture(()=>{f.manager.showImgScanMode=true;return true})
+  f.manager.setShowImgScanMode=enabled=>{f.manager.showImgScanMode=enabled}
+  f.session.start('one',{continuous:true,session:'editor'})
+  for(const down of [true,false]) {
+    f.session.pen({down,sequence:1,requestId:'one',session:'editor'})
+    assert.equal(f.manager.showImgScanMode,false)
+  }
+  f.session.stop()
 })

@@ -177,8 +177,9 @@ export default {
       if (!this._ocr) this._ocr = new OcrSession(this._global, appConfig.appid, (type, data) => {
         if (this._disposed || generation !== this._generation || data.requestId !== this._ocrRequest) return
         this.send(type, data)
-      }, (down, sequence) => typeof launcher.ocrStroke === 'function' && launcher.ocrStroke(down, sequence))
-      this._ocr.start(event.requestId, { session: event.session, mode: event.mode, continuous: event.continuous, prepareOnly })
+      }, (down, sequence) => typeof launcher.ocrStroke === 'function' && launcher.ocrStroke(down, sequence),
+      active => typeof launcher.ocrRoute === 'function' && launcher.ocrRoute(active))
+      this._ocr.start(event.requestId, { session: event.session, mode: event.mode, continuous: event.continuous, nativePen: event.nativePen === true, prepareOnly })
       } catch (err) {
         if (!prepareOnly) throw err
         this.stopOcr()

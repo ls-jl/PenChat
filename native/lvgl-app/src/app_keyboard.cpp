@@ -818,7 +818,7 @@ void App::editorOcrStart() {
   if(layout().portrait()) {
     editorOcrActive_=editorOcrPreparing_=true;editorOcrPrepareSent_=ticks();
     editorOcrId_=uid("editor-ocr");editorOcrCapture_=0;syncScanner();
-    if(!bridge_.send("ocr.prepare",{{"requestId",editorOcrId_},{"session",session},{"mode",editorOcrMulti_?"multi":"single"},{"continuous",true}}))
+    if(!bridge_.send("ocr.prepare",{{"nativePen",true},{"requestId",editorOcrId_},{"session",session},{"mode",editorOcrMulti_?"multi":"single"},{"continuous",true}}))
       editorOcrPrepared({{"requestId",editorOcrId_},{"session",session},{"ok",false}});
     return;
   }
@@ -842,7 +842,7 @@ void App::editorOcrPrepared(const Json &m) {
   whenScannerReleased([this,session,request] {
     if(!editor_.active||!visible_||keyboard_||editor_.id!=session||editorOcrId_!=request)return;
     editorBuild();
-    if(!bridge_.send("ocr.start",{{"requestId",request},{"session",session},{"mode",editorOcrMulti_?"multi":"single"},{"continuous",true}})) {
+    if(!bridge_.send("ocr.start",{{"nativePen",true},{"requestId",request},{"session",session},{"mode",editorOcrMulti_?"multi":"single"},{"continuous",true}})) {
       editorOcrActive_=false;editorOcrPreparing_=true;syncScanner();
       editor_.notice="OCR启动未完成，笔头已暂停；请重试";editorBuild();
     }

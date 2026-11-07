@@ -9,6 +9,7 @@
 #include <set>
 #include <dlfcn.h>
 #include "update.hpp"
+#include "HeadKeyRoute.hpp"
 namespace JQuick { class PackageInfo; }
 #include <signal.h>
 #include <sys/resource.h>
@@ -29,11 +30,13 @@ void saveInstallTicket(const std::string &path,const penchat::Json &ticket) {
 }
 class Launcher : public JQBaseObject {
   std::mutex mutex_;
+  penchat::HeadKeyRoute headRoute_{penchat::HeadKeyRoute::realSystem()};
   int fd_ = -1;
   pid_t pid_ = -1;
   std::string ownId_, ownData_;
   std::set<std::string> installations_;
   void stopLocked() {
+    headRoute_.stop();
     if (fd_ >= 0) {
       shutdown(fd_, SHUT_RDWR);
       close(fd_);
@@ -183,6 +186,7 @@ public:
       int code = 0;
       auto result = waitpid(pid_, &code, WNOHANG);
       if (result == pid_ || (result < 0 && errno == ECHILD)) {
+        headRoute_.stop();
         pid_ = -1;
         if (fd_ >= 0) {
           close(fd_);
@@ -192,6 +196,12 @@ public:
     }
     info.GetReturnValue().Set(
         Bson::object{{"alive", pid_ > 0 && fd_ >= 0}, {"pid", int(pid_)}});
+  }
+  void ocrRoute(JQFunctionInfo &info) {
+    const auto p=info.toParamsHolder();
+    if(!p[0].is_bool()){info.GetReturnValue().Set(false);return;}
+    if(!p[0].bool_value()){headRoute_.stop();info.GetReturnValue().Set(true);return;}
+    info.GetReturnValue().Set(headRoute_.start());
   }
   void ocrStroke(JQFunctionInfo &info) {
     const auto parameters = info.toParamsHolder();
@@ -227,6 +237,7 @@ public:
         if (error.empty())
           messages.push_back(j);
       } else if (n == 0) {
+        headRoute_.stop();
         close(fd_);
         fd_ = -1;
         break;
@@ -237,6 +248,7 @@ public:
       int status = 0;
       auto result = waitpid(pid_, &status, WNOHANG);
       if (result == pid_ || (result < 0 && errno == ECHILD)) {
+        headRoute_.stop();
         pid_ = -1;
         messages.push_back(Bson::object{
             {"v", 1},
@@ -263,6 +275,7 @@ int init(JSContext *ctx, JSModuleDef *module) {
   tpl->SetProtoMethod("reopen", &Launcher::reopen);
   tpl->SetProtoMethod("send", &Launcher::send);
   tpl->SetProtoMethod("poll", &Launcher::poll);
+  tpl->SetProtoMethod("ocrRoute", &Launcher::ocrRoute);
   tpl->SetProtoMethod("ocrStroke", &Launcher::ocrStroke);
   tpl->SetProtoMethod("status", &Launcher::status);
   tpl->SetProtoMethodPromise("stop", &Launcher::stop);

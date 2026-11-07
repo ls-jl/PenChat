@@ -30,7 +30,8 @@ function scanText(value, depth = 0) {
   return ''
 }
 export class OcrSession {
-  constructor(manager, appid, emit, stroke = null) {
+  constructor(manager, appid, emit, stroke = null, route = null) {
+    this.route = route; this.nativeRouting = false
     this.stroke = stroke
     this.manager = manager; this.appid = appid; this.emit = emit; this.active = null
   }
@@ -129,6 +130,10 @@ export class OcrSession {
       if (!outputs) throw new Error('System OCR result signals unavailable')
       // Establish routing before enabling capture. A prepared keyboard keeps
       // its native key lease until this registration has been acknowledged.
+      if (options.nativePen === true && !this.nativeRouting) {
+        if (!this.route || this.route(true) !== true) throw new Error('Native OCR route unavailable')
+        this.nativeRouting = true
+      }
       current.registered = true
       if (this.manager.addUseOcrAppId(JSON.stringify({ appid: this.appid, scanMethod: current.mode === 'multi' ? 1 : 0, useOcr: true, stopSoundPlayerOnHeadButtonPressed: false })) === false) throw new Error('System OCR registration failed')
       if (this.manager.setCurrentAppId) this.manager.setCurrentAppId(this.appid, true)
@@ -169,7 +174,12 @@ export class OcrSession {
       current.penDown = false
     }
     let ok = false
-    try { ok = this.stroke(event.down, event.sequence) === true } catch (_) {}
+    try {
+      ok = this.stroke(event.down, event.sequence) === true
+      // Y07's named press entry sets image mode even without the home handler.
+      // Restore text mode after that call, before the capture is finalized.
+      if (ok && this.manager.setShowImgScanMode) this.manager.setShowImgScanMode(false)
+    } catch (_) { ok = false }
     if (!ok) {
       try { this.manager.setIsOpenScan(false); current.opened = true } catch (_) {}
       this.emit('ocr.result', { requestId: current.requestId, session: current.session, mode: current.mode, capture: current.capture || 1, confirmed: false, terminal: true, error: '当前固件的文字扫描接口不可用，请使用官方键盘。' })
@@ -177,6 +187,10 @@ export class OcrSession {
   }
   stop(retainRouting = false) {
     const current = this.active
+    if (!retainRouting && this.nativeRouting) {
+      try { if (this.route) this.route(false) } catch (_) {}
+      this.nativeRouting = false
+    }
     if (!current) return
     this.active = null
     if (current.penDown && this.stroke) { try { this.stroke(false, current.penSequence) } catch (_) {} }

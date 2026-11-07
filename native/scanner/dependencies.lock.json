@@ -26,7 +26,7 @@
     "src/main.cpp": "c485b034a1a7cc85cea0b19b43e0702f7bb22f43d6157b3e3a649aa4329bec94",
     "runtime-symbols.list": "868ca8503bbdbfab6029fe3fca3aceb20e76b4908f63be8bfdcf0f9c9ac92951",
     "tests/test_runtime_io.cpp": "726a9a9e417ad3520743a286ae755f0c857a7b164d74b7b9ea22525c31fd7d05",
-    "src/hardware.cpp": "e5738f2a43ace61977207e74d301352b0fd05826c8eca0f81ec89b5636c0590e",
+    "src/hardware.cpp": "43e310350b56638455d4a01028a90bc70840b946d5027ea5f17d8721cbb73859",
     "src/hardware.hpp": "6974c23829960b12c22700a721b7c39b6d5faa084e45ce3d070f86cd35646740",
     "engine/src/geometry_quality.cpp": "d513e838a60c818614d77b72322161e1e4b9d919a294c76ca5c45d4faa531a41",
     "tests/test_geometry_quality.cpp": "b66e7c45a3d0832c64ab3d8114147c6d395d192c6de0af23aaaf6855e2ab7086",

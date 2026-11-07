@@ -93,12 +93,17 @@ an LVGL long-press callback: enqueue an event and handle it on the next UI tick.
 Provider edits must update the existing row and retain model IDs/history links.
 OCR results require user review and explicit Provider save; never log raw keys.
 Unregister system OCR on cancel, timeout, background, bridge failure and unload.
-Y07 docked editing retains only the scanner child's native pen-key lease while
-returning camera/light/guardian ownership to system OCR. Forward matched key
-edges to the current OCR session via named, already loaded engine entry points;
-never allow the physical key to reach Y07's unconditional home image-preview
-handler. Release key-only ownership on editor close, official IME and lifecycle
-changes. Do not poll an idle released scanner at keyboard frequency.
+Y07 docked editing returns camera/light/guardian ownership to system OCR and
+keeps a nonexclusive scanner pen-key reader. Before releasing its exclusive grab,
+the launcher snapshots and filters only KEY134 on its own led_control evdev
+clients using EVIOCGMASK/EVIOCSMASK; never mask CaptureFrame, Home or other keys.
+CaptureFrame must still receive real pen edges to drive lamp and frame acquisition.
+Forward matched edges to the current OCR session through named, already loaded
+engine entry points, then reassert text mode (the vendor press forces image mode).
+Restore every original host-client mask and close retained fds on editor close,
+official IME, background, IPC EOF or native exit. Unsupported masking must reject
+handoff rather than expose the home image-preview handler. Do not poll an idle
+released scanner at keyboard frequency.
 
 ## Builds and checks
 
