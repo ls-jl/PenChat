@@ -1,11 +1,11 @@
 # Repository Guidelines
 
-PenChat is a native LVGL app for explicit ORANGE, Y02 and Y07 RK3562/AArch64 profiles.
+PenChat is a native LVGL app for explicit ORANGE, Y02, Y07 and MELON RK3562/AArch64 profiles.
 Read display geometry/rotation from Falcon, never a device-specific screen fallback.
 The Falcon AMR is a thin launcher with a full-screen hole, system IME and
 lifecycle forwarding. Do not put business UI or networking back into Vue.
 Scanning uses the source-pinned Stream32 backend in native/scanner, with a
-separate C++17 process and explicit ORANGE/Y02/Y07 capture leases. Keep 32/24/8 windowing,
+separate C++17 process and explicit ORANGE/Y02/Y07/MELON capture leases. Keep 32/24/8 windowing,
 per-frame photometric estimates and bounded memory. Always review scan results
 before appending messages. API Key entry still uses the system pen-tip OCR bridge.
 Do not import legacy stitching engines or research data. The first release supports
@@ -157,11 +157,18 @@ sample grants dynamic allocation headroom above max(32MiB, MemTotal/20); allocat
 since the sample spend that headroom. Invalid samples expire after one second.
 Keep allocation/geometry/overflow checks and explicit partial results on pressure.
 Reclaim allocator pages only once processing is quiescent; retain the healthy model.
-Y02 alone continues through 1-7 consecutive missing frames and stops at 8 or more
-(sequence distance >=9); cumulative losses are not this threshold. ORANGE/Y07
-recover only an isolated one-frame forward gap within 35ms and after 16 continuous
-frames. Keep timestamp reset, capture failure and stall guards explicit. Count every
-lost frame, preserve the real stop reason, and never synthesize image pixels.
+All supported boards continue through 1–8 consecutive missing frames and stop at
+9 or more (sequence distance >=10); cumulative losses are not this threshold.
+Keep timestamp reset, capture failure and stall guards explicit. Count every
+lost frame and show a wrapping review warning, preserving the real stop reason;
+never synthesize pixels. MELON requires RK3562 MELON + OV7251 identity, configured
+IR GPIO and discovered led_control key, native 640x480 NV12 via ISP self/main path.
+Use its standard-stream-first startup; only zero frames permits one quick-stream
+retry. Never apply SC2356 quick-only/repeated controls or another board's gain map.
+Scan-result viewing prepares/caches original row-PNG asynchronously and retains
+that result; it never confirms, sends, or disarms through the ordinary viewer path.
+Join/cancel the reader before releasing results on background/disconnect/exit.
+
 
 Reserve the scan guardian/key lease before preparing a cold model, but start
 V4L2 only after asynchronous model open plus one fixed32 warmup has succeeded.

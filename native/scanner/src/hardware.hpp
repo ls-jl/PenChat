@@ -37,7 +37,7 @@ public:
   bool readFrame(const std::function<void(const uint8_t *, int, uint64_t,
                                           int64_t)> &consume);
   void light(bool on) { setScanLight(on); }
-  // SC2356 gates exposure; SC035GS free-runs and the worker bounds timestamps.
+  // SC2356 gates exposure; SC035GS/OV7251 free-run and the worker bounds timestamps.
   void exposure(bool enabled);
 };
 } // namespace penchat_scan

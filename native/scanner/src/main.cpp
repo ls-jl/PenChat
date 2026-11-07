@@ -14,6 +14,7 @@
 #include <deque>
 #include <fcntl.h>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <mutex>
 #include <pen_stream/stream.hpp>
@@ -193,6 +194,10 @@ class Worker {
   int64_t ownerDeadline_ = 0, nextOwner_ = 0;
   int64_t nextPreview_ = 0, lastFrame_ = 0, pressTime_ = 0, firstFrame_ = 0,
           drainDeadline_ = 0, sourceCutoffUs_ = 0;
+  std::future<Json> exportTask_;
+  std::atomic<bool> exportCancel_{false};
+  bool exportReview_ = false;
+  uint64_t exportRequest_ = 0;
   Json lease_, exported_, memoryAtStop_ = Json::object();
   std::mutex eventMutex_;
   std::deque<Event> events_;
@@ -248,11 +253,11 @@ class Worker {
       {"frame_bytes", m.frameBytes}, {"canvas_bytes", m.canvasBytes},
       {"raw_queued", m.rawQueued}, {"selected_queued", m.selectedQueued}};
   }
-  void emit(const std::string &type, Json data = Json::object()) {
+  void emit(const std::string &type, Json data = Json::object(), uint64_t request = 0) {
     data["v"] = ProtocolVersion;
     data["type"] = type;
     data["generation"] = generation_;
-    data["requestId"] = request_;
+    data["requestId"] = request ? request : request_;
     data["scanId"] = scan_;
     data["session"] = session_;
     data["profile"] = profile_.id;
@@ -276,7 +281,7 @@ class Worker {
       k->sensorHeight=profile_.height;k->rotation=config_.rotation;k->gain.fill(gain);
       config_.calibration=k;config_.diagnosticAcceptAll=mock_;return;
     }
-    if (profile_.id == "y02-sc035gs") {
+    if (profile_.id == "y02-sc035gs" || profile_.id == "melon-ov7251") {
       // Independent neutral flat-field, NOT the ORANGE illumination resource.
       // Keep raw SC035GS detail; per-frame photometric estimation still runs.
       auto k = std::make_shared<Calibration>();
@@ -324,6 +329,7 @@ class Worker {
     exported_ = Json::object();
   }
   void release(bool cancel = false) {
+    cancelExport();
     preview_.cancelAndWait();
     if (scan_) {
       if (cancel) engine_->cancelScan(scan_);
@@ -513,12 +519,26 @@ class Worker {
     emit("preview", {{"counts", counts()}, {"width", frame->canvasWidth},
                       {"height", frame->canvasHeight}});
   }
-  void exportResult() {
+  void cancelExport() {
+    exportCancel_=true;
+    if(exportTask_.valid()) {try{exported_=exportTask_.get();}catch(...) {}}
+    exportCancel_=false;
+  }
+  void pollExport() {
+    if(!exportTask_.valid() || exportTask_.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
+    try {
+      exported_=exportTask_.get();
+      emit(exportReview_?"review_ready":"exported",{{"image",exported_}},exportRequest_);
+    } catch(const std::exception &e) {
+      emit(exportReview_?"review_error":"error",{{"error",e.what()}},exportRequest_);
+    }
+  }
+  void exportResult(bool review = false) {
     if (!exported_.empty()) {
-      emit("exported", {{"image", exported_}});
+      emit(review?"review_ready":"exported", {{"image", exported_}});
       return;
     }
-    if (!finished_ || !result_)
+    if (!finished_ || !result_ || exportTask_.valid())
       return;
     auto b = result_->bounds();
     if (b.width < 1 || b.height < 1 || b.width > 1024 * 1024)
@@ -527,13 +547,13 @@ class Worker {
     mkdir(directory_.c_str(), 0700);
     const auto stem = directory_ + "/scan_" + std::to_string(getpid()) + "_" +
                       std::to_string(generation_) + "_" + std::to_string(scan_);
-    exported_ = {{"path", stem + ".png"},
+    Json image = {{"path", stem + ".png"},
                  {"previewPath", stem + ".preview.png"},
                  {"width", b.width},
                  {"height", b.height},
                  {"source", "scan"}};
     auto c = counts();
-    exported_["metadata"] = {
+    image["metadata"] = {
         {"status", captureFailure_.empty() ? int(result_->status())
                                            : int(Status::Segmented)},
         {"counts", c}, {"memory_at_stop", memoryAtStop_},
@@ -549,23 +569,34 @@ class Worker {
           {"firstSelectedUs", firstSelectedUs_.load()},
           {"firstBatchUs", firstBatchUs_.load()},
           {"maxCaptureLoopUs", maxCaptureLoopUs_}}}};
-    std::vector<uint8_t> mask(b.width);
-    writeGrayPng(
-        exported_["path"], b.width, b.height, [&](int y, uint8_t *pixels) {
-          if (result_->readRow(y, pixels, mask.data(), b.width) != Code::Ok)
-            throw std::runtime_error("scan row unavailable");
+    const auto result=result_;
+    exportCancel_=false;exportReview_=review;exportRequest_=request_;
+    exportTask_=std::async(std::launch::async,[this,result,image,b]() mutable {
+      try {
+        std::vector<uint8_t> mask(b.width);
+        writeGrayPng(image["path"],b.width,b.height,[&](int y,uint8_t *pixels) {
+          if(exportCancel_ || result->readRow(y,pixels,mask.data(),b.width)!=Code::Ok)
+            throw std::runtime_error("scan image preparation cancelled or unavailable");
         });
-    double scale = std::min(1., std::min(1024. / b.width, 256. / b.height));
-    int w = std::max(1, int(b.width * scale)),
-        h = std::max(1, int(b.height * scale));
-    std::vector<uint8_t> preview(size_t(w) * h), valid(preview.size());
-    if (result_->readPreview(w, h, preview.data(), valid.data(),
-                             preview.size()) != Code::Ok)
-      throw std::runtime_error("scan preview unavailable");
-    writeGrayPng(exported_["previewPath"], w, h, [&](int y, uint8_t *row) {
-      memcpy(row, preview.data() + size_t(y) * w, w);
+        if(exportCancel_)throw std::runtime_error("scan image preparation cancelled");
+        const double scale=std::min(1.,std::min(1024./b.width,256./b.height));
+        const int w=std::max(1,int(b.width*scale)),h=std::max(1,int(b.height*scale));
+        std::vector<uint8_t> preview(size_t(w)*h),valid(preview.size());
+        if(result->readPreview(w,h,preview.data(),valid.data(),preview.size())!=Code::Ok)
+          throw std::runtime_error("scan preview unavailable");
+        writeGrayPng(image["previewPath"],w,h,[&](int y,uint8_t *row) {
+          if(exportCancel_)throw std::runtime_error("scan image preparation cancelled");
+          memcpy(row,preview.data()+size_t(y)*w,w);
+        });
+        if(exportCancel_)throw std::runtime_error("scan image preparation cancelled");
+        return image;
+      } catch(...) {
+        for(const char *key:{"path","previewPath"}) {
+          const auto path=image.at(key).get<std::string>();unlink(path.c_str());unlink((path+".part").c_str());
+        }
+        throw;
+      }
     });
-    emit("exported", {{"image", exported_}});
   }
 
 public:
@@ -653,6 +684,11 @@ public:
     } else if (type == "disarm" || type == "cancel") {
       disarm();
       emit("released");
+    } else if(type=="prepare_review" && j.value("scanId",uint64_t(0))==scan_) {
+      try {exportResult(true);}
+      catch(const std::exception &e) {emit("review_error",{{"error",e.what()}});}
+    } else if(type=="cancel_review" && j.value("scanId",uint64_t(0))==scan_) {
+      if(exportReview_)cancelExport();
     } else if (type == "confirm" && j.value("scanId", uint64_t(0)) == scan_) {
       try {
         exportResult();
@@ -692,7 +728,7 @@ public:
       return;
     if (!mock_ && timestamp < pressTime_)
       return;
-    if (!mock_ && profile_.id == "y02-sc035gs" && draining_ &&
+    if (!mock_ && !profile_.gatesExposure && draining_ &&
         timestamp > sourceCutoffUs_) {
       // Outside the released pen's capture window, not a lost in-window frame.
       seal();
@@ -705,10 +741,10 @@ public:
       if (distance > 1 && distance < 0x80000000u)
         droppedRaw_ += distance - 1;
       // Preserve the actual next image and report every lost source frame.
-      // Y02 permits only short bounded bursts; other boards retain single loss.
+      // All supported boards continue through up to eight missing frames.
       const auto elapsed = timestamp - lastRawTimestamp_;
       const bool recoverable = recoverableSequenceGap(
-          profile_.id, distance, elapsed, framesSinceGap_);
+          distance, elapsed);
       if (gapDetailCount_ < gapDetails_.size())
         gapDetails_[gapDetailCount_++] = {uint32_t(lastSequence_),
             uint32_t(sequence), elapsed, framesSinceGap_, recoverable};
@@ -752,6 +788,7 @@ public:
     }
   }
   void tick() {
+    pollExport();
     engine_->checkResources();
     if (state_ == "warming") {
       const auto model = engine_->modelPreparation();
@@ -896,14 +933,14 @@ int main(int argc, char **argv) {
   std::string resources, directory;
   bool mock = false;
 #ifdef SCANNER_TEST_SOURCE
-  bool mockY02 = false;
+  std::string mockProfile="orange";
 #endif
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
 #ifdef SCANNER_TEST_SOURCE
-    if (a == "--simulate" || a == "--simulate-y02") {
+    if (a == "--simulate" || a == "--simulate-y02" || a == "--simulate-melon" || a == "--simulate-y07") {
       mock = true;
-      mockY02 = a == "--simulate-y02";
+      mockProfile=a=="--simulate"?"orange":a.substr(std::string("--simulate-").size());
       continue;
     }
 #endif
@@ -949,8 +986,10 @@ int main(int argc, char **argv) {
     auto profile = detectedScanProfile();
 #ifdef SCANNER_TEST_SOURCE
     if (mock)
-      profile = mockY02 ? scanProfile("Rockchip RK3562 Y02 LP4 V10 Board", "sc035gs")
-                        : scanProfile("Rockchip RK3562 ORANGE LP4 V10 Board", "sc2356");
+      profile = mockProfile=="y02" ? scanProfile("Rockchip RK3562 Y02 LP4 V10 Board", "sc035gs")
+              : mockProfile=="melon" ? scanProfile("Rockchip RK3562 MELON LP4 V10 Board", "ov7251")
+              : mockProfile=="y07" ? scanProfile("Rockchip RK3562 Y07 LP4 V10 Board", "sc2356")
+              : scanProfile("Rockchip RK3562 ORANGE LP4 V10 Board", "sc2356");
 #endif
     Worker worker(fd, slot, resources, directory, mock, profile);
     while (running) {

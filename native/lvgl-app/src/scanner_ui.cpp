@@ -29,7 +29,7 @@ std::string scanReason(const std::string &reason) {
 void App::syncScanner() {
   bool active = view_ == "scan" && scanId_ && scanSession_ == session_;
   bool eligible = bridge_.generation() > 0 && visible_ && !keyboard_ &&
-                  !editor_.active && !imageViewer_ && !imageStoreBusy_ && !contextBusy_ && !replyBusy_ && !editorOcrActive_ &&
+                  !editor_.active && (!imageViewer_ || viewerScanResult_) && !imageStoreBusy_ && !contextBusy_ && !replyBusy_ && !editorOcrActive_ &&
                   !navigationOpen_ && !modal_ && !attachments_ && !pulling_ &&
                   (view_ == "chat" || active);
   scanner_.eligible(eligible, session_);
@@ -59,6 +59,14 @@ void App::scanPage() {
   lv_obj_set_height(scanLabel_, font(19)->line_height);
   const bool portrait=layout().portrait();
   auto holder = box(body_, 10, portrait?56:32, portrait?screen_.width-20:screen_.width-330, portrait?screen_.height-186:screen_.height-88, theme::surface);
+  scanHolder_=holder;
+  scanWarning_=label(body_,"",10,28,screen_.width-120,17,theme::danger);
+  lv_obj_set_hidden(scanWarning_,true);
+  lv_obj_set_clickable(holder,true);
+  lv_obj_add_event_cb(holder, [](lv_event_t *e) {
+    auto self=static_cast<App *>(lv_event_get_user_data(e));
+    self->events_.push("image_scan_open",{{"scan",self->scanId_},{"generation",self->scanGeneration_},{"session",self->scanSession_}});
+  }, LV_EVENT_CLICKED, this);
   lv_obj_set_scrollable(holder, false);
   scanImage_ = imageWidget(holder);
   if (auto frame = scanner_.preview(scanId_)) {
@@ -107,14 +115,39 @@ void App::scanPage() {
              std::to_string(c.value("selected", uint64_t(0))) + " 帧" +
              (c.value("warnings", 0u) ? "，存在光照估计回退，请核对"
                                       : "，请确认使用");
-    const auto lost = c.value("dropped_raw", uint64_t(0));
-    const auto recovered = c.value("recovered_frames",
-                                   c.value("recovered_gaps", uint64_t(0)));
-    if (lost)
-      text = "采集漏 " + std::to_string(lost) + " 帧（" +
-             std::to_string(recovered) + " 帧已续扫） · " + text;
+    if(partial) {
+      lv_obj_set_width(scanLabel_,portrait?screen_.width-88:screen_.width-330);
+      lv_label_set_long_mode(scanLabel_,LV_LABEL_LONG_MODE_WRAP);
+      lv_obj_set_height(scanLabel_,LV_SIZE_CONTENT);
+    }
     lv_label_set_text(scanLabel_, text.c_str());
+    updateScanWarning(c);
   }
+}
+void App::updateScanWarning(const Json &counts) {
+  if(!scanWarning_ || !scanHolder_)return;
+  const auto lost=counts.value("dropped_raw",uint64_t(0));
+  const bool portrait=layout().portrait();
+  lv_obj_update_layout(scanLabel_);
+  const int top=std::max(portrait?48:28,int(lv_obj_get_y(scanLabel_)+lv_obj_get_height(scanLabel_)+8));
+  lv_obj_set_pos(scanWarning_,portrait?16:10,top);
+  lv_obj_set_width(scanWarning_,portrait?screen_.width-32:screen_.width-330);
+  lv_label_set_long_mode(scanWarning_,LV_LABEL_LONG_MODE_WRAP);
+  lv_label_set_text(scanWarning_,("本次漏采"+std::to_string(lost)+"帧，请放大检查是否有缺字、重影或错位。").c_str());
+  lv_obj_set_hidden(scanWarning_,!lost);lv_obj_update_layout(scanWarning_);
+  const int extra=lost?lv_obj_get_height(scanWarning_)+8:0;
+  const int holderTop=top+extra+4;
+  lv_obj_set_y(scanHolder_,holderTop);
+  lv_obj_set_height(scanHolder_,std::max(24,(portrait?screen_.height-130:screen_.height-56)-holderTop));
+  if(auto frame=scanner_.preview(scanId_)) {
+    lv_image_set_scale(scanImage_,std::min(256,std::min((lv_obj_get_width(scanHolder_)-8)*256/frame->width,
+      (lv_obj_get_height(scanHolder_)-8)*256/frame->height)));lv_obj_center(scanImage_);
+  }
+}
+void App::viewScanResult() {
+  if(view_!="scan" || imageViewer_ || scanConfirming_ || !scanResult_.value("usable",false) ||
+     scanResult_.value("type",std::string())!="finished" || !visible_)return;
+  openImageViewer("",true);scanViewRequest_=scanner_.prepareReview(scanId_);
 }
 void App::scanEvent(const Event &event) {
   const auto &j = event.data;
@@ -142,6 +175,7 @@ void App::scanEvent(const Event &event) {
   }
   if (event.type == "scan_error") {
     if (view_ == "scan") {
+      if(viewerScanResult_)closeImageViewer(false);
       scanResult_ = {{"usable", false},
                      {"error", j.value("error", std::string("扫描失败"))}};
       scanConfirming_ = false;
@@ -153,6 +187,15 @@ void App::scanEvent(const Event &event) {
       j.value("scanId", uint64_t(0)) != scanId_ ||
       scanGeneration_ != scanner_.generation() || scanSession_ != session_)
     return;
+  if((event.type=="scan_review_ready" || event.type=="scan_review_error")) {
+    if(!imageViewer_ || !viewerScanResult_ || !scanViewRequest_ ||
+       j.value("requestId",uint64_t(0))!=scanViewRequest_)return;
+    if(event.type=="scan_review_error") {
+      viewerFailed_=true;lv_label_set_text(viewerStatus_,"原图准备失败，请关闭后重试");return;
+    }
+    viewerKey_=images_.request(j.at("image").at("path").get<std::string>(),32768,32768);
+    lv_label_set_text(viewerStatus_,"正在加载原图…");refreshImageViewer();return;
+  }
   if (event.type == "scan_preview" && scanImage_) {
     if (auto frame = scanner_.preview(scanId_)) {
       texture(scanImage_, frame);
@@ -168,6 +211,7 @@ void App::scanEvent(const Event &event) {
                 std::to_string(c.value("committed", uint64_t(0))) + " 帧 · 待处理 " +
                 std::to_string(c.value("pending", uint64_t(0))) + " 帧";
     lv_label_set_text(scanLabel_, text.c_str());
+    updateScanWarning(c);
   } else if (event.type == "scan_processing" && scanLabel_)
     lv_label_set_text(scanLabel_, "采集已结束，正在完成剩余拼接…");
   else if (event.type == "scan_finished") {

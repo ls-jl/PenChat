@@ -3,7 +3,7 @@
 #include <utility>
 
 namespace penchat_scan {
-enum class ScanLight { Gpio43, LedClass };
+enum class ScanLight { Gpio43, LedClass, ConfiguredGpio };
 struct CaptureProfile {
   CaptureProfile() = default;
   CaptureProfile(std::string name, std::string sensorName, int w, int h)
@@ -17,6 +17,10 @@ struct CaptureProfile {
   std::string ledBrightness, ledOnValue;
   std::string privateRuntime;
   bool gatesExposure = true;
+  bool ov7251Startup = false;
+  unsigned gpio = 0;
+  std::string homeName;
+  unsigned homeCode = 0;
   bool supported() const { return !id.empty(); }
 };
 // Match a known board AND its actual pen sensor. Display geometry is unrelated.
@@ -38,6 +42,15 @@ inline CaptureProfile scanProfile(const std::string &model,
       profile.ledOnValue="1";
       profile.privateRuntime="librknnrt-y07.so";
       return profile; }
+  const auto ov=sensor.find("ov7251");
+  const bool ov7251=ov!=std::string::npos && (ov==0 || sensor[ov-1]=='_') &&
+    (ov+6==sensor.size() || sensor[ov+6]==' ');
+  if (model.find("RK3562 MELON ") != std::string::npos && ov7251) {
+    CaptureProfile profile{"melon-ov7251", "ov7251", 640, 480};
+    profile.videoNode="/dev/video12";profile.gatesExposure=false;
+    profile.ov7251Startup=true;profile.light=ScanLight::ConfiguredGpio;
+    return profile;
+  }
   return {};
 }
 } // namespace penchat_scan

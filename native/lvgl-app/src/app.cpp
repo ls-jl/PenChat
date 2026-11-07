@@ -929,7 +929,7 @@ void App::clear() {
   pageHeading_ = pageHeader_ = pageContent_ = nullptr;
   pageActions_.clear();
   transferProgress_ = nullptr;
-  scanImage_ = scanLabel_ = scanUse_ = scanHint_ = nullptr;
+  scanWarning_ = scanHolder_ = scanImage_ = scanLabel_ = scanUse_ = scanHint_ = nullptr;
   historyRows_.clear();
   historyCaptions_.clear();historyActions_.clear();historyFullTitle_=historyFullTime_=nullptr;
   historyContextId_.clear();
@@ -2849,6 +2849,7 @@ void App::suspend(bool value) {
   if (value) {replyCancel_=true;if(contextRegenerating_)cancelContext();editorInterrupt();}
   if (value) {
     visible_ = false;
+    if(viewerScanResult_)closeImageViewer(false);
     scanner_.eligible(false, session_);
     afterScanRelease_ = {};
     if (view_ == "scan") {
@@ -3212,6 +3213,11 @@ void App::tick() {
     if(replyEvent(e))continue;
     if (sessionInfoEvent(e)) continue;
     if(messageEvent(e))continue;
+    if(e.type=="image_scan_open") {
+      if(e.data.value("scan",uint64_t(0))==scanId_ && e.data.value("generation",uint64_t(0))==scanGeneration_ &&
+         e.data.value("session",std::string())==scanSession_)viewScanResult();
+      continue;
+    }
     if (e.type == "image_view_close") {closeImageViewer();continue;}
     if (e.type == "image_view_request") {
       if ((view_ == "chat"||view_=="archive_chat") && visible_ && !keyboard_ && !editor_.active && !modal_ &&
@@ -3603,6 +3609,11 @@ Json App::diagnostics() const {
       {"scanner", scanner_.state()},
       {"scan_id", scanId_},
       {"scan_result", scanResult_},
+      {"scan_preview_area", [this] {
+        if(!scanHolder_)return Json::array();
+        lv_area_t a;lv_obj_get_coords(scanHolder_,&a);return Json::array({a.x1,a.y1,a.x2,a.y2});
+      }()},
+      {"scan_warning", scanWarning_ && !lv_obj_is_hidden(scanWarning_)?lv_label_get_text(scanWarning_):""},
       {"scan_released", scanner_.released()},
       {"send_center_x2", send.x1 + send.x2},
       {"send_center_y2", send.y1 + send.y2},

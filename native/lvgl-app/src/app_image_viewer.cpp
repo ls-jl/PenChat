@@ -5,8 +5,9 @@ namespace penchat {
 void App::requestImageViewer(const std::string &path) {
   events_.push("image_view_request",{{"session",view_=="archive_chat"?archiveReaderId_:session_},{"path",path}});
 }
-void App::openImageViewer(const std::string &path) {
-  if (path.empty() || imageViewer_) return;
+void App::openImageViewer(const std::string &path, bool scanResult) {
+  if ((!scanResult && path.empty()) || imageViewer_) return;
+  viewerScanResult_=scanResult;
   closeAttachments();resetPull();input_.cancel();touchDown_=false;
   lv_obj_stop_scroll_anim(body_);
   viewerScroll_=std::max(0,int(lv_obj_get_scroll_y(body_)));
@@ -20,16 +21,18 @@ void App::openImageViewer(const std::string &path) {
   lv_obj_set_scrollable(viewerCanvas_,false);lv_obj_set_clickable(viewerCanvas_,false);
   viewerImage_=lv_image_create(viewerCanvas_);
   lv_obj_set_clickable(viewerImage_,false);lv_image_set_pivot(viewerImage_,0,0);
-  viewerStatus_=label(viewerCanvas_,"正在加载原图…",12,0,screen_.width-24,20,theme::muted);
+  viewerStatus_=label(viewerCanvas_,path.empty()?"正在准备原图…":"正在加载原图…",12,0,screen_.width-24,20,theme::muted);
   lv_obj_set_style_text_align(viewerStatus_,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(viewerStatus_);
   viewerClose_=icon(imageViewer_,"close",screen_.width-60,8,44,44,[this]{events_.push("image_view_close");},theme::surface);
-  viewerKey_=images_.request(path,32768,32768);
+  viewerKey_=path.empty()?std::string():images_.request(path,32768,32768);
   lv_obj_update_layout(imageViewer_);lv_obj_move_foreground(imageViewer_);
-  scanner_.eligible(false,session_);
+  if(!viewerScanResult_)scanner_.eligible(false,session_);
   refreshImageViewer();
 }
 void App::closeImageViewer(bool restore) {
   if(!imageViewer_)return;
+  if(viewerScanResult_ && scanViewRequest_)scanner_.cancelReview(scanId_);
+  scanViewRequest_=0;viewerScanResult_=false;
   auto root=imageViewer_;imageViewer_=nullptr;
   viewerCanvas_=viewerImage_=viewerStatus_=viewerClose_=nullptr;
   imageGesture_={};viewerReturnAt_=0;
@@ -47,9 +50,10 @@ void App::closeImageViewer(bool restore) {
     chatLayout_=previous;updateChatControls(false);paintVisible();
     syncScanner();
   }
+  if(restore && view_=="scan")syncScanner();
 }
 void App::refreshImageViewer() {
-  if(!imageViewer_ || viewerFrame_)return;
+  if(!imageViewer_ || viewerFrame_ || viewerKey_.empty())return;
   auto frame=images_.get(viewerKey_);
   if(!frame) {
     if(images_.failed(viewerKey_)) {viewerFailed_=true;lv_label_set_text(viewerStatus_,"图片无法读取\n文件可能已移动、损坏或超出大小限制");}
@@ -98,6 +102,7 @@ void App::zoomImageViewer(double zoom,int x,int y) {
 Json App::imageViewerDiagnostic() const {
   Json state={{"open",imageViewer_!=nullptr}};
   if(!imageViewer_)return state;
+  state["scan_result"]=viewerScanResult_;
   state["loaded"]=bool(viewerFrame_);state["failed"]=viewerFailed_;
   state["zoom"]=viewerZoom_;state["pan"]={viewerPanX_,viewerPanY_};
   state["frame"]=viewerFrame_?Json::array({viewerFrame_->width,viewerFrame_->height}):Json::array({0,0});

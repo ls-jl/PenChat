@@ -111,6 +111,10 @@ class App {
   std::string scanSession_;
   Json scanResult_ = Json::object();
   bool scanConfirming_ = false;
+  uint64_t scanViewRequest_ = 0;
+  lv_obj_t *scanWarning_ = nullptr, *scanHolder_ = nullptr;
+  void updateScanWarning(const Json &);
+  void viewScanResult();
   lv_obj_t *scanImage_ = nullptr, *scanLabel_ = nullptr, *scanUse_ = nullptr,
            *scanHint_ = nullptr;
   std::function<void()> afterScanRelease_;
@@ -137,9 +141,9 @@ class App {
       viewerLastX_ = 0, viewerLastY_ = 0, viewerDistance_ = 0,
       viewerLastTapX_ = 0, viewerLastTapY_ = 0;
   int64_t viewerLastTap_ = 0;
-  bool viewerFailed_ = false;
+  bool viewerFailed_ = false, viewerScanResult_ = false;
   void requestImageViewer(const std::string &path);
-  void openImageViewer(const std::string &path);
+  void openImageViewer(const std::string &path, bool scanResult = false);
   void closeImageViewer(bool restore = true);
   void refreshImageViewer();
   void updateImageViewer();

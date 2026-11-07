@@ -12,6 +12,8 @@ public:
   ~ScanService();
   void stop();
   void eligible(bool enabled, const std::string &session);
+  uint64_t prepareReview(uint64_t scan);
+  void cancelReview(uint64_t scan);
   void confirm(uint64_t scan);
   void discard(uint64_t scan);
   bool released() const;

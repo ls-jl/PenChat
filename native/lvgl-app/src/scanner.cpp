@@ -337,6 +337,15 @@ void ScanService::eligible(bool enabled, const std::string &session) {
     p_->queue("disarm");
   }
 }
+uint64_t ScanService::prepareReview(uint64_t scan) {
+  std::lock_guard<std::mutex> l(p_->mutex);
+  auto j=p_->command("prepare_review",scan);auto id=j["requestId"].get<uint64_t>();
+  p_->commands.push_back(std::move(j));p_->cv.notify_all();return id;
+}
+void ScanService::cancelReview(uint64_t scan) {
+  std::lock_guard<std::mutex> l(p_->mutex);
+  if(!p_->disarmed)p_->queue("cancel_review",scan);
+}
 void ScanService::confirm(uint64_t scan) {
   std::lock_guard<std::mutex> l(p_->mutex);
   p_->queue("confirm", scan);
