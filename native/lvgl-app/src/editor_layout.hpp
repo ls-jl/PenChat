@@ -43,12 +43,14 @@ struct EditorLayout {
     }
     docked=portrait&&!selectionOnly;
     if(docked) {
-      textHeight=chatComposer?88:112;
-      textY=compositionY-textHeight-10;
-      panelTop=textY-(chatComposer?8:32);
+      // The keyboard has no dedicated editor. Text remains in the focused
+      // page control; only composition/candidates/actions live above the keys.
+      panelTop=compositionY-4;
+      textHeight=44;textY=panelTop-52;
     }
     if (selectionOnly) { split=86;textX=96;textWidth=w-106;textY=56;textHeight=h-66;if(portrait){const AppLayout safe{w,h};split=w;textX=keyInset;textWidth=keySpan;textY=56+safe.safeTop();textHeight=h-textY-safe.safeBottom();} }
-    textAreaWidth=textWidth-(docked&&chatComposer?56:0);
+    textAreaWidth=textWidth;
+    (void)chatComposer;
   }
   int overlayY() const { return docked?AppLayout{width,height}.safeTop():textY; }
   int overlayHeight() const { return docked?compositionY-overlayY()-10:textHeight; }

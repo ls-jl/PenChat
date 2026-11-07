@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
       assert(page.composerX()+page.composerWidth()==size.first-page.safeSide());
       assert(page.composerY()+48==size.second-page.safeBottom());
       assert(keyboard.keyInset==page.safeSide() && keyboard.keySpan==size.first-2*page.safeSide());
-      assert(keyboard.portrait && keyboard.docked && keyboard.panelTop>size.second/4 && keyboard.textBottom()<keyboard.compositionY);
+      assert(keyboard.portrait && keyboard.docked && keyboard.panelTop==keyboard.compositionY-4 && keyboard.textBottom()<keyboard.compositionY);
       assert(keyboard.compositionY+20<=keyboard.candidateY);
       assert(keyboard.candidateY+44<=keyboard.actionsY);
       assert(keyboard.actionsY+44<=keyboard.keyTop);

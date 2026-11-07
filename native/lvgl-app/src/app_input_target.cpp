@@ -1,0 +1,111 @@
+#include "app.hpp"
+#include <algorithm>
+namespace penchat {
+void App::inputTarget(lv_obj_t *object,const std::string &key,int style) {
+  const bool fresh=inputTargets_.count(object)==0;
+  inputTargets_[object]={key,style,++inputTargetSerial_};
+  if(fresh)lv_obj_add_event_cb(object,[](lv_event_t *e) {
+    auto self=static_cast<App *>(lv_event_get_user_data(e));auto object=lv_event_get_target_obj(e);
+    if(self->inputSource_==object)self->inputSource_=nullptr;
+    if(self->editorTarget_==object) {
+      self->editorTarget_=nullptr;
+      if(self->editor_.active)self->events_.push("editor_target_lost",{{"id",self->editor_.id}});
+    }
+    self->inputTargets_.erase(object);
+  },LV_EVENT_DELETE,this);
+  if(editor_.active&&editorInPlace()&&view_==editorTargetView_&&key==editorTargetKey_&&editorTarget_!=object) {
+    editorTarget_=object;editorTargetHeight_=lv_obj_get_height(object);
+  }
+}
+void App::inputAction(lv_obj_t *object,const std::function<void()> &action) {
+  auto found=inputTargets_.find(object);if(found==inputTargets_.end())return;
+  const auto serial=found->second.serial;const auto view=view_;auto previousModal=modal_;
+  lv_point_t point{};auto input=lv_indev_active();if(input)lv_indev_get_point(input,&point);
+  lv_area_t area;lv_obj_get_coords(object,&area);const lv_point_t relative{point.x-area.x1,point.y-area.y1};
+  if(editor_.active&&editorInPlace()) {
+    if(object==editorTarget_)return;
+    // Commit first while retaining the existing page objects. The copied action
+    // may then focus another field or save the form without using freed widgets.
+    editorFocusSwitch_=true;
+    try {if(!editorAccept()){editorFocusSwitch_=false;return;}}catch(...){editorFocusSwitch_=false;throw;}
+    editorFocusSwitch_=false;
+    found=inputTargets_.find(object);
+    if(found==inputTargets_.end()||found->second.serial!=serial||view_!=view||modal_!=previousModal) {
+      if(editorPendingBuild_&&!modal_)build();return;
+    }
+  }
+  inputSource_=object;
+  inputSourcePoint_=relative;
+  try {action();}catch(...){inputSource_=nullptr;throw;}
+  if(inputSource_==object)inputSource_=nullptr;
+  if(editorPendingBuild_&&!editor_.active&&!modal_&&!attachments_)build();
+}
+EditorLayout::Popup App::editorTextArea() const {
+  if(!editorText_||lv_obj_is_hidden(editorText_))return {0,0,0,0};
+  lv_area_t a;lv_obj_get_coords(editorText_,&a);
+  bool inBody=false;for(auto p=editorTarget_;p;p=lv_obj_get_parent(p))if(p==body_){inBody=true;break;}
+  if(editorInPlace()&&inBody&&body_&&!modal_) {
+    lv_area_t clip;lv_obj_get_coords(body_,&clip);
+    a.x1=std::max(a.x1,clip.x1);a.x2=std::min(a.x2,clip.x2);
+    a.y1=std::max(a.y1,clip.y1);a.y2=std::min(a.y2,clip.y2);
+  }
+  return {a.x1,a.y1,std::max(0,int(a.x2-a.x1+1)),std::max(0,int(a.y2-a.y1+1))};
+}
+void App::editorAttachTarget() {
+  if(!editor_.active||!editorInPlace()||!editorTarget_)return;
+  auto found=inputTargets_.find(editorTarget_);if(found==inputTargets_.end())return;
+  const int style=found->second.style;
+  auto value=lv_obj_get_child(editorTarget_,style==2?1:0);
+  if(value)lv_obj_set_hidden(value,true);
+  const int y=style==1?23:style==2?28:2;
+  const int x=style==1?12:style==2?12:4;
+  const int h=style==3?44:std::max(24,int(lv_obj_get_height(editorTarget_))-y-2);
+  if(!editorText_) {
+    editorText_=lv_textarea_create(editorTarget_);
+    lv_obj_add_event_cb(editorText_,[](lv_event_t *e){
+      auto self=static_cast<App *>(lv_event_get_user_data(e));
+      if(self->editorText_==lv_event_get_target_obj(e))self->editorText_=nullptr;
+    },LV_EVENT_DELETE,this);
+    lv_obj_set_style_text_font(editorText_,font(style==1?19:20),0);
+    lv_obj_set_style_text_color(editorText_,lv_color_hex(theme::text),0);
+    lv_obj_set_style_bg_opa(editorText_,LV_OPA_TRANSP,0);
+    lv_obj_set_style_border_width(editorText_,0,0);lv_obj_set_style_radius(editorText_,0,0);
+    lv_obj_set_style_pad_all(editorText_,0,0);
+    lv_obj_set_style_border_color(editorText_,lv_color_hex(theme::caret),LV_PART_CURSOR|LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(editorText_,lv_color_hex(theme::border),LV_PART_SELECTED);
+    lv_obj_set_style_text_color(editorText_,lv_color_hex(theme::text),LV_PART_SELECTED);
+    lv_obj_set_scroll_elastic(editorText_,false);lv_obj_set_scroll_momentum(editorText_,false);
+    lv_textarea_set_cursor_click_pos(editorText_,false);
+    lv_textarea_set_max_length(editorText_,editor_.limit);
+    lv_textarea_set_one_line(editorText_,!editor_.multiline);
+    lv_textarea_set_password_show_time(editorText_,0);
+    lv_textarea_set_placeholder_text(editorText_,editor_.placeholder.c_str());
+    lv_obj_add_state(editorText_,LV_STATE_FOCUSED);
+  }
+  lv_obj_set_pos(editorText_,x,y);lv_obj_set_size(editorText_,std::max(44,int(lv_obj_get_width(editorTarget_))-2*x),h);
+  lv_textarea_set_password_mode(editorText_,editor_.secret&&!editor_.reveal);
+  if(editor_.text!=lv_textarea_get_text(editorText_))lv_textarea_set_text(editorText_,editor_.text.c_str());
+  lv_textarea_set_cursor_pos(editorText_,editor_.cursor);
+  if(!editorFollowCursor_)lv_obj_scroll_to_y(editorText_,editorTextScroll_,LV_ANIM_OFF);
+  editorFollowCursor_=false;lv_obj_update_layout(editorText_);
+  if(editorPlaceCursor_) {
+    lv_area_t a;lv_obj_get_coords(editorTarget_,&a);
+    editor_.position(editorPositionAt(a.x1+editorInitialPoint_.x,a.y1+editorInitialPoint_.y));
+    lv_textarea_set_cursor_pos(editorText_,editor_.cursor);editorPlaceCursor_=false;
+  }
+}
+bool App::editorAccept() {
+  if(!editor_.preedit.empty()&&!editor_.raw()) {editor_.notice="已达到长度上限";editorBuild();return false;}
+  editorFinish(true);return true;
+}
+void App::editorDetachTarget() {
+  if(!editorInPlace())return;
+  if(editorText_)lv_obj_delete(editorText_);
+  if(!editorTarget_)return;
+  auto found=inputTargets_.find(editorTarget_);if(found==inputTargets_.end())return;
+  auto value=lv_obj_get_child(editorTarget_,found->second.style==2?1:0);
+  if(value)lv_obj_set_hidden(value,false);
+  if(editorTargetHeight_>0)lv_obj_set_height(editorTarget_,editorTargetHeight_);
+  if(pageContent_&&lv_obj_get_parent(editorTarget_)==pageContent_)portraitPage();
+}
+} // namespace penchat

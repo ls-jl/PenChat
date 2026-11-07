@@ -1,11 +1,28 @@
 #!/usr/bin/env python3
-"""Rounded-corner safe areas and docked native input. Host only, no devices."""
+"""Rounded-corner safe areas and original-widget native input. Host only, no devices."""
 import http.server,json,os,pathlib,sqlite3,struct,tempfile,threading,time,zlib
 import test_lvgl_app as t
 from test_reasoning_ui import seed
 from image_gestures import capture
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
 OUT=t.ROOT/'.work/portrait-input';OUT.mkdir(parents=True,exist_ok=True)
+def root_chat(a):
+    for _ in range(12):
+        d=a.diag()
+        if d['view']=='chat':
+            if d['navigation_open']:a.tap(548,100)
+            return
+        for i in range(9):a.send('touch',x=12+18*i,y=400,pressed=True);time.sleep(.025)
+        a.send('touch',x=156,y=400,pressed=False);time.sleep(.15)
+    raise AssertionError('Cannot return using native back gesture')
+def open_settings(a):
+    root_chat(a);a.open_settings()
+def focus(a,anchor):
+    targets=a.diag()['editor']['targets']
+    identity=max((k for k in targets if k==anchor or k.startswith(anchor+':')),key=lambda k:targets[k][1])
+    x,y,r,b=targets[identity]
+    a.tap((x+r)//2,(y+b)//2)
+    t.wait_for(lambda:a.diag()['editor']['active'] and a.diag()['editor']['input_anchor']==identity)
 def key(a,value):
     k=next(k for k in a.diag()['editor']['keys'] if k['key']==value)
     a.tap(k['x'],k['y'])
@@ -49,6 +66,7 @@ def run():
                 db.execute("insert into chat_sessions(id,title,status,created_at,updated_at,last_message_at) values('s','竖屏输入测试','active',1,1,1)")
                 db.execute("insert into app_settings values('active_session_id','\"s\"',1)")
                 db.execute("insert into app_settings values('auto_title_enabled','false',1)")
+                db.execute("insert into app_settings values('chat_presets',?,1)",(json.dumps([{'id':'default','name':'默认预设','prompt_mode':'inherit'},{'id':'fixture','name':'多行测试','prompt_mode':'custom','prompt':'First line.\nSecond line.'}]),))
                 for i,role,text in [(1,'user','保留聊天内容，让键盘从底部弹出。'),(2,'assistant','\n\n'.join('原页面仍然可以浏览，这是第%d段。'%i for i in range(30)))]:
                     db.execute("insert into chat_messages(id,session_id,seq,role,status,message_type,output_text,created_at,updated_at) values(?,'s',?,?,'complete','text',?,1,1)",('m'+str(i),i,role,text))
             a=t.Native(BINARY,p,screen={'width':568,'height':1210,'direction':180,'tp_direction':180},official_adapter=False)
@@ -58,7 +76,9 @@ def run():
                 shot(a,'chat-safe')
                 a.tap(280,1158);t.wait_for(lambda:a.diag()['editor']['active'])
                 state=a.diag();e=state['editor'];assert e['docked'] and e['inline_chat'] and 400<e['panel_top']<600
-                assert e['text_bounds'][1]>400
+                assert e['in_place'] and e['text_in_target'] and e['input_anchor']=='chat-composer'
+                assert e['target_bounds'][0]<=e['text_bounds'][0]<e['text_bounds'][2]<=e['target_bounds'][2]
+                assert e['target_bounds'][1]<=e['text_bounds'][1]<e['text_bounds'][3]<=e['target_bounds'][3]
                 for k in e['keys']:
                     x,y,r,b=k['bounds'];assert x>=24 and r<=544 and b<=1122 and r-x>=44 and b-y>=84,k
                 assert min(k['bounds'][1] for k in e['keys'])==705
@@ -80,6 +100,7 @@ def run():
                 t.wait_for(lambda:not a.diag()['editor']['cursor_drag'])
                 before=a.diag()['scroll_y'];swipe(a,200)
                 assert a.diag()['editor']['active'] and a.diag()['scroll_y']!=before
+                assert a.diag()['editor']['target_bounds'][3]<a.diag()['editor']['panel_top']
                 shot(a,'chat-reading-with-keyboard')
                 a.editor_action('official');request=a.receive('keyboard.open')
                 assert request['text']=='test'
@@ -94,11 +115,27 @@ def run():
                 a.editor_action('chat-send');t.wait_for(lambda:not a.diag()['editor']['active'])
                 t.wait_for(lambda:len(a.read_messages())==4 and not a.diag()['generating'])
                 assert a.read_messages()[-2][2]=='test'
-                a.open_settings();shot(a,'settings-safe');a.setting('models');a.page_action('添加 Provider')
+                open_settings(a);shot(a,'settings-safe');a.setting('models');a.page_action('添加 Provider')
                 shot(a,'provider-safe');a.tap(220,108)
                 t.wait_for(lambda:a.diag()['editor']['active'])
                 assert a.diag()['editor']['docked'] and not a.diag()['editor']['inline_chat']
+                assert a.diag()['editor']['text_in_target'] and a.diag()['editor']['text_bounds'][1]<200
                 shot(a,'provider-bottom-input')
+                # A different original field commits the first one without losing
+                # unselected pinyin, then focuses that exact widget in one tap.
+                for c in 'nihao':key(a,c)
+                assert a.diag()['editor']['preedit_length']==5
+                first_session=a.diag()['editor']['session']
+                a.tap(220,165)
+                t.wait_for(lambda:a.diag()['editor']['input_anchor'].startswith('field:Base URL:'))
+                assert a.diag()['editor']['session']!=first_session
+                assert a.diag()['editor']['text_in_target']
+                a.tap(220,110)
+                t.wait_for(lambda:a.diag()['editor']['input_anchor'].startswith('field:名称:'))
+                a.editor_action('official');request=a.receive('keyboard.open')
+                assert request['text']=='OpenAInihao',request
+                a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
+                t.wait_for(lambda:not a.diag()['keyboard'])
                 a.editor_action('cancel');t.wait_for(lambda:not a.diag()['editor']['active'])
                 a.tap(220,240);t.wait_for(lambda:a.diag()['editor']['active'])
                 assert a.diag()['editor']['secret'] and a.diag()['editor']['docked']
@@ -110,6 +147,26 @@ def run():
                 assert a.diag()['view']=='provider'
                 # No Provider save was requested.
                 with sqlite3.connect(p/'penchat.db') as db:assert db.execute('select count(*) from providers').fetchone()[0]==1
+                open_settings(a);a.setting('http_idle');focus(a,'setting:http_idle_seconds')
+                assert a.diag()['editor']['text_in_target']
+                a.editor_action('official');request=a.receive('keyboard.open');assert request['text']=='90'
+                a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
+                t.wait_for(lambda:not a.diag()['keyboard']);a.editor_action('cancel')
+                # A long field expands the actual form row, not a duplicate box.
+                open_settings(a);a.setting('presets');a.tap(260,288)
+                focus(a,'field:系统提示词');e=a.diag()['editor']
+                assert e['text_in_target'] and e['target_bounds'][3]-e['target_bounds'][1]==143
+                assert e['text_bounds'][3]<e['panel_top']
+                shot(a,'prompt-in-place');a.editor_action('cancel')
+                # Rename stays in the original history title reader, even though
+                # its drawer closes behind the rename context.
+                root_chat(a);a.open_navigation();row=a.diag()['history_rows'][0]
+                a.long_press(150,row['y'])
+                t.wait_for(lambda:a.diag()['history_context'])
+                a.history_action('rename');t.wait_for(lambda:a.diag()['editor']['active'])
+                assert a.diag()['editor']['input_anchor'].startswith('history-title:')
+                assert a.diag()['editor']['text_in_target'];shot(a,'history-rename-in-place')
+                a.editor_action('cancel');t.wait_for(lambda:not a.diag()['editor']['active'])
                 a.to_chat();a.tap(280,1158);t.wait_for(lambda:a.diag()['editor']['active'])
                 for c in 'nihao':key(a,c)
                 t.wait_for(lambda:a.diag()['editor']['candidate_count']>0)
@@ -124,6 +181,26 @@ def run():
             except BaseException:
                 state=a.diag();(OUT/'failure.json').write_text(json.dumps(state,ensure_ascii=False,indent=2));shot(a,'failure');raise
             finally:a.close()
+        # The assistant may finish/rebuild while a new draft is being edited.
+        with tempfile.TemporaryDirectory(prefix='penchat-input-stream-') as directory:
+            p=pathlib.Path(directory);seed(p,t.port)
+            with sqlite3.connect(p/'penchat.db') as db:
+                db.execute("update model_configs set name='scroll' where id='a'")
+                db.execute("insert into app_settings values('auto_title_enabled','false',1)")
+            a=t.Native(BINARY,p,screen={'width':568,'height':1210},official_adapter=True)
+            try:
+                a.edit('Question');a.tap(520,1158);t.wait_for(lambda:a.diag()['generating'])
+                a.official_adapter=False
+                a.tap(280,1158);t.wait_for(lambda:a.diag()['editor']['active'])
+                key(a,'language');key(a,'q');session=a.diag()['editor']['session']
+                t.wait_for(lambda:not a.diag()['generating'],timeout=12)
+                e=a.diag()['editor'];assert e['active'] and e['session']==session and e['text_in_target'] and e['length']==1,e
+                shot(a,'reply-finished-draft-preserved')
+                a.editor_action('official');request=a.receive('keyboard.open');assert request['text']=='q'
+                a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
+                t.wait_for(lambda:not a.diag()['keyboard']);a.editor_action('cancel')
+                assert len(a.read_messages())==2
+            finally:a.close()
         # Same launcher geometry in landscape keeps the existing editor.
         with tempfile.TemporaryDirectory(prefix='penchat-landscape-input-') as directory:
             a=t.Native(BINARY,pathlib.Path(directory),official_adapter=False)
@@ -135,5 +212,5 @@ def run():
                 shot(a,'landscape-unchanged');a.editor_action('cancel')
             finally:a.close()
     finally:server.shutdown();server.server_close()
-    print('Portrait safe insets/docked chat and forms: real input/send, background scroll, official cancel/confirm, candidates, nine-key, clipboard, lifecycle and landscape preservation passed.')
+    print('Portrait original-widget input: chat/forms, field switching/raw preedit, prompt expansion, history rename, streaming completion, cancel/official recovery, send, scroll, candidates, nine-key, clipboard and unchanged landscape passed.')
 if __name__=='__main__':run()

@@ -142,7 +142,13 @@ lv_obj_t *App::button(lv_obj_t *parent, const std::string &text, int x, int y,
   lv_obj_set_height(l, font(20)->line_height);
   lv_obj_set_style_text_align(l, align, 0);
   lv_obj_align(l, LV_ALIGN_CENTER, 0, 0);
-  onClick(o, std::move(click));
+  if(layout().portrait()) {
+    bool local=false;for(auto p=parent;p;p=lv_obj_get_parent(p))if(p==editorRoot_){local=true;break;}
+    if(!local) {
+      inputTarget(o,"button:"+std::to_string(inputOrdinal_++));
+      onClick(o,[this,o,click]{inputAction(o,click);});
+    } else onClick(o,std::move(click));
+  } else onClick(o,std::move(click));
   if(layout().portrait()&&parent==modal_) {modalButtons_.push_back(o);arrangeModal();}
   return o;
 }
@@ -164,6 +170,7 @@ lv_obj_t *App::fieldButton(lv_obj_t *parent, const std::string &caption,
   lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(name, 19);
   lv_obj_set_clickable(name, false);
+  if(layout().portrait())inputTarget(object,"field:"+caption+":"+std::to_string(inputOrdinal_-1),1);
   return object;
 }
 void App::emptyState(const std::string &title, const std::string &hint) {
@@ -963,10 +970,13 @@ void App::clear() {
   for (auto &t : textures_)
     lv_image_cache_drop(&t.second->descriptor);
   textures_.clear();
+  inputOrdinal_=0;
   body_ = messageContent_ = composer_ = status_ = cameraImage_ = liveContent_ =
       nullptr;
 }
 void App::build() {
+  if(editorFocusSwitch_){editorPendingBuild_=true;return;}
+  editorPendingBuild_=false;
   feedbackActions_.clear();
   transferActions_.clear();
   const int pageY = pageHeader_ && body_ && builtView_ == view_ && builtPageKey_ == pageKey()
@@ -998,7 +1008,7 @@ void App::build() {
   }
   lv_obj_t *navigation=nullptr;
   if(view_!="crop"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", layout().portrait()?layout().safeSide():16, layout().portrait()?layout().safeTop():8, 48, 48, [this] {
-    if(editor_.active){editorFinish(true);return;}
+    if(editor_.active){editorAccept();return;}
     if (view_ == "chat") {
       if(!messageEdit_.empty())cancelMessageEdit();else toggleNavigation();
     }
@@ -1089,7 +1099,7 @@ void App::build() {
   chatLayout_ = false;
   syncScanner();
   if (view_=="archive_chat" || (view_=="transfer" && transferScreen_.compare(0,7,"format_")==0))paintVisible();
-  if (editorRoot_) {editorViewport();lv_obj_move_foreground(editorRoot_);}
+  if (editorRoot_) {editorViewport();editorSyncText();lv_obj_move_foreground(editorRoot_);}
   if (imageViewer_) lv_obj_move_foreground(imageViewer_);
 }
 void App::show(const std::string &view) {
@@ -1202,7 +1212,7 @@ void App::rebuildChatControls() {
   lv_obj_set_scrollable(chatControls_, false);
   lv_obj_set_style_radius(chatControls_, 24, 0);
   auto attachment = icon(
-      chatControls_, "plus", 2, 2, 44, 44, [this] { toggleAttachments(); },
+      chatControls_, "plus", 2, 2, 44, 44, [this] { if(editor_.active&&editorInPlace()&&!editorAccept())return;toggleAttachments(); },
       theme::surface);
   // Keep the glyph in place; near-edge taps belong to attachments, not IME.
   lv_obj_set_ext_click_area(attachment, 8);
@@ -1210,7 +1220,7 @@ void App::rebuildChatControls() {
   const bool gauge = sessionPreferences_.value("gauge", !effortMemory_.empty());
   if (gauge)
     icon(
-        chatControls_, "gauge", composerWidth - 100, 2, 44, 44, [this] { effortPicker(); },
+        chatControls_, "gauge", composerWidth - 100, 2, 44, 44, [this] { if(editor_.active&&editorInPlace()&&!editorAccept())return;effortPicker(); },
         theme::surface, theme::muted);
   composer_ = button(
       chatControls_, draft_.empty() ? "询问 " PENCHAT_NAME : draft_, entryLeft, 2,
@@ -1228,6 +1238,7 @@ void App::rebuildChatControls() {
             8192, "ZhCNPreferred", {}, true, false, false, true);
       },
       theme::surface, LV_TEXT_ALIGN_LEFT);
+  if(layout().portrait())inputTarget(composer_,"chat-composer");
   if (draft_.empty())
     lv_obj_set_style_text_color(lv_obj_get_child(composer_, 0),
                                 lv_color_hex(theme::muted), 0);
@@ -1235,6 +1246,7 @@ void App::rebuildChatControls() {
   auto send = icon(
       chatControls_, (generating_ || contextBusy_) ? "stop" : "up", composerWidth - 50, 2, 44, 44,
       [this] {
+        if(editor_.active&&editorInPlace()&&!generating_&&!contextBusy_) {editorAction("chat-send");return;}
         if (contextBusy_) {
           cancelContext();
           build();
@@ -1254,6 +1266,9 @@ void App::rebuildChatControls() {
   lv_obj_set_style_border_color(toBottom_, lv_color_hex(theme::border), 0);
   lv_obj_set_style_border_width(toBottom_, 1, 0);
   updateChatControls(false);
+  if(editor_.active&&editorInPlace()&&editorRoot_) {
+    editorViewport();editorSyncText();lv_obj_move_foreground(editorRoot_);
+  }
 }
 bool App::atLatestBottom() const {
   return view_ == "chat" && body_ && messageOffset_ == 0 && lv_obj_get_scroll_bottom(body_) <= 10;
@@ -1346,8 +1361,10 @@ void App::updateChatControls(bool animate) {
   }
   lv_obj_set_style_bg_opa(toBottom_, overContent ? 160 : 255, 0);
   lv_obj_set_style_border_opa(toBottom_, overContent ? 160 : 255, 0);
-  const int target =
+  const bool editingComposer=editor_.active&&editorInPlace()&&editorInlineChat_;
+  const int target = editingComposer ? editorLayout().compositionY-56 :
       (chatFollowing_ || atLatestBottom()) && !pulling_ ? layout().composerY() : screen_.height + 2;
+  if(editingComposer)animate=false;
   if (chatControlsTarget_ == target)
     return;
   chatControlsTarget_ = target;
@@ -1929,7 +1946,7 @@ void App::pageHeader(const std::string &title, int top) {
   top+=layout().safeTop();
   pageHeader_ = box(body_, 0, top, width, 48);
   lv_obj_set_scrollable(pageHeader_, false);
-  if(layout().portrait())icon(pageHeader_,"back",layout().safeSide(),2,44,44,[this]{goBack();});
+  if(layout().portrait())icon(pageHeader_,"back",layout().safeSide(),2,44,44,[this]{if(editor_.active){editorAccept();return;}goBack();});
   const int titleX=layout().portrait()?layout().safeSide()+56:10;
   pageHeading_ = label(pageHeader_, title, titleX, 7, width-titleX-10,26);
   lv_label_set_long_mode(pageHeading_, LV_LABEL_LONG_MODE_DOTS);
@@ -1996,7 +2013,10 @@ void App::settingsRow(const std::string &id, const std::string &title,
   }
   // The row is the only click target. The visual switch must not also toggle.
   lv_obj_set_clickable(indicator, false);
-  onClick(row, std::move(action));
+  if(layout().portrait()) {
+    inputTarget(row,"setting:"+id,2);
+    onClick(row,[this,row,action]{inputAction(row,action);});
+  } else onClick(row,std::move(action));
   settingsControls_[id] = {row, caption, value, indicator, checked >= 0};
 }
 Json App::settingsDiagnostic() const {
@@ -2941,7 +2961,8 @@ void App::routeTouch(const Json &m) {
   if (editor_.active) {
     const int x=m.value("x",0),y=m.value("y",0);
     const bool down=m.value("pressed",false),cancelled=m.value("cancelled",false);
-    if(editorLayout().docked&&!editorPointer_&&down&&y<editorLayout().panelTop&&
+    const auto inputArea=editorTextArea();
+    if(editorLayout().docked&&!editorPointer_&&down&&!inputArea.contains(x,y)&&y<editorLayout().panelTop&&
        !editorExpanded_&&!editorClipboardOpen_&&!editorMenu_&&!editorUndoMenu_&&!editorLayoutMenu_&&!editorPunctuation_)
       editorReaderTouch_=true;
     if(editorReaderTouch_) {
@@ -3221,6 +3242,10 @@ void App::tick() {
     if (e.type == "catalog_help") {
       if (visible_ && view_ == "model" && e.data.value("id", std::string()) == modelForm_.value("id", std::string()))
         modal("使用匹配值", "点击填充图标只替换对应字段；其他设置不变，保存后生效。");
+      continue;
+    }
+    if(e.type=="editor_target_lost") {
+      if(editor_.active&&!editorTarget_&&e.data.value("id",std::string())==editor_.id)editorFinish(false);
       continue;
     }
     if (e.type == "editor_action") { if (editor_.active && visible_ && !keyboard_ && e.data.value("id",std::string()) == editor_.id) editorAction(e.data.value("action",std::string())); continue; }

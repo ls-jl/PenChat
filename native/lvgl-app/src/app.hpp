@@ -460,6 +460,23 @@ class App {
   std::map<std::string, int> tableScrolls_;
   void renderLiveMessage();
   void refreshImages();
+  struct InputTarget {std::string key;int style;uint64_t serial;};
+  std::map<lv_obj_t *,InputTarget> inputTargets_;
+  lv_obj_t *inputSource_=nullptr, *editorTarget_=nullptr;
+  std::string editorTargetKey_,editorTargetView_;
+  uint64_t inputTargetSerial_=0;
+  int inputOrdinal_=0,editorTargetHeight_=0;
+  bool editorFocusSwitch_=false,editorPendingBuild_=false,editorPlaceCursor_=false;
+  lv_point_t inputSourcePoint_{},editorInitialPoint_{};
+  void inputTarget(lv_obj_t *,const std::string &,int style=0);
+  void inputAction(lv_obj_t *,const std::function<void()> &);
+  void editorAttachTarget();
+  void editorDetachTarget();
+  bool editorAccept();
+  bool editorSendAssets_=false;
+  EditorLayout::Popup editorLastTextArea_{0,0,0,0};
+  EditorLayout::Popup editorTextArea() const;
+  bool editorInPlace() const {return layout().portrait()&&!editorSelectionOnly_;}
   bool editorSelectionOnly_ = false, editorInlineChat_ = false, editorReaderTouch_ = false;
   void editorViewport();
   EditorLayout editorLayout() const { return EditorLayout(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_); }
@@ -495,7 +512,7 @@ class App {
   void editorOcrStop();
   void editorOcrResult(const Json &);
   void editorPolicy(bool active);
-  lv_obj_t *editorRoot_ = nullptr, *editorText_ = nullptr, *editorReaderGuard_ = nullptr;
+  lv_obj_t *editorRoot_ = nullptr, *editorText_ = nullptr;
   struct EditorKey { int x,y,w,h; std::string value; lv_obj_t *object; EditorLayout::Popup hit; };
   std::vector<EditorKey> editorKeys_;
   EditorKey editorPress_{};

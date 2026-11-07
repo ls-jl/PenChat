@@ -270,10 +270,14 @@ void App::historyContext(const std::string &id) {
   auto actionRail=box(panel,0,actionY,panelWidth,50,theme::surface);
   lv_obj_set_scroll_dir(actionRail,LV_DIR_HOR);lv_obj_set_scroll_elastic(actionRail,false);
   historyActions_["rename"]=button(actionRail, "重命名", 12, 0, actionWidth, 50, [this, id, session] {
-    closeHistoryContext();
+    if(layout().portrait()) {
+      inputSource_=lv_obj_get_parent(historyFullTitle_);inputSourcePoint_={10,10};
+      inputTarget(inputSource_,"history-title:"+id,3);
+    } else closeHistoryContext();
     edit(
         session.value("title", std::string()), "重命名会话",
         [this, id](const std::string &value) {
+          if(layout().portrait())closeHistoryContext();
           auto title = plainTitle(value,256);
           if (!title.empty()) {
             if (titleSession_ == id)
@@ -282,7 +286,7 @@ void App::historyContext(const std::string &id) {
           }
           toggleNavigation();
         },
-        256, "ZhCNPreferred", [this] { toggleNavigation(); });
+        256, "ZhCNPreferred", [this] { if(layout().portrait())closeHistoryContext();toggleNavigation(); });
   });
   bool pinned =
       objectField(session, "metadata_json").value("pinned_at", int64_t(0)) > 0;
