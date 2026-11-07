@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
       assert(keyboard.keyInset==0 && keyboard.keySpan==size.first);
       assert(keyboard.portrait && keyboard.docked && keyboard.panelTop==keyboard.compositionY-4 && keyboard.textBottom()<keyboard.compositionY);
       assert(keyboard.compositionY+20<=keyboard.candidateY);
-      assert(keyboard.candidateY+44<=keyboard.actionsY);
+      assert(keyboard.candidateY==keyboard.actionsY);
       assert(keyboard.actionsY+44<=keyboard.keyTop);
       const int baseRow=std::max(52,std::min(72,int(size.first*.12)));
       const int baseBottom=std::max(44,std::min(60,int(size.first*.10)));

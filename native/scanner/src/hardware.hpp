@@ -33,6 +33,7 @@ public:
   void reserve(const Json &lease);
   void start();
   void close() noexcept;
+  void cameraToOcr();
   bool keyEvent(bool &down);
   bool readFrame(const std::function<void(const uint8_t *, int, uint64_t,
                                           int64_t)> &consume);

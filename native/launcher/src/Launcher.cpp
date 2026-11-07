@@ -193,6 +193,28 @@ public:
     info.GetReturnValue().Set(
         Bson::object{{"alive", pid_ > 0 && fd_ >= 0}, {"pid", int(pid_)}});
   }
+  void ocrStroke(JQFunctionInfo &info) {
+    const auto parameters = info.toParamsHolder();
+    const bool down = parameters[0].bool_value();
+    const int sequence = parameters[1].int_value();
+    using Instance = void *(*)();
+    using Stroke = void (*)(void *, unsigned, bool);
+    // Falcon loads vendor business modules locally on some firmware. Resolve
+    // within the already loaded module; never load a second OCR engine.
+    void *module = dlopen("libyddal_business_core.so", RTLD_LAZY | RTLD_NOLOAD);
+    if (!module) module = dlopen("/oem/YoudaoDictPen/output/libs/libyddal_business_core.so", RTLD_LAZY | RTLD_NOLOAD);
+    void *scope = module ? module : RTLD_DEFAULT;
+    const auto instance = reinterpret_cast<Instance>(dlsym(scope,"_ZN7YDALAPI11YOCRManager8InstanceEv"));
+    const auto press = reinterpret_cast<Stroke>(dlsym(scope,"_ZN7YDALAPI11YOCRManager17onHeadButtonPressEjb"));
+    const auto release = reinterpret_cast<Stroke>(dlsym(scope,"_ZN7YDALAPI11YOCRManager18onHeadButtonReleseEjb"));
+    bool ok = parameters[0].is_bool() && sequence > 0 && instance && press && release;
+    if (ok) {
+      auto engine = instance(); ok = engine != nullptr;
+      if (ok) (down ? press : release)(engine, unsigned(sequence), false);
+    }
+    if (module) dlclose(module);
+    info.GetReturnValue().Set(ok);
+  }
   void poll(JQFunctionInfo &info) {
     std::lock_guard<std::mutex> lock(mutex_);
     Bson::array messages;
@@ -241,6 +263,7 @@ int init(JSContext *ctx, JSModuleDef *module) {
   tpl->SetProtoMethod("reopen", &Launcher::reopen);
   tpl->SetProtoMethod("send", &Launcher::send);
   tpl->SetProtoMethod("poll", &Launcher::poll);
+  tpl->SetProtoMethod("ocrStroke", &Launcher::ocrStroke);
   tpl->SetProtoMethod("status", &Launcher::status);
   tpl->SetProtoMethodPromise("stop", &Launcher::stop);
   env->setModuleExport("launcher", tpl->CallConstructor());

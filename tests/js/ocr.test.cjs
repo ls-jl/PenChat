@@ -2,14 +2,14 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
-function fixture() {
+function fixture(stroke) {
   const timers = new Map(), calls = [], events = []; let clock = 0
   const signal = () => { const callbacks = new Set(); return { callbacks, on: f => callbacks.add(f), off: f => callbacks.delete(f), fire: (...a) => [...callbacks].forEach(f => f(...a)) } }
   const manager = Object.fromEntries(['ocrStartChanged','scanWordResultChanged','ocrCompleteChanged','ocrStopChanged','ocrResultChanged','scanErrorChanged'].map(k => [k,signal()]))
   for (const name of ['addUseOcrAppId','deleteUseOcrAppId','setIsOpenScan','setShowImgScanMode','setCurrentAppId','startScan']) manager[name] = (...args) => calls.push([name,...args])
   const context = vm.createContext({ module: {}, setTimeout: f => { timers.set(++clock,f);return clock }, clearTimeout: id => timers.delete(id) })
   vm.runInContext(fs.readFileSync('src/launcher/ocr.js','utf8').replace('export class OcrSession','module.exports = class OcrSession'),context)
-  const session = new context.module.exports(manager,'test-app',(type,data) => events.push({type,...data}))
+  const session = new context.module.exports(manager,'test-app',(type,data) => events.push({type,...data}), stroke)
   return { session, manager, timers, calls, events, flush: () => { for (const [id,f] of [...timers.entries()]) { if(timers.delete(id)) f() } } }
 }
 test('single-line system OCR preserves case and cleans up before delivering text', () => {
@@ -96,4 +96,57 @@ test('opening the keyboard only arms OCR; idle completion/error signals stay sil
   f.manager.ocrStartChanged.fire();f.manager.scanErrorChanged.fire();f.flush()
   assert.equal(f.events.at(-1).confirmed,false);assert(f.session.active)
   f.session.stop();assert.equal(f.timers.size,0)
+})
+
+test('prepared routing precedes capture and remains registered through activation and mode changes', () => {
+  const f=fixture();f.manager.startAlmondMultiScan=mode=>f.calls.push(['multi',mode])
+  f.session.start('prepare',{continuous:true,session:'editor',mode:'single',prepareOnly:true})
+  assert(f.events.some(e=>e.type==='ocr.prepared'&&e.ok))
+  assert(f.calls.some(c=>c[0]==='addUseOcrAppId'))
+  assert(!f.calls.some(c=>c[0]==='setIsOpenScan'||c[0]==='startScan'))
+  const first=f.calls.length
+  f.session.start('prepare',{continuous:true,session:'editor',mode:'single'})
+  f.session.start('multi',{continuous:true,session:'editor',mode:'multi',prepareOnly:true})
+  f.session.start('multi',{continuous:true,session:'editor',mode:'multi'})
+  assert(!f.calls.slice(first).some(c=>c[0]==='deleteUseOcrAppId'||(c[0]==='setIsOpenScan'&&c[1]===false)))
+  const registrations=f.calls.filter(c=>c[0]==='addUseOcrAppId').map(c=>JSON.parse(c[1]))
+  assert(registrations.every(c=>c.useOcr===true));assert.equal(registrations.at(-1).scanMethod,1)
+  f.session.stop();assert(f.calls.some(c=>c[0]==='deleteUseOcrAppId'))
+  assert(f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===false))
+})
+test('failed preparation explicitly rejects the handoff and cancels its listeners', () => {
+  const f=fixture();f.manager.addUseOcrAppId=()=>false
+  f.session.start('failed',{continuous:true,session:'editor',prepareOnly:true})
+  assert(f.events.some(e=>e.type==='ocr.prepared'&&!e.ok))
+  assert(f.session.active);assert.equal(f.manager.ocrStartChanged.callbacks.size,0)
+  assert(f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===false));f.session.stop()
+  assert(!f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===true))
+})
+test('preflight failure blocks pen capture temporarily and restores its original flags', () => {
+  const f=fixture();f.manager.isOpenScan=true;f.manager.showImgScanMode=true
+  delete f.manager.addUseOcrAppId
+  f.session.start('unsupported',{continuous:true,session:'editor',prepareOnly:true})
+  assert(f.events.some(e=>e.type==='ocr.prepared'&&!e.ok))
+  assert(f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===false))
+  f.session.stop()
+  assert.equal(f.calls.filter(c=>c[0]==='setIsOpenScan').at(-1)[1],true)
+  assert.equal(f.calls.filter(c=>c[0]==='setShowImgScanMode').at(-1)[1],true)
+})
+
+test('direct pen strokes require matching editor, sequence and press/release boundaries', () => {
+  const strokes=[];const f=fixture((down,sequence)=>{strokes.push([down,sequence]);return true})
+  f.session.start('one',{continuous:true,session:'editor'})
+  const pen=(down,sequence,extra={})=>f.session.pen({down,sequence,requestId:'one',session:'editor',...extra})
+  pen(true,1,{requestId:'stale'});pen(false,1);assert.equal(strokes.length,0)
+  pen(true,1);pen(true,1);pen(false,2);pen(false,1);pen(false,1)
+  assert.deepEqual(strokes,[[true,1],[false,1]])
+  pen(true,1);assert.equal(strokes.length,2)
+  pen(true,2);f.session.stop();assert.deepEqual(strokes.at(-1),[false,2])
+  pen(true,3);assert.equal(strokes.length,4)
+})
+test('unavailable direct OCR interface keeps input and reports a terminal failure', () => {
+  const f=fixture(()=>false);f.session.start('one',{continuous:true,session:'editor'})
+  f.session.pen({down:true,sequence:1,requestId:'one',session:'editor'})
+  assert(f.events.some(e=>e.type==='ocr.result'&&!e.confirmed&&e.terminal))
+  assert(f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===false));f.session.stop()
 })

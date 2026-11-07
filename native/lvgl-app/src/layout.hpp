@@ -11,7 +11,10 @@ struct AppLayout {
   int safeSide() const { return portrait() ? std::max(24, std::min(32, width / 24)) : 0; }
   int safeTop() const { return safeSide(); }
   int safeBottom() const { return portrait() ? safeSide() + 4 : 10; }
-  int composerHeight() const { return portrait() ? 54 : 48; }
+  int composerInset() const { return portrait() ? 25 : 2; }
+  int composerHeight() const { return 44+2*composerInset(); }
+  int composerEntryLeft() const { return portrait() ? composerInset()+56 : 62; }
+  int composerEntryRight(bool gauge) const { return portrait() ? composerInset()+56+(gauge?50:0) : gauge?106:54; }
   int composerY() const { return height - composerHeight() - safeBottom(); }
   int gutter() const { return portrait() ? 0 : 86; }
   int bodyWidth() const { return width - gutter() - 4; }

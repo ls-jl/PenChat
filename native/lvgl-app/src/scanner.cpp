@@ -21,6 +21,7 @@ struct ScanService::Impl {
   mutable std::mutex mutex;
   std::condition_variable cv;
   std::thread worker;
+  bool desiredOcr = false;
   bool stopped = false, desired = false, disarmed = true, available = false;
   std::string session;
   uint64_t generation = 0, request = 0;
@@ -241,13 +242,13 @@ struct ScanService::Impl {
         std::unique_lock<std::mutex> l(mutex);
         if (commands.empty() && socket < 0 && !stopped)
           cv.wait(l, [&] { return stopped || !commands.empty(); });
-        else if (commands.empty() && disarmed && !stopped)
+        else if (commands.empty() && disarmed && !desiredOcr && !stopped)
           cv.wait_for(l, std::chrono::milliseconds(250),
                       [&] { return stopped || !commands.empty(); });
         if (stopped)
           break;
         outgoing.swap(commands);
-        idle = disarmed && outgoing.empty();
+        idle = disarmed && !desiredOcr && outgoing.empty();
       }
       try {
         if (socket < 0 && !outgoing.empty())
@@ -319,21 +320,24 @@ ScanService::ScanService(Events &e, const std::string &w, const std::string &d)
     : p_(new Impl(e, w, d)) {}
 ScanService::~ScanService() = default;
 void ScanService::stop() { p_->stop(); }
-void ScanService::eligible(bool enabled, const std::string &session) {
+void ScanService::eligible(bool enabled, const std::string &session, bool ocrKeys) {
   std::lock_guard<std::mutex> l(p_->mutex);
   if (!p_->available || p_->stopped)
     return;
-  if (enabled && (!p_->desired || p_->session != session)) {
+  enabled = enabled || ocrKeys;
+  if (enabled && (!p_->desired || p_->session != session || p_->desiredOcr != ocrKeys)) {
     p_->desired = true;
+    p_->desiredOcr = ocrKeys;
     p_->session = session;
     ++p_->generation;
     p_->disarmed = false;
     p_->status = {{"type", "preparing"},
                   {"generation", p_->generation},
                   {"session", session}};
-    p_->queue("arm");
+    p_->queue(ocrKeys ? "ocr_keys" : "arm");
   } else if (!enabled && p_->desired) {
     p_->desired = false;
+    p_->desiredOcr = false;
     p_->queue("disarm");
   }
 }

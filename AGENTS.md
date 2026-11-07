@@ -93,6 +93,12 @@ an LVGL long-press callback: enqueue an event and handle it on the next UI tick.
 Provider edits must update the existing row and retain model IDs/history links.
 OCR results require user review and explicit Provider save; never log raw keys.
 Unregister system OCR on cancel, timeout, background, bridge failure and unload.
+Y07 docked editing retains only the scanner child's native pen-key lease while
+returning camera/light/guardian ownership to system OCR. Forward matched key
+edges to the current OCR session via named, already loaded engine entry points;
+never allow the physical key to reach Y07's unconditional home image-preview
+handler. Release key-only ownership on editor close, official IME and lifecycle
+changes. Do not poll an idle released scanner at keyboard frequency.
 
 ## Builds and checks
 
@@ -275,8 +281,11 @@ its existing composer above composition/candidates/actions; form fields retain
 their original location, with long multiline fields expanding in the form. The
 function row stays directly above the keys; globe and hide/finish sit in the lower
 utility row. Chat has only hide (retains draft), while form Cancel still restores
-the original field. The portrait composer starts at 54px, grows upward to 3x for
-wrapped lines, then scrolls; keep 5px around its 44px send circle. Switching fields commits the prior
+the original field. The portrait composer starts at 94px, grows upward to 3x for
+wrapped lines, then scrolls; keep 25px around its 44px send circle. Chinese
+composition uses the same row as the official/OCR/clipboard actions; never add
+a separate candidate row in portrait. The borderless globe is 1.5x, below and
+slightly left of comma, centered between comma and screen bottom. Switching fields commits the prior
 field (including raw unfinished preedit) once before focusing the next. Cancel
 restores the original value; Provider edits still require explicit Save.
 Candidate/clipboard overlays may cover the reader, never move the keys. Ordinary

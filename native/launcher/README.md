@@ -98,3 +98,15 @@ leak suppression. Screenshots and device data remain ignored local artifacts.
 
 Full `npm test`, 14 host CTests, AArch64 build and production AMR checks pass.
 The existing `aiot-cli check` advisory recommends optional cnpm; it is unchanged.
+
+Portrait keyboard handoff additionally uses `ocr.prepare` / `ocr.prepared`
+before the existing `ocr.start`. Preparation binds and registers the page route
+without enabling capture. Native switches its Y07 scan child to a key-only lease and enables system OCR only after a
+matching successful acknowledgement. Camera/light/guardian ownership returns to
+the system while the same native pen-key lease remains; matching pen edges call
+the already loaded vendor OCR engine by exported symbol name. This bypasses the
+Y07 home page’s unconditional physical-key image preview. Missing symbols fail
+explicitly with manual/official input available. Keyboard close, background and
+bridge shutdown release the key; healthy scan models remain resident. Continuous replacement retains routing,
+while cancelling old subscriptions/results. Failed preparation temporarily blocks
+pen capture and retains original flags for cancellation/lifecycle restoration.

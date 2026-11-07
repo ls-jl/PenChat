@@ -71,7 +71,8 @@ void paint(lv_event_t *event) {
   lv_obj_get_coords(object, &bounds);
   const float cx = (bounds.x1 + bounds.x2) * .5f, cy = (bounds.y1 + bounds.y2) * .5f;
   const float scale =
-      std::min(lv_obj_get_width(object), lv_obj_get_height(object)) <= 30 ? 0.75f : 1.f;
+      (std::min(lv_obj_get_width(object), lv_obj_get_height(object)) <= 30 ? 0.75f : 1.f) *
+      (icon->name=="globe-large"?1.5f:1.f);
   const auto ink = lv_color_hex(icon->ink);
   lv_draw_line_dsc_t visual;
   lv_draw_line_dsc_init(&visual);
@@ -139,7 +140,7 @@ void paint(lv_event_t *event) {
   } else if(k=="branch") {
     line(-6,-5,-6,5);line(-6,2,0,2);arc(0,90,6,0,-4);line(6,-4,6,-5);
     circle(-6,-8,2.5);circle(-6,8,2.5);circle(6,-8,2.5);
-  } else if(k=="globe") {
+  } else if(k=="globe"||k=="globe-large") {
     circle(0,0,10);line(-10,0,10,0);line(-8,-5,8,-5);line(-8,5,8,5);
     rect(-4,-10,8,20,LV_RADIUS_CIRCLE);
   } else if(k=="clipboard") {

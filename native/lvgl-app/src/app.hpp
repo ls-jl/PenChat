@@ -496,6 +496,9 @@ class App {
   lv_draw_buf_t *editorMagnifierBuffer_ = nullptr;
   bool editorClipboardOpen_=false, editorClipboardConfirm_=false, editorUndoMenu_=false;
   lv_point_t editorMenuAnchor_{};
+  bool editorOcrPreparing_=false;
+  uint64_t editorOcrPrepareSent_=0;
+  void editorOcrPrepared(const Json &);
   bool editorOcrMulti_=false, editorOcrActive_=false, editorOcrBusy_=false, editorOcrShown_=false;
   bool editorTopBlocked_=false;
   std::string editorOcrId_;
@@ -531,6 +534,7 @@ class App {
   int editorStartX_ = 0, editorStartY_ = 0;
   void editorBuild();
   bool editorCanExpand() const;
+  bool editorCandidateRow() const;
   void editorAction(const std::string &action);
   void editorFinish(bool confirmed);
   void editorOfficial();

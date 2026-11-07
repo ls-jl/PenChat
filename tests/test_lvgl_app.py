@@ -48,8 +48,9 @@ def wait_for(callback, timeout=10):
     raise AssertionError('Timed out waiting for native state')
 
 class Native:
-    def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True, screen=None, bridge_send_buffer=None, onboarding=False):
+    def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True, screen=None, bridge_send_buffer=None, onboarding=False, ocr_prepare_adapter=True):
         self.pending=[]
+        self.ocr_prepare_adapter=ocr_prepare_adapter
         self.official_adapter=official_adapter
         self.directory=pathlib.Path(directory);self.directory.mkdir(parents=True,exist_ok=True)
         dbpath=self.directory/'penchat.db'
@@ -92,6 +93,9 @@ class Native:
             if value.get("type")==kind:return self.pending.pop(i)
         while True:
             value=json.loads(self.parent.recv(65536))
+            if value.get('type')=='ocr.prepare' and self.ocr_prepare_adapter:
+                self.send('ocr.prepared',requestId=value['requestId'],session=value['session'],mode=value['mode'],ok=True)
+                continue
             if value.get('type')==kind:return value
             assert value.get('type')!='fatal',value
             self.pending.append(value)
@@ -158,7 +162,7 @@ class Native:
         with sqlite3.connect(self.directory/'penchat.db') as db:
             return db.execute('select role,status,output_text,error_json from chat_messages order by created_at,seq').fetchall()
     def edit(self,value):
-        screen=self.diag();wait_for(lambda:self.diag()['toolbar_y']==screen['height']-(54 if screen['height']>screen['width'] else 48)-screen.get('safe_insets',[0,0,0,10])[3])
+        screen=self.diag();wait_for(lambda:self.diag()['toolbar_y']==screen['height']-(94 if screen['height']>screen['width'] else 48)-screen.get('safe_insets',[0,0,0,10])[3])
         self.tap(screen['width']//2,screen['height']-34);request=self.receive('keyboard.open')
         self.send('keyboard.result',requestId='stale',confirmed=True,text='must not appear')
         assert self.diag()['keyboard'] is True

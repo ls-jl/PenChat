@@ -532,6 +532,14 @@ bool Hardware::readFrame(
   require(io(video_, VIDIOC_QBUF, &b) == 0, "pen requeue failed");
   return true;
 }
+void Hardware::cameraToOcr() {
+  require(key_ >= 0, "OCR key lease unavailable");
+  resetKey();
+  const int key = key_; const bool waitRelease = waitRelease_;
+  key_ = -1;
+  close(); // Restore camera/guardian while retaining the same evdev grab.
+  key_ = key; waitRelease_ = waitRelease;
+}
 void Hardware::close() noexcept {
   if (sensor_ >= 0 && profile_.sensor == "sc2356") {
     int zero = 0;

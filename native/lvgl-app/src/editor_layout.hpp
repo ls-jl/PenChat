@@ -38,7 +38,7 @@ struct EditorLayout {
       rowHeight=int(std::lround((keyHeight-bottomHeight-18)/3.));
       bottomY=h-safe.safeBottom()-keyboardLift-bottomHeight;
       keyTop=bottomY-3*(rowHeight+6);
-      actionsY=keyTop-52;candidateY=actionsY-50;compositionY=candidateY-26;
+      actionsY=keyTop-52;candidateY=actionsY;compositionY=candidateY-26;
       textHeight=compositionY-textY-10;keyWidth=(keySpan-44)/10.;
     }
     docked=portrait&&!selectionOnly;
@@ -81,6 +81,11 @@ struct EditorLayout {
     return floatingPopup(x-w/2,y-60-(portrait?52:0),w,52);
   }
   int utilityY() const { return bottomY+bottomHeight+6; }
+  Popup globeKey() const {
+    const int commaCenter=8+px(keyWidth+14)+px(keyWidth+10)/2;
+    const int centerY=px((bottomY+bottomHeight/2.+height-1)/2.);
+    return {commaCenter-14-24,centerY-24,48,48};
+  }
   struct Action { const char *name; int x, width, y; };
   std::vector<Action> actions(bool chat=false) const {
     if(portrait) {

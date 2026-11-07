@@ -1212,19 +1212,19 @@ void App::rebuildChatControls() {
   lv_obj_set_scrollable(chatControls_, false);
   lv_obj_set_style_radius(chatControls_, layout().composerHeight()/2, 0);
   auto attachment = icon(
-      chatControls_, "plus", 2, 2, 44, 44, [this] { if(editor_.active&&editorInPlace()&&!editorAccept())return;toggleAttachments(); },
+      chatControls_, "plus", layout().composerInset(), layout().composerInset(), 44, 44, [this] { if(editor_.active&&editorInPlace()&&!editorAccept())return;toggleAttachments(); },
       theme::surface);
   // Keep the glyph in place; near-edge taps belong to attachments, not IME.
   lv_obj_set_ext_click_area(attachment, 8);
-  const int entryLeft = 62;
+  const int entryLeft = layout().composerEntryLeft();
   const bool gauge = sessionPreferences_.value("gauge", !effortMemory_.empty());
   if (gauge)
     icon(
-        chatControls_, "gauge", composerWidth - 100, 2, 44, 44, [this] { if(editor_.active&&editorInPlace()&&!editorAccept())return;effortPicker(); },
+        chatControls_, "gauge", composerWidth - (layout().portrait()?layout().composerInset()+100:100), 2, 44, 44, [this] { if(editor_.active&&editorInPlace()&&!editorAccept())return;effortPicker(); },
         theme::surface, theme::muted);
   composer_ = button(
       chatControls_, draft_.empty() ? "询问 " PENCHAT_NAME : draft_, entryLeft, 2,
-      composerWidth - entryLeft - (gauge ? 106 : 54), 44,
+      composerWidth - entryLeft - layout().composerEntryRight(gauge), 44,
       [this] {
         if (contextBusy_ || !composerTapAllowed_)
           return;
@@ -1256,8 +1256,8 @@ void App::rebuildChatControls() {
           sendMessage();
       },
       sendEnabled ? theme::text : theme::border, theme::background);
-  // Portrait leaves 5px around the send circle; landscape keeps its 2px inset.
-  lv_obj_align(send, LV_ALIGN_RIGHT_MID, layout().portrait()?-5:-2, 0);
+  // Portrait leaves 25px around the send circle; landscape keeps its 2px inset.
+  lv_obj_align(send, LV_ALIGN_RIGHT_MID, -layout().composerInset(), 0);
   if (!sendEnabled)
     lv_obj_set_clickable(send, false);
   toBottom_ = icon(
@@ -3126,6 +3126,8 @@ void App::handle(const Json &m) {
       editorTopBlocked_=m.value("blocked",false);
       if(!m.value("ok",false)){editor_.notice="当前固件无法禁用下拉面板";editorBuild();}
     }
+  } else if(type=="ocr.prepared") {
+    editorOcrPrepared(m);
   } else if(type=="ocr.status") {
     if(editor_.active&&editorOcrActive_&&m.value("requestId",std::string())==editorOcrId_&&m.value("session",std::string())==editor_.id) {
       editorOcrBusy_=m.value("started",false);if(editorOcrBusy_){editorOcrShown_=true;editor_.notice.clear();}editorBuild();

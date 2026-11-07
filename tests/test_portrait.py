@@ -87,6 +87,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-portrait-') as folder:
   key(a,'language');shot(a,'keyboard-en26');key(a,'mode');shot(a,'keyboard-number');key(a,'symbols');shot(a,'keyboard-symbol');key(a,'mode')
   k=next(k for k in a.diag()['editor']['keys'] if k['key']=='language');a.long_press(k['x'],k['y']);a.editor_action('layout:2');shot(a,'keyboard-zh9')
   key(a,'t9:6');key(a,'t9:4');t.wait_for(lambda:a.diag()['editor']['candidate_count']>0);shot(a,'keyboard-zh9-candidates')
+  if a.diag()['editor']['preedit_length']:key(a,'enter')
   a.editor_action('clipboard');shot(a,'keyboard-clipboard');a.tap(515,40)
   a.editor_action('official');request=a.receive('keyboard.open');a.send('keyboard.result',requestId=request['requestId'],confirmed=False);t.wait_for(lambda:not a.diag()['keyboard'])
   assert a.diag()['editor']['active'];

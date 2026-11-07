@@ -166,6 +166,8 @@ class Worker {
   PreviewSlot *slot_;
   std::string resources_, directory_, session_, state_ = "disarmed";
   uint64_t generation_ = 0, request_ = 0, scan_ = 0;
+  bool ocrKeys_ = false;
+  unsigned ocrSequence_ = 0;
   bool mock_ = false, armed_ = false, capturing_ = false, finished_ = false;
 #ifdef SCANNER_TEST_SOURCE
   std::atomic<int> mockMemory_{0};
@@ -357,6 +359,7 @@ class Worker {
     light_.off();
     hardware_.close();
     armed_ = false;
+    ocrKeys_ = false;
     keyDown_ = false;
     state_ = "disarmed";
     // Camera, key and guardian are restored before imposing an exit bound on
@@ -649,14 +652,29 @@ public:
   void command(const Json &j) {
     auto type = j.value("type", std::string());
     auto generation = j.value("generation", uint64_t(0));
-    if (type == "arm") {
+    if (type == "ocr_keys" && profile_.id != "y07-sc2356")
+      throw std::runtime_error("key-only OCR is not supported on this profile");
+    if (type == "ocr_keys" && generation > generation_ && armed_) {
+      light_.off();
+      if (!mock_) hardware_.cameraToOcr();
+      armed_ = false; keyDown_ = false;
+      { DrainDeadline deadline; release(true); }
+      lease_ = Json(); generation_ = generation;
+      session_ = j.at("session").get<std::string>();
+      request_ = j.value("requestId", uint64_t(0));
+      ocrKeys_ = true; state_ = "ocr_keys"; emit("released", {{"ocr_keys", true}});
+      return;
+    }
+    if (type == "arm" || type == "ocr_keys") {
       if (generation <= generation_)
         return;
       disarm();
+      ocrKeys_ = type == "ocr_keys";
       generation_ = generation;
       session_ = j.at("session").get<std::string>();
       request_ = j.value("requestId", uint64_t(0));
       if (mock_) {
+        if (ocrKeys_) { state_="ocr_keys"; emit("released",{{"ocr_keys",true}}); return; }
         if (engine_->prepareModel() != Code::Ok)
           throw std::runtime_error("model preparation unavailable");
         state_ = "warming";
@@ -677,6 +695,10 @@ public:
       // Reserve the key and pause the stock capture owner before model work,
       // but do not start our sensor. The parent already retained the lease.
       hardware_.reserve(lease_);
+      if (ocrKeys_) {
+        hardware_.cameraToOcr(); lease_ = Json();
+        state_ = "ocr_keys"; emit("released", {{"ocr_keys", true}}); return;
+      }
       if (engine_->prepareModel() != Code::Ok)
         throw std::runtime_error("model preparation unavailable");
       state_ = "warming";
@@ -708,7 +730,10 @@ public:
     else if (mock_ && type == "test.memory") {
       mockMemory_ = std::max(0, std::min(2, j.value("state", 0)));
     } else if (mock_ && type == "test.press") {
-      keyEvent(j.value("pressed", false));
+      if (state_=="ocr_keys") {
+        const bool down=j.value("pressed",false);
+        if (down!=keyDown_) { keyDown_=down; if(down)++ocrSequence_; emit("ocr_key",{{"down",down},{"sequence",ocrSequence_}}); }
+      } else keyEvent(j.value("pressed", false));
     } else if (mock_ && type == "test.frame" && capturing_) {
       std::vector<uint8_t> pixels(size_t(config_.width) * config_.height, 210);
       for (int y = 20; y < config_.height - 20; ++y)
@@ -825,6 +850,13 @@ public:
             clockUs() >= ownerDeadline_)
           throw;
         nextOwner_ = clockUs() + 50000;
+      }
+    }
+    if (state_ == "ocr_keys" && !mock_) {
+      bool down = false;
+      while (hardware_.keyEvent(down)) {
+        if (down) ++ocrSequence_;
+        emit("ocr_key", {{"down", down}, {"sequence", ocrSequence_}});
       }
     }
     if (armed_ && !mock_) {

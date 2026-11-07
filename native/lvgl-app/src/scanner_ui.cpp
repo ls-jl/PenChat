@@ -32,7 +32,8 @@ void App::syncScanner() {
                   !editor_.active && (!imageViewer_ || viewerScanResult_) && !imageStoreBusy_ && !contextBusy_ && !replyBusy_ && !editorOcrActive_ &&
                   !navigationOpen_ && !modal_ && !attachments_ && !pulling_ &&
                   (view_ == "chat" || active);
-  scanner_.eligible(eligible, session_);
+  const bool ocrKeys=layout().portrait()&&editor_.active&&visible_&&!keyboard_;
+  scanner_.eligible(eligible, session_, ocrKeys);
   if (scanHint_) {
     auto state = scanner_.state().value("type", std::string());
     const char *text = !eligible          ? ""
@@ -45,7 +46,7 @@ void App::syncScanner() {
   }
 }
 void App::whenScannerReleased(std::function<void()> callback) {
-  scanner_.eligible(false, session_);
+  scanner_.eligible(false, session_, layout().portrait()&&editor_.active&&visible_&&!keyboard_);
   if (scanner_.released())
     callback();
   else
@@ -154,7 +155,19 @@ void App::scanEvent(const Event &event) {
   if (j.value("generation", uint64_t(0)) != scanner_.generation() ||
       j.value("session", std::string()) != session_)
     return;
+  if (event.type == "scan_ocr_key") {
+    if (editor_.active && editorOcrActive_ && !editorOcrPreparing_ && visible_ && !keyboard_)
+      bridge_.send("ocr.pen", {{"requestId",editorOcrId_},{"session",editor_.id},
+        {"down",j.value("down",false)},{"sequence",j.value("sequence",uint64_t(0))}});
+    return;
+  }
   if (event.type == "scan_started") {
+    if(editor_.active) {
+      // Pen presses during OCR handoff cannot open a scan page or release the
+      // key lease before the system OCR route has been acknowledged.
+      if(!editorOcrPreparing_)scanner_.eligible(false,session_);
+      return;
+    }
     diagnosticRecord("scanner", "started");
     const bool retryEmpty = view_ == "scan" &&
         scanResult_.value("type", std::string()) == "finished" &&

@@ -101,6 +101,8 @@ export default {
           else if (event.type === 'editor.state') this.editorState(event)
           else if (event.type === 'navigation.state') this.navigationState(event)
           else if (event.type === 'keyboard.open') this.openKeyboard(event)
+          else if (event.type === 'ocr.prepare') this.startOcr(event, true)
+          else if (event.type === 'ocr.pen') { if (this._ocr) this._ocr.pen(event) }
           else if (event.type === 'ocr.start') this.startOcr(event)
           else if (event.type === 'ocr.cancel') this.stopOcr(event.requestId)
           else if (event.type === 'update.install') this.installUpdate(event)
@@ -166,17 +168,22 @@ export default {
       const ok = this.setNativeEditorPolicy(active)
       this.send('editor.policy', { session: event.session, sequence: event.sequence, ok, blocked: ok && active })
     },
-    startOcr(event) {
+    startOcr(event, prepareOnly = false) {
       if (!this.visible || this.keyboardOpen) { this.send('ocr.result', { requestId: event.requestId, confirmed: false, error: '当前无法启动扫描。' }); return }
+      try {
       if (!this._global) this._global = new globalModule.Global()
-      this.stopOcr()
       const generation = this._generation
       this._ocrRequest = event.requestId
-      this._ocr = new OcrSession(this._global, appConfig.appid, (type, data) => {
+      if (!this._ocr) this._ocr = new OcrSession(this._global, appConfig.appid, (type, data) => {
         if (this._disposed || generation !== this._generation || data.requestId !== this._ocrRequest) return
         this.send(type, data)
-      })
-      this._ocr.start(event.requestId, { session: event.session, mode: event.mode, continuous: event.continuous })
+      }, (down, sequence) => typeof launcher.ocrStroke === 'function' && launcher.ocrStroke(down, sequence))
+      this._ocr.start(event.requestId, { session: event.session, mode: event.mode, continuous: event.continuous, prepareOnly })
+      } catch (err) {
+        if (!prepareOnly) throw err
+        this.stopOcr()
+        this.send('ocr.prepared', { requestId: event.requestId, session: event.session, mode: event.mode, ok: false })
+      }
     },
     stopOcr(requestId) {
       if (requestId && requestId !== this._ocrRequest) return

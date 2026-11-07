@@ -222,3 +222,14 @@ test('cached native restart closes only the obsolete official editor and ignores
   assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],false)
   f.page.dispose()
 })
+
+test('portrait OCR preparation rejects constructor failure without stopping the page', async () => {
+  const f=fixture();await f.page.boot()
+  f.context.globalModule.Global=function(){throw new Error('fixture constructor')}
+  f.native.poll=()=>[{type:'ocr.prepare',requestId:'prepare-1',session:'editor-1',mode:'single',continuous:true}]
+  f.page.poll()
+  assert.equal(f.page.running,true);assert.equal(f.page.errorText,'')
+  const response=f.calls.find(c=>c[0]==='send'&&c[1].type==='ocr.prepared')[1]
+  assert.equal(response.requestId,'prepare-1');assert.equal(response.ok,false)
+  assert(!f.calls.some(c=>c[0]==='stop'));f.page.dispose()
+})

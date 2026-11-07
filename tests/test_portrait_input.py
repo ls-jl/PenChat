@@ -72,10 +72,10 @@ def run():
             a=t.Native(BINARY,p,screen={'width':568,'height':1210,'direction':180,'tp_direction':180},official_adapter=False)
             try:
                 state=a.diag();assert state['safe_insets']==[24,24,24,28]
-                assert state['toolbar_y']==1128
+                assert state['toolbar_y']==1088
                 shot(a,'chat-safe')
                 a.tap(280,1158);t.wait_for(lambda:a.diag()['editor']['active'])
-                state=a.diag();e=state['editor'];assert e['docked'] and e['inline_chat'] and 400<e['panel_top']<600
+                state=a.diag();e=state['editor'];assert e['docked'] and e['inline_chat'] and e['panel_top']==623
                 assert e['in_place'] and e['text_in_target'] and e['input_anchor']=='chat-composer'
                 assert e['target_bounds'][0]<=e['text_bounds'][0]<e['text_bounds'][2]<=e['target_bounds'][2]
                 assert e['target_bounds'][1]<=e['text_bounds'][1]<e['text_bounds'][3]<=e['target_bounds'][3]
@@ -85,7 +85,7 @@ def run():
                 assert max(k['bounds'][3] for k in e['keys'] if k['key']!='language')==1122
                 assert 'cancel' not in e['actions']
                 assert e['actions']['done'][1]>1122
-                assert next(k for k in e['keys'] if k['key']=='language')['bounds'][1]>1122
+                assert next(k for k in e['keys'] if k['key']=='language')['y']==1145
                 assert next(k for k in e['keys'] if k['key']=='space')['bounds'][2]-next(k for k in e['keys'] if k['key']=='space')['bounds'][0]>210
                 shot(a,'chat-keyboard')
                 key(a,'language')
@@ -113,7 +113,9 @@ def run():
                 assert a.diag()['editor']['length']==4 and a.diag()['editor']['docked']
                 a.editor_action('done');t.wait_for(lambda:not a.diag()['editor']['active'])
                 assert len(a.read_messages())==2 # Done never sends.
-                a.tap(284,1100);t.wait_for(lambda:a.diag()['toolbar_y']==1128)
+                d=a.diag()
+                if d['to_bottom_visible']:a.tap(d['to_bottom_x']+22,d['to_bottom_y']+22)
+                t.wait_for(lambda:a.diag()['toolbar_y']==1088)
                 a.tap(280,1158);t.wait_for(lambda:a.diag()['editor']['active'])
                 assert a.diag()['editor']['length']==4
                 a.editor_action('chat-send');t.wait_for(lambda:not a.diag()['editor']['active'])
@@ -174,6 +176,10 @@ def run():
                 a.to_chat();a.tap(280,1158);t.wait_for(lambda:a.diag()['editor']['active'])
                 for c in 'nihao':key(a,c)
                 t.wait_for(lambda:a.diag()['editor']['candidate_count']>0)
+                e=a.diag()['editor'];assert e['shared_candidate_row'] and e['candidate_y']==e['function_y']
+                assert 'official' not in e['actions'] and 'ocr-mode' not in e['actions'] and 'clipboard' not in e['actions']
+                assert e['panel_top']==623
+                shot(a,'shared-candidates')
                 a.editor_action('expand');shot(a,'expanded-candidates')
                 a.editor_action('expand');key(a,'space');t.wait_for(lambda:a.diag()['editor']['length']>0)
                 k=next(k for k in a.diag()['editor']['keys'] if k['key']=='language')
@@ -194,7 +200,7 @@ def run():
                 db.execute("insert into app_settings values('auto_title_enabled','false',1)")
             a=t.Native(BINARY,p,screen={'width':568,'height':1210},official_adapter=True)
             try:
-                a.edit('Question');a.tap(520,1158);t.wait_for(lambda:a.diag()['generating'])
+                a.edit('Question');d=a.diag();a.tap(d['send_center_x2']//2,d['send_center_y2']//2);t.wait_for(lambda:a.diag()['generating'])
                 a.official_adapter=False
                 a.tap(280,1158);t.wait_for(lambda:a.diag()['editor']['active'])
                 key(a,'language');key(a,'q');session=a.diag()['editor']['session']
@@ -213,22 +219,22 @@ def run():
                 a.tap(280,1155);t.wait_for(lambda:a.diag()['editor']['active'])
                 key(a,'language');key(a,'a')
                 initial=a.diag()['composer_bounds'];bottom=initial[3]
-                assert initial[3]-initial[1]+1==54
+                assert initial[3]-initial[1]+1==94
                 shot(a,'composer-one-line')
                 heights=[]
-                for i in range(7):
+                for i in range(10):
                     key(a,'enter');key(a,'a');d=a.diag();b=d['composer_bounds'];heights.append(b[3]-b[1]+1)
-                    assert b[3]==bottom and 54<heights[-1]<=162
+                    assert b[3]==bottom and 94<heights[-1]<=282
                     arrow=d['editor']['actions']['chat-send']
-                    assert b[2]-arrow[2]==5 and b[3]-arrow[3]==5,(b,arrow)
+                    assert b[2]-arrow[2]==25 and b[3]-arrow[3]==25,(b,arrow)
                     if i==1:shot(a,'composer-three-lines')
-                assert heights==sorted(heights) and heights[-1]==162
+                assert heights==sorted(heights) and heights[-1]==282
                 shot(a,'composer-max-scroll')
                 assert a.diag()['editor']['text_scroll']>0,a.diag()['editor']
-                for _ in range(12):key(a,'delete')
-                b=a.diag()['composer_bounds'];assert 54<b[3]-b[1]+1<162 and b[3]==bottom
+                for _ in range(18):key(a,'delete')
+                b=a.diag()['composer_bounds'];assert 94<b[3]-b[1]+1<282 and b[3]==bottom
                 for _ in range(42):key(a,'a')
-                b=a.diag()['composer_bounds'];assert 78<b[3]-b[1]+1<=162
+                b=a.diag()['composer_bounds'];assert 118<b[3]-b[1]+1<=282
                 shot(a,'composer-wrapped')
                 a.editor_action('done');assert not a.diag()['editor']['active']
                 assert a.diag()['draft_length']>0 and not a.read_messages()
