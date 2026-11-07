@@ -77,13 +77,15 @@ int main(int argc, char **argv) {
       const AppLayout page{size.first,size.second};
       const EditorLayout keyboard(size.first,size.second);
       assert(page.portrait() && page.gutter()==0);
-      assert(page.composerX()+page.composerWidth()==size.first-16);
-      assert(keyboard.portrait && keyboard.textY==12 && keyboard.textBottom()<keyboard.compositionY);
+      assert(page.composerX()+page.composerWidth()==size.first-page.safeSide());
+      assert(page.composerY()+48==size.second-page.safeBottom());
+      assert(keyboard.keyInset==page.safeSide() && keyboard.keySpan==size.first-2*page.safeSide());
+      assert(keyboard.portrait && keyboard.docked && keyboard.panelTop>size.second/2 && keyboard.textBottom()<keyboard.compositionY);
       assert(keyboard.compositionY+20<=keyboard.candidateY);
       assert(keyboard.candidateY+44<=keyboard.actionsY);
       assert(keyboard.actionsY+44<=keyboard.keyTop);
       assert(keyboard.rowHeight>=52 && keyboard.rowHeight<=72 && keyboard.keyWidth>=44);
-      assert(keyboard.bottomY+keyboard.bottomHeight<=size.second-8);
+      assert(keyboard.bottomY+keyboard.bottomHeight==size.second-page.safeBottom());
       for(const auto &action:keyboard.actions())assert(action.x>=0&&action.width>=44&&action.x+action.width<=size.first);
       const auto pull=pullGeometry({0,0,size.first,size.second},size.first,size.second,size.second-58);
       const auto shorter=pullGeometry({0,0,size.first,size.second/2},size.first,size.second,size.second/2-58);

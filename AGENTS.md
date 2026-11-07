@@ -265,8 +265,14 @@ Coalesced stream states must also flush while the peer is idle, not only on new 
 
 Anthropic Messages is a separate protocol, never an OpenAI payload fallback. Keep signed/redacted blocks private and replay only completed same-identity messages; include API version and credential revision in that identity. Preserve cumulative usage without double counting and account for uncached/cache-read/cache-write input separately. Auxiliary compaction material is user reference data with original role/status labels, never assistant prefill or elevated system instructions. Unknown model thinking capabilities must remain opt-in.
 
-Y07 portrait uses shared AppLayout and EditorLayout: full-width reader, upper
-editing text and bottom keyboard. Portrait pull distance is based on
+Y07 portrait uses shared AppLayout and EditorLayout: full-width reader and a
+docked bottom keyboard retaining the original page. Apply their shared rounded-
+corner safe insets to composer, keyboard hit areas and edge navigation; landscape
+geometry stays unchanged. Chat edits inside its docked composer; other fields use
+a compact bottom editor, with completion/cancellation retaining their contracts.
+Candidate/clipboard overlays may cover the reader, never move the keys. A
+transparent floating reader guard permits scrolling without activating underlying
+business controls; release it before restoring the full reader. Portrait pull distance is based on
 min(unobstructed reader height, reader width/2), frozen at pointer-down.
 Preserve existing landscape geometry. Model fill buttons stay anchored to their
 field; album grids/archive readers keep their own layout rather than form reflow.

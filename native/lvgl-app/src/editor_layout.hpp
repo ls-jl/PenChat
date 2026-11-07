@@ -1,4 +1,5 @@
 #pragma once
+#include "layout.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -9,9 +10,11 @@ namespace penchat {
 struct EditorLayout {
   int width, height, split, textX, textWidth, textY = 78, textHeight;
   int actionsY, bottomY, rowHeight, keyTop=6, bottomHeight=44, candidateY=6, compositionY=54;
-  bool portrait=false;
+  bool portrait=false, docked=false;
+  int panelTop=0, textAreaWidth=0;
+  int keyInset=0, keySpan=0;
   double keyWidth;
-  EditorLayout(int w, int h, bool selectionOnly = false) : width(w), height(h) {
+  EditorLayout(int w, int h, bool selectionOnly = false, bool chatComposer = false) : width(w), height(h) {
     split = w - std::max(352, w * 2 / 5 - 8);
     textX = split + 8;
     textWidth = w - textX - 8;
@@ -20,18 +23,29 @@ struct EditorLayout {
     bottomY = h - 50;
     rowHeight = (bottomY - 24) / 3;
     keyWidth = (split - 44) / 10.0;
-    portrait=h>w;
+    portrait=h>w;keySpan=split;
     if(portrait) {
-      split=w;textX=12;textWidth=w-24;textY=12;
+      const AppLayout safe{w,h};
+      split=w;keyInset=safe.safeSide();keySpan=w-2*keyInset;
+      textX=keyInset;textWidth=keySpan;textY=safe.safeTop();
       rowHeight=std::max(52,std::min(72,int(w*.12)));
       bottomHeight=std::max(44,std::min(60,int(w*.10)));
-      bottomY=h-12-bottomHeight;
+      bottomY=h-safe.safeBottom()-bottomHeight;
       keyTop=bottomY-3*(rowHeight+6);
       actionsY=keyTop-52;candidateY=actionsY-50;compositionY=candidateY-26;
-      textHeight=compositionY-textY-10;keyWidth=(split-44)/10.;
+      textHeight=compositionY-textY-10;keyWidth=(keySpan-44)/10.;
     }
-    if (selectionOnly) { split=86;textX=96;textWidth=w-106;textY=56;textHeight=h-66;if(portrait){split=w;textX=12;textWidth=w-24;} }
+    docked=portrait&&!selectionOnly;
+    if(docked) {
+      textHeight=chatComposer?88:112;
+      textY=compositionY-textHeight-10;
+      panelTop=textY-(chatComposer?8:32);
+    }
+    if (selectionOnly) { split=86;textX=96;textWidth=w-106;textY=56;textHeight=h-66;if(portrait){const AppLayout safe{w,h};split=w;textX=keyInset;textWidth=keySpan;textY=56+safe.safeTop();textHeight=h-textY-safe.safeBottom();} }
+    textAreaWidth=textWidth-(docked&&chatComposer?56:0);
   }
+  int overlayY() const { return docked?AppLayout{width,height}.safeTop():textY; }
+  int overlayHeight() const { return docked?compositionY-overlayY()-10:textHeight; }
   struct Popup {
     int x, y, width, height;
     bool contains(int px,int py) const {
@@ -40,8 +54,8 @@ struct EditorLayout {
   };
   Popup keyTouchBounds(const Popup &cap, bool leftEdge = false,
                        bool rightEdge = false) const {
-    const int left = leftEdge ? 0 : std::max(0, cap.x - 4);
-    const int right = rightEdge ? split : std::min(split, cap.x + cap.width + 4);
+    const int left = leftEdge ? keyInset : std::max(keyInset, cap.x - 4);
+    const int right = rightEdge ? keyInset+keySpan : std::min(keyInset+keySpan, cap.x + cap.width + 4);
     const int top = std::max(0, cap.y - 3);
     const int bottom = std::min(height, cap.y + cap.height + 3);
     return {left, top, right - left, bottom - top};

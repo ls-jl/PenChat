@@ -23,7 +23,7 @@ void App::openImageViewer(const std::string &path, bool scanResult) {
   lv_obj_set_clickable(viewerImage_,false);lv_image_set_pivot(viewerImage_,0,0);
   viewerStatus_=label(viewerCanvas_,path.empty()?"正在准备原图…":"正在加载原图…",12,0,screen_.width-24,20,theme::muted);
   lv_obj_set_style_text_align(viewerStatus_,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(viewerStatus_);
-  viewerClose_=icon(imageViewer_,"close",screen_.width-60,8,44,44,[this]{events_.push("image_view_close");},theme::surface);
+  viewerClose_=icon(imageViewer_,"close",screen_.width-44-(layout().portrait()?layout().safeSide():16),layout().portrait()?layout().safeTop():8,44,44,[this]{events_.push("image_view_close");},theme::surface);
   viewerKey_=path.empty()?std::string():images_.request(path,32768,32768);
   lv_obj_update_layout(imageViewer_);lv_obj_move_foreground(imageViewer_);
   if(!viewerScanResult_)scanner_.eligible(false,session_);

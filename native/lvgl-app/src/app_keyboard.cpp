@@ -1,6 +1,7 @@
 #include "app.hpp"
 #include "icons.hpp"
 #include "editor_layout.hpp"
+#include "chat_text.hpp"
 #include <cctype>
 namespace penchat {
 namespace {
@@ -17,10 +18,10 @@ std::string keyboardPunctuation(const std::string &key,bool chinese) {
 void App::edit(const std::string &text, const std::string &placeholder,
                std::function<void(const std::string &)> callback, int maxLength,
                const char *inputType, std::function<void()> cancelled,
-               bool multiline, bool secret, bool selectionOnly) {
+               bool multiline, bool secret, bool selectionOnly, bool inlineChat) {
   if (editor_.active || keyboard_ || replyBusy_ || contextRegenerating_) return;
   closeNavigation(false); closeAttachments(); resetPull();
-  editorSelectionOnly_=selectionOnly;
+  editorSelectionOnly_=selectionOnly;editorInlineChat_=inlineChat&&this->layout().portrait();editorReaderTouch_=false;
   const int preferred=editor_.preferredChinese;
   editor_ = EditorState{};editor_.preferredChinese=preferred;
   editor_.active = true; editor_.text = text; editor_.position(editLength(text));
@@ -41,8 +42,9 @@ void App::edit(const std::string &text, const std::string &placeholder,
   editCancellation_ = std::move(cancelled);
   const auto view = view_; const int scroll = body_ ? lv_obj_get_scroll_y(body_) : 0;
   editCompletion_ = [this,callback,view,scroll](const std::string &s) {
+    const int restore=editorLayout().docked&&body_?lv_obj_get_scroll_y(body_):scroll;
     callback(s);
-    if (view_ == view && body_) { lv_obj_update_layout(body_); lv_obj_scroll_to_y(body_,scroll,LV_ANIM_OFF); paintVisible(); }
+    if (view_ == view && body_) { lv_obj_update_layout(body_); lv_obj_scroll_to_y(body_,restore,LV_ANIM_OFF); paintVisible(); }
   };
   const auto id = editor_.id;
   whenScannerReleased([this,id] { if (editor_.active && editor_.id == id) { editorBuild();editorOcrStart(); } });
@@ -59,6 +61,12 @@ void App::editorBuild() {
   editorKeys_.clear(); editorLocalActions_.clear(); editorText_ = nullptr;
   editorRoot_ = box(lv_screen_active(),0,0,screen_.width,screen_.height,theme::background);
   lv_obj_set_scrollable(editorRoot_,false);
+  if(layout.docked) {
+    lv_obj_set_style_bg_opa(editorRoot_,LV_OPA_TRANSP,0);
+    lv_obj_set_clickable(editorRoot_,false);
+    auto panel=box(editorRoot_,0,layout.panelTop,screen_.width,screen_.height-layout.panelTop,theme::background);
+    lv_obj_set_scrollable(panel,false);lv_obj_set_clickable(panel,true);
+  }
   auto action = [this](const std::string &s) { events_.push("editor_action",{{"id",editor_.id},{"action",s}}); };
   auto control = [&](const std::string &title,int x,int y,int w,const std::string &a) {
     auto b=button(editorRoot_,title,x,y,w,44,[action,a] { action(a); },theme::surface);
@@ -66,6 +74,7 @@ void App::editorBuild() {
     return b;
   };
   auto key = [&](std::string title,std::string value,int x,int y,int w,int h) {
+    x+=layout.keyInset;
     auto b=box(editorRoot_,x,y,w,h,theme::surface); lv_obj_set_scrollable(b,false);
     lv_obj_set_style_radius(b,9,0);
     if (value=="shift" && editor_.shift)
@@ -86,11 +95,11 @@ void App::editorBuild() {
   const bool nine=editor_.mode==0&&editor_.layout==2&&!editor_.secret;
   if(nine) {
     const int rail=88, gridX=rail+8;
-    const double cell=(layout.split-gridX-12)/3.0;
+    const double cell=(layout.keySpan-gridX-12)/3.0;
     const char *groups[]={"1 标点","2 ABC","3 DEF","4 GHI","5 JKL","6 MNO","7 PQRS","8 TUV","9 WXYZ"};
     for(int n=0;n<9;++n)
       key(groups[n],n?"t9:"+std::to_string(n+1):"punctuation",layout.px(gridX+n%3*(cell+4)),layout.keyTop+n/3*(layout.rowHeight+6),layout.px(cell),layout.rowHeight);
-    auto filter=box(editorRoot_,4,layout.keyTop,rail,3*layout.rowHeight+12,theme::background);
+    auto filter=box(editorRoot_,layout.keyInset+4,layout.keyTop,rail,3*layout.rowHeight+12,theme::background);
     lv_obj_set_scroll_dir(filter,LV_DIR_VER);lv_obj_set_scroll_elastic(filter,false);
     auto all=button(filter,"全部",0,0,rail-4,44,[action]{action("exact-all");},editor_.fixed.empty()?theme::border:theme::surface);
     editorLocalActions_["exact-all"]=all;
@@ -103,13 +112,13 @@ void App::editorBuild() {
     int x=4;
     auto bottom=[&](const std::string &title,const std::string &value,int w){key(title,value,x,layout.bottomY,w,layout.bottomHeight);x+=w+4;};
     bottom("123","mode",68);bottom("","language",64);attachIcon(editorKeys_.back().object,"globe",theme::text);
-    bottom("拼音","space",layout.split-348);bottom("","delete",88);bottom("","enter",104);
+    bottom("拼音","space",layout.keySpan-348);bottom("","delete",88);bottom("","enter",104);
   } else {
   std::vector<std::string> rows = editor_.mode==0 ? std::vector<std::string>{"qwertyuiop","asdfghjkl","zxcvbnm"} :
       editor_.mode==1 ? std::vector<std::string>{"1234567890","@#%&*()-+","/=:;!?_"} : std::vector<std::string>{"[]{}<>^~|\\","$&*_+=`\"'","!?:;/-@"};
   for (int r=0;r<3;++r) {
     const double start = r==0 ? 4 : r==1 ?
-      (layout.split - (rows[r].size() * layout.keyWidth + (rows[r].size()-1)*4))/2 : layout.keyWidth+10;
+      (layout.keySpan - (rows[r].size() * layout.keyWidth + (rows[r].size()-1)*4))/2 : layout.keyWidth+10;
     for (size_t i=0;i<rows[r].size();++i) {
       std::string v(1,rows[r][i]);
       if (!editor_.mode && editor_.shift) v[0]=std::toupper(v[0]);
@@ -121,9 +130,9 @@ void App::editorBuild() {
     }
   }
   key(editor_.mode ? (editor_.mode==1?"#+=":"123") : "",editor_.mode?"symbols":"shift",4,layout.keyTop+2*(layout.rowHeight+6),layout.px(layout.keyWidth+2),layout.rowHeight);
-  key("","delete",layout.px(layout.split-2-2*layout.keyWidth),layout.keyTop+2*(layout.rowHeight+6),layout.px(2*layout.keyWidth-2),layout.rowHeight);
+  key("","delete",layout.px(layout.keySpan-2-2*layout.keyWidth),layout.keyTop+2*(layout.rowHeight+6),layout.px(2*layout.keyWidth-2),layout.rowHeight);
   const int modeWidth=layout.px(layout.keyWidth+14), punctuationWidth=layout.px(layout.keyWidth+10), enterWidth=layout.px(2*layout.keyWidth-4);
-  const int spaceWidth=layout.split-8-20-modeWidth-3*punctuationWidth-enterWidth;
+  const int spaceWidth=layout.keySpan-8-20-modeWidth-3*punctuationWidth-enterWidth;
   int bottomX=4;
   auto bottomKey=[&](const std::string &title,const std::string &value,int width) {
     key(title,value,bottomX,layout.bottomY,width,layout.bottomHeight); bottomX+=width+4;
@@ -135,25 +144,38 @@ void App::editorBuild() {
   bottomKey(keyboardPunctuation(".",editor_.chinese&&!editor_.secret),".",punctuationWidth);
   bottomKey("","enter",enterWidth);
   }
-  auto right=box(editorRoot_,layout.portrait?0:layout.split,0,layout.portrait?screen_.width:screen_.width-layout.split,layout.portrait?layout.keyTop-6:screen_.height,0x111111); lv_obj_set_scrollable(right,false);
+  auto right=box(editorRoot_,layout.portrait?0:layout.split,layout.panelTop,layout.portrait?screen_.width:screen_.width-layout.split,layout.portrait?layout.keyTop-6-layout.panelTop:screen_.height,0x111111); lv_obj_set_scrollable(right,false);
   // Composition/candidates never resize the keys; actions share a bottom baseline.
-  lv_obj_move_background(right);
+  if(!layout.docked)lv_obj_move_background(right);
   for(const auto &a:layout.actions()) {
     const std::string actionName=a.name;
     const std::string title=actionName=="cancel"?"取消":actionName=="official"?"官方":
-      actionName=="done"?"完成":actionName=="ocr-mode"?
+      actionName=="done"?(editorInlineChat_?"收起":"完成"):actionName=="ocr-mode"?
       (!editorOcrActive_&&!editorOcrId_.empty()?"重试":editorOcrMulti_?(layout.portrait?"多行扫描":"多行"):(layout.portrait?"单行扫描":"单行")):"";
     auto b=control(title,a.x,layout.actionsY,a.width,actionName);
     if(actionName=="done")primary(b);
     if(actionName=="clipboard")attachIcon(b,"clipboard",theme::text);
   }
   } else {
-    auto back=control("",16,8,48,"cancel");attachIcon(back,"back",theme::text);
-    label(editorRoot_,editor_.notice.empty()?"选择文本 · 双击选择，拖动手柄调整":editor_.notice,96,14,screen_.width-338,19,theme::muted);
-    control("全选",screen_.width-220,6,96,"all");primary(control("复制",screen_.width-116,6,104,"copy"));
+    const int inset=layout.portrait?layout.keyInset:0;
+    const int top=layout.portrait?this->layout().safeTop():0;
+    auto back=control("",layout.portrait?inset:16,8+top,48,"cancel");attachIcon(back,"back",theme::text);
+    label(editorRoot_,editor_.notice.empty()?"选择文本 · 双击选择，拖动手柄调整":editor_.notice,96,14+top,screen_.width-338-inset,19,theme::muted);
+    control("全选",screen_.width-220-inset,6+top,96,"all");primary(control("复制",screen_.width-116-inset,6+top,104,"copy"));
   }
+  if(layout.docked&&editorInlineChat_) {
+    auto capsule=box(editorRoot_,layout.textX,layout.textY,layout.textWidth,layout.textHeight,theme::surface);
+    lv_obj_set_scrollable(capsule,false);lv_obj_set_style_radius(capsule,20,0);
+    const bool enabled=!generating_&&!contextBusy_&&hasChatText(editor_.text);
+    auto send=icon(editorRoot_,"up",layout.textX+layout.textWidth-48,layout.textBottom()-48,44,44,
+      [action]{action("chat-send");},enabled?theme::text:theme::border,theme::background);
+    editorLocalActions_["chat-send"]=send;
+    lv_obj_set_clickable(send,enabled);
+  }
+  if(layout.docked&&!editorInlineChat_)
+    label(editorRoot_,editor_.placeholder,layout.textX,layout.panelTop+6,layout.textWidth,16,theme::muted);
   editorText_=lv_textarea_create(editorRoot_);
-  lv_obj_set_pos(editorText_,layout.textX,layout.textY); lv_obj_set_size(editorText_,layout.textWidth,layout.textHeight);
+  lv_obj_set_pos(editorText_,layout.textX,layout.textY); lv_obj_set_size(editorText_,layout.textAreaWidth,layout.textHeight);
   lv_obj_set_style_text_font(editorText_,font(20),0);
   lv_obj_set_style_text_color(editorText_,lv_color_hex(theme::text),0);
   lv_obj_set_style_bg_color(editorText_,lv_color_hex(theme::surface),0);
@@ -179,8 +201,8 @@ void App::editorBuild() {
   if(!editorSelectionOnly_) {
   auto pre=label(editorRoot_,editor_.notice.empty()?(editor_.preedit+(editor_.fixed.empty()?"":" · "+editor_.fixed)+(editor_.layout==1&&(!editor_.parked[0].raw.empty()||!editor_.parked[1].raw.empty())?"拼音已暂存":"")):editor_.notice,layout.textX,layout.compositionY,layout.textWidth,16,theme::muted);
   lv_label_set_long_mode(pre,LV_LABEL_LONG_MODE_DOTS); lv_obj_set_height(pre,20);
-  const int candidateY=editorExpanded_?layout.textY+(layout.portrait?44:0):layout.candidateY, candidateH=editorExpanded_?layout.textHeight-(layout.portrait?44:0):44;
-  if (editorExpanded_) { auto cover=box(editorRoot_,layout.textX,layout.textY,layout.textWidth,layout.textHeight,0x111111);lv_obj_set_scrollable(cover,false); label(editorRoot_,"全部候选",layout.textX+4,layout.portrait?layout.textY:16,layout.textWidth-60,18,theme::muted); }
+  const int candidateY=editorExpanded_?layout.overlayY()+(layout.portrait?44:0):layout.candidateY, candidateH=editorExpanded_?layout.overlayHeight()-(layout.portrait?44:0):44;
+  if (editorExpanded_) { auto cover=box(editorRoot_,layout.textX,layout.overlayY(),layout.textWidth,layout.overlayHeight(),0x111111);lv_obj_set_scrollable(cover,false); label(editorRoot_,"全部候选",layout.textX+4,layout.portrait?layout.overlayY():16,layout.textWidth-60,18,theme::muted); }
   auto choices=box(editorRoot_,layout.textX,candidateY,editorExpanded_?layout.textWidth:layout.textWidth-50,candidateH,0x111111);
   lv_obj_set_scroll_dir(choices,editorExpanded_?LV_DIR_VER:LV_DIR_HOR);
   lv_obj_set_scrollbar_mode(choices,LV_SCROLLBAR_MODE_AUTO);
@@ -215,8 +237,8 @@ void App::editorBuild() {
     if(!editor_.notice.empty())editorLocalActions_["pinyin-retry"]=button(choices,"重试",layout.textWidth-148,0,88,44,[action]{action("pinyin-retry");});
   }
   if (editorCanExpand())
-    editorLocalActions_["expand"] = control(editorExpanded_?"收起":"展开",screen_.width-52,layout.portrait?(editorExpanded_?layout.textY:layout.candidateY):6,44,"expand");
-  if(editor_.secret) attachIcon(control("", screen_.width-110,layout.portrait?layout.candidateY:6,44,"reveal"),editor_.reveal?"eye-off":"eye",theme::muted);
+    editorLocalActions_["expand"] = control(editorExpanded_?"收起":"展开",screen_.width-44-(layout.portrait?layout.keyInset:8),layout.portrait?(editorExpanded_?layout.overlayY():layout.candidateY):6,44,"expand");
+  if(editor_.secret) attachIcon(control("", screen_.width-102-(layout.portrait?layout.keyInset:8),layout.portrait?layout.candidateY:6,44,"reveal"),editor_.reveal?"eye-off":"eye",theme::muted);
   if(editorOcrShown_) {
     auto scan=box(editorRoot_,layout.textX,layout.candidateY,layout.textWidth-(editor_.secret?110:50),44,0x111111);
     lv_obj_set_scrollable(scan,false);
@@ -256,11 +278,11 @@ void App::editorBuild() {
     }
   }
   if(editorClipboardOpen_) {
-    auto head=box(editorRoot_,layout.textX,layout.portrait?layout.textY:0,layout.textWidth,74,0x111111);lv_obj_set_scrollable(head,false);
+    auto head=box(editorRoot_,layout.textX,layout.portrait?layout.overlayY():0,layout.textWidth,74,0x111111);lv_obj_set_scrollable(head,false);
     label(head,"剪贴板 · "+std::to_string(editorClipboard_.records.size()),4,12,layout.textWidth-188,19);
-    button(head,editorClipboardConfirm_?"确认清空":"清空",layout.textWidth-182,6,98,44,[action]{action("clip-clear");});
-    button(head,"关闭",layout.textWidth-78,6,74,44,[action]{action("clip-close");});
-    auto list=box(editorRoot_,layout.textX,layout.textY+(layout.portrait?74:0),layout.textWidth,layout.textHeight-(layout.portrait?74:0),0x111111);lv_obj_set_scroll_dir(list,LV_DIR_VER);
+    editorLocalActions_["clip-clear"]=button(head,editorClipboardConfirm_?"确认清空":"清空",layout.textWidth-182,6,98,44,[action]{action("clip-clear");});
+    editorLocalActions_["clip-close"]=button(head,"关闭",layout.textWidth-78,6,74,44,[action]{action("clip-close");});
+    auto list=box(editorRoot_,layout.textX,layout.overlayY()+(layout.portrait?74:0),layout.textWidth,layout.overlayHeight()-(layout.portrait?74:0),0x111111);lv_obj_set_scroll_dir(list,LV_DIR_VER);
     int cy=0;
     // A sensitive explicit copy may be pasted once from the current slot but is never a history row.
     if(editorClipboard_.sensitiveCurrent) {
@@ -306,7 +328,35 @@ void App::editorBuild() {
   if (previousRoot) lv_obj_delete(previousRoot);
   lv_obj_update_layout(editorRoot_);
   lv_obj_move_foreground(editorRoot_);
-  editorSyncText();
+  editorSyncText();editorViewport();
+}
+void App::editorViewport() {
+  if(!body_)return;
+  const auto l=editorLayout();
+  const bool docked=editor_.active&&l.docked;
+  const int height=docked?l.panelTop:screen_.height;
+  if(docked&&!editorReaderGuard_) {
+    editorReaderGuard_=box(body_,0,0,lv_obj_get_width(body_),height,theme::background);
+    lv_obj_set_style_bg_opa(editorReaderGuard_,LV_OPA_TRANSP,0);
+    lv_obj_set_floating(editorReaderGuard_,true);
+    lv_obj_set_scrollable(editorReaderGuard_,false);
+    lv_obj_set_scroll_chain_ver(editorReaderGuard_,true);
+    lv_obj_set_clickable(editorReaderGuard_,true);
+    lv_obj_add_event_cb(editorReaderGuard_,[](lv_event_t *e){
+      static_cast<App *>(lv_event_get_user_data(e))->editorReaderGuard_=nullptr;
+    },LV_EVENT_DELETE,this);
+  }
+  if(!docked&&editorReaderGuard_)lv_obj_delete(editorReaderGuard_);
+  if(toBottom_)lv_obj_set_y(toBottom_,docked?l.panelTop-56:this->layout().composerY()-56);
+  if(view_=="chat"&&messageContent_)lv_obj_set_style_pad_bottom(messageContent_,docked?16:64+this->layout().safeBottom(),0);
+  if(lv_obj_get_height(body_)==height)return;
+  const bool previous=chatLayout_;chatLayout_=true;
+  const int scroll=lv_obj_get_scroll_y(body_);
+  lv_obj_set_height(body_,height);lv_obj_update_layout(body_);
+  if(view_=="chat"&&chatFollowing_)lv_obj_scroll_to_y(body_,scroll+lv_obj_get_scroll_bottom(body_),LV_ANIM_OFF);
+  else lv_obj_scroll_to_y(body_,scroll,LV_ANIM_OFF);
+  chatLayout_=previous;paintVisible();
+  lv_obj_invalidate(screenObj_);
 }
 bool App::editorCanExpand() const {
   return editor_.active && !editorSelectionOnly_ && !editor_.secret &&
@@ -366,7 +416,8 @@ void App::editorFinish(bool confirmed) {
   if(confirmed&&!editor_.secret&&db_.settings().value("pinyin_learning",true))pinyin_.commit(editorLearning_,editor_.text);
   editorLearning_=editorExact_=Json::array();editorPinyinPending_=Json();editorLocalActions_.clear();
   editorLayoutMenu_=editorPunctuation_=false;
-  editorInterrupt(); editor_.active=false; keyboard_=false;
+  editorInterrupt(); editor_.active=false; keyboard_=false;editorReaderTouch_=false;
+  editorViewport();
   if (editorRoot_) lv_obj_delete(editorRoot_);
   editorRoot_=editorText_=nullptr; editorHandles_[0]=editorHandles_[1]=nullptr;editorKeys_.clear();
   auto done=std::move(editCompletion_); auto cancel=std::move(editCancellation_);
@@ -440,6 +491,13 @@ void App::editorAction(const std::string &a) {
   if(a=="clip-close") {editorClipboardOpen_=false;editorBuild();return;}
   if(a=="clip-clear") {if(editorClipboardConfirm_) {editorClipboard_.clear();editorClipboardConfirm_=false;}else editorClipboardConfirm_=true;editorBuild();return;}
   if(a.find("clip-delete:")==0) {auto i=std::stoul(a.substr(12));if(i<editorClipboard_.records.size()) {auto old=editorClipboard_.records[i];editorClipboard_.records.erase(editorClipboard_.records.begin()+i);if(editorClipboard_.current==old)editorClipboard_.current=editorClipboard_.records.empty()?"":editorClipboard_.records.front();}editorBuild();return;}
+  if(a=="chat-send" && editorInlineChat_) {
+    if(generating_||contextBusy_)return;
+    if(!editor_.preedit.empty()) {editorAction("done");return;}
+    if(!hasChatText(editor_.text))return;
+    const auto session=session_;editorFinish(true);
+    events_.push("composer_send",{{"session",session}});return;
+  }
   if(a=="cancel") { editorFinish(false); return; }
   if (editorChoosing_) { if(editorDeferred_.size()<256)editorDeferred_.push_back(a); return; }
   if (a=="official") { editorOfficial(); return; }
@@ -657,7 +715,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
       }
       if(editorHandle_>=0)editorDragAnchor_=editorHandle_?r.first:r.second;
     }
-    editorTextTouch_=editorHandle_>=0||(!overlay&&x>=layout.textX&&x<screen_.width-8&&y>=layout.textY&&y<layout.textBottom());
+    editorTextTouch_=editorHandle_>=0||(!overlay&&x>=layout.textX&&x<layout.textX+layout.textAreaWidth&&y>=layout.textY&&y<layout.textBottom());
     if(editorTextTouch_) {
       if(!editor_.preedit.empty()&&editor_.raw()) {editorChanged();editorSyncText(true);}
       editorTextScroll_=lv_obj_get_scroll_y(editorText_);input_.cancel();return;
@@ -721,6 +779,12 @@ void App::editorTick() {
   const auto layout=editorLayout();
   if (!editor_.active || keyboard_ || !visible_) { editorAutoScrollAt_=0;return; }
   const auto now=ticks();
+  const auto send=editorLocalActions_.find("chat-send");
+  if(editorInlineChat_&&send!=editorLocalActions_.end()) {
+    const bool enabled=!generating_&&!contextBusy_&&hasChatText(editor_.text);
+    lv_obj_set_clickable(send->second,enabled);
+    lv_obj_set_style_bg_color(send->second,lv_color_hex(enabled?theme::text:theme::border),0);
+  }
   const int scrollStep=std::max(1,int(editorAutoScrollAt_?std::min<int64_t>(32,now-editorAutoScrollAt_):8)/2);
   editorAutoScrollAt_=now;
   if(!editorPointer_&&!editorPinyinPending_.is_null()) {auto pending=std::move(editorPinyinPending_);editorPinyinPending_=Json();editorResult(pending);}
@@ -789,7 +853,7 @@ Json App::editorDiagnostic() const {
     handles.push_back({{"endpoint",i},{"x",(a.x1+a.x2)/2},{"y",(a.y1+a.y2)/2},{"anchor",{anchor.x,anchor.y}},{"bounds",{a.x1,a.y1,a.x2,a.y2}}});
   }
   auto caret=editorPoint(editor_.cursor);
-  return {{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
+  return {{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"docked",layout.docked},{"inline_chat",editorInlineChat_},{"panel_top",layout.panelTop},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
     {"layout",editor_.layout==0?"zh26":editor_.layout==1?"en26":"zh9"},{"preferred_layout",editor_.preferredChinese==2?"zh9":"zh26"},
     {"layout_menu",editorLayoutMenu_},{"expanded",editorExpanded_},{"punctuation_menu",editorPunctuation_},{"exact_count",editorExact_.size()},
     {"parked_count",int(!editor_.parked[0].raw.empty())+int(!editor_.parked[1].raw.empty())},

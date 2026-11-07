@@ -460,8 +460,9 @@ class App {
   std::map<std::string, int> tableScrolls_;
   void renderLiveMessage();
   void refreshImages();
-  bool editorSelectionOnly_ = false;
-  EditorLayout editorLayout() const { return EditorLayout(screen_.width,screen_.height,editorSelectionOnly_); }
+  bool editorSelectionOnly_ = false, editorInlineChat_ = false, editorReaderTouch_ = false;
+  void editorViewport();
+  EditorLayout editorLayout() const { return EditorLayout(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_); }
   EditorState editor_;
   Json editorLearning_ = Json::array(), editorExact_ = Json::array(), editorPinyinPending_;
   bool editorLayoutMenu_ = false, editorPunctuation_ = false;
@@ -494,7 +495,7 @@ class App {
   void editorOcrStop();
   void editorOcrResult(const Json &);
   void editorPolicy(bool active);
-  lv_obj_t *editorRoot_ = nullptr, *editorText_ = nullptr;
+  lv_obj_t *editorRoot_ = nullptr, *editorText_ = nullptr, *editorReaderGuard_ = nullptr;
   struct EditorKey { int x,y,w,h; std::string value; lv_obj_t *object; EditorLayout::Popup hit; };
   std::vector<EditorKey> editorKeys_;
   EditorKey editorPress_{};
@@ -523,7 +524,7 @@ class App {
   void edit(const std::string &text, const std::string &placeholder,
             std::function<void(const std::string &)> callback,
             int maxLength = 4096, const char *inputType = "ZhCNPreferred",
-            std::function<void()> cancelled = {}, bool multiline = false, bool secret = false, bool selectionOnly = false);
+            std::function<void()> cancelled = {}, bool multiline = false, bool secret = false, bool selectionOnly = false, bool inlineChat = false);
   bool canSend();
   void sendMessage(const std::string &retry = "");
   void attach(const Json &image);

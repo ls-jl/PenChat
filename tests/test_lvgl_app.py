@@ -126,7 +126,7 @@ class Native:
             if state['navigation_open']:
                 self.tap(state["width"]-20,80)
             elif state['view']=='chat':return
-            else:self.tap(40,32)
+            else:self.tap(48,48) if state['height']>state['width'] else self.tap(40,32)
         raise AssertionError('Cannot return to chat')
     def open_navigation(self):
         self.to_chat();self.tap(40,32)
@@ -158,7 +158,7 @@ class Native:
         with sqlite3.connect(self.directory/'penchat.db') as db:
             return db.execute('select role,status,output_text,error_json from chat_messages order by created_at,seq').fetchall()
     def edit(self,value):
-        screen=self.diag();wait_for(lambda:self.diag()['toolbar_y']==screen['height']-58)
+        screen=self.diag();wait_for(lambda:self.diag()['toolbar_y']==screen['height']-48-screen.get('safe_insets',[0,0,0,10])[3])
         self.tap(screen['width']//2,screen['height']-34);request=self.receive('keyboard.open')
         self.send('keyboard.result',requestId='stale',confirmed=True,text='must not appear')
         assert self.diag()['keyboard'] is True

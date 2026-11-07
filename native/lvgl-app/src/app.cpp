@@ -763,7 +763,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
           pullGeometry({bounds.x1 - tx, bounds.y1 - ty, bounds.x2 + 1 - tx,
                         bounds.y2 + 1 - ty},
                        screen_.width, screen_.height,
-                       screen_.height - lv_obj_get_height(chatControls_) - 10, pullSensitivityOffset_);
+                       layout().composerY(), pullSensitivityOffset_);
     }
     const bool inReader = pullGeometry_.contains(x, y);
     bool inComposer = false;
@@ -774,8 +774,9 @@ bool App::chatTouch(int x, int y, bool pressed) {
     }
     // The text entry shares the pull gesture, but attachment/send controls do
     // not. Keep threshold scaling tied to the unobstructed reading viewport.
-    const bool floatingNavigation=layout().portrait()&&y>=8&&y<56&&
-        ((x>=16&&x<64)||(scanner_.available()&&x>=screen_.width-92));
+    const bool floatingNavigation=layout().portrait()&&y>=layout().safeTop()&&y<layout().safeTop()+48&&
+        ((x>=layout().safeSide()&&x<layout().safeSide()+48)||
+         (scanner_.available()&&x>=screen_.width-layout().safeSide()-80));
     const bool inPullArea = !floatingNavigation && (inReader || inComposer);
     pullTrackActivity_ = view_ == "chat" && !navigationOpen_ && !modal_ &&
                          !attachments_ && inPullArea;
@@ -996,7 +997,8 @@ void App::build() {
     onboardingPage();builtView_=view_;builtPageKey_=pageKey();syncScanner();syncBackPolicy();return;
   }
   lv_obj_t *navigation=nullptr;
-  if(view_!="crop"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", 16, 8, 48, 48, [this] {
+  if(view_!="crop"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", layout().portrait()?layout().safeSide():16, layout().portrait()?layout().safeTop():8, 48, 48, [this] {
+    if(editor_.active){editorFinish(true);return;}
     if (view_ == "chat") {
       if(!messageEdit_.empty())cancelMessageEdit();else toggleNavigation();
     }
@@ -1051,7 +1053,7 @@ void App::build() {
   else if (view_ == "crop")
     cropPage();
   if (view_ == "chat" && scanner_.available()) {
-    auto hint = box(screenObj_, layout().portrait()?screen_.width-92:12, layout().portrait()?8:60, layout().portrait()?80:64, layout().portrait()?44:64);
+    auto hint = box(screenObj_, layout().portrait()?screen_.width-layout().safeSide()-80:12, layout().portrait()?layout().safeTop():60, layout().portrait()?80:64, layout().portrait()?44:64);
     lv_obj_set_scrollable(hint, false);
     scanHint_ = label(hint, "扫描\n准备中", 4, 5, 60, 14, theme::muted);
     onClick(hint, [this] {
@@ -1087,7 +1089,7 @@ void App::build() {
   chatLayout_ = false;
   syncScanner();
   if (view_=="archive_chat" || (view_=="transfer" && transferScreen_.compare(0,7,"format_")==0))paintVisible();
-  if (editorRoot_) lv_obj_move_foreground(editorRoot_);
+  if (editorRoot_) {editorViewport();lv_obj_move_foreground(editorRoot_);}
   if (imageViewer_) lv_obj_move_foreground(imageViewer_);
 }
 void App::show(const std::string &view) {
@@ -1177,8 +1179,8 @@ void App::chat() {
   messageContent_ = box(body_, 0, 0, width, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(messageContent_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(messageContent_, 10, 0);
-  lv_obj_set_style_pad_bottom(messageContent_, 74, 0);
-  if(layout().portrait())lv_obj_set_style_pad_top(messageContent_,56,0);
+  lv_obj_set_style_pad_bottom(messageContent_, 64+layout().safeBottom(), 0);
+  if(layout().portrait())lv_obj_set_style_pad_top(messageContent_,56+layout().safeTop(),0);
   lv_obj_set_scrollable(messageContent_, false);
   lv_obj_add_event_cb(
       body_,
@@ -1196,7 +1198,7 @@ void App::rebuildChatControls() {
   chatControlsTarget_ = -1;
   const int composerWidth = layout().composerWidth();
   chatControls_ =
-      box(screenObj_, layout().composerX(), screen_.height - 58, composerWidth, 48, theme::surface);
+      box(screenObj_, layout().composerX(), layout().composerY(), composerWidth, 48, theme::surface);
   lv_obj_set_scrollable(chatControls_, false);
   lv_obj_set_style_radius(chatControls_, 24, 0);
   auto attachment = icon(
@@ -1223,7 +1225,7 @@ void App::rebuildChatControls() {
               draft_ = s;
               build();
             },
-            8192, "ZhCNPreferred", {}, true);
+            8192, "ZhCNPreferred", {}, true, false, false, true);
       },
       theme::surface, LV_TEXT_ALIGN_LEFT);
   if (draft_.empty())
@@ -1247,7 +1249,7 @@ void App::rebuildChatControls() {
   if (!sendEnabled)
     lv_obj_set_clickable(send, false);
   toBottom_ = icon(
-      screenObj_, "down", layout().composerX() + (composerWidth - 44) / 2, screen_.height - 114, 44, 44,
+      screenObj_, "down", layout().composerX() + (composerWidth - 44) / 2, layout().composerY() - 56, 44, 44,
       [this] { jumpToBottom(); }, theme::surface);
   lv_obj_set_style_border_color(toBottom_, lv_color_hex(theme::border), 0);
   lv_obj_set_style_border_width(toBottom_, 1, 0);
@@ -1257,7 +1259,7 @@ bool App::atLatestBottom() const {
   return view_ == "chat" && body_ && messageOffset_ == 0 && lv_obj_get_scroll_bottom(body_) <= 10;
 }
 bool App::readerInteracting() const {
-  if (view_ != "chat" || !body_ || chatLayout_ || keyboard_ || editor_.active || imageViewer_ ||
+  if (view_ != "chat" || !body_ || chatLayout_ || keyboard_ || (editor_.active&&!editorLayout().docked) || imageViewer_ ||
       navigationOpen_ || modal_) return false;
   if (readerPointer_ || lv_obj_is_scrolling(body_)) return true;
   for (const auto &r : rasters_) if (lv_obj_is_scrolling(r.holder)) return true;
@@ -1268,7 +1270,7 @@ void App::readerTouch(int x, int y, bool pressed, bool cancelled) {
   readerDown_ = pressed && !cancelled;
   if (began) {
     readerPointer_ = readerVertical_ = false;
-    if (view_ == "chat" && body_ && !keyboard_ && !editor_.active && !imageViewer_ &&
+    if (view_ == "chat" && body_ && !keyboard_ && (!editor_.active||editorLayout().docked) && !imageViewer_ &&
         !navigationOpen_ && !modal_ && !attachments_) {
       lv_area_t area; lv_obj_get_coords(body_, &area);
       readerPointer_ = x >= area.x1 && x <= area.x2 && y >= area.y1 && y <= area.y2;
@@ -1294,7 +1296,7 @@ void App::readerTouch(int x, int y, bool pressed, bool cancelled) {
   if (!pressed || cancelled) readerPointer_ = false;
 }
 void App::settleReader() {
-  if (view_ != "chat" || keyboard_ || editor_.active || imageViewer_ || navigationOpen_ || modal_) {
+  if (view_ != "chat" || keyboard_ || (editor_.active&&!editorLayout().docked) || imageViewer_ || navigationOpen_ || modal_) {
     readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
     return;
   }
@@ -1345,7 +1347,7 @@ void App::updateChatControls(bool animate) {
   lv_obj_set_style_bg_opa(toBottom_, overContent ? 160 : 255, 0);
   lv_obj_set_style_border_opa(toBottom_, overContent ? 160 : 255, 0);
   const int target =
-      (chatFollowing_ || atLatestBottom()) && !pulling_ ? screen_.height - 58 : screen_.height + 2;
+      (chatFollowing_ || atLatestBottom()) && !pulling_ ? layout().composerY() : screen_.height + 2;
   if (chatControlsTarget_ == target)
     return;
   chatControlsTarget_ = target;
@@ -1924,10 +1926,11 @@ void App::pageHeader(const std::string &title, int top) {
   // Header and business content share one full-height reader. No overlay may
   // cover the space released when the title scrolls out.
   const int width = layout().bodyWidth();
+  top+=layout().safeTop();
   pageHeader_ = box(body_, 0, top, width, 48);
   lv_obj_set_scrollable(pageHeader_, false);
-  if(layout().portrait())icon(pageHeader_,"back",12,2,44,44,[this]{goBack();});
-  const int titleX=layout().portrait()?68:10;
+  if(layout().portrait())icon(pageHeader_,"back",layout().safeSide(),2,44,44,[this]{goBack();});
+  const int titleX=layout().portrait()?layout().safeSide()+56:10;
   pageHeading_ = label(pageHeader_, title, titleX, 7, width-titleX-10,26);
   lv_label_set_long_mode(pageHeading_, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(pageHeading_,font(26)->line_height);
@@ -1940,7 +1943,7 @@ void App::pageHeader(const std::string &title, int top) {
   lv_obj_set_style_radius(body_, 3, LV_PART_SCROLLBAR);
 }
 lv_obj_t *App::pageAction(const std::string &title, int right, int width, std::function<void()> action) {
-  const int x = layout().portrait()?layout().bodyWidth()-right-width-8:screen_.width-86-right-width;
+  const int x = layout().portrait()?layout().bodyWidth()-right-width-layout().safeSide():screen_.width-86-right-width;
   auto result = button(pageHeader_, title, x, 2, width, 44, std::move(action));
   pageActions_[title] = result;
   const int titleWidth = lv_obj_get_style_width(pageHeading_,LV_PART_MAIN);
@@ -2483,12 +2486,15 @@ void App::historyDrawer() {
   lv_obj_set_style_bg_opa(navigation_, 120, 0);
   lv_obj_set_clickable(navigation_, true);
   const int panelWidth = screen_.width * 2 / 3;
-  const int listWidth = panelWidth - 24;
+  const int listLeft=layout().portrait()?layout().safeSide():12;
+  const int listTop=layout().portrait()?layout().safeTop():8;
+  const int footerY=screen_.height-48-(layout().portrait()?layout().safeBottom():6);
+  const int listWidth = panelWidth - listLeft - 12;
   auto panel =
       box(navigation_, 0, 0, panelWidth, screen_.height, theme::sidebar);
   lv_obj_set_scrollable(panel, false);
   navigationList_ =
-      box(panel, 12, 8, listWidth, screen_.height - 70, theme::sidebar);
+      box(panel, listLeft, listTop, listWidth, footerY-listTop-8, theme::sidebar);
   lv_obj_set_scroll_dir(navigationList_, LV_DIR_VER);
   lv_obj_set_scroll_elastic(navigationList_, true);
   lv_obj_set_scroll_momentum(navigationList_, true);
@@ -2525,11 +2531,11 @@ void App::historyDrawer() {
   const int footerWidth = (panelWidth - 36) / 2;
   auto footerAction = [&](int x, int width, const char *kind, const char *title,
                           std::function<void()> action) {
-    icon(panel, kind, x, screen_.height - 54, 48, 48, action, theme::sidebar);
-    button(panel, title, x + 52, screen_.height - 54, width - 52, 48, action,
+    icon(panel, kind, x, footerY, 48, 48, action, theme::sidebar);
+    button(panel, title, x + 52, footerY, width - 52, 48, action,
            theme::sidebar, LV_TEXT_ALIGN_LEFT);
   };
-  footerAction(12, footerWidth, "newchat", "新建聊天", [this] { newChat(); });
+  footerAction(listLeft, footerWidth, "newchat", "新建聊天", [this] { newChat(); });
   footerAction(panelWidth - 156, 144, "settings", "设置",
                [this] { show("settings"); });
   lv_obj_update_layout(navigation_);
@@ -2932,7 +2938,19 @@ void App::routeTouch(const Json &m) {
     if(!imageTouch(m))input_.touch(m.value("x",0),m.value("y",0),m.value("pressed",false));
     return;
   }
-  if (editor_.active) { editorTouch(m.value("x",0), m.value("y",0), m.value("pressed",false), m.value("cancelled",false)); return; }
+  if (editor_.active) {
+    const int x=m.value("x",0),y=m.value("y",0);
+    const bool down=m.value("pressed",false),cancelled=m.value("cancelled",false);
+    if(editorLayout().docked&&!editorPointer_&&down&&y<editorLayout().panelTop&&
+       !editorExpanded_&&!editorClipboardOpen_&&!editorMenu_&&!editorUndoMenu_&&!editorLayoutMenu_&&!editorPunctuation_)
+      editorReaderTouch_=true;
+    if(editorReaderTouch_) {
+      readerTouch(x,y,down,cancelled);
+      if(cancelled)input_.cancel();else input_.touch(x,y,down);
+      if(!down||cancelled)editorReaderTouch_=false;
+    } else editorTouch(x,y,down,cancelled);
+    return;
+  }
   const int x = m.value("x", 0), y = m.value("y", 0);
   const bool pressed = m.value("pressed", false);
   readerTouch(x, y, pressed, m.value("cancelled", false));
@@ -3216,6 +3234,10 @@ void App::tick() {
     if(e.type=="image_scan_open") {
       if(e.data.value("scan",uint64_t(0))==scanId_ && e.data.value("generation",uint64_t(0))==scanGeneration_ &&
          e.data.value("session",std::string())==scanSession_)viewScanResult();
+      continue;
+    }
+    if(e.type=="composer_send") {
+      if(!editor_.active&&view_=="chat"&&e.data.value("session",std::string())==session_&&!generating_&&!contextBusy_&&canSend())sendMessage();
       continue;
     }
     if (e.type == "image_view_close") {closeImageViewer();continue;}
@@ -3715,6 +3737,7 @@ Json App::diagnostics() const {
       {"back_navigation", {{"root",navigationRoot()},{"sequence",backPolicySequence_},{"policy_ok",backPolicyOk_},{"blocked",backPolicyBlocked_},{"claimed",backClaimed_}}},
       {"scroll_bottom", body_ ? lv_obj_get_scroll_bottom(body_) : 0},
       {"composer_width", composer_ ? lv_obj_get_width(composer_) : 0},
+      {"safe_insets", {layout().safeSide(),layout().safeTop(),layout().safeSide(),layout().safeBottom()}},
       {"toolbar_y", chatControls_ ? lv_obj_get_y(chatControls_) : -1},
       {"to_bottom_visible", toBottom_ && !lv_obj_is_hidden(toBottom_)},
       {"session", session_},

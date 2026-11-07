@@ -56,11 +56,11 @@ with tempfile.TemporaryDirectory(prefix='penchat-portrait-') as folder:
    for bounds in page['actions'].values():assert 0<=bounds[0]<bounds[2]<568
    if target=='models':
     # Provider list and model settings are real controls, not an internal show command.
-    a.tap(480,120);assert a.diag()['view']=='model';shot(a,'model')
+    a.tap(480,144);assert a.diag()['view']=='model';shot(a,'model')
     a.page_action('参数映射');shot(a,'model-mappings');a.page_action('保存')
     a.page_action('添加 Provider');shot(a,'provider-add')
     a.page_action('api_compatibility');shot(a,'api-compatibility');back(a)
-    a.tap(280,255);t.wait_for(lambda:a.diag()['modal']);shot(a,'protocol-picker');a.tap(280,1010)
+    a.tap(280,278);t.wait_for(lambda:a.diag()['modal']);shot(a,'protocol-picker');a.tap(280,1010)
     a.page_action('anthropic_connection');shot(a,'anthropic-connection');back(a)
    if target=='presets':a.page_action('新增预设');shot(a,'preset-editor')
   settings(a);setting(a,'reasoning');shot(a,'reasoning-picker');a.tap(280,1165);t.wait_for(lambda:not a.diag()['modal'])
@@ -75,10 +75,11 @@ with tempfile.TemporaryDirectory(prefix='penchat-portrait-') as folder:
   t.wait_for(lambda:a.diag()['editor']['candidate_count']>0 and not a.diag()['editor']['pending'])
   shot(a,'keyboard-candidates');a.editor_action('expand');shot(a,'keyboard-expanded')
   a.editor_action('expand');key(a,'space');t.wait_for(lambda:a.diag()['editor']['length']>0)
-  a.tap(34,30);a.tap(34,30);assert a.diag()['editor']['selected']
-  a.long_press(34,30);t.wait_for(lambda:a.diag()['editor']['menu']);shot(a,'keyboard-selection-menu')
-  a.tap(140,30);a.tap(150,100)
-  a.send('touch',x=34,y=30,pressed=True);time.sleep(.5);a.send('touch',x=120,y=30,pressed=True)
+  text=a.diag()['editor']['text_bounds'];tx,ty=text[0]+10,text[1]+18
+  a.tap(tx,ty);a.tap(tx,ty);assert a.diag()['editor']['selected']
+  a.long_press(tx,ty);t.wait_for(lambda:a.diag()['editor']['menu']);shot(a,'keyboard-selection-menu')
+  a.tap(140,ty);a.tap(150,ty+50)
+  a.send('touch',x=tx,y=ty,pressed=True);time.sleep(.5);a.send('touch',x=120,y=ty,pressed=True)
   t.wait_for(lambda:a.diag()['editor']['magnifier']);shot(a,'keyboard-magnifier')
   a.send('touch',x=280,y=950,pressed=True);time.sleep(.1)
   assert a.diag()['editor']['cursor_drag'] and a.diag()['editor']['text_scroll']==0
