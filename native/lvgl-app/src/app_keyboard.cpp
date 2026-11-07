@@ -749,11 +749,13 @@ void App::editorMagnify(bool show) {
     editorMagnifierBuffer_=nullptr;
     return;
   }
+  auto point=editorPoint(editor_.cursor);point.y-=font(20)->line_height+8-font(20)->line_height/2;
+  const auto popup=layout.magnifierPopup(point.x,point.y);
   if(!editorMagnifier_) {
     auto buffer=lv_snapshot_create_draw_buf(editorText_,LV_COLOR_FORMAT_ARGB8888);
     if(!buffer)return;
     editorMagnifierBuffer_=buffer;
-    editorMagnifier_=box(editorRoot_,0,0,180,58,theme::surface);
+    editorMagnifier_=box(editorRoot_,0,0,popup.width,popup.height,theme::surface);
     lv_obj_set_scrollable(editorMagnifier_,false);lv_obj_set_clickable(editorMagnifier_,false);
     lv_obj_set_style_radius(editorMagnifier_,12,0);lv_obj_set_style_clip_corner(editorMagnifier_,true,0);
     lv_obj_set_style_border_width(editorMagnifier_,1,0);lv_obj_set_style_border_color(editorMagnifier_,lv_color_hex(theme::border),0);
@@ -771,13 +773,14 @@ void App::editorMagnify(bool show) {
     editorMagnify(false);return;
   }
   lv_image_set_src(editorMagnifierImage_,editorMagnifierBuffer_);
-  auto point=editorPoint(editor_.cursor);point.y-=font(20)->line_height+8-font(20)->line_height/2;
+  lv_obj_set_size(editorMagnifier_,popup.width,popup.height);
   lv_area_t a;lv_obj_get_coords(editorText_,&a);
   const int ext=(int(editorMagnifierBuffer_->header.w)-lv_obj_get_width(editorText_))/2;
-  const auto popup=layout.floatingPopup(int(point.x)-90,int(point.y)-96-(layout.portrait?58:0),180,58);
-  const int lensX=int(point.x)-popup.x;
-  lv_obj_set_pos(editorMagnifierImage_,lensX-(point.x-a.x1+ext)*7/4,29-(point.y-a.y1+ext)*7/4);
-  lv_obj_set_pos(editorMagnifierCaret_,lensX-1,(58-lv_obj_get_height(editorMagnifierCaret_))/2);
+  const int lensX=popup.width/2,lensY=popup.height/2;
+  lv_obj_set_pos(editorMagnifierImage_,lensX-(point.x-a.x1+ext)*7/4,lensY-(point.y-a.y1+ext)*7/4);
+  lv_obj_set_width(editorMagnifierCaret_,std::min(2,popup.width));
+  lv_obj_set_height(editorMagnifierCaret_,std::max(1,std::min(font(20)->line_height*7/4,popup.height-4)));
+  lv_obj_set_pos(editorMagnifierCaret_,std::max(0,lensX-1),(popup.height-lv_obj_get_height(editorMagnifierCaret_))/2);
   lv_obj_set_pos(editorMagnifier_,popup.x,popup.y);
   lv_obj_move_foreground(editorMagnifier_);
 }

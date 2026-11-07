@@ -82,7 +82,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   a.send('touch',x=x,y=y,pressed=True);time.sleep(.5);a.send('touch',x=x+16,y=y,pressed=True)
   t.wait_for(lambda:state(a)['magnifier']);current=state(a)
   assert current['magnifier_bounds'][2]<a.diag()['width']
-  assert abs((current['magnifier_caret'][0]+current['magnifier_caret'][2]+1)//2-current['caret'][0])<=1
+  assert abs((current['magnifier_caret'][0]+current['magnifier_caret'][2]+1)//2-(current['magnifier_bounds'][0]+current['magnifier_bounds'][2]+1)//2)<=1
   shot(a,'caret-magnifier-right');a.send('touch',x=x+16,y=y,pressed=False);time.sleep(.1)
   seed(a,'alpha\nbeta\ngamma\ndelta\nepsilon')
   current=state(a);double(a,current['text_bounds'][0]+20,min(current['text_bounds'][3]-6,current['caret'][1]-16))

@@ -72,6 +72,18 @@ struct EditorLayout {
     return {std::max(4,std::min(width-w-4,x)),
             std::max(4,std::min(height-h-4,y)),w,h};
   }
+  Popup magnifierPopup(int cursorX,int cursorY) const {
+    const AppLayout safe{width,height};
+    const int side=std::min(std::max(4,safe.safeSide()),std::max(0,(width-1)/2));
+    const int top=std::min(std::max(4,safe.safeTop()),std::max(0,(height-1)/2));
+    const int bottom=std::min(std::max(4,safe.safeBottom()),std::max(0,height-top-1));
+    // Visibility wins over preferred size, then the familiar position above
+    // the caret. These are logical safe bounds, never raw touch coordinates.
+    const int w=std::min(180,width-2*side),h=std::min(58,height-top-bottom);
+    const int x=std::max(side,std::min(width-side-w,cursorX-w/2));
+    const int y=std::max(top,std::min(height-bottom-h,cursorY-96-(portrait?58:0)));
+    return {x,y,w,h};
+  }
   Popup undoPopup(int x,int y,bool canPaste=false) const {
     const int w=canPaste?188:96;
     return floatingPopup(x-w/2,y-60-(portrait?52:0),w,52);
