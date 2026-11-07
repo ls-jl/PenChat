@@ -63,6 +63,8 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
       rich_(fontPath, resources,
             join(workspace, "assets/fonts/DejaVuSans.ttf")),
       workspace_(std::move(workspace)), dataDir_(std::move(dataDir)) {
+  inputFocus_ = InputFocus(nativeTouch);
+  inputFocused_ = !nativeTouch;
   initializeMessageEdits();
   feedback_.reset(new Feedback(events_, dataDir_, feedbackScreen(configuration, s), nativeTouch));
   transfer_.reset(new Transfer(db_, events_, dataDir_));
@@ -2839,7 +2841,26 @@ void App::attach(const Json &image) {
       sendMessage();
   });
 }
+void App::updateInputFocus() {
+  const bool allowed = visible_ && !keyboard_ && inputFocus_.allowed(ticks());
+  if (inputFocused_ == allowed) return;
+  inputFocused_ = allowed;
+  if (!allowed) {
+    // Cancel, never synthesize a release/click in the underlying page.
+    touchInput_.close(); input_.cancel();
+    readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
+    navigationBackdrop_ = navigationPointerDown_ = false;
+    resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
+    finishImageGesture(false); nonImageMulti_ = false; viewerLastTap_ = 0;
+    if (imageViewer_ || view_ == "crop") imageGesture_.mode = -2;
+    if (editor_.active) editorInterrupt();
+  } else if (editor_.active) {
+    editorPolicy(!editorSelectionOnly_); editorChanged(); editorOcrStart();
+  }
+  syncScanner();
+}
 void App::suspend(bool value) {
+  if(value)inputFocus_.block();
   diagnosticRecord("lifecycle", value ? "background" : "foreground");
   if(onboarding_)onboarding_->tick(false);
   if (value && feedback_) feedback_->background();
@@ -2871,7 +2892,8 @@ void App::suspend(bool value) {
   touchDown_ = false;
   pullTrackActivity_ = false;
   visible_ = !value;
-  input_.release();
+  updateInputFocus();
+  input_.cancel();
   display_.visible(!value && !keyboard_);
   if (value) {
     camera_.stop();
@@ -3048,13 +3070,18 @@ void App::handle(const Json &m) {
 #endif
   if (type == "init") {
     bridge_.generation(m.value("generation", 0));
-    bridge_.send("ready");
+    startupReadyPending_ = true;
     syncBackPolicy();
     syncScanner();
     return;
   }
   if (m.value("generation", bridge_.generation()) != bridge_.generation())
     return;
+  if(type == "input.focus") {
+    if(inputFocus_.update(m.value("sequence",uint64_t(0)),m.value("active",false),ticks()))
+      updateInputFocus();
+    return;
+  }
   if(type=="update.install.result") {updater_->request("install_result",m);return;}
   if (type == "display.area") {
     if (m.value("x", 0) != 0 || m.value("y", 0) != 0 ||
@@ -3072,7 +3099,7 @@ void App::handle(const Json &m) {
   }
   if (type == "touch.debug")
     lastTouch_ = m;
-  if (type == "touch" && visible_ && !keyboard_) {
+  if (type == "touch" && visible_ && !keyboard_ && inputFocused_ && inputFocus_.allowed(ticks())) {
     if (imageStoreBusy_) return;
     // Production input has one owner. Never replay Falcon or delayed IPC touches.
     if (touchInput_.enabled() && m.value("source", std::string()) != "native-evdev") return;
@@ -3122,9 +3149,14 @@ void App::handle(const Json &m) {
   syncScanner();
 }
 void App::tick() {
-  auto touches=touchInput_.poll(visible_ && !keyboard_);
+  updateInputFocus();
+  if(startupReadyPending_ && display_.presented()) {
+    startupReadyPending_ = false;
+    bridge_.send("ready");
+  }
+  auto touches=touchInput_.poll(visible_ && !keyboard_ && inputFocused_);
   for(const auto &touch:touches){
-    if(!visible_ || keyboard_) { touchInput_.close(); break; }
+    if(!visible_ || keyboard_ || !inputFocused_ || !inputFocus_.allowed(ticks())) { updateInputFocus();touchInput_.close();break; }
     handle(touch);
   }
   imageReturnTick();
@@ -3226,7 +3258,7 @@ void App::tick() {
         modal("使用匹配值", "点击填充图标只替换对应字段；其他设置不变，保存后生效。");
       continue;
     }
-    if (e.type == "editor_action") { if (editor_.active && visible_ && !keyboard_ && e.data.value("id",std::string()) == editor_.id) editorAction(e.data.value("action",std::string())); continue; }
+    if (e.type == "editor_action") { if (editor_.active && visible_ && inputFocused_ && !keyboard_ && e.data.value("id",std::string()) == editor_.id) editorAction(e.data.value("action",std::string())); continue; }
     if (e.type.find("scan_") == 0) {
       scanEvent(e);
       continue;
@@ -3749,7 +3781,7 @@ Json App::diagnostics() const {
       {"keyboard", keyboard_},
       {"display_visible", display_.visible()}, {"display_present_pending",display_.pending()},
       {"ocr", editorOcrActive_},
-      {"visible", visible_},
+      {"visible", visible_}, {"input_focused",inputFocused_},
       {"width", screen_.width},
       {"height", screen_.height},
       {"rotation", screen_.rotation}};

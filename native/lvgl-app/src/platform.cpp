@@ -32,12 +32,13 @@ Display::~Display() {
 }
 void Display::flush(lv_display_t *d, const lv_area_t *, uint8_t *) {
   if (shown_ && !headless_ && surface_) {
-    try {pending_=!surface_->present(buffer_.data(), screen_.width, screen_.height);}
+    try {pending_=!surface_->present(buffer_.data(), screen_.width, screen_.height);presented_|=!pending_;}
     catch(const std::exception &e) {
       error_=e.what();shown_=false;pending_=false;
       try{surface_->hide();}catch(...){}
     }
   }
+  if(headless_)presented_=true;
   if(lv_display_flush_is_last(d)) trimFontCache();
   lv_display_flush_ready(d);
 }
@@ -47,6 +48,7 @@ void Display::check() {
   // buffer directly; no extra redraw, queue, copied snapshot or UI wait.
   if(pending_&&shown_&&surface_) {
     pending_=!surface_->present(buffer_.data(),screen_.width,screen_.height);
+    presented_|=!pending_;
   }
 }
 void Display::visible(bool value) {

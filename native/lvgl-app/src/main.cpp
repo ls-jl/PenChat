@@ -92,6 +92,19 @@ int main(int argc, char **argv) {
       throw std::runtime_error("This native build does not support the detected device");
     const bool physicalPanel=capabilities.physicalScreenConfig;
     const auto screen = Screen::fromConfig(parsedConfiguration,physicalPanel);
+    const bool standalone = headless && fd < 0;
+    bridgeOwner.reset(new Bridge(fd)); fd=-1;
+    auto &bridge=*bridgeOwner;
+    const auto startupAt=ticks();
+    auto startup=[&](const char *stage) {
+      const auto elapsed=ticks()-startupAt;
+      std::fprintf(stderr,"NATIVE_STARTUP stage=%s elapsed_ms=%lld\n",stage,static_cast<long long>(elapsed));
+      bridge.send("startup",{{"stage",stage},{"elapsed_ms",elapsed}});
+    };
+    // Give Falcon its real viewport before loading fonts, media or the DB. Its
+    // startup cover stays visible until the first native frame is submitted.
+    bridge.send("booted", {{"screen", screen.descriptor()},{"version",PENCHAT_VERSION},{"appid",PENCHAT_APP_ID}});
+    startup("display");
     lv_init();
     lv_tick_set_cb([]() -> uint32_t { return uint32_t(ticks()); });
     initializeFonts(fontPath, join(workspace, "assets/fonts/DejaVuSans.ttf"));
@@ -99,16 +112,16 @@ int main(int argc, char **argv) {
     if(!headless&&capabilities.sharedCaptureDisplay)ScanService::recoverHardware(data);
     Display display(screen, headless);
     Input input;
-    const bool standalone = headless && fd < 0;
-    bridgeOwner.reset(new Bridge(fd)); fd=-1;
-    auto &bridge=*bridgeOwner;
+    startup("data");
     Database db(join(data, "penchat.db"));
+    startup("interface");
     App app(db, bridge, display, input, screen, workspace, data, fontPath,
             resources, !headless, parsedConfiguration);
     if (!demo.empty())
       app.demo(fileText(demo));
-    bridge.send("booted", {{"screen", screen.descriptor()},{"version",PENCHAT_VERSION},{"appid",PENCHAT_APP_ID}});
+    startup("frame");
     int frame = 0;
+    bool firstFrameReported=false;
     while (running && (standalone || bridge.connected())) {
       for (const auto &m : bridge.receive()) {
         if (m.value("type", std::string()) == "exit")
@@ -121,6 +134,10 @@ int main(int argc, char **argv) {
       if(app.updateExit())break;
       const auto nextTimer = lv_timer_handler();
       display.check();
+      if(!firstFrameReported&&display.presented()) {
+        firstFrameReported=true;
+        std::fprintf(stderr,"NATIVE_STARTUP stage=presented elapsed_ms=%lld\n",static_cast<long long>(ticks()-startupAt));
+      }
       if (snapshotRequested) {
         const bool includeImage = snapshotRequested == 2;
         snapshotRequested = 0;

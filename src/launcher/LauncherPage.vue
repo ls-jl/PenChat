@@ -1,6 +1,10 @@
 <template>
   <div class="native-page" :style="nativeAreaStyle">
     <hole class="native-hole" :style="nativeAreaStyle"></hole>
+    <div v-if="!nativeReady && !errorText" class="startup-panel">
+      <text class="startup-title">{{ appName }}</text>
+      <text class="startup-text">{{ startupText }}</text>
+    </div>
     <div v-if="errorText" class="failure-panel">
       <text class="failure-title">{{ appName }}</text>
       <text class="failure-text">{{ errorText }}</text>
@@ -16,6 +20,7 @@ import globalModule from 'global'
 import { OcrSession } from './ocr'
 import { UpdateInstall } from './update'
 import pm from 'pm'
+import am from '$am'
 
 let generationSeed = 0
 function parse(value) {
@@ -23,12 +28,13 @@ function parse(value) {
   try { return JSON.parse(value) } catch (err) { return null }
 }
 export default {
-  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeAreaStyle: {} } },
+  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {} } },
   mounted() { this.boot() },
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
   onHide() {
     this.visible = false
+    this.syncInputFocus(true)
     this.setBackPolicy(true)
     this.setNativeEditorPolicy(false)
     this.stopOcr()
@@ -41,6 +47,7 @@ export default {
     resume() {
       this._disposed = false
       this.visible = true
+      this.watchInputFocus()
       this.setBackPolicy(false)
       this.setNativeEditorPolicy(!!this._nativeEditor && !this.keyboardOpen)
       if (this.running && (typeof launcher.status !== 'function' || !launcher.status().alive)) {
@@ -51,6 +58,7 @@ export default {
       clearInterval(this._poll)
       this._poll = setInterval(() => this.poll(), 20)
       this.send('visibility', { visible: true })
+      this.syncInputFocus(true)
     },
     send(type, payload) {
       if (!this.running) return false
@@ -66,7 +74,10 @@ export default {
       const generation = this._generation
       this.setNativeEditorPolicy(false)
       this._nativeEditor = null; this._editorPolicySequence = 0
-      this._nativeReady = false
+      this.nativeReady = false
+      this.startupText = '正在打开…'
+      this._focusSequence = 0; this._focusSent = null; this._focusAt = 0
+      this.watchInputFocus()
       this._requestSequence = 0
       this.errorText = ''
       try {
@@ -78,19 +89,21 @@ export default {
         this.running = true
         this.send('init', {})
         this.send('visibility', { visible: this.visible })
+        this.syncInputFocus(true)
         // Arm before polling: Falcon may deliver an already queued ready event
         // during interval registration. A stale timeout cannot close a ready page.
         this._readyTimer = setTimeout(() => {
-          if (this.running && !this._nativeReady && this._generation === generation) this.fail('原生页面启动超时，请重试')
+          if (this.running && !this.nativeReady && this._generation === generation) this.fail('原生页面启动超时，请重试')
         }, 15000)
         this._poll = setInterval(() => this.poll(), 20)
       } catch (err) { this.fail(err && err.message ? err.message : String(err)) }
       finally { this._starting = false }
     },
     poll() {
+      this.syncInputFocus()
       try {
         for (const event of launcher.poll() || []) {
-          if (event.generation !== undefined && event.generation !== this._generation && event.type !== 'booted' && event.type !== 'fatal' && event.type !== 'exit') continue
+          if (event.generation !== undefined && event.generation !== this._generation && event.type !== 'booted' && event.type !== 'startup' && event.type !== 'fatal' && event.type !== 'exit') continue
           if (event.type === 'booted') {
             const screen = event.screen
             if (!screen || !Number.isInteger(screen.width) || !Number.isInteger(screen.height) || screen.width <= 0 || screen.height <= 0)
@@ -98,7 +111,8 @@ export default {
             this.nativeAreaStyle = { left: '0px', top: '0px', width: screen.width + 'px', height: screen.height + 'px' }
             this.send('display.area', { x: 0, y: 0, width: screen.width, height: screen.height })
           }
-          else if (event.type === 'ready') { this._nativeReady = true; clearTimeout(this._readyTimer); this._readyTimer = null; if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
+          else if (event.type === 'startup') { this.startupText = ({ display: '正在准备显示…', data: '正在读取数据…', interface: '正在准备页面…', frame: '正在显示页面…' })[event.stage] || '正在打开…' }
+          else if (event.type === 'ready') { this.nativeReady = true; this.syncInputFocus(true); clearTimeout(this._readyTimer); this._readyTimer = null; if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
           else if (event.type === 'editor.state') this.editorState(event)
           else if (event.type === 'navigation.state') this.navigationState(event)
           else if (event.type === 'keyboard.open') this.openKeyboard(event)
@@ -110,6 +124,24 @@ export default {
           else if (event.type === 'exit' && !this._updating) this.fail(event.status < 0 ? '原生程序意外退出，请重试' : `原生程序已退出（${event.status}）`)
         }
       } catch (err) { this.fail('原生页面通信失败') }
+    },
+    watchInputFocus() {
+      if (this._focusListener || !am || typeof am.on !== 'function') return
+      this._focusListener = () => this.syncInputFocus(true)
+      try { am.on('topApp', this._focusListener) } catch (_) {}
+      try { am.on('windowAttachState', this._focusListener) } catch (_) {}
+    },
+    syncInputFocus(force = false) {
+      if (!this.running) return
+      let active = false
+      try { active = this.nativeReady && this.visible && !this._disposed && !this.keyboardOpen && am.hasWindowFocus() === true } catch (_) {}
+      const now = Date.now()
+      const elapsed = now - this._focusAt
+      if (!force && active === this._focusSent && elapsed >= 0 && elapsed < 100) return
+      const sequence = (this._focusSequence || 0) + 1
+      if (this.send('input.focus', { sequence, active })) {
+        this._focusSequence = sequence; this._focusSent = active; this._focusAt = now
+      }
     },
     async installUpdate(ticket) {
       if (this._updating) return
@@ -199,6 +231,7 @@ export default {
       this.stopOcr()
       if (this.keyboardOpen || !this.visible) { this.send('keyboard.result', { requestId: event.requestId, confirmed: false, text: '' }); return }
       this.keyboardOpen = true
+      this.syncInputFocus(true)
       this.setBackPolicy(false)
       this._keyboardRequest = event.requestId
       try {
@@ -211,6 +244,7 @@ export default {
             this.send('keyboard.result', { requestId: this._keyboardRequest, confirmed: data.editConfirmed === true || data.editConfirmed === 'true', text: String(data.text !== undefined ? data.text : data.content || ''), cursorIndex: data.cursorIndex })
             this.keyboardOpen = false
             this._keyboardUuid = ''
+            this.syncInputFocus(true)
           }
           this._global.textEditFinished.on(this._editFinished)
         }
@@ -218,6 +252,7 @@ export default {
       } catch (err) {
         this.send('keyboard.result', { requestId: event.requestId, confirmed: false, text: '' })
         this.keyboardOpen = false
+        this.syncInputFocus(true)
       }
     },
     fail(message) {
@@ -241,6 +276,12 @@ export default {
       this.setNativeEditorPolicy(false)
       this._nativeEditor = null
       this._disposed = true
+      this.syncInputFocus(true)
+      if (this._focusListener && am && typeof am.off === 'function') {
+        try { am.off('topApp', this._focusListener) } catch (_) {}
+        try { am.off('windowAttachState', this._focusListener) } catch (_) {}
+      }
+      this._focusListener = null
       if (this._updateBridge) this._updateBridge.dispose()
       this.stopOcr()
       this.send('exit')
@@ -259,6 +300,9 @@ export default {
 <style lang="less" scoped>
 .native-page { width: 100vw; height: 100vh; position: relative; background-color: #212121; }
 .native-hole { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
+.startup-panel { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #212121; justify-content: center; align-items: center; }
+.startup-title { color: #ececec; font-size: 28px; }
+.startup-text { color: #b4b4b4; font-size: 20px; margin-top: 14px; }
 .failure-panel { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #212121; padding-left: 32px; padding-top: 20px; }
 .failure-title { color: #ececec; font-size: 30px; }
 .failure-text { color: #b4b4b4; font-size: 21px; margin-top: 14px; }

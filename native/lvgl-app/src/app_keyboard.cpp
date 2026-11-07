@@ -664,10 +664,10 @@ void App::editorOcrStop() {
   editorOcrActive_=editorOcrBusy_=false;editorOcrId_.clear();editorOcrCapture_=0;editorOcrPending_.clear();
 }
 void App::editorOcrStart() {
-  if(editorSelectionOnly_||!editor_.active||keyboard_||!visible_||editorOcrActive_)return;
+  if(editorSelectionOnly_||!editor_.active||keyboard_||!visible_||!inputFocused_||editorOcrActive_)return;
   const auto session=editor_.id;
   whenScannerReleased([this,session] {
-    if(editorSelectionOnly_||!editor_.active||editor_.id!=session||keyboard_||!visible_||editorOcrActive_)return;
+    if(editorSelectionOnly_||!editor_.active||editor_.id!=session||keyboard_||!visible_||!inputFocused_||editorOcrActive_)return;
     editorOcrActive_=true;editorOcrId_=uid("editor-ocr");editorOcrCapture_=0;
     bridge_.send("ocr.start",{{"requestId",editorOcrId_},{"session",session},{"mode",editorOcrMulti_?"multi":"single"},{"continuous",true}});
   });
@@ -785,7 +785,7 @@ void App::editorInterrupt() {
 }
 void App::editorTick() {
   const auto layout=editorLayout();
-  if (!editor_.active || keyboard_ || !visible_) { editorAutoScrollAt_=0;return; }
+  if (!editor_.active || keyboard_ || !visible_ || !inputFocused_) { editorAutoScrollAt_=0;return; }
   const auto now=ticks();
   const auto send=editorLocalActions_.find("chat-send");
   if(editorInlineChat_&&send!=editorLocalActions_.end()) {

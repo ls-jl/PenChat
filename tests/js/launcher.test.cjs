@@ -5,10 +5,11 @@ const vm = require('node:vm')
 function fixture() {
   const calls = [], timers = new Map()
   let clock = 0, editCallback
+  const focus = { active: true, listeners: new Map(), hasWindowFocus() { return this.active }, on(name, cb) { this.listeners.set(name, cb) }, off(name) { this.listeners.delete(name) } }
   const native = { alive: true, status: () => ({ alive: native.alive }), start: async value => { native.alive = true; calls.push(['start', value]) }, send: value => { calls.push(['send', value]); return true }, poll: () => [], stop: async () => calls.push(['stop']) }
   const keyboard = { textEditFinished: { on: fn => { editCallback = fn }, off: () => calls.push(['off']) }, startTextEdit: config => { calls.push(['startTextEdit', JSON.parse(config)]); return 'edit-1' }, closeTextEdit: () => calls.push(['closeEdit']) }
   const context = vm.createContext({
-    console, appConfig: JSON.parse(fs.readFileSync('package.json', 'utf8')), launcher: native, globalModule: { Global: function () { return keyboard } }, module: {},
+    console, am: focus, appConfig: JSON.parse(fs.readFileSync('package.json', 'utf8')), launcher: native, globalModule: { Global: function () { return keyboard } }, module: {},
     $workspace: '/package', $dataDir: '/data', $falcon: { jsapi: { storage: { getStorage: async () => { throw new Error('Storage must not be read') } } } },
     setInterval: fn => { timers.set(++clock, fn); return clock }, clearInterval: id => timers.delete(id),
     setTimeout: fn => { timers.set(++clock, fn); return clock }, clearTimeout: id => timers.delete(id),
@@ -19,7 +20,7 @@ function fixture() {
   vm.runInContext(script, context)
   const options = context.module.exports
   const page = Object.assign(options.data(), options.methods, { $page: { finish: () => calls.push(['finish']), $npage: {setSupportTopPanel: value => calls.push(['topPanel',value]), setSupportBack: value => calls.push(['systemBack',value]), on: (name,cb)=>calls.push(['listen',name,cb]), off: name=>calls.push(['unlisten',name])} } })
-  return { page, options, calls, native, context, timers, edit: (...args) => editCallback(...args) }
+  return { page, options, calls, native, context, timers, focus, edit: (...args) => editCallback(...args) }
 }
 test('startup is deduplicated, sends clean initialization, and disposal closes exactly once', async () => {
   const f = fixture(); await Promise.all([f.page.boot(), f.page.boot()])
@@ -122,7 +123,7 @@ test('ready delivered during poll registration cancels the already armed timeout
   f.context.setInterval = fn => { f.timers.set(998, fn); fn(); return 998 }
   f.native.poll = () => [{ type: 'ready', generation: f.page._generation }]
   await f.page.boot()
-  assert.equal(f.page._nativeReady, true)
+  assert.equal(f.page.nativeReady, true)
   assert.equal(f.timers.has(999), false)
   timeout() // A queued callback may still run after clearTimeout.
   assert.equal(f.page.running, true)
@@ -221,4 +222,39 @@ test('cached native restart closes only the obsolete official editor and ignores
   f.page.resume();f.page.editorState({session:'new',sequence:1,active:true})
   assert.equal(f.calls.filter(c=>c[0]==='topPanel').at(-1)[1],false)
   f.page.dispose()
+})
+
+test('system overlay focus blocks input without a page hide and restores on focus return', async () => {
+  const f=fixture();await f.page.boot()
+  const latest=()=>f.calls.filter(c=>c[0]==='send'&&c[1].type==='input.focus').at(-1)[1]
+  assert.equal(latest().active,false)
+  f.native.poll=()=>[{type:'ready',generation:f.page._generation}];f.page.poll()
+  assert.equal(latest().active,true)
+  const before=latest().sequence
+  f.focus.active=false;f.focus.listeners.get('topApp')()
+  assert.equal(latest().active,false);assert(latest().sequence>before)
+  assert.equal(f.page.visible,true)
+  f.focus.active=true;f.focus.listeners.get('windowAttachState')()
+  assert.equal(latest().active,true)
+  f.page.dispose();assert.equal(f.focus.listeners.size,0)
+})
+test('window focus probe errors fail closed and official keyboard blocks the lease', async () => {
+  const f=fixture();await f.page.boot()
+  f.page.nativeReady=true
+  f.focus.hasWindowFocus=()=>{throw Error('unavailable')};f.page.syncInputFocus(true)
+  let latest=f.calls.filter(c=>c[0]==='send'&&c[1].type==='input.focus').at(-1)[1]
+  assert.equal(latest.active,false)
+  f.focus.hasWindowFocus=()=>true;f.page.openKeyboard({requestId:'focus-key'})
+  latest=f.calls.filter(c=>c[0]==='send'&&c[1].type==='input.focus').at(-1)[1]
+  assert.equal(latest.active,false)
+  f.edit('edit-1',JSON.stringify({editConfirmed:false}));f.page.syncInputFocus(true)
+  assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='input.focus').at(-1)[1].active,true)
+  f.page.dispose()
+})
+test('startup cover is reactive and remains until a successfully presented native page is ready', async () => {
+  const f=fixture();await f.page.boot();assert.equal(f.page.nativeReady,false)
+  f.native.poll=()=>[{type:'startup',stage:'data'}];f.page.poll()
+  assert.equal(f.page.startupText,'正在读取数据…');assert.equal(f.page.nativeReady,false)
+  f.native.poll=()=>[{type:'ready',generation:f.page._generation}];f.page.poll()
+  assert.equal(f.page.nativeReady,true);f.page.dispose()
 })

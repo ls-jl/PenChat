@@ -34,13 +34,13 @@ int main() {
     auto root=lv_screen_active();
     lv_obj_set_style_bg_opa(root,LV_OPA_COVER,0);
     auto paint=[&](unsigned color){lv_obj_set_style_bg_color(root,lv_color_hex(color),0);lv_refr_now(display.handle());};
-    paint(0xff0000);assert(display.pending()&&state.accepted==0);
+    paint(0xff0000);assert(display.pending()&&state.accepted==0&&!display.presented());
     const auto older=state.lastAttempt;
     paint(0x00ff00);assert(display.pending()&&state.lastAttempt!=older);
     const auto latest=state.lastAttempt;
     display.check();assert(display.pending()&&state.accepted==0);
     state.available=true;display.check();
-    assert(!display.pending()&&state.accepted==1&&state.lastAccepted==latest);
+    assert(!display.pending()&&state.accepted==1&&state.lastAccepted==latest&&display.presented());
     const auto attempts=state.attempts;
     display.check();assert(state.attempts==attempts); // No idle copies or redraws.
     state.available=false;paint(0x0000ff);assert(display.pending());

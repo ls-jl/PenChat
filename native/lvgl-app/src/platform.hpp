@@ -9,7 +9,7 @@ class Display {
   std::vector<uint8_t> buffer_;
   Screen screen_;
   std::string error_;
-  bool shown_ = true, headless_ = false, mediaPaused_ = false, pending_ = false;
+  bool shown_ = true, headless_ = false, mediaPaused_ = false, pending_ = false, presented_ = false;
 
 public:
   Display(const Screen &s, bool headless);
@@ -17,6 +17,7 @@ public:
   void visible(bool value);
   void mediaHandoff(bool release);
   void check();
+  bool presented() const {return presented_;}
   bool pending() const {return pending_;}
   bool visible() const { return shown_; }
   void screenshot(const std::string &path);

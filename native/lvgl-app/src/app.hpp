@@ -1,4 +1,5 @@
 #pragma once
+#include "input_focus.hpp"
 #include "database.hpp"
 #include "transfer.hpp"
 #include "feedback.hpp"
@@ -258,6 +259,9 @@ class App {
   int messageOffset_ = 0, historyOffset_ = 0, networkGeneration_ = 0;
   bool shutdownComplete_ = false;
   bool generating_ = false, visible_ = true, keyboard_ = false;
+  InputFocus inputFocus_;
+  bool inputFocused_ = false, startupReadyPending_ = false;
+  void updateInputFocus();
   std::atomic<bool> cancel_{false};
   std::thread network_;
   std::thread modelWorker_;
