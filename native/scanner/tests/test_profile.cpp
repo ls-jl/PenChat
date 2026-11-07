@@ -1,4 +1,5 @@
 #include "melon_config.hpp"
+#include "s6_config.hpp"
 #include "start_policy.hpp"
 #include <cassert>
 #include <iostream>
@@ -37,6 +38,16 @@ int main() {
   assert(!scanProfile("Rockchip RK3562 MELON LP4 Board","sc2356").supported());
   assert(!scanProfile("Rockchip RK3562 ORANGE LP4 Board","ov7251").supported());
   using Json=nlohmann::json;
+  const Json s6keys={{"Plum_V0",{{"head_key_id","platform-led_control-event"},
+    {"head_key_code","134"},{"home_key_code","139"}}}};
+  const Json s6leds={{"Plum_V0",{{"ir_gpio_number","491"},{"white_gpio_number","492"}}}};
+  const auto s6configured=s6Config(s6,s6keys,s6leds);
+  assert(s6configured.gpio==492 && s6configured.keyCode==134 && s6configured.homeCode==139);
+  auto s6Rejected=[&](Json k,Json l) {bool failed=false;try{s6Config(s6,k,l);}catch(...){failed=true;}assert(failed);};
+  auto badS6=s6leds;badS6["Plum_V0"]["white_gpio_number"]="491";s6Rejected(s6keys,badS6);
+  badS6=s6leds;badS6["Plum_V0"].erase("white_gpio_number");s6Rejected(s6keys,badS6);
+  badS6=s6leds;badS6["Plum_V0"]["white_gpio_number"]="-1";s6Rejected(s6keys,badS6);
+  badS6=s6keys;badS6["Plum_V0"]["head_key_id"]="unknown";s6Rejected(badS6,s6leds);
   Json keys={{"RK3562_Melon_V0",{{"head_key_id","platform-led_control-event"},{"head_key_code","134"},
     {"home_key_id","platform-adc-keys-event"},{"home_key_code","102"}}}};
   Json leds={{"RK3562_Melon_V0",{{"ir_gpio_number","43"},{"white_gpio_number","44"}}}};

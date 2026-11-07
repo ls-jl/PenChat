@@ -1,5 +1,6 @@
 #include "hardware.hpp"
 #include "melon_config.hpp"
+#include "s6_config.hpp"
 #include "start_policy.hpp"
 #include "file_read.hpp"
 #include "app_identity.hpp"
@@ -60,11 +61,8 @@ void require(bool b, const char *s) {
 }
 CaptureProfile configured(CaptureProfile p) {
   if(p.cvi) {
-    auto keys=Json::parse(read("/usr/configs/hal_key_config.json")).at("Plum_V0");
-    auto leds=Json::parse(read("/usr/configs/hal_led_config.json")).at("Plum_V0");
-    require(keys.at("head_key_id")=="platform-led_control-event","S6 scan key identity mismatch");
-    p.keyCode=configNumber(keys.at("head_key_code"),KEY_MAX);p.gpio=configNumber(leds.at("ir_gpio_number"),4095);
-    p.homeName="gpio-keys";p.homeCode=configNumber(keys.at("home_key_code"),KEY_MAX);return p;
+    return s6Config(p,Json::parse(read("/usr/configs/hal_key_config.json")),
+                      Json::parse(read("/usr/configs/hal_led_config.json")));
   }
   if(p.ov7251Startup)
     return melonConfig(p,Json::parse(read("/usr/configs/hal_key_config.json")),
@@ -166,6 +164,7 @@ Json scanLeaseSnapshot() {
     const auto base="/sys/class/gpio/gpio"+std::to_string(profile.gpio);
     j["gpio_value"]=read(base+"/value");j["gpio_direction"]=read(base+"/direction");
     require(j["gpio_direction"]=="out\n","S6 scan light not configured");
+    require(j["gpio_value"]=="0\n" || j["gpio_value"]=="1\n","S6 scan light state unavailable");
   } else if(profile.ov7251Startup) {
     j["video_formats"]=Json::array();
     for(const auto &v: {std::make_pair("/dev/video12","rkisp_selfpath"),std::make_pair("/dev/video11","rkisp_mainpath")}) {
@@ -329,7 +328,7 @@ void Hardware::reserve(const Json &lease) {
     profile_ = configured(detectedScanProfile());
     require(profile_.supported() && lease_.value("profile", profile_.id) == profile_.id,
             "scan lease profile mismatch");
-    if(profile_.ov7251Startup)
+    if(profile_.ov7251Startup || profile_.cvi)
       require(profile_.gpio==lease_.at("gpio_number").get<unsigned>(),"scan light configuration changed");
 #ifdef PENCHAT_CVI_CAPTURE
     if(profile_.cvi)verifyCviCaptureRuntime();
