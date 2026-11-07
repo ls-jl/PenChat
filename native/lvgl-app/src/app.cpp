@@ -3747,7 +3747,7 @@ Json App::diagnostics() const {
       {"generating", generating_},
       {"compressing", contextBusy_},
       {"keyboard", keyboard_},
-      {"display_visible", display_.visible()},
+      {"display_visible", display_.visible()}, {"display_present_pending",display_.pending()},
       {"ocr", editorOcrActive_},
       {"visible", visible_},
       {"width", screen_.width},

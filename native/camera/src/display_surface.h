@@ -10,7 +10,9 @@ struct DisplayGeometry {
 class DisplaySurface {
 public:
   virtual ~DisplaySurface() = default;
-  virtual void present(const std::uint8_t *,int,int)=0;
+  // False means hardware is still using every output buffer. Keep the latest
+  // CPU frame and retry outside LVGL rendering; do not overwrite an active DMA.
+  virtual bool present(const std::uint8_t *,int,int)=0;
   virtual void hide()=0;
 };
 std::unique_ptr<DisplaySurface> makeDisplaySurface(const DisplayGeometry &);

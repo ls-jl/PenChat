@@ -131,7 +131,7 @@ int main(int argc, char **argv) {
       }
       if (frames && ++frame >= frames)
         break;
-      const auto pause = app.interactive() ? std::min<uint32_t>(16,nextTimer) : 50;
+      const auto pause = (app.interactive()||display.pending()) ? std::min<uint32_t>(16,nextTimer) : 50;
       app.waitInput(std::max<uint32_t>(1,pause));
     }
     if (!screenshot.empty())

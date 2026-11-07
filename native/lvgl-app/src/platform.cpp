@@ -32,17 +32,26 @@ Display::~Display() {
 }
 void Display::flush(lv_display_t *d, const lv_area_t *, uint8_t *) {
   if (shown_ && !headless_ && surface_) {
-    try {surface_->present(buffer_.data(), screen_.width, screen_.height);}
+    try {pending_=!surface_->present(buffer_.data(), screen_.width, screen_.height);}
     catch(const std::exception &e) {
-      error_=e.what();shown_=false;
+      error_=e.what();shown_=false;pending_=false;
       try{surface_->hide();}catch(...){}
     }
   }
   if(lv_display_flush_is_last(d)) trimFontCache();
   lv_display_flush_ready(d);
 }
+void Display::check() {
+  if(!error_.empty())throw std::runtime_error(error_);
+  // The full LVGL CPU buffer already contains the newest frame. Retry that
+  // buffer directly; no extra redraw, queue, copied snapshot or UI wait.
+  if(pending_&&shown_&&surface_) {
+    pending_=!surface_->present(buffer_.data(),screen_.width,screen_.height);
+  }
+}
 void Display::visible(bool value) {
   shown_ = value;
+  if(!value)pending_=false;
   if (!value && !headless_ && surface_)
     surface_->hide();
   if (value) {
@@ -54,7 +63,7 @@ void Display::visible(bool value) {
 void Display::mediaHandoff(bool release) {
   if(headless_)return;
   mediaPaused_=release;
-  if(release)surface_.reset();
+  if(release){pending_=false;surface_.reset();}
   else if(!surface_&&shown_) {
     surface_=camera::makeDisplaySurface({screen_.width,screen_.height,screen_.rotation,
       screen_.xoffset,screen_.yoffset,screen_.panelWidth,screen_.panelHeight});

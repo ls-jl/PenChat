@@ -10,8 +10,9 @@ public:
     overlay_.setHole({0,0,g.width,g.height,g.width,g.height,g.rotation,0,0,g.xoffset,g.yoffset});
     if(!overlay_.open())throw std::runtime_error(overlay_.lastError());
   }
-  void present(const std::uint8_t *pixels,int w,int h) override {
+  bool present(const std::uint8_t *pixels,int w,int h) override {
     if(!overlay_.presentBgra(pixels,w,h))throw std::runtime_error(overlay_.lastError());
+    return true;
   }
   void hide() override {overlay_.disable();}
 };

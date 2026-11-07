@@ -1,6 +1,8 @@
 #include "display_surface.h"
 #include "cvi_media_abi.h"
 #include "cvi_ion_anchor.h"
+#include "cvi_frame_slots.h"
+#include "cvi_pixels.h"
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
@@ -64,7 +66,10 @@ class CviDisplay final : public DisplaySurface {
   U32 pool_=~0u;bool layer_=false,channel_=false,shown_=false,haveLayer_=false,haveChannel_=false;
   Layer oldLayer_{};Channel oldChannel_{};
   struct Buffer {U32 block=~0u;U64 address=0;std::uint8_t *map=nullptr;};
-  Buffer buffers_[2];unsigned next_=0;U32 stride_=0,size_=0,yBytes_=0,uvBytes_=0;
+  Buffer buffers_[3];FrameSlots<3> slots_;
+  U32 stride_=0,size_=0,yBytes_=0,uvBytes_=0;
+  std::vector<std::uint8_t> converted_;
+  int (*users_)(U32,U32 *)=nullptr;
   int (*layerSet_)(int,Layer *)=nullptr,(*channelSet_)(int,int,Channel *)=nullptr;
   int (*layerDisable_)(int)=nullptr,(*channelDisable_)(int,int)=nullptr;
   int (*show_)(int,int)=nullptr,(*hide_)(int,int)=nullptr,(*clear_)(int,int,std::uint8_t)=nullptr;
@@ -103,14 +108,18 @@ class CviDisplay final : public DisplaySurface {
       auto closeDisplay=reinterpret_cast<int(*)()>(dlsym(sys_,"vo_close"));
       if(closeDisplay)closeDisplay();
       deviceOpen_=false;
-      std::fprintf(stderr,"S6_MEDIA display.release.end\n");
+      std::fprintf(stderr,"S6_MEDIA display.release.end busy_checks=%llu deferred=%llu\n",
+        static_cast<unsigned long long>(slots_.busyChecks),static_cast<unsigned long long>(slots_.deferred));
     }
     if(vpu_)dlclose(vpu_);if(sys_)dlclose(sys_);vpu_=sys_=nullptr;
   }
 public:
   explicit CviDisplay(const DisplayGeometry &g):geometry_(g) {
     try {
-      if(g.panelWidth<=0||g.panelHeight<=0||g.panelWidth%2||g.panelHeight%2)
+      if(g.panelWidth<=0||g.panelHeight<=0||g.panelWidth%2||g.panelHeight%2||
+         ((g.rotation==90||g.rotation==270)?(g.width!=g.panelHeight||g.height!=g.panelWidth):
+           (g.width!=g.panelWidth||g.height!=g.panelHeight))||
+         (g.rotation!=0&&g.rotation!=90&&g.rotation!=180&&g.rotation!=270))
         throw std::runtime_error("Unsupported CVI panel geometry");
       // A reviewed legacy context helper is firmware-specific; no timing writes,
       // memory patching, or guessing offsets on unknown firmware.
@@ -160,6 +169,7 @@ public:
       show_=load<decltype(show_)>(vpu_,"CVI_VO_ShowChn");hide_=load<decltype(hide_)>(vpu_,"CVI_VO_HideChn");
       clear_=load<decltype(clear_)>(vpu_,"CVI_VO_ClearChnBuf");send_=load<decltype(send_)>(vpu_,"CVI_VO_SendFrame");
       pts_=load<decltype(pts_)>(sys_,"CVI_SYS_GetCurPTS");
+      users_=load<decltype(users_)>(sys_,"CVI_VB_InquireUserCnt");
       create_=load<decltype(create_)>(sys_,"CVI_VB_CreatePool");get_=load<decltype(get_)>(sys_,"CVI_VB_GetBlock");
       destroy_=load<decltype(destroy_)>(sys_,"CVI_VB_DestroyPool");release_=load<decltype(release_)>(sys_,"CVI_VB_ReleaseBlock");
       physical_=load<decltype(physical_)>(sys_,"CVI_VB_Handle2PhysAddr");map_=load<decltype(map_)>(sys_,"CVI_SYS_Mmap");unmap_=load<decltype(unmap_)>(sys_,"CVI_SYS_Munmap");
@@ -208,7 +218,7 @@ public:
       check(load<int(*)()>(sys_,"init_disp_device")());
       check(load<int(*)(int)>(vpu_,"CVI_VO_EnableVideoLayer")(0));layer_=true;
       check(load<int(*)(int,int)>(vpu_,"CVI_VO_EnableChn")(0,0));channel_=true;
-      size_=yBytes_+uvBytes_;Pool cfg{size_,3,1,"penchat-display"};pool_=create_(&cfg);
+      size_=yBytes_+uvBytes_;converted_.resize(size_);Pool cfg{size_,3,1,"penchat-display"};pool_=create_(&cfg);
       if(pool_==~0u)throw std::runtime_error("CVI display pool allocation failed");
       for(auto &b:buffers_) {
         b.block=get_(pool_,size_,nullptr);if(b.block==~0u)throw std::bad_alloc();
@@ -220,36 +230,27 @@ public:
   }
   ~CviDisplay() override {close();}
   void hide() override {if(shown_){check(hide_(0,0));shown_=false;check(clear_(0,0,1));}}
-  void present(const std::uint8_t *pixels,int w,int h) override {
+  bool present(const std::uint8_t *pixels,int w,int h) override {
     if(!pixels||w!=geometry_.width||h!=geometry_.height)throw std::runtime_error("CVI source geometry mismatch");
-    auto &b=buffers_[next_++%2];std::memset(b.map,16,yBytes_);std::memset(b.map+yBytes_,128,uvBytes_);
-    auto sample=[&](int x,int y,int c) {
-      int sx=x,sy=y;
-      if(geometry_.rotation==270){sx=w-1-y;sy=x;}
-      else if(geometry_.rotation==90){sx=y;sy=h-1-x;}
-      else if(geometry_.rotation==180){sx=w-1-x;sy=h-1-y;}
-      if(sx<0||sx>=w||sy<0||sy>=h)return 0;
-      return int(pixels[(size_t(sy)*w+sx)*4+c]);
-    };
-    auto byte=[](int v){return std::uint8_t(std::max(0,std::min(255,v)));};
-    for(int y=0;y<geometry_.panelHeight;++y)for(int x=0;x<geometry_.panelWidth;++x) {
-      const int blue=sample(x,y,0),green=sample(x,y,1),red=sample(x,y,2);
-      b.map[size_t(y)*stride_+x]=byte(((66*red+129*green+25*blue+128)>>8)+16);
-      if(!(x%2)&&!(y%2)) {
-        int r=0,g=0,bl=0;for(int dy=0;dy<2;++dy)for(int dx=0;dx<2;++dx){bl+=sample(x+dx,y+dy,0);g+=sample(x+dx,y+dy,1);r+=sample(x+dx,y+dy,2);}
-        r=(r+2)/4;g=(g+2)/4;bl=(bl+2)/4;
-        b.map[yBytes_+size_t(y/2)*stride_+x]=byte(((-38*r-74*g+112*bl+128)>>8)+128);
-        b.map[yBytes_+size_t(y/2)*stride_+x+1]=byte(((112*r-94*g-18*bl+128)>>8)+128);
-      }
-    }
+    const int selected=slots_.writable([this](std::size_t index) {
+      U32 count=0;check(users_(buffers_[index].block,&count));return count;
+    });
+    if(selected<0)return false;
+    auto &b=buffers_[selected];
+    // Device mappings are uncached. Convert in reusable cached RAM, then use a
+    // contiguous copy instead of thousands of individual device-memory writes.
+    bgraToNv12(pixels,w,h,geometry_.rotation,converted_.data(),
+      geometry_.panelWidth,geometry_.panelHeight,stride_,yBytes_,uvBytes_);
+    std::memcpy(b.map,converted_.data(),size_);
     FrameInfo frame{};frame.pool=pool_;frame.frame.w=geometry_.panelWidth;frame.frame.h=geometry_.panelHeight;frame.frame.format=18;
     frame.frame.stride[0]=frame.frame.stride[1]=stride_;frame.frame.physical[0]=b.address;frame.frame.physical[1]=b.address+yBytes_;
     frame.frame.virtualAddress[0]=b.map;frame.frame.virtualAddress[1]=b.map+yBytes_;frame.frame.length[0]=yBytes_;frame.frame.length[1]=uvBytes_;
     // VO consumes timed video frames. A permanently zero PTS/time-reference
     // makes successive LVGL flushes indistinguishable to the SDK scheduler.
     check(pts_(&frame.frame.pts));frame.frame.time=++sequence_;
-    check(show_(0,0));shown_=true;
+    if(!shown_){check(show_(0,0));shown_=true;}
     check(send_(0,0,&frame,100));
+    return true;
   }
 };
 }

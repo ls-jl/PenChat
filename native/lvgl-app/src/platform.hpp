@@ -9,14 +9,15 @@ class Display {
   std::vector<uint8_t> buffer_;
   Screen screen_;
   std::string error_;
-  bool shown_ = true, headless_ = false, mediaPaused_ = false;
+  bool shown_ = true, headless_ = false, mediaPaused_ = false, pending_ = false;
 
 public:
   Display(const Screen &s, bool headless);
   ~Display();
   void visible(bool value);
   void mediaHandoff(bool release);
-  void check() const {if(!error_.empty())throw std::runtime_error(error_);}
+  void check();
+  bool pending() const {return pending_;}
   bool visible() const { return shown_; }
   void screenshot(const std::string &path);
   void flush(lv_display_t *, const lv_area_t *, uint8_t *);

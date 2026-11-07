@@ -97,8 +97,10 @@
     }
   },
   "adapters": {
-    "native/camera/src/cvi_display.cpp": "bf09e16b601ea67489c11a0a3b8855c8a3a49ac01b6f77ef99dfd493c2ae263a",
+    "native/camera/src/cvi_display.cpp": "b206ec78fd968ed708f7446dc27c58c0fbc05c891a1fe66a8f1319285ddb9d3d",
     "native/camera/src/cvi_ion_anchor.h": "6c3fd9e1a8451f660f592acc8f2f73cdff39edd638608e908a45aee188a88a6c",
-    "native/camera/src/cvi_media_abi.h": "321748c5672aa9ca80413476e53a3ddb357cd069f0e90b2c63843302f3fda59c"
+    "native/camera/src/cvi_media_abi.h": "321748c5672aa9ca80413476e53a3ddb357cd069f0e90b2c63843302f3fda59c",
+    "native/camera/src/cvi_frame_slots.h": "c947c33343ccb4601b280fe1745cee87c78d87ab6c60a2befc8cf0e5ae4c4306",
+    "native/camera/src/cvi_pixels.h": "2074cd9f677e9ca61ff81eccc1fcc5ade7c51872fca6b0b1b253e8c57789bcdc"
   }
 }
