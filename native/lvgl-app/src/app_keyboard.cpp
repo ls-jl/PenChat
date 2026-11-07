@@ -621,7 +621,7 @@ void App::editorMagnify(bool show) {
   auto point=editorPoint(editor_.cursor);point.y-=font(20)->line_height+8-font(20)->line_height/2;
   lv_area_t a;lv_obj_get_coords(editorText_,&a);
   const int ext=(int(editorMagnifierBuffer_->header.w)-lv_obj_get_width(editorText_))/2;
-  const auto popup=layout.floatingPopup(int(point.x)-90,int(point.y)-96,180,58);
+  const auto popup=layout.floatingPopup(int(point.x)-90,int(point.y)-96-(layout.portrait?58:0),180,58);
   const int lensX=int(point.x)-popup.x;
   lv_obj_set_pos(editorMagnifierImage_,lensX-(point.x-a.x1+ext)*7/4,29-(point.y-a.y1+ext)*7/4);
   lv_obj_set_pos(editorMagnifierCaret_,lensX-1,(58-lv_obj_get_height(editorMagnifierCaret_))/2);

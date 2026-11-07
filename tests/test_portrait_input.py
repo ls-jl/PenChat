@@ -57,14 +57,27 @@ def run():
                 assert state['toolbar_y']==1134
                 shot(a,'chat-safe')
                 a.tap(280,1158);t.wait_for(lambda:a.diag()['editor']['active'])
-                state=a.diag();e=state['editor'];assert e['docked'] and e['inline_chat'] and 600<e['panel_top']<800
-                assert e['text_bounds'][1]>600
+                state=a.diag();e=state['editor'];assert e['docked'] and e['inline_chat'] and 400<e['panel_top']<600
+                assert e['text_bounds'][1]>400
                 for k in e['keys']:
-                    x,y,r,b=k['bounds'];assert x>=24 and r<=544 and b<=1182 and r-x>=44 and b-y>=44,k
+                    x,y,r,b=k['bounds'];assert x>=24 and r<=544 and b<=1122 and r-x>=44 and b-y>=84,k
+                assert min(k['bounds'][1] for k in e['keys'])==705
+                assert max(k['bounds'][3] for k in e['keys'])==1122
                 shot(a,'chat-keyboard')
                 key(a,'language')
                 for c in 'test':key(a,c)
                 assert a.diag()['editor']['length']==4
+                bounds=a.diag()['editor']['text_bounds'];tx,ty=bounds[0]+12,bounds[1]+18
+                a.long_press(tx,ty);t.wait_for(lambda:a.diag()['editor']['undo_menu'])
+                bubble=a.diag()['editor']['undo_popup'];assert bubble[3]<=ty-60,bubble
+                shot(a,'long-press-bubble');a.tap(tx,ty)
+                a.send('touch',x=tx,y=ty,pressed=True);time.sleep(.52)
+                a.send('touch',x=tx+60,y=ty,pressed=True)
+                t.wait_for(lambda:a.diag()['editor']['magnifier'])
+                assert a.diag()['editor']['magnifier_bounds'][3]<=bounds[1]-50
+                shot(a,'raised-magnifier')
+                a.send('touch',x=tx+60,y=ty,pressed=False)
+                t.wait_for(lambda:not a.diag()['editor']['cursor_drag'])
                 before=a.diag()['scroll_y'];swipe(a,200)
                 assert a.diag()['editor']['active'] and a.diag()['scroll_y']!=before
                 shot(a,'chat-reading-with-keyboard')

@@ -11,7 +11,7 @@ struct EditorLayout {
   int width, height, split, textX, textWidth, textY = 78, textHeight;
   int actionsY, bottomY, rowHeight, keyTop=6, bottomHeight=44, candidateY=6, compositionY=54;
   bool portrait=false, docked=false;
-  int panelTop=0, textAreaWidth=0;
+  int panelTop=0, textAreaWidth=0, keyboardLift=0;
   int keyInset=0, keySpan=0;
   double keyWidth;
   EditorLayout(int w, int h, bool selectionOnly = false, bool chatComposer = false) : width(w), height(h) {
@@ -28,9 +28,15 @@ struct EditorLayout {
       const AppLayout safe{w,h};
       split=w;keyInset=safe.safeSide();keySpan=w-2*keyInset;
       textX=keyInset;textWidth=keySpan;textY=safe.safeTop();
-      rowHeight=std::max(52,std::min(72,int(w*.12)));
-      bottomHeight=std::max(44,std::min(60,int(w*.10)));
-      bottomY=h-safe.safeBottom()-bottomHeight;
+      const int baseRow=std::max(52,std::min(72,int(w*.12)));
+      const int baseBottom=std::max(44,std::min(60,int(w*.10)));
+      // Lift by one former bottom row (rounded to 10px), then grow the entire
+      // four-row key region by 50% upwards. Gaps stay 6px; glyphs do not stretch.
+      keyboardLift=int(std::lround(baseBottom/10.))*10;
+      const int keyHeight=int(std::lround((3*baseRow+18+baseBottom)*1.5));
+      bottomHeight=int(std::lround(baseBottom*1.5));
+      rowHeight=int(std::lround((keyHeight-bottomHeight-18)/3.));
+      bottomY=h-safe.safeBottom()-keyboardLift-bottomHeight;
       keyTop=bottomY-3*(rowHeight+6);
       actionsY=keyTop-52;candidateY=actionsY-50;compositionY=candidateY-26;
       textHeight=compositionY-textY-10;keyWidth=(keySpan-44)/10.;
@@ -66,11 +72,11 @@ struct EditorLayout {
   }
   Popup undoPopup(int x,int y,bool canPaste=false) const {
     const int w=canPaste?188:96;
-    return floatingPopup(x-w/2,y-60,w,52);
+    return floatingPopup(x-w/2,y-60-(portrait?52:0),w,52);
   }
   Popup selectionPopup(int x,int y,bool readOnly=false) const {
     const int w=(readOnly?2:4)*92+4;
-    return floatingPopup(x-w/2,y-60,w,52);
+    return floatingPopup(x-w/2,y-60-(portrait?52:0),w,52);
   }
   struct Action { const char *name; int x, width; };
   std::array<Action,5> actions() const {
