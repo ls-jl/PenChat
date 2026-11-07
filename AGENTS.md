@@ -98,11 +98,18 @@ Unregister system OCR on cancel, timeout, background, bridge failure and unload.
 
 Read README.md for toolchain prerequisites. `npm run build:host` builds host tests;
 `npm run build:native` cross-builds the executable and launcher; `npm test` runs
-bridge, native and actual-process integration tests. Run `npm run check` and
-`npm run build:prod` before delivery. `check` currently reports optional cnpm.
-For runtime/camera/display changes test on ORANGE serial MEB0400008900794.
+bridge, native and actual-process integration tests. During development, run only
+checks relevant to the change; do not run the full regression/sanitizer suite or
+production packaging for every request. Run `npm run check`, full release checks
+and `npm run build:prod` when the user explicitly requests a new release.
+`check` currently reports optional cnpm. For runtime/camera/display changes,
+use targeted ORANGE verification when necessary; do not automatically test and
+install on every device for each change.
 Device test helpers use real touchscreen events. Authorized targets are ORANGE
 MEB0400008900794, Y02 MEA2300009007113 and Y07 7G12000010905426; do not target other devices.
+The user has temporarily forbidden all Y02/113 device operations; do not access
+MEA2300009007113 until the user explicitly resumes it. This restriction overrides
+the allowlist.
 Do not restart the system MiniApp host or overwrite user data to bypass failures.
 Device chat acceptance snapshots/restores the DB and uses only fake local keys.
 
@@ -110,14 +117,30 @@ Keep credentials, data, screenshots, research, downloads, toolchains and build
 artifacts out of Git. `.deps`, `build`, `.work`, `libs`, `.falcon_`, `dist`,
 `assets/bin`, `assets/microtex`, `assets/licenses` are generated/ignored. Record
 source hashes in the dependency lock and preserve license notices. Runtime native
-changes must regenerate/stage their binaries; never hand-edit generated files.
+changes must regenerate/stage their binaries before packaging or installation;
+source-only development does not require rebuilding all binaries. Never hand-edit generated files.
 HaaS UI shell/IME reference: /persistent/home/ls-jl/dictpen/haasui-docs.
 
 PenChat is an independent application. Never read external application databases or Storage. The album may read the shared system photo directory /userdisk/Pictures; never modify its originals. Identity comes from package.json. New installs start without providers or messages.
 
-Every delivered fix increments the package patch version (0.1.0 → 0.1.1 → 0.1.2). Keep package-lock root metadata in sync; build identity and AMR filename derive from package.json.
+## Development and release workflow
 
-Commit every completed change to Git after validation. Each delivered fix also increments the patch version; never claim uncommitted work is committed.
+- Keep ongoing and temporary changes on the local `dev` branch. `main` contains
+  released work; do not merge development into it for each user request.
+- Commit completed logical changes locally on `dev` after appropriate targeted
+  verification. Do not automatically push commits, create releases, bump the app
+  version or run the full test suite for ordinary development requests.
+- Only when the user explicitly requests a new release: increment the version once
+  for the accumulated release (or use the user-specified version), keep package-lock
+  root metadata in sync, run full regression/sanitizer/build/package checks and the
+  applicable authorized-device acceptance, then merge `dev` into `main` and push.
+  Do not merge or publish a release with unresolved required checks.
+- Return to `dev` for subsequent development. A release request is not standing
+  authorization to publish each later change. An explicit separate push/test
+  request applies only to its stated scope.
+- Build identity and AMR filename continue to derive from package.json. Report
+  targeted validation and remaining release checks accurately; never claim an
+  uncommitted change is committed or an unpushed commit is pushed.
 
 The user authorizes future ORANGE package installation and device testing without asking again. Preserve user data and pending input where possible; never restart the system MiniApp host.
 
