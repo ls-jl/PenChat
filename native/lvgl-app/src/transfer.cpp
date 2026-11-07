@@ -1,4 +1,5 @@
 #include "transfer.hpp"
+#include "transfer_format.hpp"
 #include "chat_time.hpp"
 #include "context.hpp"
 #include "usage.hpp"
@@ -496,7 +497,7 @@ bool Transfer::start(const std::string &op, Json args) {
   return true;
 }
 void Transfer::directories() {
-  for (auto dir : {"导出/聊天", "导出/预设", "导入/聊天", "导入/预设"})
+  for (auto dir : {"导出/聊天", "导出/预设", "导出/格式规范", "导入/聊天", "导入/预设"})
     directory(join(root_, dir));
   auto path = join(root_, "使用说明.txt");
   struct stat s {};
@@ -514,7 +515,10 @@ void Transfer::directories() {
 }
 Json Transfer::execute(const std::string &op, const Json &a) {
   check();
+  // Viewing bundled docs must work even when the public filesystem is unavailable.
+  if (op == "format") return transferFormatDocument(a.value("topic", std::string("chats")));
   directories();
+  if (op == "export_format") return exportFormat();
   if (op == "init") {
     removeTree(stage_);
     directory(stage_);
@@ -568,6 +572,52 @@ Json Transfer::execute(const std::string &op, const Json &a) {
     return result;
   }
   throw Failure("未知操作");
+}
+Json Transfer::exportFormat() {
+  preview_ = Json();
+  // This operation never snapshots or queries the user's database.
+  removeTree(stage_);
+  directory(stage_);
+  const auto output = join(root_, "导出/格式规范");
+  const auto leaf = "PenChat-格式规范-v" + std::to_string(TransferFormatVersion) + "-" +
+                    std::to_string(nowMs()) + "-" + digestText(uid("format")) + ".zip";
+  const auto final = join(output, leaf), partial = join(stage_, "format.part");
+  struct Cleanup {
+    std::string path;
+    ~Cleanup() { removeTree(path); }
+  } cleanup{stage_};
+  struct stat staging{}, destination{};
+  require(stat(stage_.c_str(), &staging) == 0 && stat(output.c_str(), &destination) == 0 &&
+          staging.st_dev == destination.st_dev, "规范导出目录与应用数据不在同一存储分区");
+  uint64_t total = 0;
+  for (const auto &file : transferFormatResources()) total += file.size;
+  require(total <= 256*1024, "格式规范资源过大");
+  space(output, total + 65536);
+  {
+    Zip zip;
+    zip.writer = true;
+    const int fd = open(partial.c_str(), O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW, 0600);
+    require(fd >= 0, "无法创建格式规范文件");
+    zip.stream = fdopen(fd, "w+b");
+    if (!zip.stream) close(fd);
+    require(zip.stream && mz_zip_writer_init_cfile(&zip.z, zip.stream, 0), "无法初始化格式规范包");
+    size_t count = 0;
+    for (const auto &file : transferFormatResources()) {
+      check();
+      require(mz_zip_writer_add_mem(&zip.z, file.name, file.bytes, file.size, MZ_BEST_SPEED),
+              "写入格式规范失败");
+      events_.pushLatest("transfer_progress", {{"done", ++count}, {"label", "正在打包规范与示例"}});
+    }
+    check();
+    require(mz_zip_writer_finalize_archive(&zip.z) && fflush(zip.stream) == 0 &&
+            fsync(fileno(zip.stream)) == 0, "格式规范保存失败");
+  }
+  check();
+  require(link(partial.c_str(), final.c_str()) == 0, "格式规范发布失败，请检查目录权限");
+  const int dir = open(output.c_str(), O_RDONLY|O_DIRECTORY|O_NOFOLLOW);
+  if (dir >= 0) { fsync(dir); close(dir); }
+  return {{"path", final}, {"format_version", TransferFormatVersion},
+          {"count", transferFormatResources().size()}, {"format_spec", true}};
 }
 Json Transfer::exportData(const Json &a) {
   removeTree(stage_);

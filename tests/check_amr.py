@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Check the production AMR against staged, locked native resources."""
-import hashlib, json, pathlib, re, struct, zipfile, subprocess, sys
+import hashlib, json, pathlib, re, struct, zipfile, subprocess, sys, runpy
 from runtime_policy import check_native_payload
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 APP=json.loads((ROOT/'package.json').read_text())
@@ -24,6 +24,9 @@ with zipfile.ZipFile(path) as archive:
     for name in ['dictionary.data','pinyin.txt']:
         assert hashlib.sha256(archive.read('assets/pinyin/'+name)).hexdigest()==dictionary_lock['resources'][name]['sha256']
     binary = archive.read('assets/bin/penchat-lvgl')
+    format_resources=runpy.run_path(str(ROOT/'scripts/compile-transfer-format.py'))['resources']()
+    for name, content in format_resources.items():
+        assert content in binary, 'Stale/missing format spec resource: '+name
     assert b'https://cdn.ls-jl.cn/penchat-rk/' in binary, 'Update source missing from native package'
     assert b'https://cdn.ls-jl.cn/penchat/' not in binary, 'Obsolete update source in native package'
     assert b'PENCHAT_TEST_FEEDBACK_KEYS' not in binary

@@ -70,6 +70,27 @@ int main(int argc, char **argv) {
   Events events;
   Transfer t(db, events, data);
   run(t, events, "init");
+  assert(run(t, events, "format", {{"topic", "chats"}})["format_version"] == 1);
+  // A cancel can race the tiny immutable export. It must leave either a
+  // complete archive or a cancellation, never an unowned partial file.
+  for (int attempt = 0; attempt < 8; ++attempt) {
+    assert(t.start("export_format")); t.cancel();
+    bool finished = false;
+    const auto until = ticks() + 3000;
+    while (!finished && ticks() < until) {
+      for (const auto &event : events.drain()) {
+        if (event.type == "transfer_progress") continue;
+        assert(event.data.at("op") == "export_format");
+        if (event.type == "transfer_error")
+          assert(event.data.at("error").get<std::string>().find("取消") != std::string::npos);
+        else assert(event.data.at("data").at("count") == 8);
+        finished = true;
+      }
+      if (!finished) usleep(1000);
+    }
+    assert(finished);
+    assert(access(join(data, "transfer-tmp/format.part").c_str(), F_OK) != 0);
+  }
   db.saveProvider(
       {{"name", "Provider"},
        {"baseURL", "https://user:pass@example.test/v1?api_key=DO_NOT_EXPORT"},
@@ -196,16 +217,20 @@ int main(int argc, char **argv) {
     auto exported = join(policyRoot, "导出/聊天/export.txt");
     auto incoming = join(policyRoot, "导入/聊天/keep.md");
     atomicText(exported, "export");
+    const auto specification = run(policy, events, "export_format").at("path").get<std::string>();
     atomicText(incoming, "keep");
     assert(policy.finish(true));
     assert(access(exported.c_str(), F_OK) == 0);
+    assert(access(specification.c_str(), F_OK) == 0);
     assert(policy.finish(false));
     assert(access(join(policyRoot, "导出").c_str(), F_OK) != 0);
+    assert(access(specification.c_str(), F_OK) != 0);
     assert(access(incoming.c_str(), F_OK) == 0);
     run(policy, events, "init");
     assert(access(join(policyRoot, "导出/聊天").c_str(), F_OK) == 0);
     rmdir(join(policyRoot, "导出/聊天").c_str());
     rmdir(join(policyRoot, "导出/预设").c_str());
+    rmdir(join(policyRoot, "导出/格式规范").c_str());
     rmdir(join(policyRoot, "导出").c_str());
     assert(symlink(root.c_str(), join(policyRoot, "导出").c_str()) == 0);
     assert(!policy.finish(false));

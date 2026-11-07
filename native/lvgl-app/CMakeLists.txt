@@ -79,9 +79,17 @@ add_subdirectory("${DEPS}/webp" webp EXCLUDE_FROM_ALL)
 set(CAMERA "${ROOT}/native/camera")
 add_library(pinyinime STATIC "${DEPS}/libpinyinime-penchat/src/pinyin_ime.cpp" "${DEPS}/libpinyinime-penchat/src/utf8.cpp")
 target_include_directories(pinyinime PUBLIC "${DEPS}/libpinyinime-penchat/include")
-add_library(penchat_core STATIC src/pinyin.cpp src/common.cpp src/database.cpp src/database_storage.cpp src/database_transfer.cpp src/database_context.cpp src/database_messages.cpp src/database_replies.cpp src/context.cpp src/usage.cpp src/transfer.cpp src/network.cpp src/http_service.cpp src/anthropic.cpp src/markdown.cpp src/images.cpp src/scanner.cpp
+set(FORMAT_INCLUDE "${CMAKE_CURRENT_BINARY_DIR}/generated/transfer_format_resources.inc")
+add_custom_command(OUTPUT "${FORMAT_INCLUDE}"
+  COMMAND "${Python3_EXECUTABLE}" "${ROOT}/scripts/compile-transfer-format.py" "${FORMAT_INCLUDE}"
+  DEPENDS "${ROOT}/scripts/compile-transfer-format.py" "${ROOT}/package.json"
+    "${ROOT}/docs/transfer-format/使用说明.md" "${ROOT}/docs/transfer-format/聊天格式.md"
+    "${ROOT}/docs/transfer-format/预设格式.md" "${ROOT}/docs/transfer-format/Markdown导入.md"
+  VERBATIM)
+add_library(penchat_core STATIC src/pinyin.cpp src/common.cpp src/database.cpp src/database_storage.cpp src/database_transfer.cpp src/database_context.cpp src/database_messages.cpp src/database_replies.cpp src/context.cpp src/usage.cpp src/transfer.cpp src/transfer_format.cpp "${FORMAT_INCLUDE}" src/network.cpp src/http_service.cpp src/anthropic.cpp src/markdown.cpp src/images.cpp src/scanner.cpp
   "${ROOT}/native/scanner/src/hardware.cpp"
   "${CAMERA}/src/accelerometer.cpp" "${CAMERA}/src/camera_logic.cpp" "${CAMERA}/src/util.cpp" "${CAMERA}/src/capture.cpp" "${CAMERA}/src/overlay.cpp" "${CAMERA}/src/stb_impl.cpp" "${CAMERA}/src/image_data.cpp")
+target_include_directories(penchat_core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 if(CMAKE_CROSSCOMPILING)
   target_include_directories(penchat_core PRIVATE "${DEPS}/openssl-headers/include")
 endif()

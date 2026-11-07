@@ -967,6 +967,7 @@ void App::clear() {
 }
 void App::build() {
   feedbackActions_.clear();
+  transferActions_.clear();
   const int pageY = pageHeader_ && body_ && builtView_ == view_ && builtPageKey_ == pageKey()
                       ? std::max(0, int(lv_obj_get_scroll_y(body_))) : 0;
   const int settingsY = body_ && builtView_ == "settings" && view_ == "settings"
@@ -1073,7 +1074,9 @@ void App::build() {
     builtPageKey_ = pageKey();
   }
   if (view_ == "transfer") {
-    lv_obj_scroll_to_y(body_, transferY, LV_ANIM_OFF);
+    const int restore = !transfer_->busy() && transferRestoreScroll_ >= 0 ? transferRestoreScroll_ : transferY;
+    lv_obj_scroll_to_y(body_, restore, LV_ANIM_OFF);
+    if (!transfer_->busy()) transferRestoreScroll_ = -1;
     transferBuiltScreen_ = transfer_->busy() ? "" : transferScreen_;
   }
   if (view_ == "settings") {
@@ -1083,7 +1086,7 @@ void App::build() {
   builtView_ = view_;
   chatLayout_ = false;
   syncScanner();
-  if (view_=="archive_chat")paintVisible();
+  if (view_=="archive_chat" || (view_=="transfer" && transferScreen_.compare(0,7,"format_")==0))paintVisible();
   if (editorRoot_) lv_obj_move_foreground(editorRoot_);
   if (imageViewer_) lv_obj_move_foreground(imageViewer_);
 }
@@ -3462,7 +3465,7 @@ void App::tick() {
 Json App::diagnostics() const {
   Json transferDiagnostic = Json::object();
   if (view_ == "transfer") {
-    for (auto key : {"path", "added", "skipped", "count"})
+    for (auto key : {"path", "added", "skipped", "count", "format_spec", "format_version", "topic"})
       if (transferData_.contains(key))
         transferDiagnostic[key] = transferData_[key];
     if (transferData_.contains("items") && transferData_["items"].is_array()) {
@@ -3584,6 +3587,14 @@ Json App::diagnostics() const {
         auto state=feedback_?feedback_->state():Json::object();
         return Json{{"screen",feedbackView_},{"pending",state.value("pending",size_t(0))},
                     {"collecting",state.value("collecting",false)},{"actions",actions}};
+      }()},
+      {"transfer_actions", [this] {
+        Json actions=Json::object();
+        for (const auto &entry : transferActions_) {
+          lv_area_t a; lv_obj_get_coords(entry.second,&a);
+          actions[entry.first]={a.x1,a.y1,a.x2,a.y2};
+        }
+        return actions;
       }()},
       {"transfer_screen", transferScreen_},
       {"transfer_busy", transfer_ && transfer_->busy()},

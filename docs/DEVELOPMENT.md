@@ -100,7 +100,7 @@ Y07 通过驱动 LED 类控制白灯，使用厂商模式值1，不套用 ORANGE
 | 输入、学习与纠错 | [内置编辑器](NATIVE-EDITOR.md)、[拼音验收](PINYIN-ACCEPTANCE.md)、[纠错评价](PINYIN-CORRECTION-0.2.9.md)、[边缘触摸](KEYBOARD-EDGES-0.2.10.md) |
 | API 与网络 | [API兼容设置](API-COMPATIBILITY.md)、[Anthropic Messages](ANTHROPIC-MESSAGES.md)、[连接复用](HTTP-CONNECTIONS.md)、[模型能力匹配库](MODEL-CATALOG.md) |
 | 用户流程 | [首次引导](ONBOARDING.md)、[上拉灵敏度](PULL-SENSITIVITY.md)、[字体大小](FONT-SIZE.md)、[图片手势](IMAGE-GESTURES.md) |
-| 会话与数据 | [导入导出](TRANSFER.md)、[上下文压缩](CONTEXT-COMPRESSION.md)、[会话信息](SESSION-INFO.md)、[存储](STORAGE-AND-ICONS.md) |
+| 会话与数据 | [导入导出](TRANSFER.md)、[格式规范源](transfer-format/使用说明.md)、[上下文压缩](CONTEXT-COMPRESSION.md)、[会话信息](SESSION-INFO.md)、[存储](STORAGE-AND-ICONS.md) |
 | 更新与反馈 | [更新和发布](UPDATING.md)、[反馈与私有配置](FEEDBACK.md)、[按键采集](KEY-CAPTURE-0.2.22.md)、[启动与IPC恢复](STARTUP-RECOVERY.md) |
 | 扫描优化 | [全内存流水线](SCAN-MEMORY-0.2.29.md)、[Y02连续性](SCAN-CONTINUITY-0.2.30.md)、[尾部几何保护](SCAN-GEOMETRY-0.2.31.md) |
 | 性能与清理 | [输入法与退出检查](PERFORMANCE-0.2.7.md)、[0.2.32代码检查](CODE-AUDIT-0.2.32.md) |

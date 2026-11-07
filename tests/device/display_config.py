@@ -27,9 +27,10 @@ parser.add_argument('--history-time',action='store_true')
 parser.add_argument('--message-edit',action='store_true')
 parser.add_argument('--reply-actions',action='store_true')
 parser.add_argument('--session-info',action='store_true',help='Run focused conversation statistics acceptance')
+parser.add_argument('--transfer-format',action='store_true',help='Bundled format readers, native ZIP and sample imports, isolated data')
 parser.add_argument('--archive-reader',action='store_true',help='Run focused archive-reader acceptance, with normal data isolation/restoration')
 args=parser.parse_args();SERIAL=args.serial
-assert sum((args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch,args.http_pool,args.chat_whitespace,args.stream_reading,args.scanner_profile,args.feedback,args.update,args.portrait,args.official_keyboard))<=1,'Run isolated feature fixtures separately'
+assert sum((args.transfer_format,args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch,args.http_pool,args.chat_whitespace,args.stream_reading,args.scanner_profile,args.feedback,args.update,args.portrait,args.official_keyboard))<=1,'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 class FeatureComplete(Exception):
@@ -279,6 +280,11 @@ try:
             p=state()['touch']
             return p if abs(p.get('x',-100)-x)<=1 and abs(p.get('y',-100)-y)<=1 else None
         p=wait(mapped);result['corners'].append([p['x'],p['y']])
+    if args.transfer_format:
+        import transfer_format_flow
+        transfer_format_flow.run(globals())
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
     if args.official_keyboard:
         tap(W//2,H-34);wait(lambda:state()['editor']['active'])
         key('language');key('a');key('l')

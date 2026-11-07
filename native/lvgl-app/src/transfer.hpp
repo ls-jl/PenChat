@@ -14,6 +14,7 @@ class Transfer {
   void directories();
   Json execute(const std::string &op, const Json &args);
   Json exportData(const Json &args);
+  Json exportFormat();
   Json previewFile(const Json &args);
   Json importData(const Json &args);
 

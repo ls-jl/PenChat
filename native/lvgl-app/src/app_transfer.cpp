@@ -1,7 +1,10 @@
 #include "app.hpp"
+#include "transfer_format.hpp"
 namespace penchat {
 void App::openTransfer(const std::string &screen, const std::string &session) {
   closeHistoryContext();
+  transferFormatScrolls_.clear();
+  transferRestoreScroll_ = -1;
   transferScreen_ = screen;
   transferError_.clear();
   transferData_ = Json::object();
@@ -15,6 +18,29 @@ void App::openTransfer(const std::string &screen, const std::string &session) {
     transferKind_ = "chats";
     transferRequest("choices", {{"kind", "chats"}});
   }
+}
+void App::transferNavigate(const std::string &screen) {
+  if (view_ == "transfer" && body_ && !transfer_->busy())
+    transferFormatScrolls_[transferScreen_] = std::max(0, int(lv_obj_get_scroll_y(body_)));
+  transferScreen_ = screen;
+  transferRestoreScroll_ = transferFormatScrolls_[screen];
+  transferError_.clear();
+  if (screen.compare(0,7,"format_") == 0 && screen != "format_index") {
+    auto found = transferFormatDocuments_.find(screen);
+    if (found != transferFormatDocuments_.end()) {
+      transferData_ = found->second;
+      build();
+    } else {
+      transferData_ = Json::object();
+      transferRequest("format", {{"topic", screen.substr(7)}});
+    }
+  } else build();
+}
+void App::transferExportFormat() {
+  if (transfer_->busy()) return;
+  transferFormatReturn_ = transferScreen_;
+  if (body_) transferFormatScrolls_[transferScreen_] = std::max(0, int(lv_obj_get_scroll_y(body_)));
+  transferRequest("export_format");
 }
 void App::transferRequest(const std::string &op, Json args) {
   if (transfer_->busy())
@@ -97,7 +123,10 @@ void App::transferEvent(const Event &e) {
     return;
   }
   const auto &data = e.data.at("data");
-  if (op == "choices" || op == "list")
+  if (op == "format") {
+    transferData_ = data;
+    transferFormatDocuments_["format_" + data.at("topic").get<std::string>()] = data;
+  } else if (op == "choices" || op == "list")
     transferData_ = data;
   else if (op == "preview") {
     transferPreview_ = data;
@@ -125,7 +154,7 @@ void App::transferEvent(const Event &e) {
   } else {
     transferData_ = data;
     transferScreen_ = "done";
-    historyDirty_ = true;
+    if (op != "export_format") historyDirty_ = true;
   }
   if (view_ == "transfer")
     build();
@@ -136,6 +165,11 @@ void App::transferBack() {
     return;
   }
   transferError_.clear();
+  if (transferScreen_ == "format_index") { transferNavigate("home"); return; }
+  if (transferScreen_.compare(0,7,"format_") == 0) { transferNavigate("format_index"); return; }
+  if (transferScreen_ == "done" && transferData_.value("format_spec", false)) {
+    transferNavigate(transferFormatReturn_); return;
+  }
   if (transferScreen_ == "home") {
     show("settings");
     return;
@@ -154,9 +188,13 @@ void App::transferBack() {
   build();
 }
 void App::transferPage() {
+  transferActions_.clear();
   const int width = layout().contentWidth(), column = (width - 14) / 2,
             right = 10 + column + 14;
-  pageHeader(transferScreen_ == "home"             ? "导入与导出"
+  pageHeader(transferScreen_ == "format_index"     ? "格式规范"
+             : transferScreen_.compare(0,7,"format_") == 0 ?
+                 (transferScreen_ == "format_chats" ? "聊天包规范" : transferScreen_ == "format_presets" ? "预设规范" : "Markdown导入规范")
+             : transferScreen_ == "home"             ? "导入与导出"
              : transferScreen_ == "preview"        ? "导入预览"
              : transferScreen_ == "mapping"        ? "选择本地模型"
              : transferScreen_ == "done"           ? "操作完成"
@@ -164,14 +202,16 @@ void App::transferPage() {
                                                    : "选择导入文件");
   auto action = [&](const std::string &name, int x, int y, std::function<void()> fn,
                     int w = 0) {
-    return button(pageContent_, name, x, y, w ? w : column, 48, std::move(fn), theme::surface,
-                  LV_TEXT_ALIGN_LEFT);
+    auto object = button(pageContent_, name, x, y, w ? w : column, 48, std::move(fn), theme::surface,
+                         LV_TEXT_ALIGN_LEFT);
+    transferActions_[name] = object;
+    return object;
   };
   if (transfer_->busy()) {
     transferProgress_ = label(pageContent_,
                               transferOp_ == "preview" ? "正在验证文件与附件…"
                               : transferOp_ == "import" ? "正在保存导入内容…"
-                              : transferOp_ == "export" ? "正在导出…"
+                              : (transferOp_ == "export" || transferOp_ == "export_format") ? "正在导出…"
                                                         : "正在读取…",
                               12, 12, width, 23);
     label(pageContent_, "正在处理文件，请稍候。", 12, 58, width, 19, theme::muted);
@@ -211,23 +251,65 @@ void App::transferPage() {
            [choose] { choose("export_presets", "presets", "choices"); });
     action("预设导入", right, top + 96,
            [choose] { choose("import_presets", "presets", "list"); });
-    label(pageContent_, "将文件放入对应的导入目录，刷新后选择。", 12, top + 158, width, 18,
+    action("查看格式规范", 10, top + 156, [this] { transferNavigate("format_index"); });
+    action("导出格式规范", right, top + 156, [this] { transferExportFormat(); });
+    label(pageContent_, "将文件放入对应的导入目录，刷新后选择。", 12, top + 216, width, 18,
           theme::muted);
+    return;
+  }
+  if (transferScreen_ == "format_index") {
+    label(pageContent_, "格式版本" + std::to_string(TransferFormatVersion) + " · 离线说明与虚构示例", 12, top + 4, width, 18, theme::muted);
+    action("聊天包", 10, top + 36, [this] { transferNavigate("format_chats"); });
+    action("会话预设", right, top + 36, [this] { transferNavigate("format_presets"); });
+    action("普通 Markdown", 10, top + 96, [this] { transferNavigate("format_markdown"); });
+    action("导出说明与示例 ZIP", right, top + 96, [this] { transferExportFormat(); });
+    label(pageContent_, "外层规范 ZIP 需要先解压，示例聊天包可直接导入。", 12, top + 158, width, 18, theme::muted);
+    return;
+  }
+  if (transferScreen_.compare(0,7,"format_") == 0) {
+    action("规范目录", 10, top + 4, [this] { transferNavigate("format_index"); });
+    action("导出格式规范", right, top + 4, [this] { transferExportFormat(); });
+    if (!transferData_.contains("text")) {
+      label(pageContent_, "规范未读取，请重试。", 12, top + 70, width, 20, theme::muted);
+      action("重新读取", 10, top + 110, [this] { transferRequest("format", {{"topic", transferScreen_.substr(7)}}); });
+      return;
+    }
+    auto content = box(pageContent_, 10, top + 68, width, LV_SIZE_CONTENT, theme::background);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(content, 8, 0);
+    lv_obj_set_scrollable(content, false);
+    auto text = transferData_.value("text", std::string());
+    // The contextual page title replaces the source H1 on a small screen.
+    // Export still contains the full, byte-identical source document.
+    if (text.compare(0,2,"# ") == 0) {
+      const auto end = text.find('\n');
+      if (end != std::string::npos) text.erase(0,end+1);
+    }
+    richMessage(content, text, width, false, "transfer-format:" + transferScreen_);
+    lv_obj_add_event_cb(body_, [](lv_event_t *e) {
+      static_cast<App *>(lv_event_get_user_data(e))->paintVisible();
+    }, LV_EVENT_SCROLL, this);
     return;
   }
   if (transferScreen_ == "done") {
     label(pageContent_,
           transferData_.contains("path")
-              ? "导出文件已保存"
+              ? (transferData_.value("format_spec", false) ? "格式规范与示例已保存" : "导出文件已保存")
               : "导入完成：新增 " + std::to_string(transferData_.value("added", 0)) +
                     " 项",
           12, top + 4, width, 24);
     label(pageContent_,
           transferData_.value("path", std::string("现有会话和全局默认配置已保留。")),
           12, top + 44, width, 19, theme::muted);
-    action("返回导入与导出", 10, top + 140, [this] {
-      transferScreen_ = "home";
-      build();
+    if (transferData_.value("format_spec", false)) {
+      label(pageContent_, db_.settings().value("persistent_export_directory", true) ?
+            "解压规范 ZIP 后，按使用说明复制示例。" : "持久化导出目录已关闭：退出会清理此 ZIP，请先复制。",
+            12, top + 96, width, 18, theme::muted);
+    }
+    action(transferData_.value("format_spec", false) && transferFormatReturn_ != "home" ? "返回格式规范" : "返回导入与导出",
+           10, top + 140, [this] {
+      if (transferData_.value("format_spec", false)) transferNavigate(transferFormatReturn_);
+      else { transferScreen_ = "home"; build(); }
     });
     return;
   }

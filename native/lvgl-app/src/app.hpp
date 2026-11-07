@@ -85,6 +85,13 @@ class App {
   void feedbackStartKeys(const std::string &);
   std::unique_ptr<Transfer> transfer_;
   lv_obj_t *transferProgress_ = nullptr;
+  std::map<std::string, lv_obj_t *> transferActions_;
+  std::map<std::string, int> transferFormatScrolls_;
+  std::map<std::string, Json> transferFormatDocuments_;
+  int transferRestoreScroll_ = -1;
+  std::string transferFormatReturn_ = "home";
+  void transferNavigate(const std::string &screen);
+  void transferExportFormat();
   std::string transferBuiltScreen_, transferScreen_ = "home", transferKind_ = "chats", transferOp_, transferError_, transferMapKey_;
   Json transferData_ = Json::object(), transferPreview_ = Json::object(), transferMapping_ = Json::object(), transferExportArgs_;
   std::set<std::string> transferSelected_;
