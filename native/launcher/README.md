@@ -98,3 +98,9 @@ leak suppression. Screenshots and device data remain ignored local artifacts.
 
 Full `npm test`, 14 host CTests, AArch64 build and production AMR checks pass.
 The existing `aiot-cli check` advisory recommends optional cnpm; it is unchanged.
+
+S6共享内存合成把输入焦点和底图显示分开：`input.focus.active`只授权原生触摸及
+采集，`displayActive`是仍附着页面的显示租约。控制中心等系统窗口在LVGL之上
+按Alpha合成，失去输入焦点不隐藏LVGL底图。后台、官方键盘、退出及300ms显示
+心跳过期仍回到系统提交路径。该策略仅由支持系统上层合成的DisplaySurface启用，
+直接硬件图层继续沿用失焦隐藏规则。

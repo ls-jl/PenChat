@@ -223,7 +223,13 @@ public:
         const auto message=penchat::Json::parse(payload,nullptr,false);
         if(!message.is_discarded()&&message.value("generation",-1)==generation_) {
           const auto sequence=message.value("sequence",std::uint64_t(0));
-          if(sequence>focusSequence_) {focusSequence_=sequence;penchat_compositor::Composite::instance().focus(message.value("active",false));}
+          if(sequence>focusSequence_) {
+            focusSequence_=sequence;
+            // Display lease is separate from native input focus. Falcon's
+            // windows are already blended above LVGL, including partial covers.
+            const bool inputActive=message.value("active",false);
+            penchat_compositor::Composite::instance().focus(message.value("displayActive",inputActive));
+          }
         }
       } else if(type=="exit" || (type=="visibility"&&!input[0]["visible"].bool_value()))
         penchat_compositor::Composite::instance().focus(false);

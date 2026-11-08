@@ -20,6 +20,7 @@ public:
   }
   bool releaseOnHide()const override{return state.release;}
   bool sharedCaptureSafe()const override{return state.shared;}
+  bool systemOverlaySafe()const override{return state.shared;}
   void hide()override{++state.hidden;}
 };
 }
@@ -33,6 +34,7 @@ int main() {
   penchat::Screen screen;screen.width=64;screen.height=48;
   {
     penchat::Display display(screen,false);
+    assert(!display.systemOverlaySafe());
     auto root=lv_screen_active();
     lv_obj_set_style_bg_opa(root,LV_OPA_COVER,0);
     auto paint=[&](unsigned color){lv_obj_set_style_bg_color(root,lv_color_hex(color),0);lv_refr_now(display.handle());};
@@ -77,6 +79,7 @@ int main() {
   state=State{};state.available=state.shared=true;
   {
     penchat::Display display(screen,false);lv_refr_now(display.handle());
+    assert(display.systemOverlaySafe());
     assert(state.created==1&&state.accepted);
     display.mediaHandoff(true);assert(state.destroyed==0); // No video fd to hand off.
     display.visible(false);assert(state.hidden==1);

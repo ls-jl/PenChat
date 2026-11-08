@@ -20,6 +20,7 @@ public:
   bool presented() const {return presented_;}
   bool pending() const {return pending_;}
   bool visible() const { return shown_; }
+  bool systemOverlaySafe() const { return surface_ && surface_->systemOverlaySafe(); }
   void screenshot(const std::string &path);
   void flush(lv_display_t *, const lv_area_t *, uint8_t *);
   lv_display_t *handle() { return display_; }
@@ -35,6 +36,8 @@ public:
   void touch(int x, int y, bool down);
   void release();
   void cancel();
+  // Outside LVGL callbacks: revoke a gesture and settle only elastic overflow.
+  void interrupt();
 };
 class Bridge {
   int fd_ = -1;

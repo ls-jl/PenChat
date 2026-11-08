@@ -19,11 +19,13 @@ public:
   std::vector<Json> event(int type, int code, int value);
   bool dropped() const { return dropped_; }
   Json cancel();
+  void reserveTop(int pixels) { topInset_ = std::max(0, pixels); }
 private:
   Screen screen_;
   std::vector<Slot> slots_;
   Json previous_ = Json::array();
   int selected_ = 0, lastX_ = 0, lastY_ = 0;
+  int topInset_ = 0;
   bool waitClear_ = false, dropped_ = false;
   uint64_t serial_ = uint64_t(1) << 48;
   Json packet(const Json &points, bool cancelled = false);
@@ -45,7 +47,7 @@ public:
   bool enabled() const { return enabled_; }
   bool active() const { return fd_ >= 0; }
   Json diagnostics() const;
-  std::vector<Json> poll(bool foreground);
+  std::vector<Json> poll(bool foreground, int reservedTop = 0);
   void wait(unsigned milliseconds) const;
 };
 } // namespace penchat

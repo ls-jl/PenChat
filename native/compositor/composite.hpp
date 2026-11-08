@@ -23,6 +23,8 @@ public:
   void start(const Slot&, int width, int height, const std::string& executable, unsigned seconds = 25);
   // Runtime caller owns/reaps its application process; a zero duration uses focus/IPC lifetime.
   void start(const Slot&, int width, int height, const std::function<pid_t(int,int)>& spawn, unsigned seconds = 0, bool ownChild = false);
+  // Renewable display lease, independent of the native input/window focus.
+  // Attached system windows are always the upper layer in Surface::blendOver.
   void focus(bool active);
   void disconnect();
   void stop();

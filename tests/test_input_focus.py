@@ -31,3 +31,30 @@ with tempfile.TemporaryDirectory(prefix='penchat-focus-') as directory:
         focus(True);app.tap(40,32);assert app.diag()['navigation_open']
     finally:app.close()
 print('Actual LVGL focus: overlay, stale messages, cancelled release, expiry and recovery passed.')
+# A system window can take focus while LVGL is elastically pulled, before release.
+# Resetting just the indev used to strand negative page scroll indefinitely.
+for width,height in [(640,260),(960,266)]:
+    with tempfile.TemporaryDirectory(prefix='penchat-focus-held-') as directory:
+        app=Native(binary,directory,seed_model=False,official_adapter=False,
+                   screen={'width':width,'height':height,'direction':0})
+        sequence=0
+        try:
+            focus(True);app.open_settings()
+            for cycle in range(3):
+                focus(True)
+                app.send('touch',x=width//2,y=5,pressed=True)
+                for y in [30,65,100,145,190]:
+                    app.send('touch',x=width//2,y=y,pressed=True);time.sleep(.03)
+                assert app.diag()['scroll_y']<0,'Fixture must actually stretch the page'
+                focus(False);time.sleep(.05)
+                state=app.diag();assert state['view']=='settings' and state['scroll_y']==0,state['scroll_y']
+                # Held movement, release and stale focus must not restart the old drag.
+                app.send('touch',x=width//2,y=240,pressed=True)
+                app.send('touch',x=width//2,y=240,pressed=False)
+                assert app.diag()['scroll_y']==0
+            focus(True)
+            app.settings_swipe(-100);time.sleep(.4)
+            before=app.diag()['scroll_y'];assert before>0
+            focus(False);assert app.diag()['scroll_y']==before,'Valid reading position changed'
+        finally:app.close()
+print('Held top-panel drag: elastic overflow settles, stale movement is discarded, valid reading position preserved.')

@@ -2843,7 +2843,7 @@ void App::attach(const Json &image) {
   });
 }
 void App::cancelNativeInteraction() {
-  touchInput_.close(); input_.cancel();
+  touchInput_.close(); input_.interrupt();
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
   navigationBackdrop_ = navigationPointerDown_ = false;
   resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
@@ -2853,9 +2853,10 @@ void App::cancelNativeInteraction() {
 }
 void App::updateInputFocus() {
   const bool media = visible_ && !keyboard_ && inputFocus_.mediaAllowed(ticks());
+  const bool shown = visible_ && !keyboard_ && (media || display_.systemOverlaySafe());
+  if (display_.visible() != shown) display_.visible(shown);
   if(inputFocused_!=media) {
     inputFocused_=media;
-    display_.visible(media);
     syncScanner();
   }
   const bool touch=media&&inputFocus_.allowed(ticks());
@@ -2899,7 +2900,7 @@ void App::suspend(bool value) {
   visible_ = !value;
   updateInputFocus();
   input_.cancel();
-  display_.visible(!value && !keyboard_ && (inputFocused_ || !display_.presented()));
+  display_.visible(!value && !keyboard_ && (inputFocused_ || display_.systemOverlaySafe() || !display_.presented()));
   if (value) {
     camera_.stop();
   } else if (editor_.active && !keyboard_) {editorPolicy(!editorSelectionOnly_);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
@@ -3128,7 +3129,7 @@ void App::handle(const Json &m) {
         else { editor_.notice = "官方输入超过长度上限，请调整";editorPolicy(true);editorBuild();editorOcrStart(); }
       } else {editorPolicy(true);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
     }
-    display_.visible(visible_ && inputFocused_);
+    display_.visible(visible_ && (inputFocused_ || display_.systemOverlaySafe()));
 
   } else if(type=="navigation.policy") {
     if(m.value("sequence",uint64_t(0))==backPolicySequence_) {
@@ -3164,7 +3165,9 @@ void App::tick() {
     startupReadyPending_ = false;
     bridge_.send("ready");
   }
-  auto touches=touchInput_.poll(visible_ && !keyboard_ && touchLeaseActive_);
+  const int reservedTop = display_.systemOverlaySafe() && !editor_.active && !imageViewer_ && view_ != "crop"
+      ? std::max(8, std::min(screen_.width, screen_.height) / 25) : 0;
+  auto touches=touchInput_.poll(visible_ && !keyboard_ && touchLeaseActive_, reservedTop);
   for(const auto &touch:touches){
     if(!visible_ || keyboard_ || !inputFocused_ || !inputFocus_.allowed(ticks())) { updateInputFocus();touchInput_.close();break; }
     handle(touch);

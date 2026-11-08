@@ -138,12 +138,15 @@ export default {
       if (!this.running) return
       let active = false
       try { active = this.nativeReady && this.visible && !this._disposed && !this.keyboardOpen && am.hasWindowFocus() === true } catch (_) {}
+      // A system overlay owns input, but its transparent pixels still reveal
+      // the compositor's lower LVGL layer. Background/official input withdraw it.
+      const displayActive = this.nativeReady && this.visible && !this._disposed && !this.keyboardOpen
       const now = Date.now()
       const elapsed = now - this._focusAt
-      if (!force && active === this._focusSent && elapsed >= 0 && elapsed < 100) return
+      if (!force && active === this._focusSent && displayActive === this._displayFocusSent && elapsed >= 0 && elapsed < 100) return
       const sequence = (this._focusSequence || 0) + 1
-      if (this.send('input.focus', { sequence, active })) {
-        this._focusSequence = sequence; this._focusSent = active; this._focusAt = now
+      if (this.send('input.focus', { sequence, active, displayActive })) {
+        this._focusSequence = sequence; this._focusSent = active; this._displayFocusSent = displayActive; this._focusAt = now
       }
     },
     async installUpdate(ticket) {

@@ -114,6 +114,23 @@ void Input::cancel() {
   lv_indev_reset(input_, nullptr);
   lv_indev_read(input_);
 }
+void Input::interrupt() {
+  auto scroll = lv_indev_get_scroll_obj(input_);
+  lv_anim_delete(input_, nullptr);
+  if (scroll) {
+    lv_obj_stop_scroll_anim(scroll);
+    // A reset alone drops LVGL's scroll owner before its elastic return runs.
+    // Stop at the nearest valid offset, without moving a valid reading position.
+    const int x = lv_obj_get_scroll_x(scroll), y = lv_obj_get_scroll_y(scroll);
+    const int maxX = std::max(0, int(lv_obj_get_scroll_left(scroll) + lv_obj_get_scroll_right(scroll)));
+    const int maxY = std::max(0, int(lv_obj_get_scroll_top(scroll) + lv_obj_get_scroll_bottom(scroll)));
+    const bool rtl = lv_obj_get_style_base_dir(scroll, LV_PART_MAIN) == LV_BASE_DIR_RTL;
+    const int targetX = rtl ? std::max(-maxX, std::min(0, x)) : std::max(0, std::min(maxX, x));
+    const int targetY = std::max(0, std::min(maxY, y));
+    lv_obj_scroll_by_bounded(scroll, x - targetX, y - targetY, LV_ANIM_OFF);
+  }
+  cancel();
+}
 void Input::release() {
   pressed_ = false;
   lv_indev_read(input_);

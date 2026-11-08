@@ -141,6 +141,7 @@ public:
     if (!error_.empty()) throw std::runtime_error(error_);
   }
   bool sharedCaptureSafe() const override { return true; }
+  bool systemOverlaySafe() const override { return true; }
 };
 }
 void configureDisplay(int socket, int shared) {

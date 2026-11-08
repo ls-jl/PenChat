@@ -224,18 +224,24 @@ test('cached native restart closes only the obsolete official editor and ignores
   f.page.dispose()
 })
 
-test('system overlay focus blocks input without a page hide and restores on focus return', async () => {
+test('system overlay withdraws input but retains the lower composited layer until page hide', async () => {
   const f=fixture();await f.page.boot()
   const latest=()=>f.calls.filter(c=>c[0]==='send'&&c[1].type==='input.focus').at(-1)[1]
   assert.equal(latest().active,false)
+  assert.equal(latest().displayActive,false)
   f.native.poll=()=>[{type:'ready',generation:f.page._generation}];f.page.poll()
   assert.equal(latest().active,true)
+  assert.equal(latest().displayActive,true)
   const before=latest().sequence
   f.focus.active=false;f.focus.listeners.get('topApp')()
   assert.equal(latest().active,false);assert(latest().sequence>before)
+  assert.equal(latest().displayActive,true)
   assert.equal(f.page.visible,true)
   f.focus.active=true;f.focus.listeners.get('windowAttachState')()
   assert.equal(latest().active,true)
+  f.options.onHide.call(f.page)
+  assert.equal(latest().active,false);assert.equal(latest().displayActive,false)
+  f.page.resume();assert.equal(latest().displayActive,true)
   f.page.dispose();assert.equal(f.focus.listeners.size,0)
 })
 test('window focus probe errors fail closed and official keyboard blocks the lease', async () => {
@@ -244,9 +250,11 @@ test('window focus probe errors fail closed and official keyboard blocks the lea
   f.focus.hasWindowFocus=()=>{throw Error('unavailable')};f.page.syncInputFocus(true)
   let latest=f.calls.filter(c=>c[0]==='send'&&c[1].type==='input.focus').at(-1)[1]
   assert.equal(latest.active,false)
+  assert.equal(latest.displayActive,true)
   f.focus.hasWindowFocus=()=>true;f.page.openKeyboard({requestId:'focus-key'})
   latest=f.calls.filter(c=>c[0]==='send'&&c[1].type==='input.focus').at(-1)[1]
   assert.equal(latest.active,false)
+  assert.equal(latest.displayActive,false)
   f.edit('edit-1',JSON.stringify({editConfirmed:false}));f.page.syncInputFocus(true)
   assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='input.focus').at(-1)[1].active,true)
   f.page.dispose()
