@@ -282,7 +282,7 @@ and candidate subtrees. Pending space/Done selection must retain subsequent keys
 in bounded order, not reject them because a dictionary query is still pending.
 The native editor owns libpinyinime on one background worker. Never reintroduce the Falcon
 shared decoder, system pinyin imports, symbol borrowing or a fallback bridge for candidates.
-The official text editor remains a manually selected fallback; OCR is independent. Keep
+The official text editor remains a manually selected fallback named 有道输入法 inside the globe long-press menu; ordinary globe taps never cycle into it. OCR is independent. Keep
 26-key Chinese, English and nine-key main layouts separate from number/symbol pages.
 Ordinary globe taps toggle preferred Chinese/English; rapid unedited taps under 2s cycle
 Chinese26/English/Chinese9. Only actual Chinese typing changes the persisted preference.
@@ -364,7 +364,7 @@ reach libc's command launcher. Do not remove the blocker or broaden package poli
 beyond the exact runtime hash and the scanner-defined stub. Do not claim seccomp:
 this Y07 kernel does not support the required filter.
 
-Globe holds open the existing three-layout selector at 500ms while the finger is
+Globe holds open the selector for three internal layouts plus the explicit 有道输入法 fallback at 500ms while the finger is
 still down. Cancel the opening key before rebuilding and absorb its release;
 never defer the menu to pointer-up or turn that release into a short tap. Keep
 450ms caret/delete timing unchanged. The list floats just above the globe, with
@@ -405,4 +405,4 @@ Do not restore whole-frame matching/painting: it registers stationary housing an
 overwrites previously stitched text with white. Other boards keep their full field.
 Use `docs/S6-ARMV7-DEV.md` for target builds and current acceptance limits.
 
-Shared UI uses LayoutClass (portrait, >=3:1 wide landscape, compact landscape). Classify only interpreted Falcon logical geometry; never select hardware by aspect ratio. Compact editor design scaling is isolated in EditorLayout. DisplaySurface false means temporary busy/retry; preserve latest pixels. DRM topRegion retains portrait official IME clipping. Keep S6 CVI reopening instability documented separately; merge is not proof of hardware recovery.
+Shared UI uses LayoutClass (portrait, >=3:1 wide landscape, compact landscape). Classify only interpreted Falcon logical geometry; never select hardware by aspect ratio. Compact editor design scaling is isolated in EditorLayout. DisplaySurface false means temporary busy/retry; preserve latest pixels. DRM topRegion retains portrait official IME clipping. S6 SYS, ION anchor and NN stay process-scoped; VB config/init/exit is capture-lease-scoped and exits after VI/ISP/VPSS before stock handback. Failed VB cleanup poisons reuse before pausing the guardian. Keep evidence and remaining paper-quality acceptance in docs/S6-SCAN-RECOVERY.md; merge or ready alone is not proof of recovery.

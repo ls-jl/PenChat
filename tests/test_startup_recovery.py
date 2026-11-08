@@ -52,11 +52,26 @@ def official_failure():
             key('n');key('i');t.wait_for(lambda:state()['preedit_length']==2)
             t.wait_for(lambda:not state()['pending']);time.sleep(.35)
             before=state()
+            preserved=['length','cursor','preedit_length','parked_count','selection_start','selection_end','text_scroll']
+            # The new menu is a presentation-only overlay. Even a long wrapped
+            # textarea must keep its viewport while opening, releasing, closing
+            # and reopening it; no scroll-to-caret animation may leak through.
+            globe=next(k for k in before['keys'] if k['key']=='language')
+            a.send('touch',x=globe['x'],y=globe['y'],pressed=True);time.sleep(.58)
+            t.wait_for(lambda:state()['layout_menu'])
+            opened=state()
+            for field in preserved:assert opened[field]==before[field],('menu open',field,before[field],opened[field])
+            a.send('touch',x=globe['x'],y=globe['y'],pressed=False);time.sleep(.4)
+            settled=state()
+            for field in preserved:assert settled[field]==before[field],('menu settled',field,before[field],settled[field])
+            a.tap(930,58);t.wait_for(lambda:not state()['layout_menu']);time.sleep(.4)
+            closed=state()
+            for field in preserved:assert closed[field]==before[field],('menu close',field,before[field],closed[field])
             # This packet exceeds the real socket send capacity; no mock send.
             a.editor_action('official')
             t.wait_for(lambda:state()['active'] and not state()['official'] and state()['revision']>before['revision'])
             after=state()
-            for field in ['length','cursor','preedit_length','parked_count','selection_start','selection_end','text_scroll']:
+            for field in preserved:
                 assert after[field]==before[field],(field,before[field],after[field])
             assert after['ocr_active'] and after['notice_present'] and a.diag()['display_visible']
             # A result for the preceding handoff cannot commit after rollback.

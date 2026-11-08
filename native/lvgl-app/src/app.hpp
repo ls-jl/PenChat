@@ -513,10 +513,11 @@ class App {
   uint64_t editorPaintedKey_=0, editorBuildCount_=0, editorRefreshCount_=0;
 
   EditorLayout editorLayout() const {
-    EditorLayout result(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_);
+    EditorLayout result(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,editorSwapSides_);
     if(officialDocked_&&keyboard_&&officialHeight_>0)result.panelTop=screen_.height-officialHeight_;
     return result;
   }
+  bool wideKeyboardSwap_=false, editorSwapSides_=false;
   EditorState editor_;
   EditorState officialBackup_;
   bool officialDocked_=false;

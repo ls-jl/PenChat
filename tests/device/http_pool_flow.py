@@ -72,7 +72,7 @@ def run(c,handler):
     question();wait(lambda:len(handler.requests)==3);wait(lambda:not read()['generating'] and not read()['storage']['unsaved'])
     assert read()['network_transport']['last']['connection_reused']
     # Official editor cancellation does not flush the independent HTTP pools.
-    tap(W//2,H-34);wait(lambda:read()['editor']['active']);button(read()['editor']['actions']['official']);wait(lambda:read()['keyboard'])
+    tap(W//2,H-34);wait(lambda:read()['editor']['active']);c['official_editor']()
     assert read()['network_transport']['sockets']>0
     tap(35,35);wait(lambda:not read()['keyboard']);button(read()['editor']['actions']['cancel']);wait(lambda:not read()['editor']['active'])
     tap(40,32);wait(lambda:read()['navigation_open']);tap(W*2//3-70,H-30);wait(lambda:read()['view']=='settings')

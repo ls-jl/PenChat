@@ -71,6 +71,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   transfer_->start("init");
   clearCrop();
   auto config = db_.settings();
+  wideKeyboardSwap_=config.value("wide_keyboard_swap",false);
   const auto idleSeconds = config.value("http_idle_seconds", Json());
   setHttpIdleSeconds(idleSeconds.is_number_integer() && idleSeconds.get<double>() >= 15 && idleSeconds.get<double>() <= 600
                       ? idleSeconds.get<int>() : 90);
@@ -2910,7 +2911,12 @@ void App::updateInputFocus() {
   if(touchLeaseActive_==touch)return;
   touchLeaseActive_=touch;
   if(!touch)cancelNativeInteraction();
-  else if(editor_.active){editorPolicy(!editorSelectionOnly_);editorChanged();editorOcrStart();}
+  else if(editor_.active){
+    editorPolicy(!editorSelectionOnly_);
+    auto notice=std::move(editor_.notice);editorChanged();
+    if(editor_.notice.empty())editor_.notice=std::move(notice);
+    editorOcrStart();
+  }
 }
 void App::suspend(bool value) {
   pageVisible_=!value;
@@ -2951,7 +2957,12 @@ void App::suspend(bool value) {
   updateInputFocus();
   if (value) {
     camera_.stop();
-  } else if (visible_ && editor_.active && !keyboard_) {editorPolicy(!editorSelectionOnly_);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
+  } else if (visible_ && editor_.active && !keyboard_) {
+    editorPolicy(!editorSelectionOnly_);
+    auto notice=std::move(editor_.notice);editorChanged();
+    if(editor_.notice.empty())editor_.notice=std::move(notice);
+    editorFollowCursor_=false;editorBuild();editorOcrStart();
+  }
   else if (visible_ && view_ == "camera")
     startCamera();
 }

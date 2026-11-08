@@ -61,7 +61,18 @@ bool App::backTouch(const Json &m) {
       auto p=photoPoint({x,y});lv_area_t viewport;lv_obj_get_coords(cropViewport_,&viewport);
       cropHandle=cropEdges(p.x-viewport.x1,p.y-viewport.y1)!=0;
     }
-    backCandidate_=!cropHandle && (!navigationOpen_ || modal_) && x>=0 && x<=edge;
+    // The swapped editor now occupies the left edge. Deliver its original
+    // pointer-down immediately: buffering it for Back defeats long-press caret
+    // dragging and selection handles. Unoccupied edge space still navigates.
+    bool editorHandle=false;
+    const bool swapped=editor_.active&&editorLayout().swapped;
+    if(swapped&&editor_.selected())for(auto handle:editorHandles_) {
+      if(!handle||lv_obj_is_hidden(handle))continue;
+      lv_area_t area;lv_obj_get_coords(handle,&area);
+      if(x>=area.x1&&x<=area.x2&&y>=area.y1&&y<=area.y2)editorHandle=true;
+    }
+    const bool editorOwns=swapped&&(editorTextArea().contains(x,y)||editorHandle);
+    backCandidate_=!cropHandle&&!editorOwns && (!navigationOpen_ || modal_) && x>=0 && x<=edge;
     if (backCandidate_) { backStart_=m; backX_=x; backY_=y; backContext_=backContext(); }
   }
   if (!backCandidate_) { if(!down)backDown_=false; return false; }

@@ -55,7 +55,11 @@ def touch(x,y,hold=None):
     if hold:command+=' '+str(hold)
     sh('PENCHAT_TOUCH_DEVICE='+event+' '+command+' 2>/dev/null');time.sleep(.15)
 def action(name):
-    e=state()['editor'];a=e['actions'][name];c=e['coordinate_space']
+    e=state()['editor']
+    if name=='official' and name not in e['actions']:
+        key('language',600);wait(lambda:state()['editor']['layout_menu'])
+        e=state()['editor']
+    a=e['actions'][name];c=e['coordinate_space']
     touch((a[0]+a[2])*W/(2*c['width']),(a[1]+a[3])*H/(2*c['height']))
 def key(name,hold=None):
     e=state()['editor'];k=next(k for k in e['keys'] if k['key']==name);c=e['coordinate_space']

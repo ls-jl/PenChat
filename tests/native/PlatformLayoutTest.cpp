@@ -18,6 +18,35 @@ int main() {
   for(auto a:compact.actions())assert(a.x>=compact.textX&&a.x+a.width<=compact.width);
   EditorLayout landscape(960,266);assert(!landscape.scaled&&landscape.split==584&&landscape.textX==592);
   EditorLayout portrait(568,1210);assert(!portrait.scaled&&portrait.portrait&&portrait.docked);
+  // Swapping is a translation of regions, not a mirror of keys or content.
+  for(auto size:{std::make_pair(960,266),std::make_pair(936,280)}) {
+    const EditorLayout normal(size.first,size.second),swap(size.first,size.second,false,false,true);
+    assert(swap.swapped&&!normal.swapped&&swap.keyInset==normal.width-normal.split);
+    assert(swap.keySpan==normal.keySpan&&swap.keyWidth==normal.keyWidth);
+    assert(swap.textX==8&&swap.textWidth==normal.textWidth&&swap.textY==normal.textY);
+    assert(swap.textRight()+8==swap.keyInset);
+    assert(swap.editorPanelX()==0&&swap.editorPanelWidth()==normal.editorPanelWidth());
+    const auto oldActions=normal.actions(),newActions=swap.actions();
+    assert(oldActions.size()==newActions.size());
+    for(size_t i=0;i<oldActions.size();++i) {
+      assert(std::string(newActions[i].name)!="official");
+      assert(newActions[i].x+normal.split==oldActions[i].x);
+      assert(newActions[i].width==oldActions[i].width);
+      assert(newActions[i].x>=swap.textX&&newActions[i].x+newActions[i].width<=swap.textRight());
+    }
+    const EditorLayout::Popup cap{swap.keyInset+4,6,54,56};
+    const auto hit=swap.keyTouchBounds(cap,true,false);
+    assert(hit.x==swap.keyInset&&hit.x+hit.width<=swap.keyInset+swap.keySpan);
+    const auto bubble=swap.magnifierPopup(swap.textRight(),120,swap.textX,swap.textRight());
+    assert(bubble.x>=swap.textX&&bubble.x+bubble.width<=swap.textRight());
+    const EditorLayout selection(size.first,size.second,true,false,true);
+    assert(!selection.swapped&&selection.keyInset==0);
+  }
+  for(auto size:{std::make_pair(568,1210),std::make_pair(640,260)}) {
+    const EditorLayout normal(size.first,size.second),ignored(size.first,size.second,false,false,true);
+    assert(!ignored.swapped&&normal.keyInset==ignored.keyInset&&normal.textX==ignored.textX);
+    assert(normal.scaleX()==ignored.scaleX()&&normal.scaleY()==ignored.scaleY());
+  }
   assert(classifyLayout(568,1210)==LayoutClass::Portrait);
   assert(classifyLayout(936,280)==LayoutClass::WideLandscape);
   assert(classifyLayout(960,266)==LayoutClass::WideLandscape);

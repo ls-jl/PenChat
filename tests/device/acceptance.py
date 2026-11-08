@@ -43,6 +43,11 @@ def tap(x,y):
     time.sleep(.04)
 def official_editor():
     wait(lambda:state()['editor']['active'])
+    editor=state()['editor']
+    if 'official' not in editor['actions']:
+        globe=next(k for k in editor['keys'] if k['key']=='language')
+        adb('/tmp/penchat-ui-tap --hold '+str(globe['y']+113)+' '+str(959-globe['x'])+' 600 2>/dev/null')
+        wait(lambda:state()['editor']['layout_menu'])
     x1,y1,x2,y2=state()['editor']['actions']['official']
     tap((x1+x2)//2,(y1+y2)//2)
     wait(lambda:state()['keyboard'])

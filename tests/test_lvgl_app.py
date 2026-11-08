@@ -121,8 +121,22 @@ class Native:
             time.sleep(.15);self.send('touch',x=220,y=end,pressed=False);time.sleep(.1)
         raise AssertionError('Attachment item unreachable: '+key)
     def editor_action(self,key):
-        x1,y1,x2,y2=self.diag()['editor']['actions'][key]
-        self.tap((x1+x2)//2,(y1+y2)//2)
+        state=self.diag()['editor']
+        if key=='official' and 'official' not in state['actions']:
+            globe=next(k for k in state['keys'] if k['key']=='language')
+            x,y=globe['x'],globe['y'];space=state['coordinate_space']
+            if space['scaled']:
+                x=round(x*space['native_width']/space['width'])
+                y=round(y*space['native_height']/space['height'])
+            self.long_press(x,y,.58)
+            wait_for(lambda:self.diag()['editor']['layout_menu'])
+            state=self.diag()['editor']
+        x1,y1,x2,y2=state['actions'][key]
+        x,y=(x1+x2)//2,(y1+y2)//2;space=state['coordinate_space']
+        if space['scaled']:
+            x=round(x*space['native_width']/space['width'])
+            y=round(y*space['native_height']/space['height'])
+        self.tap(x,y)
     def history_action(self,key):
         x1,y1,x2,y2=self.diag()["history_actions"][key]
         self.tap((x1+x2)//2,(y1+y2)//2)

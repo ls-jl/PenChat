@@ -19,6 +19,7 @@ for w,h in [(568,1210),(960,266),(936,280),(640,260)]:
             def point(x,y):
                 c=e()['coordinate_space'];return round(x*w/c['width']),round(y*h/c['height'])
             def action(name):
+                if name=='official':return a.editor_action(name)
                 b=e()['actions'][name];a.tap(*point((b[0]+b[2])//2,(b[1]+b[3])//2))
             def key(name):
                 k=next(k for k in e()['keys'] if k['key']==name);a.tap(*point(k['x'],k['y']))

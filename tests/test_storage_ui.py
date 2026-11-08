@@ -18,6 +18,8 @@ try:
    a.tap(500,232)
    # Read button geometry before the DB lock; diagnostics must not be included
    # in the measured input interaction while the DB worker waits for SQLite.
+   editor=a.diag()['editor'];globe=next(k for k in editor['keys'] if k['key']=='language')
+   a.long_press(globe['x'],globe['y'],.58)
    x1,y1,x2,y2=a.diag()['editor']['actions']['official']
    a.tap((x1+x2)//2,(y1+y2)//2);request=a.receive('keyboard.open')
    a.send('keyboard.result',requestId=request['requestId'],confirmed=True,text='数据库忙时仍能输入')
@@ -26,7 +28,7 @@ try:
    lock=sqlite3.connect(a.directory/'penchat.db');lock.execute('BEGIN IMMEDIATE')
    time.sleep(.65) # first 500ms checkpoint is now waiting for the write lock
    started=time.monotonic()
-   a.tap(500,232);a.tap((x1+x2)//2,(y1+y2)//2);request=a.receive('keyboard.open')
+   a.tap(500,232);a.long_press(globe['x'],globe['y'],.58);a.tap((x1+x2)//2,(y1+y2)//2);request=a.receive('keyboard.open')
    latency=time.monotonic()-started
    assert latency<1.5,latency  # SQLite busy timeout is 3s; UI must not await it.
    lock.rollback();lock.close();lock=None

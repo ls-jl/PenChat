@@ -7,6 +7,7 @@ parser=argparse.ArgumentParser();parser.add_argument('--serial',required=True)
 parser.add_argument('--back-navigation',action='store_true')
 parser.add_argument('--official-keyboard',action='store_true',help='Scoped system keyboard protocol/return probe')
 parser.add_argument('--portrait',action='store_true',help='Authorized Y07 portrait editor, native touch and HD camera')
+parser.add_argument('--camera-orientation',action='store_true',help='Scoped Y07 preview/save direction and one HD photo, without keyboard/scanner loops')
 parser.add_argument('--onboarding',action='store_true',help='Seven synthetic onboarding animations with real touches')
 parser.add_argument('--model-catalog',action='store_true',help='Offline model capabilities, field fills and compression threshold')
 parser.add_argument('--anthropic',action='store_true',help='Native Messages local-server and physical-touch acceptance')
@@ -30,7 +31,7 @@ parser.add_argument('--session-info',action='store_true',help='Run focused conve
 parser.add_argument('--transfer-format',action='store_true',help='Bundled format readers, native ZIP and sample imports, isolated data')
 parser.add_argument('--archive-reader',action='store_true',help='Run focused archive-reader acceptance, with normal data isolation/restoration')
 args=parser.parse_args();SERIAL=args.serial
-assert sum((args.transfer_format,args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch,args.http_pool,args.chat_whitespace,args.stream_reading,args.scanner_profile,args.feedback,args.update,args.portrait,args.official_keyboard))<=1,'Run isolated feature fixtures separately'
+assert sum((args.camera_orientation,args.transfer_format,args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch,args.http_pool,args.chat_whitespace,args.stream_reading,args.scanner_profile,args.feedback,args.update,args.portrait,args.official_keyboard))<=1,'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 class FeatureComplete(Exception):
@@ -107,6 +108,16 @@ def settings_swipe(delta):
     y=H-50 if delta<0 else 75;drag(W//2,y,W//2,min(H-10,max(10,y+delta)))
 def key(value):
     k=next(k for k in state()['editor']['keys'] if k['key']==value);tap(k['x'],k['y'])
+def official_editor():
+    editor=state()['editor']
+    if 'official' not in editor['actions']:
+        globe=next(k for k in editor['keys'] if k['key']=='language')
+        rx,ry=raw(globe['x'],globe['y'])
+        shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 600 2>/dev/null')
+        wait(lambda:state()['editor']['layout_menu'])
+    bounds=state()['editor']['actions']['official']
+    tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
+    wait(lambda:state()['keyboard'])
 def wake():
     if SERIAL!='MEA2300009007113':return
     for _ in range(2):
@@ -237,7 +248,7 @@ try:
         shell('mkdir -p '+DATA+'/assets')
         for source,target in [(sample/'penchat.db',DATA+'/penchat.db'),(sample/'assets/original.png',DATA+'/assets/original.png')]:
             subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
-    if args.back_navigation or args.history_time or args.photo_gestures or args.portrait:
+    if args.back_navigation or args.history_time or args.photo_gestures or args.portrait or args.camera_orientation:
         sys.path.insert(0,str(ROOT/'tests'))
         from test_image_viewer import fixture
         from test_history_time import seed_history
@@ -248,9 +259,9 @@ try:
         if args.history_time:seed_history(sample,1)
         else:fixture(sample)
         files=[(sample/'penchat.db',DATA+'/penchat.db')]
-        if args.back_navigation or args.photo_gestures or args.portrait:
+        if args.back_navigation or args.photo_gestures or args.portrait or args.camera_orientation:
             with sqlite3.connect(sample/'penchat.db') as db:
-                if args.photo_gestures or args.portrait:
+                if args.photo_gestures or args.portrait or args.camera_orientation:
                     for key,value in [('camera_auto_orientation','false'),('camera_orientation','0')]:db.execute('insert or replace into app_settings values(?,?,1)',(key,value))
                 db.execute('update message_assets set stored_path=?,original_path=?',(DATA+'/assets/original.png',)*2)
             shell('mkdir -p '+DATA+'/assets');files.append((sample/'assets/original.png',DATA+'/assets/original.png'))
@@ -288,12 +299,16 @@ try:
     if args.official_keyboard:
         tap(W//2,H-34);wait(lambda:state()['editor']['active'])
         key('language');key('a');key('l')
-        b=state()['editor']['actions']['official'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
-        wait(lambda:state()['keyboard']);time.sleep(1)
+        official_editor();time.sleep(1)
         shell('miniapp_cli capture /tmp/penchat-official-ready.png')
         subprocess.run(['adb','-s',SERIAL,'pull','/tmp/penchat-official-ready.png',str(OUT/'official-ready.png')],check=True,capture_output=True)
         tap(35,35);time.sleep(1)
         result['official_keyboard']={'returned':not state()['keyboard'],'status':'passed' if not state()['keyboard'] else 'needs manual verification'}
+        raise FeatureComplete()
+    if args.camera_orientation:
+        import camera_orientation_flow
+        camera_orientation_flow.run(globals())
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
         raise FeatureComplete()
     if args.portrait:
         import portrait_flow
@@ -547,7 +562,7 @@ try:
         wait(lambda:state()['editor']['candidate_count']>0);key('space')
     result['independent_pinyin_candidates']=True
     tap(W-30,H-30);assert state()['editor']['clipboard_open'];capture('clipboard');tap(W-45,25)
-    before=state()['editor'];x1,y1,x2,y2=before['actions']['official'];tap((x1+x2)//2,(y1+y2)//2);wait(lambda:state()['keyboard']);time.sleep(1)
+    before=state()['editor'];official_editor();time.sleep(1)
     shell('miniapp_cli capture /tmp/penchat-display-official.png')
     subprocess.run(['adb','-s',SERIAL,'pull','/tmp/penchat-display-official.png',str(OUT/'official.png')],check=True,capture_output=True)
     tap(35,35);wait(lambda:not state()['keyboard']);assert state()['editor']['length']==before['length']

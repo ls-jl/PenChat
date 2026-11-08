@@ -9,14 +9,16 @@ namespace penchat {
 // padding/control sizes, never a fallback display resolution.
 struct EditorLayout {
   int nativeWidth, nativeHeight;
-  bool scaled=false;
+  bool scaled=false, swapped=false;
   int width, height, split, textX, textWidth, textY = 78, textHeight;
   int actionsY, bottomY, rowHeight, keyTop=6, bottomHeight=44, candidateY=6, compositionY=54;
   bool portrait=false, docked=false;
   int panelTop=0, textAreaWidth=0, keyboardLift=0;
   int keyInset=0, keySpan=0;
   double keyWidth;
-  EditorLayout(int w, int h, bool selectionOnly = false, bool chatComposer = false) : nativeWidth(w),nativeHeight(h),width(w),height(h) {
+  EditorLayout(int w, int h, bool selectionOnly = false, bool chatComposer = false,
+               bool swapWideSides = false) : nativeWidth(w),nativeHeight(h),width(w),height(h) {
+    swapped=swapWideSides&&!selectionOnly&&classifyLayout(w,h)==LayoutClass::WideLandscape;
     scaled=classifyLayout(w,h)==LayoutClass::CompactLandscape;
     if(scaled){w=width=960;h=height=266;}
     split = w - std::max(352, w * 2 / 5 - 8);
@@ -28,6 +30,9 @@ struct EditorLayout {
     rowHeight = (bottomY - 24) / 3;
     keyWidth = (split - 44) / 10.0;
     portrait=h>w;keySpan=split;
+    // Translate whole regions without reflecting their local coordinates. Key
+    // order, text direction and hit bounds remain identical on either side.
+    if(swapped) {keyInset=w-split;textX=8;}
     if(portrait) {
       const AppLayout safe{w,h};
       split=w;keyInset=0;keySpan=w;
@@ -60,6 +65,9 @@ struct EditorLayout {
   int fromNativeY(int y) const {return scaled?int(std::lround(double(y)*height/nativeHeight)):y;}
   int scaleX() const {return scaled?int(std::lround(256.*nativeWidth/width)):256;}
   int scaleY() const {return scaled?int(std::lround(256.*nativeHeight/height)):256;}
+  int editorPanelX() const { return portrait?0:swapped?0:split; }
+  int editorPanelWidth() const { return portrait?width:width-split; }
+  int textRight() const { return textX+textWidth; }
   int overlayY() const { return docked?AppLayout{width,height}.safeTop():textY; }
   int overlayHeight() const { return docked?compositionY-overlayY()-10:textHeight; }
   struct Popup {
@@ -114,7 +122,7 @@ struct EditorLayout {
     if(portrait) {
       std::vector<Action> a;
       if(!chat)a.push_back({"cancel",0,84,actionsY});
-      a.push_back({"official",0,84,actionsY});a.push_back({"ocr-mode",0,112,actionsY});
+      a.push_back({"ocr-mode",0,112,actionsY});
       a.push_back({"clipboard",0,48,actionsY});
       int total=0;for(const auto &v:a)total+=v.width;
       const int gap=(textWidth-total)/int(a.size()-1);int x=textX;
@@ -126,12 +134,11 @@ struct EditorLayout {
                    globe.y+(globe.height-44)/2});
       return a;
     }
-    const int cancelWidth=textWidth-64-48-104-44-16;
+    const int cancelWidth=textWidth-48-104-44-12;
     return {{"cancel",textX,cancelWidth,actionsY},
-            {"official",textX+cancelWidth+4,64,actionsY},
-            {"ocr-mode",width-212,48,actionsY},
-            {"done",width-160,104,actionsY},
-            {"clipboard",width-52,44,actionsY}};
+            {"ocr-mode",textRight()-204,48,actionsY},
+            {"done",textRight()-152,104,actionsY},
+            {"clipboard",textRight()-44,44,actionsY}};
   }
   int px(double value) const { return int(std::lround(value)); }
   int textBottom() const { return textY + textHeight; }
