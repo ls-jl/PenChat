@@ -6,7 +6,7 @@ class DeviceServer:
         import queue
         self.serial=serial;self.requests=[];self.ready=queue.Queue();self.closed=0
         self.remote='/tmp/penchat-http-server-'+serial+('-tls' if cert else '-plain')
-        subprocess.run(['adb','-s',serial,'push',str(root/'build/orange/penchat-tls-fixture'),self.remote],check=True,capture_output=True)
+        subprocess.run(['adb','-s',serial,'push',str(root/'build/rk3562/penchat-tls-fixture'),self.remote],check=True,capture_output=True)
         subprocess.run(['adb','-s',serial,'shell','chmod 755 '+self.remote],check=True,capture_output=True)
         args=['--stream'] if stream else []
         if cert:
@@ -96,7 +96,7 @@ def run(c,handler):
     server=DeviceServer(root,serial,out,ca,private);base=f'https://127.0.0.1:{server.server_port}'
     remote='/tmp/penchat-http-pool-'+serial;probe=None
     try:
-        for source,dest in [(root/'build/orange/penchat-http-pool-probe',remote),(ca,remote+'.pem')]:
+        for source,dest in [(root/'build/rk3562/penchat-http-pool-probe',remote),(ca,remote+'.pem')]:
             subprocess.run(['adb','-s',serial,'push',str(source),dest],check=True,capture_output=True)
         c['shell']('chmod 755 '+remote)
         probe=h.Probe(None,['adb','-s',serial,'shell','PENCHAT_TEST_CA='+remote+'.pem '+remote],out/'http-probe.log')

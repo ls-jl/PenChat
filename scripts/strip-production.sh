@@ -5,7 +5,7 @@ TASK_SDK=${RK_SDK_ROOT:-/home/ls-jl/dictpen/x7pro/android13_sdk/RK3562_Android13
 TASK_GCC=${JSAPI_TOOLCHAIN_ROOT:-$TASK_SDK/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu}
 TASK_STRIP=${PENCHAT_STRIP:-$TASK_GCC/bin/aarch64-linux-gnu-strip}
 if [ "$#" -eq 0 ]; then
-  set -- "$TASK_ROOT/assets/bin" "$TASK_ROOT/assets/scanner/lib" "$TASK_ROOT/native/prebuilt/arm64-orange"
+  set -- "$TASK_ROOT/assets/bin" "$TASK_ROOT/assets/scanner/lib" "$TASK_ROOT/native/prebuilt/arm64-rk3562"
 fi
 # Strip only staged production copies. Build outputs remain available for debugging.
 python3 - "$TASK_STRIP" "$@" <<'PY'

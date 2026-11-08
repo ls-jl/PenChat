@@ -104,7 +104,7 @@ def seed(path,api):
 if __name__=='__main__':
     assert 'ORANGE' in device.adb('cat /proc/device-tree/model')
     close_app();pull(DATA+'/penchat.db',OUT/'before.db')
-    push(ROOT/'build/orange/penchat-db-probe','/tmp/penchat-db-probe');device.adb('chmod 755 /tmp/penchat-db-probe')
+    push(ROOT/'build/rk3562/penchat-db-probe','/tmp/penchat-db-probe');device.adb('chmod 755 /tmp/penchat-db-probe')
     before_files=set(device.adb('find '+DATA+'/DCIM '+DATA+'/assets -type f 2>/dev/null || true').splitlines())
     before_album=set(device.adb('find /userdisk/Pictures -maxdepth 1 -name \"PenChat*.jpg\" -type f 2>/dev/null || true').splitlines())
     parent=device.adb('pidof miniapp')

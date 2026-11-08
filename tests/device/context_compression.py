@@ -91,7 +91,7 @@ def compile_helpers():
         target=OUT/name
         subprocess.run([tool,'-std=c++14','-Os','-static-libstdc++','-static-libgcc','-I'+str(d.ROOT/'.deps/json/single_include'),str(d.ROOT/'tests/device'/source),'-pthread','-o',str(target)],check=True)
         push(target,'/tmp/'+name);shell('chmod 755 /tmp/'+name)
-    push(d.ROOT/'build/orange/penchat-db-probe','/tmp/penchat-db-probe');shell('chmod 755 /tmp/penchat-db-probe')
+    push(d.ROOT/'build/rk3562/penchat-db-probe','/tmp/penchat-db-probe');shell('chmod 755 /tmp/penchat-db-probe')
 def run():
     assert 'ORANGE' in shell('cat /proc/device-tree/model') and shell('uname -m')=='aarch64'
     if d.pid():
@@ -107,7 +107,7 @@ def run():
         shell('mv '+DATA+' '+SAVED);isolated=True
         if original_public is not None:shell('mv '+PUBLIC+' '+PUBLIC_SAVED);public=True
         shell('mkdir '+DATA)
-        package=d.ROOT/'dist'/(d.APP_ID+'.'+d.APP['version'].replace('.','_')+'.amr')
+        package=d.ROOT/'dist'/(d.APP_ID+'.'+d.APP['version'].replace('.','_')+'-rk3562.amr')
         push(package,'/tmp/penchat-context.amr')
         installed=shell('miniapp_cli install /tmp/penchat-context.amr')
         manifests=shell('find '+str(pathlib.PurePosixPath(DATA).parent)+' -maxdepth 2 -name manifest.json').splitlines()

@@ -33,7 +33,7 @@ output.mkdir(parents=True, exist_ok=True)
 try:
     shell('mkdir ' + shlex.quote(remote))
     for binary in ('penchat-display-device-probe', 'penchat-display-pixel-tests'):
-        subprocess.run(adb + ['push', str(ROOT / 'build/orange' / binary),
+        subprocess.run(adb + ['push', str(ROOT / 'build/rk3562' / binary),
                               remote + '/' + binary], check=True,
                        capture_output=True, timeout=30)
     shell('chmod 700 ' + shlex.quote(remote) + '/*')

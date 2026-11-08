@@ -12,4 +12,4 @@ rm -rf .falcon_ .falcon_tmp
 aiot-cli -c -q -p
 mkdir -p dist
 PACKAGE=$(node -e 'const p=require("./package.json");process.stdout.write(`${p.appid}.${p.version.replace(/\./g,"_")}.amr`)')
-cp "$PACKAGE" "dist/$PACKAGE"
+cp "$PACKAGE" "dist/${PACKAGE%.amr}-rk3562.amr"

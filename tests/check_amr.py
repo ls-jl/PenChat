@@ -4,7 +4,7 @@ import hashlib, json, pathlib, re, struct, zipfile, subprocess, sys, runpy
 from runtime_policy import check_native_payload
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 APP=json.loads((ROOT/'package.json').read_text())
-path = pathlib.Path(sys.argv[1]) if len(sys.argv)>1 else ROOT / ('dist/'+APP['appid']+'.'+APP['version'].replace('.', '_')+'.amr')
+path = pathlib.Path(sys.argv[1]) if len(sys.argv)>1 else ROOT / ('dist/'+APP['appid']+'.'+APP['version'].replace('.', '_')+'-rk3562.amr')
 subprocess.run([sys.executable,str(ROOT/'tests/check_licenses.py'),'--amr',str(path)],check=True)
 with zipfile.ZipFile(path) as archive:
     names = archive.namelist()
@@ -35,7 +35,7 @@ with zipfile.ZipFile(path) as archive:
     assert b'8.17.0' in binary, 'Source-built libcurl version missing'
     assert binary[:5] == b'\x7fELF\x02' and struct.unpack_from('<H', binary, 18)[0] == 183
     assert binary == (ROOT / 'assets/bin/penchat-lvgl').read_bytes()
-    catalog = (ROOT/'build/orange/generated/model_catalog_data.bin').read_bytes()
+    catalog = (ROOT/'build/rk3562/generated/model_catalog_data.bin').read_bytes()
     assert catalog[:4] == b'PCMC' and len(catalog) < 128*1024
     assert binary.count(catalog) == 1, 'Production executable must embed the freshly built capability catalog'
     assert not any(n.endswith(('.xlsx','.xls')) or 'model-catalog/source' in n for n in names)
@@ -64,7 +64,7 @@ with zipfile.ZipFile(path) as archive:
     assert b'--test-report' not in guard
     bridges = [n for n in names if n.endswith('.so') and not n.startswith('assets/scanner/')]
     assert len(bridges) == 2 and all('libjsapi_penchat_launcher' in n for n in bridges)
-    bridge = (ROOT / 'native/prebuilt/arm64-orange/libjsapi_penchat_launcher.so').read_bytes()
+    bridge = (ROOT / 'native/prebuilt/arm64-rk3562/libjsapi_penchat_launcher.so').read_bytes()
     assert all(archive.read(n) == bridge for n in bridges)
     for name, payload in [('penchat-lvgl', binary), ('penchat-scanner', scanner),
                           ('penchat-sensor-guard', guard), ('launcher', bridge)]:

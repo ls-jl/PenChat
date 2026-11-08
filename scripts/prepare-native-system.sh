@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-TARGET=${1:-orange}
+TARGET=${1:-rk3562}
 source "$ROOT/scripts/native-target.sh" "$TARGET"
 mkdir -p "$ROOT/.deps/include" "$ROOT/.deps/$TARGET-libs"
 if [ ! -f "$ROOT/.deps/include/sqlite3.h" ]; then
@@ -11,7 +11,7 @@ SERIAL=$PENCHAT_BUILD_SERIAL
 for name in libsqlite3.so.0; do
   if [ ! -f "$ROOT/.deps/$TARGET-libs/$name" ]; then
     MODEL=$(adb -s "$SERIAL" shell 'cat /proc/device-tree/model' | tr '\0' '\n')
-    if [ "$TARGET" = s6 ]; then [[ "$MODEL" == *"Cvitek Cv1826 for Youdao Plum V0 version"* ]];
+    if [ "$TARGET" = cv1826 ]; then [[ "$MODEL" == *"Cvitek Cv1826 for Youdao Plum V0 version"* ]];
     else [[ "$MODEL" == *ORANGE* ]]; fi
     adb -s "$SERIAL" pull "/usr/lib/$name" "$ROOT/.deps/$TARGET-libs/$name"
   fi

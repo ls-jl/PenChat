@@ -68,17 +68,17 @@ OCR旧接口支持与新准备阶段并存；必要注销未确认前不开始�
 源码、业务资源共用；依赖前缀、构建目录、原生ELF、扫描模型和暂存包按架构隔离。
 
 ```sh
-bash scripts/build-lvgl.sh orange
-bash scripts/build-scanner.sh orange
-python3 scripts/package-dev.py orange
+bash scripts/build-lvgl.sh rk3562
+bash scripts/build-scanner.sh rk3562
+python3 scripts/package-dev.py rk3562
 
-bash scripts/build-lvgl.sh s6
-bash scripts/build-scanner-s6.sh
-python3 scripts/package-dev.py s6
+bash scripts/build-lvgl.sh cv1826
+bash scripts/build-scanner-cv1826.sh
+python3 scripts/package-dev.py cv1826
 ```
 
-`orange` 是现有 Rockchip/AArch64 工具链标识，设备选择仍由严格profile和真实配置决定。
-`build/package-orange/` 与 `build/package-s6/` 分开输出相同应用身份的开发包。S6 不会
+`rk3562` 是 Rockchip/AArch64 构建目标，`cv1826` 是 S6/ARMv7 构建目标，设备选择仍由严格profile和真实配置决定。
+`build/package-rk3562/` 与 `build/package-cv1826/` 分开输出相同应用身份的开发包。S6 不会
 使用 Rockchip 更新源。`tests/check_amr.py` 可传入开发包路径，原默认发布包检查不变。
 不将工具链、DSO、截图、词库记忆、用户数据或安装包提交Git。
 
@@ -106,3 +106,12 @@ python3 scripts/package-dev.py s6
 - 未重做纸面扫描画质或完整发布回归；CVI反复重开不计为通过。
 
 主机与设备截图、测试日志只在 `.work/`，不进入仓库。
+
+## 构建命名
+
+原生构建目标按 SoC 命名：`rk3562`（AArch64）与 `cv1826`（ARMv7），不再用
+ORANGE、S6 机型名标识构建。机型 profile、设备名单和历史适配记录中的名称保持原意。
+开发包目录分别为 `build/package-rk3562/`、`build/package-cv1826/`，分发文件为
+`<AppID>.<版本下划线>-rk3562.amr`、`<AppID>.<版本下划线>-cv1826.amr`。
+库暂存分别为 `arm64-rk3562`、`arm32-cv1826`。旧构建缓存仍可留作本地历史产物，
+不要直接移动含绝对路径的CMake缓存；新目标使用独立构建目录。

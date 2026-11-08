@@ -1,6 +1,6 @@
 # Native launcher
 
-`arm64-orange/libjsapi_penchat_launcher.so` is built from `native/launcher/` and the
+`arm64-rk3562/libjsapi_penchat_launcher.so` is built from `native/launcher/` and the
 source SDK in `native/vendor/`. It only launches/supervises `assets/bin/penchat-lvgl`
 and forwards bounded Unix socket messages. It contains no chat, database,
 Markdown, camera, or page-rendering code.

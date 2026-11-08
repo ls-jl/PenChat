@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-self-install-') as tmp:
   d=root/version;(d/'src').mkdir(parents=True);(d/'libs').mkdir()
   cfg=json.loads((ROOT/'package.json').read_text());cfg.update(name='PenChat isolated update',appid=appid,version=version,scripts={});(d/'package.json').write_text(json.dumps(cfg))
   (d/'src/app.js').write_text((ROOT/'src/app.js').read_text());shutil.copytree(ROOT/'src/platform',d/'src/platform');(d/'src/app.json').write_text('{"pages":{"index":"Page.vue"}}')
-  shutil.copy(ROOT/cfg['icon'],d/cfg['icon']);shutil.copy(ROOT/'native/prebuilt/arm64-orange/libjsapi_penchat_launcher.so',d/'libs/libjsapi_penchat_launcher_selftest.so')
+  shutil.copy(ROOT/cfg['icon'],d/cfg['icon']);shutil.copy(ROOT/'native/prebuilt/arm64-rk3562/libjsapi_penchat_launcher.so',d/'libs/libjsapi_penchat_launcher_selftest.so')
   if version=='0.0.1':
    digest=hashlib.sha256(packages['0.0.2'].read_bytes()).hexdigest()
    ticket=dict(appid=appid,version='0.0.2',operation=str(uuid.uuid4()),sha256=digest)

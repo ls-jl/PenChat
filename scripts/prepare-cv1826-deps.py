@@ -24,16 +24,16 @@ def checked(path, entry):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serial', default=os.environ.get('PENCHAT_ADB_SERIAL', 'JDA0700006552216'))
-    parser.add_argument('--png-include', type=Path, default=Path(os.environ.get('PENCHAT_S6_PNG_INCLUDE',
+    parser.add_argument('--png-include', type=Path, default=Path(os.environ.get('PENCHAT_CV1826_PNG_INCLUDE',
         '/home/ls-jl/dictpen/x7pro/android13_sdk/RK3562_Android13.0_SDK/external/libpng')))
     parser.add_argument('--opencv-archive', type=Path, default=Path(os.environ.get(
-        'PENCHAT_S6_OPENCV_ARCHIVE', str(ROOT / '.deps/opencv-3.4.3.tar.gz'))))
+        'PENCHAT_CV1826_OPENCV_ARCHIVE', str(ROOT / '.deps/opencv-3.4.3.tar.gz'))))
     args = parser.parse_args()
     lock = json.loads((ROOT / 'native/scanner/cvi-media.lock.json').read_text())
     for relative, expected in lock.get('adapters', {}).items():
         if digest(ROOT / relative) != expected:
             raise ValueError('S6 adapter hash mismatch: ' + relative)
-    cache = ROOT / '.deps/s6-media'
+    cache = ROOT / '.deps/cv1826-media'
     cache.mkdir(parents=True, exist_ok=True)
     missing = [(name, entry) for name, entry in lock['libraries'].items() if not checked(cache / name, entry)]
     if missing:
@@ -49,12 +49,12 @@ def main():
                 temporary.replace(cache / name)
             finally:
                 temporary.unlink(missing_ok=True)
-    source = ROOT / '.deps/opencv-s6-source'
+    source = ROOT / '.deps/opencv-cv1826-source'
     marker = source / '.penchat-source-sha256'
     if not marker.is_file() or marker.read_text().strip() != lock['opencv']['sha256']:
         if not checked(args.opencv_archive, lock['opencv']):
-            raise ValueError('Set PENCHAT_S6_OPENCV_ARCHIVE to the hash-locked OpenCV 3.4.3 archive; no unverified download')
-        temporary = ROOT / '.deps/opencv-s6-extract'
+            raise ValueError('Set PENCHAT_CV1826_OPENCV_ARCHIVE to the hash-locked OpenCV 3.4.3 archive; no unverified download')
+        temporary = ROOT / '.deps/opencv-cv1826-extract'
         shutil.rmtree(temporary, ignore_errors=True)
         temporary.mkdir()
         try:
@@ -72,7 +72,7 @@ def main():
             marker.write_text(lock['opencv']['sha256'] + '\n')
         finally:
             shutil.rmtree(temporary, ignore_errors=True)
-    png = ROOT / '.deps/s6-png'
+    png = ROOT / '.deps/cv1826-png'
     for relative, entry in lock['png'].items():
         destination = png / relative
         if checked(destination, entry):
