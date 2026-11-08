@@ -127,12 +127,18 @@ int main(int argc, char **argv) {
 
         if (argc < 3)
             throw std::runtime_error(
-                "Usage: stream32_replay rknn MODEL [RUNTIME] | cached NN_ORACLE_DIRECTORY");
+                "Usage: stream32_replay cvi|rknn MODEL [RUNTIME] | cached NN_ORACLE_DIRECTORY");
         std::unique_ptr<Inference> backend;
         if (std::string(argv[1]) == "cached")
             backend = std::make_unique<Cached>(argv[2]);
-        else
+        else if (std::string(argv[1]) == "cvi")
+            backend = makeCvi32(argv[2], argc > 3 ? argv[3] : "/oem/YoudaoDictPen/output/libs/libcviruntime.so");
+#ifndef PENCHAT_REPLAY_CVI_ONLY
+        else if (std::string(argv[1]) == "rknn")
             backend = makeRknn32(argv[2], argc > 3 ? argv[3] : "librknnrt.so");
+#endif
+        else
+            throw std::runtime_error("unsupported_replay_backend");
         auto started = std::chrono::steady_clock::now();
         std::array<std::atomic<bool>, 4> firstPreview{};
         std::mutex diagnosticMutex;

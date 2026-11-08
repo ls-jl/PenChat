@@ -4,6 +4,8 @@
 #include <iostream>
 #include <chrono>
 #include <thread>
+#include <cstring>
+#include <vector>
 #include <sys/stat.h>
 #include <unistd.h>
 namespace {volatile sig_atomic_t stop=0;void stopped(int){stop=1;}}
@@ -22,6 +24,44 @@ int main(int argc,char **argv) {
     {std::ofstream saved(leasePath);saved<<lease.dump();if(!saved)throw std::runtime_error("lease_write_failed");}
     Hardware hardware;
     try {
+      if(argc==2&&std::string(argv[1])=="--record") {
+        alarm(70);
+        // Explicit paper diagnostic only, never linked into the application.
+        // Hold one bounded RAM recording; no disk writes in the capture loop.
+        constexpr std::size_t frameBytes=320*240, maximum=512;
+        std::vector<std::uint8_t> pixels;pixels.reserve(frameBytes*maximum);
+        Json events=Json::array();bool pressed=false,finished=false;
+        hardware.open(lease);
+        std::cerr<<"PAPER_RECORD_READY press tip, scan text, release within 60 seconds\n";
+        const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(60);
+        while(!stop&&!finished&&std::chrono::steady_clock::now()<end) {
+          bool down=false;
+          if(hardware.keyEvent(down)) {
+            if(down&&!pressed){pressed=true;hardware.light(true);}
+            else if(!down&&pressed){hardware.light(false);finished=true;}
+          }
+          if(finished)break;
+          hardware.readFrame([&](const std::uint8_t *frame,int stride,std::uint64_t seq,std::int64_t timestamp){
+            if(!pressed)return;
+            if(events.size()==maximum){finished=true;return;}
+            const auto offset=pixels.size();pixels.resize(offset+frameBytes);
+            for(int y=0;y<240;++y)std::memcpy(pixels.data()+offset+y*320,frame+y*stride,320);
+            events.push_back({{"sequence",seq},{"timestamp",timestamp}});
+          });
+        }
+        hardware.close();unlink(leasePath.c_str());
+        if(!pressed||!finished||pixels.empty())throw std::runtime_error("paper_record_missing_or_timeout");
+        std::ofstream data("/tmp/penchat-s6-paper.ps32",std::ios::binary);
+        const std::uint32_t header[]={1,1,320,240,0,std::uint32_t(events.size()),0,0};
+        std::vector<float> gain(160*288,1.f);
+        data.write("PS32",4);data.write(reinterpret_cast<const char *>(header),sizeof(header));
+        data.write(reinterpret_cast<const char *>(gain.data()),gain.size()*sizeof(float));
+        data.write(reinterpret_cast<const char *>(pixels.data()),pixels.size());
+        data.close();if(!data)throw std::runtime_error("paper_record_write_failed");
+        std::ofstream metadata("/tmp/penchat-s6-paper.json");metadata<<events.dump();
+        if(!metadata)throw std::runtime_error("paper_metadata_write_failed");
+        std::cout<<"PAPER_RECORD_COMPLETE frames="<<events.size()<<" capped="<<(events.size()==maximum)<<'\n';return 0;
+      }
       hardware.open(lease);hardware.light(true);std::uint64_t frames=0,last=0;bool savedFrame=false;
       const int seconds=(argc==3&&std::string(argv[1])=="--seconds")?std::max(1,std::min(15,std::stoi(argv[2]))):3;
       auto report=std::chrono::steady_clock::now();
