@@ -309,12 +309,17 @@ function row stays directly above the keys; globe and hide/finish sit in the low
 utility row. Chat has only hide (retains draft), while form Cancel still restores
 the original field. The empty portrait composer with keyboard hidden is one 94px row. With text or
 an open keyboard, give text its own full-width region above attachment/gauge/send;
-grow upward to 3x the original height, then scroll. Expanded composers share the
-landscape 12px inner inset and bottom-aligned tool row; the collapsed portrait
+grow upward to 3x the original height, then scroll. Expanded portrait composers use a
+12px inner inset and bottom-aligned tool row; landscape keeps text between its
+controls, one row for short drafts and at most 2x height with local text scrolling.
+Its corner radius stays at the single-row radius when growing. Upward reader
+drags hide the composer, downward drags reveal it without changing follow state. The collapsed portrait
 pill alone keeps 25px around the 44px send circle. Chinese
 composition uses the same row as the official/OCR/clipboard actions; never add
 a separate candidate row in portrait. The borderless globe is 1.5x, below and
-slightly left of comma, centered between comma and screen bottom. Switching fields commits the prior
+slightly left of comma, centered between the comma key bottom edge and screen bottom. Portrait finish
+uses a borderless narrow downward V. Docked form content height follows the
+visible reader instead of retaining a full-screen minimum spacer. Switching fields commits the prior
 field (including raw unfinished preedit) once before focusing the next. Retain the
 keyboard root, viewport and top-panel policy during that transfer; compatible
 fields reuse key caps and layout. Replace field-scoped OCR registration without

@@ -80,12 +80,12 @@ def run():
                 assert e['target_bounds'][0]<=e['text_bounds'][0]<e['text_bounds'][2]<=e['target_bounds'][2]
                 assert e['target_bounds'][1]<=e['text_bounds'][1]<e['text_bounds'][3]<=e['target_bounds'][3]
                 for k in e['keys']:
-                    x,y,r,b=k['bounds'];assert x>=0 and r<=568 and b<=1172 and r-x>=44 and b-y>=(44 if k['key']=='language' else 84),k
+                    x,y,r,b=k['bounds'];assert x>=0 and r<=568 and b<=1190 and r-x>=44 and b-y>=(44 if k['key']=='language' else 84),k
                 assert min(k['bounds'][1] for k in e['keys'])==705
                 assert max(k['bounds'][3] for k in e['keys'] if k['key']!='language')==1122
                 assert 'cancel' not in e['actions']
                 assert e['actions']['done'][1]>1122
-                assert next(k for k in e['keys'] if k['key']=='language')['y']==1145
+                assert next(k for k in e['keys'] if k['key']=='language')['y']==1165
                 assert next(k for k in e['keys'] if k['key']=='space')['bounds'][2]-next(k for k in e['keys'] if k['key']=='space')['bounds'][0]>210
                 shot(a,'chat-keyboard')
                 key(a,'language')

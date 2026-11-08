@@ -67,7 +67,14 @@ int App::chatComposerHeight() const {
   const bool editing=editor_.active&&editorInPlace()&&editorInlineChat_;
   const auto &text=editing?editor_.text:draft_;
   if(!editing&&text.empty())return base;
-  // The expanded composer shares the landscape text-over-tools layout. The
+  if(!layout().portrait()) {
+    const bool gauge=sessionPreferences_.value("gauge",!effortMemory_.empty());
+    const int width=std::max(44,layout().composerWidth()-layout().composerEntryLeft()-layout().composerEntryRight(gauge)-24);
+    lv_point_t size{};lv_text_get_size(&size,text.c_str(),font(20),0,0,width,LV_TEXT_FLAG_NONE);
+    const int inset=std::max(0,(44-int(font(20)->line_height))/2);
+    return std::min(base*2,std::max(base,int(size.y)+2*inset+4));
+  }
+  // The expanded portrait composer uses text above its tools. The
   // larger portrait pill inset belongs only to the collapsed single row.
   const int pad=12;
   const int width=std::max(44,layout().composerWidth()-2*pad);
@@ -82,19 +89,19 @@ int App::chatComposerY() const {
 void App::layoutChatComposer() {
   if(!chatControls_||!composer_)return;
   const bool editing=editor_.active&&editorInPlace()&&editorInlineChat_;
-  const bool expanded=editing||!draft_.empty();
+  const bool expanded=layout().portrait()&&(editing||!draft_.empty());
   const bool previous=chatLayout_;chatLayout_=true;
   const int oldHeight=lv_obj_get_height(chatControls_);
   const int height=chatComposerHeight(),width=layout().composerWidth();
   const int pad=expanded?12:layout().composerInset();
   lv_obj_set_height(chatControls_,height);
-  lv_obj_set_style_radius(chatControls_,expanded?28:height/2,0);
+  lv_obj_set_style_radius(chatControls_,layout().portrait()?(expanded?28:height/2):layout().composerHeight()/2,0);
   if(toBottom_)lv_obj_set_y(toBottom_,chatComposerY()-56);
   const bool gauge=sessionPreferences_.value("gauge",!effortMemory_.empty());
   const int x=expanded?pad:layout().composerEntryLeft();
-  const int y=expanded?pad:(height-44)/2;
+  const int y=pad;
   const int w=expanded?width-2*pad:width-x-layout().composerEntryRight(gauge);
-  const int h=expanded?height-2*pad-8-44:44;
+  const int h=expanded?height-2*pad-8-44:height-2*pad;
   lv_obj_set_pos(composer_,x,y);lv_obj_set_size(composer_,w,h);
   for(uint32_t i=0;i<lv_obj_get_child_count(chatControls_);++i) {
     auto child=lv_obj_get_child(chatControls_,i);if(child==composer_)continue;
@@ -104,12 +111,16 @@ void App::layoutChatComposer() {
   }
   auto value=lv_obj_get_child(composer_,0);
   if(value) {
-    lv_label_set_long_mode(value,expanded?LV_LABEL_LONG_MODE_WRAP:LV_LABEL_LONG_MODE_DOTS);
+    const bool wrapping=expanded||!layout().portrait();
+    lv_label_set_long_mode(value,wrapping?LV_LABEL_LONG_MODE_WRAP:LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_align(value,LV_ALIGN_TOP_LEFT);
-    lv_obj_set_pos(value,expanded?0:12,expanded?0:std::max(0,(44-font(20)->line_height)/2));
-    lv_obj_set_size(value,expanded?w:std::max(0,w-24),expanded?h:font(20)->line_height);
+    lv_obj_set_pos(value,expanded?0:12,expanded?0:std::max(0,(std::min(44,h)-font(20)->line_height)/2));
+    lv_obj_set_size(value,expanded?w:std::max(0,w-24),expanded?h:wrapping?LV_SIZE_CONTENT:font(20)->line_height);
+    lv_obj_set_scrollable(composer_,!layout().portrait()&&height==layout().composerHeight()*2);
+    lv_obj_set_scroll_dir(composer_,LV_DIR_VER);
+    lv_obj_set_scroll_elastic(composer_,false);lv_obj_set_scroll_chain_ver(composer_,false);
   }
-  if(oldHeight!=height&&(editing||!hasConversationContent_||chatFollowing_||atLatestBottom())) {
+  if(oldHeight!=height&&!chatComposerHidden_&&(editing||!hasConversationContent_||chatFollowing_||atLatestBottom())) {
     lv_anim_delete(chatControls_,nullptr);chatControlsTarget_=chatComposerY();
     lv_obj_set_y(chatControls_,chatControlsTarget_);
   }

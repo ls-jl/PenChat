@@ -201,10 +201,12 @@ void App::editorBuild() {
     const std::string actionName=a.name;
     if(editorCandidateRow()&&actionName!="done")continue;
     const std::string title=actionName=="cancel"?"取消":actionName=="official"?"官方":
-      actionName=="done"?(editorInlineChat_?"收起":"完成"):actionName=="ocr-mode"?
+      actionName=="done"?(layout.portrait?"":editorInlineChat_?"收起":"完成"):actionName=="ocr-mode"?
       (!editorOcrActive_&&!editorOcrId_.empty()?"重试":editorOcrMulti_?(layout.portrait?"多行扫描":"多行"):(layout.portrait?"单行扫描":"单行")):"";
     auto b=control(title,a.x,a.y,a.width,actionName);
-    if(actionName=="done"&&!editorInlineChat_)primary(b);
+    if(actionName=="done"&&layout.portrait) {
+      lv_obj_set_style_bg_opa(b,LV_OPA_TRANSP,0);attachIcon(b,"keyboard-done",theme::text);
+    } else if(actionName=="done"&&!editorInlineChat_)primary(b);
     if(actionName=="clipboard")attachIcon(b,"clipboard",theme::text);
   }
   } else {
@@ -466,8 +468,9 @@ void App::editorViewport() {
   const int composerY=chatComposerY();
   if(view_=="chat")layoutChatComposer();
   if(view_=="chat"&&chatControls_) {
-    lv_anim_delete(chatControls_,nullptr);lv_obj_set_y(chatControls_,composerY);
-    chatControlsTarget_=composerY;
+    const int target=chatComposerHidden_?screen_.height+2:composerY;
+    lv_anim_delete(chatControls_,nullptr);lv_obj_set_y(chatControls_,target);
+    chatControlsTarget_=target;
   }
   if(toBottom_)lv_obj_set_y(toBottom_,composerY-56);
   if(view_=="chat"&&messageContent_)lv_obj_set_style_pad_bottom(messageContent_,docked?16:chatComposerHeight()+16+this->layout().safeBottom(),0);
@@ -475,11 +478,15 @@ void App::editorViewport() {
   const bool previous=chatLayout_;chatLayout_=true;
   const int scroll=lv_obj_get_scroll_y(body_);const bool resized=lv_obj_get_height(body_)!=height;
   lv_obj_set_height(body_,height);
-  const auto target=inputTargets_.find(editorTarget_);
+  const auto target=inputTargets_.find(editorTarget_);bool fieldResized=false;
   if(docked&&target!=inputTargets_.end()&&editor_.multiline&&!editorInlineChat_&&
      target->second.style!=3&&lv_obj_get_height(editorTarget_)<144) {
     lv_obj_set_height(editorTarget_,144);
-    if(pageContent_&&lv_obj_get_parent(editorTarget_)==pageContent_)portraitPage();
+    fieldResized=true;
+  }
+  if(pageContent_&&this->layout().portrait()&&(resized||fieldResized)) {
+    lv_obj_set_style_min_height(pageContent_,std::max(0,height-int(lv_obj_get_y(pageContent_))-12),0);
+    portraitPage();
   }
   lv_obj_update_layout(body_);
   if(docked&&editorTarget_&&view_!="chat"&&!modal_) {
@@ -491,6 +498,8 @@ void App::editorViewport() {
     if(view_=="chat"&&chatFollowing_)lv_obj_scroll_to_y(body_,scroll+lv_obj_get_scroll_bottom(body_),LV_ANIM_OFF);
     else lv_obj_scroll_to_y(body_,scroll,LV_ANIM_OFF);
   }
+  const int maximum=std::max(0,int(lv_obj_get_scroll_y(body_)+lv_obj_get_scroll_bottom(body_)));
+  if(lv_obj_get_scroll_y(body_)>maximum)lv_obj_scroll_to_y(body_,maximum,LV_ANIM_OFF);
   chatLayout_=previous;
   if(docked)editorAttachTarget();
   if(resized){paintVisible();lv_obj_invalidate(screenObj_);}

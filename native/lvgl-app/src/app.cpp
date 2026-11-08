@@ -1298,13 +1298,17 @@ void App::readerTouch(int x, int y, bool pressed, bool cancelled) {
           readerPointer_ = false;
       }
     }
-    readerStartX_ = x; readerStartY_ = y;
+    readerStartX_ = x; readerStartY_ = readerMotionY_ = y;
     readerSettle_ = readerPointer_;
   }
   if (readerPointer_ && pressed) {
     const int dx = x - readerStartX_, dy = y - readerStartY_;
     if (std::abs(dy) > 12 && std::abs(dy) > std::abs(dx)) {
       readerVertical_ = true;
+      if(std::abs(y-readerMotionY_)>=2) {
+        chatComposerHidden_=y<readerMotionY_;
+        readerMotionY_=y;updateChatControls(true);
+      }
       // Finger moving down reads older content. Detach before the next delta
       // can resize/reanchor the viewport; horizontal table gestures stay separate.
       if (dy > 0 && lv_obj_get_scroll_y(body_) + lv_obj_get_scroll_bottom(body_) > 10)
@@ -1364,10 +1368,7 @@ void App::updateChatControls(bool animate) {
   }
   lv_obj_set_style_bg_opa(toBottom_, overContent ? 160 : 255, 0);
   lv_obj_set_style_border_opa(toBottom_, overContent ? 160 : 255, 0);
-  const bool editingComposer=editor_.active&&editorInPlace()&&editorInlineChat_;
-  const int target = editingComposer ? chatComposerY() :
-      (!hasConversationContent_ || chatFollowing_ || atLatestBottom()) && !pulling_ ? chatComposerY() : screen_.height + 2;
-  if(editingComposer)animate=false;
+  const int target = !chatComposerHidden_ && !pulling_ ? chatComposerY() : screen_.height + 2;
   if (chatControlsTarget_ == target)
     return;
   chatControlsTarget_ = target;
@@ -1388,6 +1389,7 @@ void App::updateChatControls(bool animate) {
   lv_anim_start(&animation);
 }
 void App::jumpToBottom() {
+  chatComposerHidden_=false;
   pullNeedsPause_ = true;
   pullLastActivity_ = ticks();
   chatFollowing_ = true;
@@ -3818,6 +3820,11 @@ Json App::diagnostics() const {
       {"back_navigation", {{"root",navigationRoot()},{"sequence",backPolicySequence_},{"policy_ok",backPolicyOk_},{"blocked",backPolicyBlocked_},{"claimed",backClaimed_}}},
       {"scroll_bottom", body_ ? lv_obj_get_scroll_bottom(body_) : 0},
       {"composer_width", composer_ ? lv_obj_get_width(composer_) : 0},
+      {"composer_hidden", chatComposerHidden_},
+      {"composer_radius",chatControls_?lv_obj_get_style_radius(chatControls_,LV_PART_MAIN):0},
+      {"composer_scroll", composer_ ? lv_obj_get_scroll_y(composer_) : 0},
+      {"reader_height",body_?lv_obj_get_height(body_):0},
+      {"page_content_height",pageContent_?lv_obj_get_height(pageContent_):0},
       {"safe_insets", {layout().safeSide(),layout().safeTop(),layout().safeSide(),layout().safeBottom()}},
       {"toolbar_y", chatControls_ ? lv_obj_get_y(chatControls_) : -1},
       {"to_bottom_visible", toBottom_ && !lv_obj_is_hidden(toBottom_)},

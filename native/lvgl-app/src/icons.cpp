@@ -83,7 +83,7 @@ void paint(lv_event_t *event) {
     lv_draw_line_dsc_init(&d);
     d.color = ink;
     d.opa = opacity;
-    d.width = 2;
+    d.width = icon->name=="keyboard-done"?3:2;
     d.round_start = d.round_end = 1;
     d.p1 = {int32_t(std::lround(cx + x * scale)), int32_t(std::lround(cy + y * scale))};
     d.p2 = {int32_t(std::lround(cx + u * scale)), int32_t(std::lround(cy + v * scale))};
@@ -129,6 +129,11 @@ void paint(lv_event_t *event) {
     line(-3,-3,4,-3);line(-3,2,2,2);
   } else if(k=="check") {
     line(-8,0,-2,6);line(-2,6,9,-7);
+  } else if(k=="keyboard-done") {
+    // Native 22px-tall collapse mark, not a text glyph. Each arm is 22.5
+    // degrees from vertical, giving a 45-degree included angle at the tip.
+    const float half=22.f*0.41421356237f;
+    line(-half,-11,0,11);line(0,11,half,-11);
   } else if(k=="info") {
     circle(0,0,10);line(0,-1,0,6);rect(-1,-7,2,2,LV_RADIUS_CIRCLE,true);
   } else if(k=="copy") {

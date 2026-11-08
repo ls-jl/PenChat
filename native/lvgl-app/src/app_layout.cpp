@@ -39,6 +39,8 @@ void App::portraitPage() {
     }
     lv_obj_update_layout(o);y+=std::max(20,int(lv_obj_get_height(o)))+10;
   }
-  lv_obj_set_height(pageContent_,std::max(y,screen_.height-64));
+  const int viewport=std::max(0,int(lv_obj_get_height(body_))-int(lv_obj_get_y(pageContent_))-12);
+  lv_obj_set_style_min_height(pageContent_,viewport,0);
+  lv_obj_set_height(pageContent_,std::max(y,viewport));
 }
 } // namespace penchat

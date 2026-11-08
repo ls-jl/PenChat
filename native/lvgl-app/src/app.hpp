@@ -288,7 +288,8 @@ class App {
   bool chatFollowing_ = true, chatLayout_ = false;
   bool receivingReply_ = false;
   bool readerDown_ = false, readerPointer_ = false, readerVertical_ = false, readerSettle_ = false;
-  int readerStartX_ = 0, readerStartY_ = 0;
+  int readerStartX_ = 0, readerStartY_ = 0, readerMotionY_ = 0;
+  bool chatComposerHidden_ = false;
   bool chatRenderPending_ = false, chatRefreshPending_ = false, chatImagesPending_ = false;
   Json chatFinishPending_ = Json::object();
   bool atLatestBottom() const;
