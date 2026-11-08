@@ -165,7 +165,7 @@ if(SCANNER_TARGET STREQUAL "cv1826-s")
   add_executable(s6-capture-probe EXCLUDE_FROM_ALL "${ROOT}/tests/device/s6_capture_probe.cpp" src/hardware.cpp src/cvi_capture.cpp src/runtime_guard.cpp)
   target_include_directories(s6-capture-probe PRIVATE src "${ROOT}/.deps/json/single_include")
   target_compile_definitions(s6-capture-probe PRIVATE PENCHAT_CVI_CAPTURE=1 JSON_HAS_CPP_14=1)
-  target_link_libraries(s6-capture-probe PRIVATE dl pthread)
+  target_link_libraries(s6-capture-probe PRIVATE stream32 dl pthread)
   target_link_options(s6-capture-probe PRIVATE -static-libstdc++ -static-libgcc "LINKER:--dynamic-list=${CMAKE_CURRENT_SOURCE_DIR}/cvi-runtime-symbols.list")
 endif()
 

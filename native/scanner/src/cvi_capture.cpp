@@ -14,7 +14,7 @@
 
 // Scanner-executable-only scoped initialization guards. Subsequent SDK resume
 // operations must reach ISP/VPSS, but this process must never open the UI's VO.
-namespace {void *captureSystem=nullptr;bool captureBooting=true;
+namespace {void *captureSystem=nullptr;bool captureBooting=true;int capturePoolCloseError=0;
 template<class F>F captureApi(const char *name){return reinterpret_cast<F>(dlsym(captureSystem,name));}}
 extern "C" {
 int v4l2_dev_open(int isp,int vpss,int,int){return captureBooting?0:captureApi<int(*)(int,int,int,int)>("v4l2_dev_open")(isp,vpss,0,0);}
@@ -30,6 +30,9 @@ void CVI_SYS_TraceEnd(){}
 }
 namespace penchat_scan {
 void verifyCviCaptureRuntime() {
+  if(capturePoolCloseError)
+    throw std::runtime_error("CVI capture pool cleanup failed: "+std::to_string(capturePoolCloseError)+
+                             "; close and reopen PenChat before scanning");
   static void *group=[] {
     dlopen("/lib/libgcc_s.so.1",RTLD_NOW|RTLD_GLOBAL);
     auto handle=dlopen("libpenchat_cvi_media.so",RTLD_LAZY|RTLD_GLOBAL);
@@ -54,6 +57,9 @@ class CviCapture final:public CaptureStream {
   void *sys_=nullptr,*vpu_=nullptr,*sample_=nullptr,*dependencies_=nullptr;
   alignas(8) std::array<unsigned char,280> vi_{};
   bool descriptors_=false,sensor_=false,isp_=false,group_=false,groupStarted_=false,channel_=false,bound_=false;
+  // VB pools and their process-local indexes belong to a capture lease. The
+  // stock owner recreates their shared backing while this process keeps SYS/NN.
+  bool vb_=false;
   int (*get_)(int,int,FrameInfo *,int)=nullptr,(*release_)(int,int,FrameInfo *)=nullptr;
   void *(*map_)(U64,U32)=nullptr;int (*unmap_)(void *,U32)=nullptr;
   template<class F>F fn(void *lib,const char *name){auto f=reinterpret_cast<F>(dlsym(lib,name));if(!f)throw std::runtime_error(std::string("Missing CVI capture API: ")+name);return f;}
@@ -73,6 +79,17 @@ class CviCapture final:public CaptureStream {
         auto f=reinterpret_cast<int(*)()>(dlsym(sys_,name));if(f)f();
       }
       descriptors_=false;
+    }
+    if(vb_&&sys_) {
+      auto f=reinterpret_cast<int(*)()>(dlsym(sys_,"CVI_VB_Exit"));
+      // Teardown must not throw from a destructor. The SDK's Exit also resets
+      // its local initialized flag, pool indexes and shared-memory mapping.
+      const int rc=f?f():-1;
+      if(rc) {
+        capturePoolCloseError=rc;
+        std::fprintf(stderr,"CVI_CLOSE vb_exit %d; capture pool reuse disabled\n",rc);
+      }
+      vb_=false;
     }
     if(sample_)dlclose(sample_);if(vpu_)dlclose(vpu_);if(sys_)dlclose(sys_);if(dependencies_)dlclose(dependencies_);dependencies_=nullptr;
     sys_=vpu_=sample_=nullptr;
@@ -99,21 +116,23 @@ public:
           throw std::runtime_error("CVI sensor configuration ABI is not verified");
       }
       static int levels[64];for(auto &v:levels)v=2;auto log=reinterpret_cast<int **>(dlsym(sys_,"log_levels"));if(log)*log=levels;
-      // As with VO, SDK descriptors are process-scoped, not per scan. Stop
-      // owned VI/VPSS resources below, but never reset live SDK worker contexts.
+      // SYS and the ION anchor remain process-scoped with the resident NN model.
+      // VB is different: stock CaptureFrame rebuilds its shared backing on each
+      // handoff. Never keep VB's old local initialized flag or pool indexes.
       static const bool initialized=[this] {
       captureSystem=sys_;captureBooting=true;
       check(fn<int(*)()>(sys_,"CVI_SYS_Init")(),"system_init");
       captureBooting=false;
-      struct VbConfig {U32 pools;Pool entries[16];} config{};
-      static_assert(sizeof(VbConfig)==708,"S6 VB configuration ABI");
-      config.pools=1;config.entries[0].bytes=(320*240*2+4095)&~4095u;config.entries[0].count=10;
-      check(fn<int(*)(VbConfig *)>(sys_,"CVI_VB_SetConfig")(&config),"vb_configuration");
-      check(fn<int(*)()>(sys_,"CVI_VB_Init")(),"vb_init");
       return true;
       }();
       (void)initialized;
       camera::cvi::retainIonArena(sys_);
+      struct VbConfig {U32 pools;Pool entries[16];} config{};
+      static_assert(sizeof(VbConfig)==708,"S6 VB configuration ABI");
+      config.pools=1;config.entries[0].bytes=(320*240*2+4095)&~4095u;config.entries[0].count=10;
+      check(fn<int(*)(VbConfig *)>(sys_,"CVI_VB_SetConfig")(&config),"vb_configuration");
+      vb_=true; // Exit also unwinds a partially initialized pool.
+      check(fn<int(*)()>(sys_,"CVI_VB_Init")(),"vb_init");
       check(fn<int(*)(int,int,int,int)>(sys_,"v4l2_dev_open")(1,1,0,0),"open_capture_devices");
       descriptors_=true;
       check(fn<int(*)()>(sys_,"init_isp_device")(),"isp_device");

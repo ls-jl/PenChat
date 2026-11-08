@@ -40,7 +40,7 @@
     "engine/tests/test_cvi_adapter.cpp": "c3b0dec66cdd413db803e17db6ecc5e0aa67ac33c9075a438140ed7942a10887",
     "tests/cvi_replay.cpp": "9f86b4f4334a48037c1c9ba9cff5026c0f7ea635468d4f78a928ba78a0364575",
     "engine/src/bounded.hpp": "357f1c76489ea0fc2356306e7ec2d9d762dbd135193651acdc9f9a656e3b939a",
-    "src/cvi_capture.cpp": "35d26ee5823631f4d3454815f7acf6cb5bbf23f985c07f94b6c91b2e4ae06d62",
+    "src/cvi_capture.cpp": "72d69451336ab3f81f60a1ac15d0d6fb55360634fd4f60e22957be0fff340368",
     "src/cvi_capture.hpp": "1c5de5736713b6ddabe02956c0267388fe36f50b29c437aa2bad4c3697897405",
     "src/cvi_media_link.c": "7ca99e7bf029ea714df8ad19d63ab835821dc53f19bd04efef973068e9544e85",
     "cvi-runtime-symbols.list": "468ac2df68529c88b94b55f67f7a85903817762e166439add84df2a8044ea0c3",

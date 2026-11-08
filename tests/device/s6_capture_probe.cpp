@@ -1,4 +1,8 @@
 #include "hardware.hpp"
+#include "cvi_capture.hpp"
+#include "pen_stream/stream.hpp"
+#include <array>
+#include <dirent.h>
 #include <csignal>
 #include <fstream>
 #include <iostream>
@@ -20,6 +24,62 @@ int main(int argc,char **argv) {
       std::ifstream saved(leasePath);Json j;saved>>j;restoreScanLease(j);return 0;
     }
     signal(SIGTERM,stopped);signal(SIGINT,stopped);signal(SIGALRM,stopped);alarm(25);
+    const std::string mode=argc>1?argv[1]:"";
+    if((argc==3&&(mode=="--cycles"||mode=="--direct-cycles")) ||
+       (argc==4&&mode=="--model-cycles")) {
+      const bool direct=mode=="--direct-cycles";
+      const int cycles=std::max(1,std::min(50,std::stoi(argv[2])));
+      alarm(unsigned(cycles*10+10));
+      Hardware owner;
+      auto saveLease=[&](const Json &snapshot) {
+        std::ofstream saved(leasePath);saved<<snapshot.dump();
+        if(!saved)throw std::runtime_error("lease_write_failed");
+      };
+      if(direct){const auto snapshot=scanLeaseSnapshot();saveLease(snapshot);owner.reserve(snapshot);}
+      std::unique_ptr<pen::stream::Inference> model;
+      std::array<std::uint8_t,80*144> gray{};gray.fill(127);
+      pen::stream::NetworkBatch batch;batch.validCount=32;batch.gray.fill(gray.data());
+      pen::stream::Heads reference;
+      if(mode=="--model-cycles") {
+        verifyCviCaptureRuntime();
+        model=pen::stream::makeCvi32(std::string(argv[3])+"/pintu_rgb32_int8.cvimodel","/usr/lib/libcviruntime.so");
+        model->open();model->infer(batch,reference);
+      }
+      for(int cycle=1;cycle<=cycles&&!stop;++cycle) {
+        const auto snapshot=direct?Json():scanLeaseSnapshot();
+        if(!direct)saveLease(snapshot);
+        Hardware capture;std::shared_ptr<CaptureStream> stream;
+        if(direct)stream=openCviCapture();else capture.open(snapshot);
+        std::uint64_t frames=0,last=0;std::int64_t stamp=0;
+        const auto consume=[&](const std::uint8_t *,int stride,std::uint64_t sequence,std::int64_t timestamp) {
+          if(stride<320||frames&&(sequence!=last+1||timestamp<=stamp))
+            throw std::runtime_error("cycle frame discontinuity");
+          ++frames;last=sequence;stamp=timestamp;
+        };
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+        while(frames<100&&!stop&&std::chrono::steady_clock::now()<deadline) {
+          if(direct)stream->read(consume);else capture.readFrame(consume);
+        }
+        stream.reset();capture.close();if(!direct)unlink(leasePath.c_str());
+        if(frames<100)throw std::runtime_error("cycle camera did not sustain frames");
+        if(model) {
+          pen::stream::Heads actual;model->infer(batch,actual);
+          if(actual!=reference)throw std::runtime_error("resident model output changed after capture release");
+        }
+        unsigned descriptors=0,mappings=0;
+        if(auto directory=opendir("/proc/self/fd")) {
+          while(auto item=readdir(directory))if(item->d_name[0]!='.')++descriptors;
+          closedir(directory);
+        }
+        {std::ifstream file("/proc/self/maps");std::string line;while(std::getline(file,line))++mappings;}
+        std::cout<<"CAPTURE_CYCLE cycle="<<cycle<<" frames="<<frames<<" last="<<last
+                 <<" descriptors="<<descriptors<<" mappings="<<mappings<<" resident_model="<<bool(model)<<std::endl;
+        // Let the real stock owner rebuild its own VI/VPSS/VB between leases.
+        // Direct mode deliberately omits this ownership transition.
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+      }
+      owner.close();unlink(leasePath.c_str());return stop?1:0;
+    }
     const auto lease=scanLeaseSnapshot();
     {std::ofstream saved(leasePath);saved<<lease.dump();if(!saved)throw std::runtime_error("lease_write_failed");}
     Hardware hardware;
