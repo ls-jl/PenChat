@@ -9,7 +9,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE = Path(__file__).resolve().parent
-BUILD = ROOT / 'build/submit-probe-cv1826'
+BUILD = ROOT / 'build/submit-probe-cv1826-s'
 STAGE = ROOT / 'build/submit-probe-package'
 IDENTITY = STAGE / 'identity.json'
 
@@ -21,7 +21,7 @@ def main():
     appid = json.loads(IDENTITY.read_text())['appid']
     assert len(appid) == 16 and appid.startswith('800') and appid.isdecimal()
     assert appid != json.loads((ROOT / 'package.json').read_text())['appid']
-    compiler = subprocess.check_output(['bash', '-c', 'source scripts/native-target.sh cv1826; printf "%s" "$PENCHAT_BUILD_CXX"'], cwd=ROOT, text=True)
+    compiler = subprocess.check_output(['bash', '-c', 'source scripts/native-target.sh cv1826-s; printf "%s" "$PENCHAT_BUILD_CXX"'], cwd=ROOT, text=True)
     subprocess.run(['cmake', '-S', str(SOURCE), '-B', str(BUILD), '-DCMAKE_BUILD_TYPE=Release',
                     '-DCMAKE_SYSTEM_NAME=Linux', '-DCMAKE_SYSTEM_PROCESSOR=arm',
                     '-DCMAKE_CXX_COMPILER=' + compiler, '-DPENCHAT_SUBMIT_PROBE_APP_ID=' + appid], check=True)
@@ -38,7 +38,7 @@ def main():
     client = STAGE / 'assets/bin/penchat-composite-client'
     client.parent.mkdir(parents=True)
     shutil.copy2(BUILD / 'penchat-composite-client', client)
-    strip = subprocess.check_output(['bash', '-c', 'source scripts/native-target.sh cv1826; printf "%s" "$PENCHAT_BUILD_STRIP"'], cwd=ROOT, text=True)
+    strip = subprocess.check_output(['bash', '-c', 'source scripts/native-target.sh cv1826-s; printf "%s" "$PENCHAT_BUILD_STRIP"'], cwd=ROOT, text=True)
     subprocess.run([strip, '--strip-unneeded', str(client)], check=True)
     elf = client.read_bytes()
     assert elf[:6] == b'\x7fELF\x01\x01' and int.from_bytes(elf[18:20], 'little') == 40

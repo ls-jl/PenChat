@@ -46,7 +46,7 @@ ctest --test-dir build/submit-probe-host --output-on-failure
 python3 tests/device/falcon_submit_probe/package.py
 ```
 
-构建使用 `scripts/native-target.sh cv1826`，自动生成独立16位测试 AppID，
+构建使用 `scripts/native-target.sh cv1826-s`，自动生成独立16位测试 AppID，
 保存在忽略的 `build/submit-probe-package/identity.json`。生成的 AMR 只包含
 测试页和原生测试插件，不打包 PenChat、CVI 显示/扫描代码、模型或用户数据。
 插件还校验当前 AppID，不能放入正式应用直接启用。

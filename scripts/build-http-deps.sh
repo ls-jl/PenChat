@@ -14,7 +14,7 @@ if [ "$TARGET" != host ]; then
   done
   cp /usr/include/zlib.h /usr/include/zconf.h "$SYS/include/"
   OPENSSL_PLATFORM=linux-aarch64
-  [ "$TARGET" != cv1826 ] || OPENSSL_PLATFORM=linux-armv4
+  [ "$TARGET" != cv1826-s ] || OPENSSL_PLATFORM=linux-armv4
   if [ ! -f "$ROOT/.deps/openssl-headers-$TARGET/include/openssl/opensslconf.h" ]; then
     mkdir -p "$ROOT/.deps/openssl-headers-$TARGET"
     cp -a "$ROOT/.deps/openssl-headers/." "$ROOT/.deps/openssl-headers-$TARGET/"

@@ -11,13 +11,13 @@ case "$PENCHAT_BUILD_TARGET" in
     PENCHAT_BUILD_ELF_MACHINE=183
     PENCHAT_BUILD_LIBDIR=arm64-rk3562
     ;;
-  cv1826)
+  cv1826-s)
     PENCHAT_BUILD_GCC=${PENCHAT_CV1826_TOOLCHAIN:-$PENCHAT_BUILD_SDK/prebuilts/gcc/linux-x86/arm/gcc-linaro-6.3.1-2017.05-x86_64_arm-linux-gnueabihf}
     PENCHAT_BUILD_TRIPLE=arm-linux-gnueabihf
     PENCHAT_BUILD_CPU=arm
     PENCHAT_BUILD_SERIAL=${PENCHAT_ADB_SERIAL:-JDA0700006552216}
     PENCHAT_BUILD_ELF_MACHINE=40
-    PENCHAT_BUILD_LIBDIR=arm32-cv1826
+    PENCHAT_BUILD_LIBDIR=arm32-cv1826-s
     ;;
   host) PENCHAT_BUILD_CPU=$(uname -m);;
   *) echo "Unknown native build target: $PENCHAT_BUILD_TARGET" >&2;return 2;;

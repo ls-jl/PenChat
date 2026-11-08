@@ -3,9 +3,9 @@
 import argparse,hashlib,json,pathlib,shutil,subprocess
 from package_identity import amr_name
 ROOT=pathlib.Path(__file__).resolve().parents[1]
-p=argparse.ArgumentParser(description=__doc__);p.add_argument('target',choices=['rk3562','cv1826']);args=p.parse_args()
-if args.target=='cv1826':
-    subprocess.run(['python3',str(ROOT/'scripts/package-cv1826-dev.py')],check=True)
+p=argparse.ArgumentParser(description=__doc__);p.add_argument('target',choices=['rk3562','cv1826-s']);args=p.parse_args()
+if args.target=='cv1826-s':
+    subprocess.run(['python3',str(ROOT/'scripts/package-cv1826-s-dev.py')],check=True)
     raise SystemExit(0)
 app=json.loads((ROOT/'package.json').read_text());stage=ROOT/'build/package-rk3562'
 shutil.rmtree(stage,ignore_errors=True);stage.mkdir(parents=True)

@@ -33,7 +33,7 @@ def main():
     for relative, expected in lock.get('adapters', {}).items():
         if digest(ROOT / relative) != expected:
             raise ValueError('S6 adapter hash mismatch: ' + relative)
-    cache = ROOT / '.deps/cv1826-media'
+    cache = ROOT / '.deps/cv1826-s-media'
     cache.mkdir(parents=True, exist_ok=True)
     missing = [(name, entry) for name, entry in lock['libraries'].items() if not checked(cache / name, entry)]
     if missing:
@@ -49,12 +49,12 @@ def main():
                 temporary.replace(cache / name)
             finally:
                 temporary.unlink(missing_ok=True)
-    source = ROOT / '.deps/opencv-cv1826-source'
+    source = ROOT / '.deps/opencv-cv1826-s-source'
     marker = source / '.penchat-source-sha256'
     if not marker.is_file() or marker.read_text().strip() != lock['opencv']['sha256']:
         if not checked(args.opencv_archive, lock['opencv']):
             raise ValueError('Set PENCHAT_CV1826_OPENCV_ARCHIVE to the hash-locked OpenCV 3.4.3 archive; no unverified download')
-        temporary = ROOT / '.deps/opencv-cv1826-extract'
+        temporary = ROOT / '.deps/opencv-cv1826-s-extract'
         shutil.rmtree(temporary, ignore_errors=True)
         temporary.mkdir()
         try:
@@ -72,7 +72,7 @@ def main():
             marker.write_text(lock['opencv']['sha256'] + '\n')
         finally:
             shutil.rmtree(temporary, ignore_errors=True)
-    png = ROOT / '.deps/cv1826-png'
+    png = ROOT / '.deps/cv1826-s-png'
     for relative, entry in lock['png'].items():
         destination = png / relative
         if checked(destination, entry):

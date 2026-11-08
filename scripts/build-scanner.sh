@@ -2,8 +2,8 @@
 set -euo pipefail
 task_root="$(cd "$(dirname "$0")/.." && pwd)"
 task_target="${1:-host}"
-case "$task_target" in host|rk3562|cv1826) ;; *) echo "Unknown native target: $task_target" >&2; exit 2;; esac
-if [ "$task_target" = cv1826 ]; then exec bash "$task_root/scripts/build-scanner-cv1826.sh"; fi
+case "$task_target" in host|rk3562|cv1826-s) ;; *) echo "Unknown native target: $task_target" >&2; exit 2;; esac
+if [ "$task_target" = cv1826-s ]; then exec bash "$task_root/scripts/build-scanner-cv1826-s.sh"; fi
 task_bundle="${PENCHAT_SCAN_BUNDLE:-/home/ls-jl/Documents/ChatGPT/词典笔扫描拼接/deliverables/stream32_complete_20261018}"
 python3 "$task_root/scripts/prepare-scanner.py" --bundle "$task_bundle"
 if [ "$task_target" = host ]; then

@@ -1,5 +1,5 @@
-"""Application identity comes from package.json; distribution suffix is the SoC."""
-TARGETS = ('rk3562', 'cv1826')
+"""Application identity comes from package.json; distribution suffix names the native build variant."""
+TARGETS = ('rk3562', 'cv1826-s')
 
 
 def amr_name(app, target=None):

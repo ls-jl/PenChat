@@ -51,13 +51,13 @@ Rockchip V4L2 自路；原帧采集和资源借用须独立接入。按键/灯�
 
 ## 目标隔离与构建
 
-- `bash scripts/build-lvgl.sh cv1826`：ARMv7 hard-float / GCC6 / glibc2.23，源码构建
-  LVGL、渲染和网络依赖，输出到 `build/cv1826`、`build/payload-cv1826`。
+- `bash scripts/build-lvgl.sh cv1826-s`：ARMv7 hard-float / GCC6 / glibc2.23，源码构建
+  LVGL、渲染和网络依赖，输出到 `build/cv1826-s`、`build/payload-cv1826-s`。
 - 设置 `PENCHAT_CV1826_OPENCV_ARCHIVE` 指向锁定的 OpenCV3.4.3 源码归档后，执行
-  `bash scripts/build-scanner-cv1826.sh`。扫描 C++17 使用 clang18 与 GCC6 sysroot；
+  `bash scripts/build-scanner-cv1826-s.sh`。扫描 C++17 使用 clang18 与 GCC6 sysroot；
   OpenCV core/imgproc 从源码静态构建。ARM32 PNG/zlib 来自本机并校验摘要。
   `PENCHAT_CV1826_PNG_INCLUDE` 可指定锁定 PNG 头文件目录。
-- `python3 scripts/package-cv1826-dev.py` 先增量编译必要目标，再独立暂存和打包。
+- `python3 scripts/package-cv1826-s-dev.py` 先增量编译必要目标，再独立暂存和打包。
   `--ui-only` 只用于隔离显示调试，包内不带扫描入口所需产物，不能作为扫描交付。
 - ARM32 目标与现有 AArch64 的源码、组件一致，依赖缓存、构建和暂存目录独立。
   `tests/check_s6_amr.py` 检查相同身份、版本、所有 ELF 的 ARM32 hard-float、

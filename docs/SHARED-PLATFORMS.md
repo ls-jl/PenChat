@@ -72,13 +72,13 @@ bash scripts/build-lvgl.sh rk3562
 bash scripts/build-scanner.sh rk3562
 python3 scripts/package-dev.py rk3562
 
-bash scripts/build-lvgl.sh cv1826
-bash scripts/build-scanner-cv1826.sh
-python3 scripts/package-dev.py cv1826
+bash scripts/build-lvgl.sh cv1826-s
+bash scripts/build-scanner-cv1826-s.sh
+python3 scripts/package-dev.py cv1826-s
 ```
 
-`rk3562` 是 Rockchip/AArch64 构建目标，`cv1826` 是 S6/ARMv7 构建目标，设备选择仍由严格profile和真实配置决定。
-`build/package-rk3562/` 与 `build/package-cv1826/` 分开输出相同应用身份的开发包。S6 不会
+`rk3562` 是 Rockchip/AArch64 构建目标，`cv1826-s` 是 S6/ARMv7 构建目标，设备选择仍由严格profile和真实配置决定。
+`build/package-rk3562/` 与 `build/package-cv1826-s/` 分开输出相同应用身份的开发包。S6 不会
 使用 Rockchip 更新源。`tests/check_amr.py` 可传入开发包路径，原默认发布包检查不变。
 不将工具链、DSO、截图、词库记忆、用户数据或安装包提交Git。
 
@@ -109,9 +109,11 @@ python3 scripts/package-dev.py cv1826
 
 ## 构建命名
 
-原生构建目标按 SoC 命名：`rk3562`（AArch64）与 `cv1826`（ARMv7），不再用
+原生构建目标按芯片与构建变体命名：`rk3562`（AArch64）与 `cv1826-s`（ARMv7），不再用
 ORANGE、S6 机型名标识构建。机型 profile、设备名单和历史适配记录中的名称保持原意。
-开发包目录分别为 `build/package-rk3562/`、`build/package-cv1826/`，分发文件为
-`<AppID>.<版本下划线>-rk3562.amr`、`<AppID>.<版本下划线>-cv1826.amr`。
-库暂存分别为 `arm64-rk3562`、`arm32-cv1826`。旧构建缓存仍可留作本地历史产物，
+开发包目录分别为 `build/package-rk3562/`、`build/package-cv1826-s/`，分发文件为
+`<AppID>.<版本下划线>-rk3562.amr`、`<AppID>.<版本下划线>-cv1826-s.amr`。
+库暂存分别为 `arm64-rk3562`、`arm32-cv1826-s`。旧构建缓存仍可留作本地历史产物，
 不要直接移动含绝对路径的CMake缓存；新目标使用独立构建目录。
+
+`cv1826-s` 表示当前 S6 使用的构建变体；芯片型号仍为 CV1826，硬件识别与设备 profile 不变。
