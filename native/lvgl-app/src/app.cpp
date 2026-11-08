@@ -2631,20 +2631,36 @@ void App::cameraPage() {
   lv_obj_update_layout(body_);
   const int w=lv_obj_get_width(body_),h=lv_obj_get_height(body_);
   const auto workspace=layout().cameraWorkspace(w,h,cameraAngle_%180!=0);
-  auto preview=box(body_,workspace.preview.x,workspace.preview.y,workspace.preview.width,workspace.preview.height,theme::sidebar);
+  auto preview=box(body_,workspace.preview.x,workspace.preview.y,workspace.preview.width,workspace.preview.height,theme::background);
   lv_obj_set_scrollable(preview,false);
   cameraImage_=imageWidget(preview);lv_obj_center(cameraImage_);
-  button(body_,cameraAutomatic_?"自动方向":"方向已锁定",workspace.direction.x,workspace.direction.y,workspace.direction.width,workspace.direction.height,
-         [this]{events_.push("camera_mode",{{"auto",!cameraAutomatic_},{"angle",cameraAngle_}});});
+  auto auxiliary=[this](const LayoutRect &area,const std::string &name,const std::string &title,std::function<void()> action) {
+    auto control=button(body_,"",area.x,area.y,area.width,area.height,
+      [this,action]{if(!cameraCapturing_)action();},theme::background);
+    lv_obj_set_style_radius(control,12,0);
+    lv_obj_set_style_bg_color(control,lv_color_hex(theme::surface),LV_STATE_PRESSED);
+    const bool stacked=area.height>=64;
+    auto mark=box(control,stacked?(area.width-28)/2:6,stacked?4:(area.height-28)/2,28,28);
+    lv_obj_set_style_bg_opa(mark,LV_OPA_TRANSP,0);lv_obj_set_scrollable(mark,false);lv_obj_set_clickable(mark,false);
+    attachIcon(mark,name,theme::text);
+    auto caption=label(control,title,stacked?2:36,stacked?40:(area.height-24)/2,
+      area.width-(stacked?4:40),stacked?16:15,theme::muted);
+    lv_obj_set_height(caption,24);lv_label_set_long_mode(caption,LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);
+    lv_obj_set_clickable(caption,false);
+  };
+  auxiliary(workspace.direction,cameraAutomatic_?"orientation-auto":"orientation-lock",
+    cameraAutomatic_?"自动方向":"锁定方向",
+    [this]{events_.push("camera_mode",{{"auto",!cameraAutomatic_},{"angle",cameraAngle_}});});
   auto shutter=box(body_,workspace.shutter.x,workspace.shutter.y,workspace.shutter.width,workspace.shutter.height,theme::background);
   lv_obj_set_scrollable(shutter,false);lv_obj_set_style_radius(shutter,LV_RADIUS_CIRCLE,0);
   lv_obj_set_style_border_width(shutter,3,0);lv_obj_set_style_border_color(shutter,lv_color_hex(theme::text),0);
-  auto center=box(shutter,5,5,56,56,theme::text);lv_obj_set_style_radius(center,LV_RADIUS_CIRCLE,0);
+  auto center=box(shutter,7,7,workspace.shutter.width-14,workspace.shutter.height-14,theme::text);lv_obj_set_style_radius(center,LV_RADIUS_CIRCLE,0);
   lv_obj_set_scrollable(center,false);lv_obj_set_clickable(center,false);lv_obj_center(center);
   onClick(shutter,[this]{if(!cameraCapturing_){cameraCapturing_=true;camera_.capture(cameraAngle_);}});
-  button(body_,"转向 90°",workspace.turn.x,workspace.turn.y,workspace.turn.width,workspace.turn.height,
-         [this]{events_.push("camera_mode",{{"auto",false},{"angle",(cameraAngle_+90)%360}});});
-  status_=label(preview,cameraError_.empty()?"相机启动中…":cameraError_,12,12,lv_obj_get_width(preview)-24,19,theme::muted);
+  auxiliary(workspace.turn,"rotate90","转向90°",
+    [this]{events_.push("camera_mode",{{"auto",false},{"angle",(cameraAngle_+90)%360}});});
+  status_=label(preview,cameraError_.empty()?"相机启动中…":cameraError_,12,layout().portrait()?layout().safeTop()+56:12,lv_obj_get_width(preview)-24,19,theme::muted);
 }
 void App::albumPage() {
   int w = layout().contentWidth();
@@ -3863,6 +3879,18 @@ Json App::diagnostics() const {
       {"camera_ready",
        cameraImage_ && textures_.count(cameraImage_) && cameraError_.empty()},
       {"camera_angle", cameraAngle_},
+      {"camera_controls", [this] {
+        Json controls=Json::object();
+        if(view_!="camera"||!body_)return controls;
+        lv_area_t body;lv_obj_get_coords(body_,&body);
+        const auto workspace=layout().cameraWorkspace(lv_obj_get_width(body_),lv_obj_get_height(body_),cameraAngle_%180!=0);
+        auto add=[&](const char *name,const LayoutRect &r) {
+          controls[name]={body.x1+r.x,body.y1+r.y,body.x1+r.x+r.width-1,body.y1+r.y+r.height-1};
+        };
+        add("preview",workspace.preview);add("direction",workspace.direction);
+        add("shutter",workspace.shutter);add("turn",workspace.turn);
+        return controls;
+      }()},
       {"camera_transforms", {{"preview", camera_.transforms(cameraAngle_).preview},
                              {"workspace", camera_.transforms(cameraAngle_).workspace},
                              {"saved", camera_.transforms(cameraAngle_).saved}}},

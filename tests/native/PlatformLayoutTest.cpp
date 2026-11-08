@@ -55,6 +55,30 @@ int main() {
   assert(classifyLayout(900,300)==LayoutClass::WideLandscape);
   assert(classifyLayout(899,300)==LayoutClass::CompactLandscape);
   assert(classifyLayout(600,200)==LayoutClass::WideLandscape);
+  // Camera: compact bottom row in tall workspaces, a side rail when wide.
+  for(auto size:{std::make_pair(568,1210),std::make_pair(600,1280),std::make_pair(960,266),std::make_pair(936,280),std::make_pair(640,260)}) {
+    const AppLayout layout{size.first,size.second};
+    for(bool quarter:{false,true}) {
+      const int w=!layout.portrait()&&quarter?size.second:size.first-(layout.portrait()?0:90);
+      const int h=!layout.portrait()&&quarter?size.first-56:size.second;
+      const auto c=layout.cameraWorkspace(w,h,quarter);
+      for(const auto r:{c.preview,c.direction,c.shutter,c.turn})
+        assert(r.x>=0&&r.y>=0&&r.width>=44&&r.height>=44&&r.x+r.width<=w&&r.y+r.height<=h);
+      assert(c.shutter.width==c.shutter.height);
+      if(layout.portrait()||quarter) {
+        assert(c.direction.x+c.direction.width<c.shutter.x);
+        assert(c.shutter.x+c.shutter.width<c.turn.x);
+        assert(c.direction.y==c.turn.y&&c.direction.height==c.turn.height);
+        assert(c.preview.y+c.preview.height<c.direction.y);
+        assert(std::abs(2*c.shutter.x+c.shutter.width-w)<=1);
+        if(layout.portrait())assert(c.shutter.y+c.shutter.height<=h-layout.safeBottom());
+      } else {
+        assert(c.direction.y+c.direction.height<c.shutter.y);
+        assert(c.shutter.y+c.shutter.height<c.turn.y);
+        assert(c.preview.x+c.preview.width<c.direction.x);
+      }
+    }
+  }
   Json y02={{"screen",{{"width",936},{"height",280},{"direction",270},{"tp_direction",270}}}};
   const auto y02Screen=Screen::fromConfig(y02);
   assert(y02Screen.width==936&&y02Screen.height==280);

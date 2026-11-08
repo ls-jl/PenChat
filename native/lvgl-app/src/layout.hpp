@@ -51,10 +51,19 @@ struct AppLayout {
       {10,28,width-330,24},{width-305,32,200,44},{width-305,84,200,44},28,height-56};
   }
   CameraWorkspace cameraWorkspace(int w,int h,bool quarterTurn) const {
-    if(portrait()||quarterTurn)return {{8,8,w-16,h-204},{12,h-190,w-24,44},
-      {(w-72)/2,h-126,72,72},{12,h-48,w-24,44}};
-    return {{8,8,w-140,h-16},{w-130,16,124,44},
-      {w-104,(h-72)/2,72,72},{w-130,h-66,124,44}};
+    if(portrait()||quarterTurn) {
+      const int diameter=portrait()?84:72,rowHeight=104;
+      const int rowY=h-(portrait()?safeBottom():12)-rowHeight;
+      const int column=(w-diameter)/2;
+      const int auxiliary=std::min(128,column-24),left=(column-auxiliary)/2;
+      return {{8,8,w-16,rowY-24},{left,rowY+16,auxiliary,72},
+        {(w-diameter)/2,rowY+(rowHeight-diameter)/2,diameter,diameter},
+        {w-left-auxiliary,rowY+16,auxiliary,72}};
+    }
+    const int diameter=std::min(72,std::max(48,h-144));
+    return {{8,8,w-144,h-16},{w-132,12,124,48},
+      {w-70-diameter/2,(h-diameter)/2,diameter,diameter},
+      {w-132,h-60,124,48}};
   }
   GuideWorkspace guideWorkspace() const {
     const bool p=portrait();const int split=p?width-4:width/2,right=p?20:split+20;

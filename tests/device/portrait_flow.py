@@ -44,7 +44,7 @@ def run(env):
   attachment('camera');d.wait(lambda:d.state()['view']=='camera');d.wait(lambda:d.state()['camera_ready'],timeout=20)
   rss.append(int(next(l.split()[1] for l in d.shell('cat /proc/'+d.pid()+'/status').splitlines() if l.startswith('VmHWM:'))))
   if cycle==0:
-   d.capture('portrait-camera');d.tap(W//2,H-90)
+   d.capture('portrait-camera');b=d.state()['camera_controls']['shutter'];d.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
    d.wait(lambda:d.state()['view']=='crop' and d.state()['crop_loaded'],timeout=30);s=d.state();assert sorted(s['crop_source'])==[2448,3264],s['crop_source']
    d.capture('portrait-HD-crop');x,y,w,h=s['crop_selection'];pinch(x+w/2,y+h/2,2,True);assert d.state()['crop_zoom']>1.8;d.capture('portrait-HD-crop-pinch')
    remote=d.shell('find '+d.DATA+'/camera-tmp -type f').splitlines();assert len(remote)==1

@@ -61,12 +61,15 @@ def run(env):
     d.tap((bounds[0] + bounds[2]) // 2, (bounds[1] + bounds[3]) // 2)
     d.wait(lambda: d.state()['view'] == 'camera')
     d.wait(lambda: d.state()['camera_ready'], timeout=20)
+    def camera_action(name):
+        bounds=d.state()['camera_controls'][name]
+        d.tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
 
     # The portrait workspace remains fixed. These controls are defined relative
     # to its loaded logical height in AppLayout::cameraWorkspace, not a screen
     # resolution constant. Lock auto pose before exercising deterministic turns.
     if d.state()['camera_auto']:
-        d.tap(d.W // 2, d.H - 168)
+        camera_action('direction')
         d.wait(lambda: not d.state()['camera_auto'])
     poses = []
     for angle in (0, 90, 180, 270):
@@ -74,7 +77,7 @@ def run(env):
             current = d.state()['camera_angle']
             if current == angle:
                 break
-            d.tap(d.W // 2, d.H - 26)
+            camera_action('turn')
             d.wait(lambda: d.state()['camera_angle'] == (current + 90) % 360)
         state = d.wait(lambda: (s if (s := d.state())['camera_angle'] == angle
                                and s['camera_ready'] else None), timeout=20)
@@ -87,7 +90,7 @@ def run(env):
 
     # One true HD capture at the frozen 270-degree pose. Cancel the crop instead
     # of attaching/sending or touching the album opt-in checkbox.
-    d.tap(d.W // 2, d.H - 90)
+    camera_action('shutter')
     state = d.wait(lambda: (s if (s := d.state())['view'] == 'crop'
                            and s['crop_loaded'] else None), timeout=30)
     expected_size = [2448, 3264]

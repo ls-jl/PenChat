@@ -4,7 +4,8 @@ import pathlib,shlex,subprocess,time,types
 def run(env):
     d=types.SimpleNamespace(**env);W,H=d.W,d.H
     def photo(x,y,angle):
-        return (round(y),round(H-x)) if angle==90 else (round(W-x),round(H-y)) if angle==180 else (round(W-y),round(x)) if angle==270 else (round(x),round(y))
+        cx,cy=W/2,H/2;dx,dy=x-cx,y-cy
+        return tuple(round(v) for v in ((cx+dy,cy-dx) if angle==90 else (cx-dx,cy-dy) if angle==180 else (cx-dy,cy+dx) if angle==270 else (x,y)))
     def local(x,y,crop=False):
         if not crop:return round(x),round(y)
         s=d.state();a=s['camera_angle'];b=s['crop_viewport_bounds']
@@ -69,12 +70,12 @@ def run(env):
         for _ in range(4):
             current=d.state()['camera_angle']
             if current==angle:break
-            pw,ph=(H,W) if current%180 else (W,H)
-            d.tap(*photo(pw/2 if current%180 else pw-72,ph-26 if current%180 else ph-44,current))
+            b=d.state()['camera_controls']['turn']
+            d.tap(*photo((b[0]+b[2])//2,(b[1]+b[3])//2,current))
             d.wait(lambda:d.state()['camera_angle']==(current+90)%360)
         d.wait(lambda:d.state()['camera_ready'],timeout=12)
-        pw,ph=(H,W) if angle%180 else (W,H)
-        d.tap(*photo(pw/2 if angle%180 else pw-72,ph-90 if angle%180 else ph/2,angle))
+        b=d.state()['camera_controls']['shutter']
+        d.tap(*photo((b[0]+b[2])//2,(b[1]+b[3])//2,angle))
         d.wait(lambda:d.state()['view']=='crop' and d.state()['crop_loaded'],timeout=12)
         s=d.state();iw,ih=s['crop_source'];assert s['crop_source_rect']==[0,0,iw,ih]
         assert d.shell('cat /sys/kernel/gsensor/report_active')==original_report

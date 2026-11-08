@@ -214,6 +214,17 @@ void paint(lv_event_t *event) {
     line(-6, -2, 0, -2); line(-6, 3, -1, 3);
     line(7, -10, 7, -2); line(3, -6, 11, -6);
     line(5, -8, 9, -4); line(5, -4, 9, -8);
+  } else if (k == "orientation-lock" || k == "orientation-auto") {
+    rect(-7,-1,14,11,2);
+    const int offset=k=="orientation-auto"?3:0;
+    arc(180,360,5,offset,-4);
+    line(-5+offset,-4,-5+offset,-1);
+    if(!offset)line(5,-4,5,-1);
+    line(0,3,0,6);
+  } else if (k == "rotate90") {
+    rect(-5,-3,10,12,2);
+    arc(185,345,11);
+    line(11,-3,6,-3);line(11,-3,11,-8);
   } else if (k == "camera") {
     rect(-10, -6, 20, 15, 3);
     line(-5, -6, -3, -9);
