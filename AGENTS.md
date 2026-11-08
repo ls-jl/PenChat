@@ -361,7 +361,7 @@ reach libc's command launcher. Do not remove the blocker or broaden package poli
 beyond the exact runtime hash and the scanner-defined stub. Do not claim seccomp:
 this Y07 kernel does not support the required filter.
 
-Globe holds open the existing three-layout selector at 750ms while the finger is
+Globe holds open the existing three-layout selector at 500ms while the finger is
 still down. Cancel the opening key before rebuilding and absorb its release;
 never defer the menu to pointer-up or turn that release into a short tap. Keep
 450ms caret/delete timing unchanged. The list floats just above the globe, with

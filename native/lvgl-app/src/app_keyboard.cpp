@@ -5,7 +5,7 @@
 #include <cctype>
 namespace penchat {
 namespace {
-constexpr uint64_t layoutHoldMs=750;
+constexpr uint64_t layoutHoldMs=500;
 int keyboardClusterWidth(lv_obj_t *label,size_t first,size_t last) {
   const char *text=lv_label_get_text(label),*begin=text,*end=text;
   for(size_t index=0;*end&&index<last;++index) {

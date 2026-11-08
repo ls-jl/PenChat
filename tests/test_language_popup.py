@@ -20,9 +20,10 @@ for w,h in [(960,266),(568,1210)]:
     b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
     t.wait_for(lambda:e()['active'] and bool(e()['keys']))
     for index in [1,2,0]:
-     k=globe();before=e()['layout'];frame(k['x'],k['y']);time.sleep(.55)
+     k=globe();before=e()['layout'];started=time.monotonic();frame(k['x'],k['y']);time.sleep(.30)
      assert not e()['layout_menu']
-     t.wait_for(lambda:e()['layout_menu'] and e()['layout_hold'])
+     t.wait_for(lambda:e()['layout_menu'] and e()['layout_hold'],timeout=.4)
+     assert .45<=time.monotonic()-started<.75
      assert e()['layout']==before
      v=e()['layout_popup'];assert v and v[3]<k['bounds'][1] and v[0]<k['x']<v[2]
      for action in ['layout:0','layout:1','layout:2']:
@@ -43,5 +44,5 @@ for w,h in [(960,266),(568,1210)]:
     a.send('visibility',visible=True);t.wait_for(lambda:e()['active'])
     frame(k['x'],k['y'],False,True)
     assert e()['layout']==before and e()['length']==0
-    print(f'{w}x{h}, native contacts={native}: 750ms held popup, anchored list, swallowed release, selection, short tap, slide/cancel and lifecycle passed.',flush=True)
+    print(f'{w}x{h}, native contacts={native}: 500ms held popup, anchored list, swallowed release, selection, short tap, slide/cancel and lifecycle passed.',flush=True)
    finally:a.close()
