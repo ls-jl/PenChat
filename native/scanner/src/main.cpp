@@ -279,6 +279,8 @@ class Worker {
     data["profile"] = profile_.id;
     data["sensor_width"] = config_.width;
     data["sensor_height"] = config_.height;
+    data["sensor_rotation"] = config_.rotation == Rotation::Clockwise90
+        ? "clockwise90" : "counterclockwise90";
     data["hardware_armed"] = armed_;
     if (!sendPacket(fd_, data))
       throw ControlDisconnected();
@@ -286,6 +288,10 @@ class Worker {
   void calibration() {
     config_.width = profile_.width;
     config_.height = profile_.height;
+    // Optical mounting is independent of display/touch rotation. Apply this
+    // once in the engine, shared by selection, model input and raw canvas.
+    config_.rotation = profile_.id == "s6-pag7920"
+        ? Rotation::Clockwise90 : Rotation::CounterClockwise90;
     if(profile_.id=="y07-sc2356") {
       std::ifstream source(resources_+"/y07-sc2356.json");Json j;source>>j;
       if(j.value("profile",std::string())!=profile_.id || j.value("sensor_width",0)!=profile_.width ||
@@ -301,7 +307,8 @@ class Worker {
       // Independent neutral flat-field, NOT the ORANGE illumination resource.
       // Keep raw SC035GS detail; per-frame photometric estimation still runs.
       auto k = std::make_shared<Calibration>();
-      k->version = profile_.id+"-native-neutral-v1";
+      k->version = profile_.id == "s6-pag7920"
+          ? "s6-pag7920-native-cw90-neutral-v2" : profile_.id+"-native-neutral-v1";
       k->sensorWidth = profile_.width;
       k->sensorHeight = profile_.height;
       k->rotation = config_.rotation;
@@ -578,6 +585,8 @@ class Worker {
         {"calibration", config_.calibration->version},
         {"profile", profile_.id}, {"sensor_width", config_.width},
         {"sensor_height", config_.height},
+        {"sensor_rotation", config_.rotation == Rotation::Clockwise90
+            ? "clockwise90" : "counterclockwise90"},
         {"timing",
          {{"pressedUs", pressTime_},
           {"firstFrameUs", firstFrame_},
@@ -967,7 +976,7 @@ int main(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
 #ifdef SCANNER_TEST_SOURCE
-    if (a == "--simulate" || a == "--simulate-y02" || a == "--simulate-melon" || a == "--simulate-y07") {
+    if (a == "--simulate" || a == "--simulate-y02" || a == "--simulate-melon" || a == "--simulate-y07" || a == "--simulate-s6") {
       mock = true;
       mockProfile=a=="--simulate"?"orange":a.substr(std::string("--simulate-").size());
       continue;
@@ -1018,6 +1027,7 @@ int main(int argc, char **argv) {
       profile = mockProfile=="y02" ? scanProfile("Rockchip RK3562 Y02 LP4 V10 Board", "sc035gs")
               : mockProfile=="melon" ? scanProfile("Rockchip RK3562 MELON LP4 V10 Board", "ov7251")
               : mockProfile=="y07" ? scanProfile("Rockchip RK3562 Y07 LP4 V10 Board", "sc2356")
+              : mockProfile=="s6" ? scanProfile("Cvitek Cv1826 for Youdao Plum V0 version", "PIXART_PAG7920_MIPI_240P_100FPS_10BIT")
               : scanProfile("Rockchip RK3562 ORANGE LP4 V10 Board", "sc2356");
 #endif
     Worker worker(fd, slot, resources, directory, mock, profile);
