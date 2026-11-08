@@ -79,7 +79,7 @@ def run(env):
         state = d.wait(lambda: (s if (s := d.state())['camera_angle'] == angle
                                and s['camera_ready'] else None), timeout=20)
         assert not state['camera_auto']
-        expected = {'preview': 0, 'workspace': 0, 'saved': angle}
+        expected = {'preview': 270, 'workspace': 0, 'saved': angle}
         assert state['camera_transforms'] == expected, state['camera_transforms']
         assert d.pid() == native
         d.capture('camera-orientation-preview-' + str(angle))

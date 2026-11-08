@@ -2,18 +2,27 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <string>
 #include <vector>
 namespace penchat {
 // Sensor pose normalizes the saved photo, not the live view. A fixed portrait
-// workspace must show native camera pixels without rotating them on every pose
-// change. Landscape workspaces retain their inverse UI transform. Display/touch
+// workspace uses a fixed optical correction, never a changing pose rotation.
+// Landscape workspaces retain their inverse UI transform. Display/touch
 // rotation and optical mounting calibration are separate from these transforms.
 struct PhotoTransforms {
   int preview = 0, workspace = 0, saved = 0;
 };
-inline PhotoTransforms photoTransforms(int pose, bool fixedWorkspace) {
+inline int photoPreviewCorrection(const std::string &boardModel) {
+  // Physically checked Y07 optical mounting: clockwise 270 = anticlockwise 90.
+  // This is independent of Falcon's video_direction and screen geometry.
+  return boardModel.compare(0, 20, "Rockchip RK3562 Y07 ") == 0 ||
+         boardModel.compare(0, 11, "RK3562 Y07 ") == 0 ? 270 : 0;
+}
+inline PhotoTransforms photoTransforms(int pose, bool fixedWorkspace,
+                                       int previewCorrection = 0) {
   const int angle = ((pose % 360) + 360) % 360;
-  return {fixedWorkspace ? 0 : angle,
+  const int correction = ((previewCorrection % 360) + 360) % 360;
+  return {fixedWorkspace ? correction : angle,
           fixedWorkspace ? 0 : (360 - angle) % 360, angle};
 }
 // Ported from Camera's auto-orientation.js: projected gravity, smoothing and

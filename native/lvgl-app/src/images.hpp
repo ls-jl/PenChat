@@ -60,6 +60,7 @@ public:
   void start();
   void stop();
   uint64_t generation() const { return generation_.load(); }
+  PhotoTransforms transforms(int pose) const;
   void capture(int angle = 0) { captureOrientation_ = photoTransforms(angle, fixedWorkspace_).saved; save_ = true; }
   void orientation(bool automatic, int angle) { orientation_ = angle; manualOrientation_ = automatic ? -1 : angle; }
   std::shared_ptr<ImageFrame> frame();

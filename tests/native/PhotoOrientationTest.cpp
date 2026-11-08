@@ -53,6 +53,20 @@ int main() {
   }
   assert(photoTransforms(-90, true).saved == 270);
   assert(photoTransforms(450, false).preview == 90);
+  assert(photoPreviewCorrection("RK3562 Y07 V1") == 270);
+  assert(photoPreviewCorrection("Rockchip RK3562 Y07 LP4 V10 Board") == 270);
+  assert(photoPreviewCorrection("RK3562 Y02 V1") == 0);
+  assert(photoPreviewCorrection("RK3562 ORANGE V1") == 0);
+  assert(photoPreviewCorrection("RK3562 Y070 V1") == 0);
+  assert(photoPreviewCorrection("") == 0);
+  for (int pose : {0,90,180,270}) {
+    const auto y07 = photoTransforms(pose, true, 270);
+    assert(y07.preview == 270 && y07.workspace == 0 && y07.saved == pose);
+    same(rotate(raw, y07.preview), rotate(raw, 270));
+    assert(rotate(raw, y07.preview).rgb.front() == 3);
+    // A landscape screen is not opted into another board's fixed correction.
+    assert(photoTransforms(pose, false, 270).preview == pose);
+  }
 
   // A shutter keeps its frozen angle even if later samples advance the pose.
   const int shutter = photoTransforms(90, true).saved;

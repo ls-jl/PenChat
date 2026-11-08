@@ -187,6 +187,10 @@ void Images::work() {
     }
   }
 }
+PhotoTransforms Camera::transforms(int pose) const {
+  static const int correction = photoPreviewCorrection(fileText("/proc/device-tree/model", 4096));
+  return photoTransforms(pose, fixedWorkspace_, correction);
+}
 void Camera::start() {
   stop();
   stop_ = false;
@@ -294,7 +298,7 @@ void Camera::work() {
       // pixels stay in screen coordinates on a fixed portrait workspace; the
       // shutter pose below independently normalizes the full-resolution photo.
       frame->cameraPose = orientation_.load();
-      frame->rotation = photoTransforms(frame->cameraPose, fixedWorkspace_).preview;
+      frame->rotation = transforms(frame->cameraPose).preview;
       if (frame->rotation % 180) std::swap(frame->width,frame->height);
       frame->pixels.resize(size_t(frame->width) * frame->height * 4);
       camera::nv12ToBgra(bytes.data(),
