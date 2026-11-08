@@ -18,9 +18,9 @@ struct PhotoCalibration {
 inline PhotoCalibration photoCalibration(const std::string &boardModel) {
   const bool y07=boardModel.compare(0, 20, "Rockchip RK3562 Y07 ") == 0 ||
                  boardModel.compare(0, 11, "RK3562 Y07 ") == 0;
-  // Two independent corrections, both user-confirmed as anticlockwise 90 on
-  // Y07. Neither is derived from Falcon's display/touch/video rotation fields.
-  return {y07?270:0,y07?270:0};
+  // Independent user-calibrated Y07 corrections: preview anticlockwise 90,
+  // accelerometer clockwise 90. Neither follows Falcon's rotation fields.
+  return {y07?270:0,y07?90:0};
 }
 inline int photoPreviewCorrection(const std::string &boardModel) {
   return photoCalibration(boardModel).preview;
