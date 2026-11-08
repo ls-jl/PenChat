@@ -484,7 +484,8 @@ class App {
   lv_point_t editorMenuAnchor_{};
   bool editorOcrMulti_=false, editorOcrActive_=false, editorOcrBusy_=false, editorOcrShown_=false;
   bool editorTopBlocked_=false;
-  std::string editorOcrId_;
+  std::string editorOcrId_, editorOcrStopId_;
+  int64_t editorOcrStopRetry_ = 0;
   uint64_t editorOcrCapture_=0, editorPolicySequence_=0,editorOcrInserted_=0;
   bool editorTextTouch_=false, editorTextMoved_=false, editorCursorDrag_=false;
   int editorHandle_=-1, editorTextScroll_=0, editorLastTapX_=0, editorLastTapY_=0, editorTouchX_=0,editorTouchY_=0;
@@ -499,6 +500,7 @@ class App {
   lv_point_t editorPoint(size_t index) const;
   void editorOcrStart();
   void editorOcrStop();
+  void editorOcrFlushStop();
   void editorOcrResult(const Json &);
   void editorPolicy(bool active);
   lv_obj_t *editorRoot_ = nullptr, *editorText_ = nullptr, *editorReaderGuard_ = nullptr;

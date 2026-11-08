@@ -1214,8 +1214,9 @@ void App::rebuildChatControls() {
     icon(
         chatControls_, "gauge", composerWidth - 100, 2, 44, 44, [this] { effortPicker(); },
         theme::surface, theme::muted);
+  const auto preview = chatDraftPreview(draft_);
   composer_ = button(
-      chatControls_, draft_.empty() ? "询问 " PENCHAT_NAME : draft_, entryLeft, 2,
+      chatControls_, preview.empty() ? "询问 " PENCHAT_NAME : preview, entryLeft, 2,
       composerWidth - entryLeft - (gauge ? 106 : 54), 44,
       [this] {
         if (contextBusy_ || !composerTapAllowed_)
@@ -1230,7 +1231,7 @@ void App::rebuildChatControls() {
             8192, "ZhCNPreferred", {}, true, false, false, true);
       },
       theme::surface, LV_TEXT_ALIGN_LEFT);
-  if (draft_.empty())
+  if (preview.empty())
     lv_obj_set_style_text_color(lv_obj_get_child(composer_, 0),
                                 lv_color_hex(theme::muted), 0);
   const bool sendEnabled = contextBusy_ || generating_ || canSend();
@@ -3138,6 +3139,10 @@ void App::handle(const Json &m) {
       editorTopBlocked_=m.value("blocked",false);
       if(!m.value("ok",false)){editor_.notice="当前固件无法禁用下拉面板";editorBuild();}
     }
+  } else if(type=="ocr.stopped") {
+    if(!editorOcrStopId_.empty() && m.value("requestId",std::string())==editorOcrStopId_ && m.value("ok",false)) {
+      editorOcrStopId_.clear();editorOcrStopRetry_=0;editorOcrStart();
+    }
   } else if(type=="ocr.status") {
     if(editor_.active&&editorOcrActive_&&m.value("requestId",std::string())==editorOcrId_&&m.value("session",std::string())==editor_.id) {
       editorOcrBusy_=m.value("started",false);if(editorOcrBusy_){editorOcrShown_=true;editor_.notice.clear();}editorBuild();
@@ -3154,6 +3159,7 @@ void App::handle(const Json &m) {
 }
 void App::tick() {
   updateInputFocus();
+  editorOcrFlushStop();
   if(startupReadyPending_ && display_.presented()) {
     startupReadyPending_ = false;
     bridge_.send("ready");
@@ -3784,7 +3790,7 @@ Json App::diagnostics() const {
       {"compressing", contextBusy_},
       {"keyboard", keyboard_},
       {"display_visible", display_.visible()}, {"display_present_pending",display_.pending()},
-      {"ocr", editorOcrActive_},
+      {"ocr", editorOcrActive_}, {"ocr_release_pending",!editorOcrStopId_.empty()},
       {"visible", visible_}, {"input_focused",touchLeaseActive_},
       {"width", screen_.width},
       {"height", screen_.height},

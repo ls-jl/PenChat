@@ -660,14 +660,19 @@ void App::editorPolicy(bool active) {
   bridge_.send("editor.state",{{"session",editor_.id},{"sequence",++editorPolicySequence_},{"active",active}});
 }
 void App::editorOcrStop() {
-  if(editorOcrActive_)bridge_.send("ocr.cancel",{{"requestId",editorOcrId_}});
+  if(!editorOcrId_.empty()){editorOcrStopId_=editorOcrId_;editorOcrStopRetry_=0;editorOcrFlushStop();}
   editorOcrActive_=editorOcrBusy_=false;editorOcrId_.clear();editorOcrCapture_=0;editorOcrPending_.clear();
 }
+void App::editorOcrFlushStop() {
+  if(editorOcrStopId_.empty() || ticks()<editorOcrStopRetry_)return;
+  bridge_.send("ocr.cancel",{{"requestId",editorOcrStopId_}});
+  editorOcrStopRetry_=ticks()+250; // Idempotent cleanup; remain blocked until acknowledged.
+}
 void App::editorOcrStart() {
-  if(editorSelectionOnly_||!editor_.active||keyboard_||!visible_||!inputFocused_||editorOcrActive_)return;
+  if(editorSelectionOnly_||!editor_.active||keyboard_||!visible_||!inputFocused_||editorOcrActive_||!editorOcrStopId_.empty())return;
   const auto session=editor_.id;
   whenScannerReleased([this,session] {
-    if(editorSelectionOnly_||!editor_.active||editor_.id!=session||keyboard_||!visible_||!inputFocused_||editorOcrActive_)return;
+    if(editorSelectionOnly_||!editor_.active||editor_.id!=session||keyboard_||!visible_||!inputFocused_||editorOcrActive_||!editorOcrStopId_.empty())return;
     editorOcrActive_=true;editorOcrId_=uid("editor-ocr");editorOcrCapture_=0;
     bridge_.send("ocr.start",{{"requestId",editorOcrId_},{"session",session},{"mode",editorOcrMulti_?"multi":"single"},{"continuous",true}});
   });

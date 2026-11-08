@@ -34,7 +34,10 @@ export class OcrSession {
     this.manager = manager; this.appid = appid; this.emit = emit; this.active = null
   }
   start(requestId, options = {}) {
-    this.stop()
+    if (this.stop() === false) {
+      this.emit('ocr.result', { requestId, session: options.session || '', mode: options.mode === 'multi' ? 'multi' : 'single', capture: 1, confirmed: false, terminal: true, error: '系统扫描资源尚未释放，请重试。' })
+      return
+    }
     const current = { requestId, subscriptions: [], candidate: '', started: false, capture: 0, delivered: 0, pendingTimers: new Set(), continuous: options.continuous === true, session: options.session || '', mode: options.mode === 'multi' ? 'multi' : 'single' }
     this.active = current
     const metadata = () => ({ requestId, session: current.session, mode: current.mode, capture: current.capture || 1 })
@@ -84,11 +87,11 @@ export class OcrSession {
       }, 900)
     }
     try {
-      for (const name of ['addUseOcrAppId', 'deleteUseOcrAppId', 'setIsOpenScan'])
+      for (const name of ['addUseOcrAppId', 'deleteUseOcrAppId'])
         if (typeof this.manager[name] !== 'function') throw new Error('System OCR unavailable')
       if (!current.continuous && typeof this.manager.startScan !== 'function') throw new Error('System OCR unavailable')
-      const startSignal = bind('ocrStartChanged', () => {
-        if (current.started) return
+      const startSignal = bind('ocrStartChanged', active => {
+        if (active === false || current.started) return
         current.started = true; ++current.capture; current.candidate = ''; clearTimeout(current.fallback)
         clearTimeout(current.timeout)
         current.timeout = setTimeout(() => finish({ confirmed: false, error: '扫描超时，请重新扫描。' }), 45000)
@@ -114,12 +117,16 @@ export class OcrSession {
       current.previousOpen = typeof this.manager.isOpenScan === 'boolean' ? this.manager.isOpenScan : false
       current.previousImage = typeof this.manager.showImgScanMode === 'boolean' ? this.manager.showImgScanMode : false
       if (this.manager.setCurrentAppId) this.manager.setCurrentAppId(this.appid, true)
-      if (this.manager.setShowImgScanMode) this.manager.setShowImgScanMode(false)
-      current.opened = true
-      this.manager.setIsOpenScan(true)
+      if (typeof this.manager.setShowImgScanMode === 'function') { current.imageChanged = true; this.manager.setShowImgScanMode(false) }
+      // Older Global bridges (including S6) arm through currentAppId + OCR
+      // registration and do not expose the newer scan-open setter.
+      if (typeof this.manager.setIsOpenScan === 'function') {
+        current.opened = true
+        this.manager.setIsOpenScan(true)
+      } else if (typeof this.manager.setCurrentAppId !== 'function') throw new Error('System OCR registration control unavailable')
       current.registered = true
       if (this.manager.addUseOcrAppId(JSON.stringify({ appid: this.appid, scanMethod: 0, stopSoundPlayerOnHeadButtonPressed: false })) === false) throw new Error('System OCR registration failed')
-      if (typeof this.manager.startAlmondMultiScan === 'function') this.manager.startAlmondMultiScan(current.mode === 'multi' ? 1 : 0)
+      if (typeof this.manager.startAlmondMultiScan === 'function') { current.multiChanged = true; this.manager.startAlmondMultiScan(current.mode === 'multi' ? 1 : 0) }
       this.emit('ocr.status', Object.assign(metadata(), { started: false }))
       if (!current.continuous) current.timeout = setTimeout(() => finish({ confirmed: false, error: '扫描超时，请重新扫描或手动输入。' }), 45000)
       // Continuous keyboard OCR waits for the pen tip. startScan actively starts
@@ -130,19 +137,26 @@ export class OcrSession {
     }
   }
   stop() {
-    const current = this.active
-    if (!current) return
+    const current = this.active || this.pendingCleanup
+    if (!current) return true
     this.active = null
     clearTimeout(current.timeout); clearTimeout(current.fallback)
     for (const timer of current.pendingTimers) clearTimeout(timer)
     current.pendingTimers.clear()
     for (const release of current.subscriptions) { try { release() } catch (err) { /* already gone */ } }
-    if (current.registered) { try { this.manager.deleteUseOcrAppId(this.appid) } catch (err) { /* service restarting */ } }
-    if (current.opened) {
-      try { if (this.manager.startAlmondMultiScan) this.manager.startAlmondMultiScan(0) } catch (err) { /* service restarting */ }
-      try { this.manager.setIsOpenScan(current.previousOpen) } catch (err) { /* service restarting */ }
-      try { if (this.manager.setShowImgScanMode) this.manager.setShowImgScanMode(current.previousImage) } catch (err) { /* service restarting */ }
+    current.subscriptions = []
+    let released = true
+    const restore = (flag, action) => {
+      if (!current[flag]) return
+      try { if (action() === false && flag === 'registered') throw new Error('OCR unregister rejected'); current[flag] = false }
+      catch (_) { released = false }
     }
+    restore('registered', () => this.manager.deleteUseOcrAppId(this.appid))
+    restore('multiChanged', () => this.manager.startAlmondMultiScan(0))
+    restore('imageChanged', () => this.manager.setShowImgScanMode(current.previousImage))
+    restore('opened', () => this.manager.setIsOpenScan(current.previousOpen))
+    this.pendingCleanup = released ? null : current
     current.candidate = ''
+    return released
   }
 }

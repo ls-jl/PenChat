@@ -51,6 +51,7 @@ class Native:
     def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True, screen=None, bridge_send_buffer=None, onboarding=False):
         self.pending=[]
         self.official_adapter=official_adapter
+        self.ocr_cancel_ack=True
         self.directory=pathlib.Path(directory);self.directory.mkdir(parents=True,exist_ok=True)
         dbpath=self.directory/'penchat.db'
         if not dbpath.exists():
@@ -92,6 +93,7 @@ class Native:
             if value.get("type")==kind:return self.pending.pop(i)
         while True:
             value=json.loads(self.parent.recv(65536))
+            if value.get('type')=='ocr.cancel' and self.ocr_cancel_ack:self.send('ocr.stopped',requestId=value['requestId'],ok=True)
             if value.get('type')==kind:return value
             assert value.get('type')!='fatal',value
             self.pending.append(value)

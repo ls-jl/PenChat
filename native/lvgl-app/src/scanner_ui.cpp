@@ -29,7 +29,7 @@ std::string scanReason(const std::string &reason) {
 void App::syncScanner() {
   bool active = view_ == "scan" && scanId_ && scanSession_ == session_;
   bool eligible = bridge_.generation() > 0 && visible_ && inputFocused_ && !keyboard_ &&
-                  !editor_.active && (!imageViewer_ || viewerScanResult_) && !imageStoreBusy_ && !contextBusy_ && !replyBusy_ && !editorOcrActive_ &&
+                  !editor_.active && (!imageViewer_ || viewerScanResult_) && !imageStoreBusy_ && !contextBusy_ && !replyBusy_ && !editorOcrActive_ && editorOcrStopId_.empty() &&
                   !navigationOpen_ && !modal_ && !attachments_ && !pulling_ &&
                   (view_ == "chat" || active);
   scanner_.eligible(eligible, session_);

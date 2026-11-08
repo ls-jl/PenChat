@@ -49,4 +49,19 @@ inline std::string normalizedChatText(const std::string &text) {
   }
   return first == std::string::npos ? std::string() : text.substr(first, last - first);
 }
+// The capsule is one line; leading blank lines must not hide the actual draft.
+// This is a presentation copy only. Preserve the editable text and paragraphs.
+inline std::string chatDraftPreview(const std::string &draft) {
+  const auto text = normalizedChatText(draft);
+  std::string out;
+  for (size_t i = 0; i < text.size();) {
+    const auto space = chatWhitespace(text, i);
+    if (space) {
+      if (!out.empty() && out.back() != ' ') out += ' ';
+      i += space;
+    } else out += text[i++];
+  }
+  if (!out.empty() && out.back() == ' ') out.pop_back();
+  return out;
+}
 } // namespace penchat

@@ -67,6 +67,9 @@ export default {
     async boot() {
       if (this._starting || this.running || this._disposed) return
       this._starting = true
+      if (this.stopOcr() === false) {
+        this._starting = false; this.fail('系统扫描资源尚未释放，请重试'); return
+      }
       this.cancelOfficialKeyboard()
       this._generation = ++generationSeed
       this._nativeImage = false; this._navigationSequence = 0
@@ -117,7 +120,7 @@ export default {
           else if (event.type === 'navigation.state') this.navigationState(event)
           else if (event.type === 'keyboard.open') this.openKeyboard(event)
           else if (event.type === 'ocr.start') this.startOcr(event)
-          else if (event.type === 'ocr.cancel') this.stopOcr(event.requestId)
+          else if (event.type === 'ocr.cancel') this.stopOcr(event.requestId, true)
           else if (event.type === 'update.install') this.installUpdate(event)
           else if (event.type === 'finish') this.finish()
           else if (event.type === 'fatal') this.fail(event.error || '原生页面启动失败')
@@ -202,7 +205,10 @@ export default {
     startOcr(event) {
       if (!this.visible || this.keyboardOpen) { this.send('ocr.result', { requestId: event.requestId, confirmed: false, error: '当前无法启动扫描。' }); return }
       if (!this._global) this._global = new globalModule.Global()
-      this.stopOcr()
+      if (this.stopOcr() === false) {
+        this.send('ocr.result', { requestId: event.requestId, session: event.session, mode: event.mode, capture: 1, confirmed: false, terminal: true, error: '系统扫描资源尚未释放，请重试。' })
+        return
+      }
       const generation = this._generation
       this._ocrRequest = event.requestId
       this._ocr = new OcrSession(this._global, appConfig.appid, (type, data) => {
@@ -211,10 +217,15 @@ export default {
       })
       this._ocr.start(event.requestId, { session: event.session, mode: event.mode, continuous: event.continuous })
     },
-    stopOcr(requestId) {
-      if (requestId && requestId !== this._ocrRequest) return
-      if (this._ocr) this._ocr.stop()
-      this._ocr = null; this._ocrRequest = null
+    stopOcr(requestId, acknowledge = false) {
+      let ok = true
+      if (!requestId || requestId === this._ocrRequest || (this._ocr && this._ocr.pendingCleanup)) {
+        if (this._ocr) ok = this._ocr.stop() !== false
+        if (ok) { this._ocr = null; this._ocrRequest = null }
+      }
+      // Already-stopped old IDs are acknowledged without touching a newer lease.
+      if (acknowledge) this.send('ocr.stopped', { requestId, ok })
+      return ok
     },
     cancelOfficialKeyboard() {
       if (!this.keyboardOpen) return
