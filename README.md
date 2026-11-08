@@ -127,6 +127,8 @@ PenChat/
 想参与开发或了解实现？请看[开发说明](docs/DEVELOPMENT.md)，其中整理了构建、架构、设备边界与专题文档。
 
 PenChat 自有代码采用 [Apache-2.0](LICENSE)，第三方材料保留原许可。
+
+**Fork 和商业使用代码不等于获得 PenChat 名称及官方图标的使用许可。** 非官方发布版本必须使用可区分的应用名称和图标，不得冒充“PenChat 原版”“PenChat 官方版”“PenChat 最新版”等；正常注明“基于 PenChat 开发”不受影响。详见[名称与图标使用政策](TRADEMARKS.md)。
 **RKNN SDK/运行库、扫描模型及随附校准资源未获授权，不属于 Apache-2.0 授权范围；部分 Falcon/JQ SDK 文件的授权也尚未确认。** 构建成功不代表这些材料可以公开再分发。完整说明见[第三方声明](THIRD_PARTY_NOTICES.md)和 [NOTICE](NOTICE)。
 
 作者：**ls-jl** · AI 协作：**Codex（OpenAI）**
