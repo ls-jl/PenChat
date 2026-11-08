@@ -47,7 +47,7 @@ Bson bson(const Json& json) {
   return value;
 }
 Json statsJson() {
-  const auto s = submit_probe::Probe::instance().stats();
+  const auto s = penchat_compositor::Probe::instance().stats();
   return {{"installed", s.installed}, {"calls", s.calls}, {"samples", s.samples},
     {"invalid", s.invalid}, {"busy", s.busy}, {"width", s.width}, {"height", s.height},
     {"bytes", s.bytes}, {"copy_median_ms", s.copyMedianMs}, {"copy_p95_ms", s.copyP95Ms},
@@ -55,7 +55,7 @@ Json statsJson() {
     {"mode", "observe-and-original-pass-through"}, {"pixels_written_by_probe", false}};
 }
 Json compositeJson() {
-  const auto s = submit_probe::Composite::instance().stats();
+  const auto s = penchat_compositor::Composite::instance().stats();
   return {{"running", s.running}, {"original_restored", s.originalRestored}, {"focused", s.focused},
     {"child_pid", s.child}, {"system_frames", s.systemFrames}, {"output_frames", s.outputFrames},
     {"native_frames", s.nativeFrames}, {"native_taps", s.taps}, {"epoch", s.epoch},
@@ -105,8 +105,8 @@ public:
   ~Module() override {
     if (authorized_) try {
       std::lock_guard<std::mutex> lock(action_);
-      submit_probe::Composite::instance().stop(); recordComposite();
-      submit_probe::Probe::instance().stop(); record();
+      penchat_compositor::Composite::instance().stop(); recordComposite();
+      penchat_compositor::Probe::instance().stop(); record();
     } catch (...) {}
   }
   void geometry(JQFunctionInfo& info) {
@@ -120,15 +120,15 @@ public:
     std::lock_guard<std::mutex> lock(action_);
     try {
       if (!authorized_) throw std::runtime_error("Probe application identity mismatch");
-      submit_probe::Composite::instance().stop(); recordComposite();
-      submit_probe::Probe::instance().stop(); record();
+      penchat_compositor::Composite::instance().stop(); recordComposite();
+      penchat_compositor::Probe::instance().stop(); record();
       const auto cfg = screen();
       const bool copy = info[0]["copy"].bool_value();
       // A stale relay can already have been fetched by the display thread when
       // the GOT is restored. Pin the small plugin so it can always call original.
       pinPlugin();
-      auto slot = submit_probe::locate("libfalcon.so", kSymbol, kHash);
-      submit_probe::Probe::instance().start(slot, cfg.at("width").get<int>(), cfg.at("height").get<int>(), copy, 15, 30);
+      auto slot = penchat_compositor::locate("libfalcon.so", kSymbol, kHash);
+      penchat_compositor::Probe::instance().start(slot, cfg.at("width").get<int>(), cfg.at("height").get<int>(), copy, 15, 30);
       phase_ = copy ? "copy" : "pass"; recorded_ = false;
       info.post(bson(statsJson()));
     } catch (const std::exception& e) { info.postError(e.what()); }
@@ -137,18 +137,18 @@ public:
     std::lock_guard<std::mutex> lock(action_);
     try {
       if (!authorized_) throw std::runtime_error("Probe application identity mismatch");
-      submit_probe::Probe::instance().stop(); record();
-      submit_probe::Composite::instance().stop(); recordComposite();
+      penchat_compositor::Probe::instance().stop(); record();
+      penchat_compositor::Composite::instance().stop(); recordComposite();
       const auto cfg = screen();
       const auto executable = workspace_ + "/assets/bin/penchat-composite-client";
       chmod(executable.c_str(), 0755);
       pinPlugin();
-      auto slot = submit_probe::locate("libfalcon.so", kSymbol, kHash);
-      submit_probe::Composite::instance().start(slot, cfg.at("width").get<int>(), cfg.at("height").get<int>(), executable);
+      auto slot = penchat_compositor::locate("libfalcon.so", kSymbol, kHash);
+      penchat_compositor::Composite::instance().start(slot, cfg.at("width").get<int>(), cfg.at("height").get<int>(), executable);
       compositeRecorded_ = false;
       info.post(bson(compositeJson()));
     } catch (const std::exception& e) {
-      submit_probe::Composite::instance().stop(); recordComposite();
+      penchat_compositor::Composite::instance().stop(); recordComposite();
       info.postError(e.what());
     }
   }
@@ -159,18 +159,18 @@ public:
   }
   void focusComposite(JQFunctionInfo& info) {
     std::lock_guard<std::mutex> lock(action_);
-    if (authorized_) submit_probe::Composite::instance().focus(info.toParamsHolder()[0].bool_value());
+    if (authorized_) penchat_compositor::Composite::instance().focus(info.toParamsHolder()[0].bool_value());
     info.GetReturnValue().Set(authorized_);
   }
   void stopComposite(JQFunctionInfo& info) {
     std::lock_guard<std::mutex> lock(action_);
     if (!authorized_) { info.GetReturnValue().Set(false); return; }
-    submit_probe::Composite::instance().stop(); recordComposite();
+    penchat_compositor::Composite::instance().stop(); recordComposite();
     info.GetReturnValue().Set(bson(compositeJson()));
   }
   void disconnectComposite(JQFunctionInfo& info) {
     std::lock_guard<std::mutex> lock(action_);
-    if (authorized_) submit_probe::Composite::instance().disconnect();
+    if (authorized_) penchat_compositor::Composite::instance().disconnect();
     info.GetReturnValue().Set(authorized_);
   }
   void status(JQFunctionInfo& info) {
@@ -181,7 +181,7 @@ public:
   void stop(JQFunctionInfo& info) {
     std::lock_guard<std::mutex> lock(action_);
     if (!authorized_) { info.GetReturnValue().Set(false); return; }
-    submit_probe::Probe::instance().stop(); record();
+    penchat_compositor::Probe::instance().stop(); record();
     info.GetReturnValue().Set(bson(statsJson()));
   }
 };

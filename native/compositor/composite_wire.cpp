@@ -28,7 +28,7 @@
 #define F_SEAL_GROW 0x0004
 #endif
 extern char** environ;
-namespace submit_probe {
+namespace penchat_compositor {
 Geometry Geometry::make(unsigned w, unsigned h, std::size_t page) {
   if (!w || !h || w > 4096 || h > 4096 || std::uint64_t(w) * h > 4 * 1024 * 1024 ||
       !page || (page & (page - 1)) || page > 1024 * 1024)
@@ -51,54 +51,76 @@ int receivePacket(int fd, Packet& packet) {
   const auto n = recv(fd, &input, sizeof(input), MSG_DONTWAIT | MSG_TRUNC);
   if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) return 0;
   if (n != sizeof(input) || input.magic != kCompositeMagic || input.version != 1 ||
-      input.type < Wire::Hello || input.type > Wire::Stop) return -1;
+      input.type < Wire::Hello || input.type > Wire::Visibility) return -1;
   packet = input;
   return 1;
 }
 int createShared(const Geometry& g) {
-  const int fd = syscall(SYS_memfd_create, "penchat-composite-test", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+  const int fd = syscall(SYS_memfd_create, "penchat-composite", MFD_CLOEXEC | MFD_ALLOW_SEALING);
   if (fd < 0) throw std::runtime_error("Cannot allocate shared framebuffer");
   if (ftruncate(fd, g.total) || fcntl(fd, F_ADD_SEALS, F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL)) {
     close(fd); throw std::runtime_error("Cannot size/seal shared framebuffer");
   }
   return fd;
 }
-pid_t spawnClient(const std::string& executable, int socket, int shared) {
-  // posix_spawn avoids running C++/allocator work in a forked Falcon process.
-  const int childSocket = fcntl(socket, F_DUPFD_CLOEXEC, 10);
-  const int childShared = fcntl(shared, F_DUPFD_CLOEXEC, 10);
-  if (childSocket < 0 || childShared < 0) {
-    if (childSocket >= 0) close(childSocket);
-    if (childShared >= 0) close(childShared);
-    throw std::runtime_error("Cannot isolate child descriptors");
-  }
+namespace {
+pid_t spawn(const std::string& executable, int socket, int shared, int bridge,
+            const std::string& data, const std::string& workspace) {
+  const bool app = bridge >= 0;
+  // All source descriptors are above the fixed child targets, including 0/1/2.
+  int descriptors[3] = {fcntl(socket, F_DUPFD_CLOEXEC, 10), fcntl(shared, F_DUPFD_CLOEXEC, 10), -1};
+  if (app) descriptors[2] = fcntl(bridge, F_DUPFD_CLOEXEC, 10);
   posix_spawn_file_actions_t actions;
-  if (posix_spawn_file_actions_init(&actions)) {
-    close(childSocket); close(childShared);
-    throw std::runtime_error("Cannot create child actions");
-  }
-  int result = posix_spawn_file_actions_adddup2(&actions, childSocket, 3);
-  if (!result) result = posix_spawn_file_actions_adddup2(&actions, childShared, 4);
-  DIR* directory = opendir("/proc/self/fd");
-  if (!directory) result = EIO;
-  if (directory) {
-    const int own = dirfd(directory);
-    for (dirent* item; (item = readdir(directory));) {
-      char* end = nullptr;
-      const long fd = strtol(item->d_name, &end, 10);
-      if (*end || fd < 5 || fd == own) continue;
-      if (!result) result = posix_spawn_file_actions_addclose(&actions, int(fd));
+  bool initialized = false;
+  try {
+    if (descriptors[0] < 0 || descriptors[1] < 0 || (app && descriptors[2] < 0))
+      throw std::runtime_error("Cannot isolate compositor descriptors");
+    if (posix_spawn_file_actions_init(&actions)) throw std::runtime_error("Cannot create child actions");
+    initialized = true;
+    int result = posix_spawn_file_actions_adddup2(&actions, descriptors[0], 3);
+    if (!result) result = posix_spawn_file_actions_adddup2(&actions, descriptors[1], 4);
+    if (app && !result) result = posix_spawn_file_actions_adddup2(&actions, descriptors[2], 5);
+    if (app && !result) result = posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
+    const auto log = data + "/lvgl-runtime.log";
+    if (app && !result) result = posix_spawn_file_actions_addopen(&actions, 1, log.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0600);
+    if (app && !result) result = posix_spawn_file_actions_adddup2(&actions, 1, 2);
+    DIR* directory = opendir("/proc/self/fd");
+    if (!directory) result = EIO;
+    if (directory) {
+      const int own = dirfd(directory);
+      for (dirent* item; (item = readdir(directory));) {
+        char* end = nullptr;
+        const long fd = strtol(item->d_name, &end, 10);
+        if (*end || fd < (app ? 6 : 5) || fd == own) continue;
+        if (!result) result = posix_spawn_file_actions_addclose(&actions, int(fd));
+      }
+      closedir(directory);
     }
-    // The directory descriptor is CLOEXEC and is already closed before spawn.
-    closedir(directory);
+    std::vector<std::string> args{executable};
+    if (app) args.insert(args.end(), {"--bridge-fd", "5", "--compositor-fd", "3", "--compositor-memory", "4",
+                                     "--data-dir", data, "--workspace", workspace});
+    std::vector<char*> argv;
+    for (auto& arg : args) argv.push_back(&arg[0]);
+    argv.push_back(nullptr);
+    pid_t pid = -1;
+    if (!result) result = posix_spawn(&pid, executable.c_str(), &actions, nullptr, argv.data(), environ);
+    if (result) throw std::runtime_error("Cannot start native compositor application");
+    posix_spawn_file_actions_destroy(&actions);
+    for (int fd : descriptors) if (fd >= 0) close(fd);
+    return pid;
+  } catch (...) {
+    if (initialized) posix_spawn_file_actions_destroy(&actions);
+    for (int fd : descriptors) if (fd >= 0) close(fd);
+    throw;
   }
-  char* args[] = {const_cast<char*>(executable.c_str()), nullptr};
-  pid_t pid = -1;
-  if (!result) result = posix_spawn(&pid, executable.c_str(), &actions, nullptr, args, environ);
-  posix_spawn_file_actions_destroy(&actions);
-  close(childSocket); close(childShared);
-  if (result) throw std::runtime_error("Cannot start native compositor test process");
-  return pid;
+}
+}
+pid_t spawnClient(const std::string& executable, int socket, int shared) {
+  return spawn(executable, socket, shared, -1, {}, {});
+}
+pid_t spawnApplication(const std::string& executable, int socket, int shared, int bridge,
+                       const std::string& data, const std::string& workspace) {
+  return spawn(executable, socket, shared, bridge, data, workspace);
 }
 void reapClient(pid_t& pid) {
   if (pid <= 0) return;

@@ -9,7 +9,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <vector>
-using namespace submit_probe;
+using namespace penchat_compositor;
 template<class F> void waitFor(F predicate, unsigned timeout = 3000) {
   const auto start = monotonicMs();
   while (!predicate()) { assert(std::uint32_t(monotonicMs() - start) < timeout); usleep(5000); }

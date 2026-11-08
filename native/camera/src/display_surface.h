@@ -14,6 +14,10 @@ public:
   // CPU frame and retry outside LVGL rendering; do not overwrite an active DMA.
   virtual bool present(const std::uint8_t *,int,int)=0;
   virtual void hide()=0;
+  // Poll asynchronous transport failures even when the UI has no dirty pixels.
+  virtual void check() {}
+  // Shared-memory displays do not hold video/capture resources across scans.
+  virtual bool sharedCaptureSafe() const {return false;}
   // Some legacy video drivers invalidate old handles when another owner opens.
   virtual bool releaseOnHide() const {return false;}
 };

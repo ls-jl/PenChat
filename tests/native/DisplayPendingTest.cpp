@@ -4,7 +4,7 @@
 #include <vector>
 namespace {
 struct State {
-  bool available=false,fail=false,release=false;
+  bool available=false,fail=false,release=false,shared=false;
   unsigned attempts=0,accepted=0,hidden=0,created=0,destroyed=0;
   std::vector<std::uint8_t> lastAttempt,lastAccepted;
 } state;
@@ -19,6 +19,7 @@ public:
     ++state.accepted;state.lastAccepted=state.lastAttempt;return true;
   }
   bool releaseOnHide()const override{return state.release;}
+  bool sharedCaptureSafe()const override{return state.shared;}
   void hide()override{++state.hidden;}
 };
 }
@@ -71,6 +72,16 @@ int main() {
     display.visible(false);display.mediaHandoff(false);
     assert(state.created==2); // Capture completion while covered stays closed.
     display.visible(true);assert(state.created==3);
+  }
+  assert(state.created==state.destroyed);
+  state=State{};state.available=state.shared=true;
+  {
+    penchat::Display display(screen,false);lv_refr_now(display.handle());
+    assert(state.created==1&&state.accepted);
+    display.mediaHandoff(true);assert(state.destroyed==0); // No video fd to hand off.
+    display.visible(false);assert(state.hidden==1);
+    display.mediaHandoff(false);display.visible(true);lv_refr_now(display.handle());
+    assert(state.created==1&&state.accepted>=2);
   }
   assert(state.created==state.destroyed);
   lv_deinit();penchat::shutdownFonts();

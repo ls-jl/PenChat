@@ -5,7 +5,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <vector>
-using namespace submit_probe;
+using namespace penchat_compositor;
 int main() {
   Packet hello; pollfd p{3, POLLIN, 0};
   if (poll(&p, 1, 3000) <= 0 || receivePacket(3, hello) != 1) return 2;

@@ -1,5 +1,5 @@
 #pragma once
-#include "elf_slot.hpp"
+#include "presentation.hpp"
 #include <atomic>
 #include <cstdint>
 #include <mutex>
@@ -7,9 +7,7 @@
 #include <thread>
 #include <vector>
 
-namespace submit_probe {
-struct Rect { int left, top, right, bottom; };
-using Present = void (*)(void*, const Rect&, int, int);
+namespace penchat_compositor {
 struct Stats {
   bool installed = false;
   std::uint32_t calls = 0, samples = 0, invalid = 0, busy = 0;

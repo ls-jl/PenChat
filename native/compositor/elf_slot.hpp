@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <string>
 
-namespace submit_probe {
+namespace penchat_compositor {
 // A single already-resolved PLT relocation. Never patches instructions or files.
 struct Slot {
   std::uintptr_t* address = nullptr;

@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <unistd.h>
 
-namespace submit_probe {
+namespace penchat_compositor {
 namespace {
 using Clock = std::chrono::steady_clock;
 void erase(std::vector<std::uint8_t>& buffer) {

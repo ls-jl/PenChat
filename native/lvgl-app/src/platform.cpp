@@ -44,6 +44,7 @@ void Display::flush(lv_display_t *d, const lv_area_t *, uint8_t *) {
 }
 void Display::check() {
   if(!error_.empty())throw std::runtime_error(error_);
+  if(surface_)surface_->check();
   // The full LVGL CPU buffer already contains the newest frame. Retry that
   // buffer directly; no extra redraw, queue, copied snapshot or UI wait.
   if(pending_&&shown_&&surface_) {
@@ -66,6 +67,7 @@ void Display::visible(bool value) {
 }
 void Display::mediaHandoff(bool release) {
   if(headless_)return;
+  if(surface_&&surface_->sharedCaptureSafe())return;
   mediaPaused_=release;
   if(release){pending_=false;surface_.reset();}
   else if(!surface_&&shown_) {

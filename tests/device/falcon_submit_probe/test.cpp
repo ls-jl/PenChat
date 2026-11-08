@@ -9,17 +9,17 @@ int main(int argc, char** argv) {
   assert(argc == 2);
   void* library = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
   assert(library);
-  auto submit = reinterpret_cast<submit_probe::Present>(dlsym(library, "fixture_submit"));
+  auto submit = reinterpret_cast<penchat_compositor::Present>(dlsym(library, "fixture_submit"));
   auto count = reinterpret_cast<unsigned (*)()>(dlsym(library, "fixture_count"));
-  auto arguments = reinterpret_cast<bool (*)(void*, const submit_probe::Rect&, int, int)>(dlsym(library, "fixture_arguments"));
+  auto arguments = reinterpret_cast<bool (*)(void*, const penchat_compositor::Rect&, int, int)>(dlsym(library, "fixture_arguments"));
   assert(submit && count && arguments);
   char* base = strrchr(argv[1], '/');
-  auto slot = submit_probe::locate(base ? base + 1 : argv[1], "fixture_present");
-  auto& probe = submit_probe::Probe::instance();
+  auto slot = penchat_compositor::locate(base ? base + 1 : argv[1], "fixture_present");
+  auto& probe = penchat_compositor::Probe::instance();
   unsigned char pixels[13 * 7 * 4]; memset(pixels, 0x4b, sizeof(pixels));
-  const submit_probe::Rect dirty{1, 2, 9, 5};
+  const penchat_compositor::Rect dirty{1, 2, 9, 5};
   bool rejected = false;
-  try { submit_probe::locate(base ? base + 1 : argv[1], "fixture_present", "wrong"); }
+  try { penchat_compositor::locate(base ? base + 1 : argv[1], "fixture_present", "wrong"); }
   catch (...) { rejected = true; }
   assert(rejected && __atomic_load_n(slot.address, __ATOMIC_SEQ_CST) == slot.original);
   probe.start(slot, 13, 7, true, 1, 8);
@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
   assert(probe.stats().samples == 0 && probe.stats().calls == 1);
   probe.stop(); probe.stop();
   assert(probe.stats().originalRestored);
-  const auto restoredSlot = submit_probe::locate(base ? base + 1 : argv[1], "fixture_present");
+  const auto restoredSlot = penchat_compositor::locate(base ? base + 1 : argv[1], "fixture_present");
   assert(restoredSlot.protection == slot.protection && restoredSlot.original == slot.original);
   std::string error;
   assert(!slot.replace(slot.original + 1, slot.original, error));

@@ -303,9 +303,14 @@ uncommitted Y07 work. Y02/113 remains forbidden.
 
 S6 uses the same LVGL pages and keyboard state machine, scaled as a whole on its
 narrow landscape screen. Physical panel dimensions and rotation come from Falcon;
-CVI video origin additionally follows read-only cvifb start_x/start_y. Never use
-touch offsets to shift the display. Its SDK requires complete display descriptor
-and VMA release before stock CaptureFrame transitions; join VO workers first.
+S6 uses native/compositor shared-memory output through Falcon's verified original
+post_fb. Never initialize the old CVI VO display backend or fall back to it on
+an unknown firmware. Rotation occurs once in Falcon; never use touch offsets to
+shift display pixels. The main UI process holds no CVI display descriptors/VMAs;
+scanner mediaHandoff must retain this shared surface. Keep the exact ELF hash and
+slot-ownership gate, bounded ready/release slots, focus epochs and 300ms expiry.
+On app/IPC exit restore the original function and release frames/threads; retain
+only the pinned relay for in-flight calls until the host naturally exits.
 Retain the public-API 4KiB process ION anchor until final exit: the verified libsys
 otherwise frees its last-entry hashmap without resetting its open ION fd.
 S6 capture must start the VPSS consumer before enabling VI output; use full native

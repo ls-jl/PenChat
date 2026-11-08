@@ -6,6 +6,7 @@
 #include <unistd.h>
 #ifdef PENCHAT_CVI_PLATFORM
 #include <ucontext.h>
+#include "surface.hpp"
 #endif
 namespace {
 volatile sig_atomic_t running = 1, snapshotRequested = 0;
@@ -33,6 +34,9 @@ int main(int argc, char **argv) {
   std::string data, workspace, fontPath, resources, screenshot, demo,
       screenConfig = "/etc/miniapp/resources/cfg.json";
   int fd = -1, frames = 0;
+#ifdef PENCHAT_CVI_PLATFORM
+  int compositorFd = -1, compositorMemory = -1;
+#endif
   bool headless = false;
   std::unique_ptr<Bridge> bridgeOwner;
   try {
@@ -45,6 +49,10 @@ int main(int argc, char **argv) {
     };
     if (arg == "--bridge-fd")
       fd = std::stoi(value());
+#ifdef PENCHAT_CVI_PLATFORM
+    else if (arg == "--compositor-fd") compositorFd = std::stoi(value());
+    else if (arg == "--compositor-memory") compositorMemory = std::stoi(value());
+#endif
     else if (arg == "--data-dir")
       data = value();
     else if (arg == "--workspace")
@@ -110,6 +118,9 @@ int main(int argc, char **argv) {
     initializeFonts(fontPath, join(workspace, "assets/fonts/DejaVuSans.ttf"));
     struct FontCleanup { ~FontCleanup() { lv_deinit(); shutdownFonts(); } } fontCleanup;
     if(!headless&&capabilities.sharedCaptureDisplay)ScanService::recoverHardware(data);
+#ifdef PENCHAT_CVI_PLATFORM
+    if(!headless)penchat_compositor::configureDisplay(compositorFd, compositorMemory);
+#endif
     Display display(screen, headless);
     Input input;
     startup("data");

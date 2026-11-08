@@ -2,10 +2,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 #include <sys/types.h>
-namespace submit_probe {
+namespace penchat_compositor {
 constexpr std::uint32_t kCompositeMagic = 0x50435332;
-enum class Wire : std::uint32_t { Hello = 1, System = 2, ReleaseSystem = 3, Output = 4, ReleaseOutput = 5, Focus = 6, Stop = 7 };
+enum class Wire : std::uint32_t { Hello = 1, System = 2, ReleaseSystem = 3, Output = 4, ReleaseOutput = 5, Focus = 6, Stop = 7, Visibility = 8 };
 struct Packet {
   std::uint32_t magic = kCompositeMagic, version = 1;
   Wire type = Wire::Hello;
@@ -24,6 +25,9 @@ int receivePacket(int fd, Packet& packet);
 std::uint32_t monotonicMs();
 int createShared(const Geometry& geometry);
 pid_t spawnClient(const std::string& executable, int socket, int shared);
+// Map the compositor channel to 3/4, bridge to 5, redirect log and close inherited fds.
+pid_t spawnApplication(const std::string& executable, int socket, int shared, int bridge,
+                       const std::string& data, const std::string& workspace);
 void reapClient(pid_t& pid);
 // Both inputs and output use packed BGRA, premultiplied alpha. Alias-free.
 void blendOver(const std::uint8_t* system, const std::uint8_t* native,

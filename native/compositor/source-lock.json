@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "license": "Apache-2.0",
+  "firmware_gate": {
+    "board": "S6 / CV1826 / Plum",
+    "library": "libfalcon.so",
+    "sha256": "11e46687d3c7301d3049d02d84144ee37e5a9994ca5ec1e9f5eaf278db92519b",
+    "symbol": "_ZN7greenui7post_fbEPvRKNS_4RectEii"
+  },
+  "adapters": {
+    "native/compositor/composite.cpp": "5cc97ac3e4d8ee594e8acc679aba0d7ee9383a70f8a266a79a46537a1309c273",
+    "native/compositor/composite.hpp": "c025a82b6339f09f29500b2aae74bb7e1a721c56ff76bdc86bea96c6e82c0de4",
+    "native/compositor/composite_wire.cpp": "cab65fdd3f1527841dad3127aebd9a41275ded63963012d942469daf1a63f34e",
+    "native/compositor/composite_wire.hpp": "eedc29bdf404d5f3047a6085e9f0b5c7d078d401c1307ec564cd5c4b741777a7",
+    "native/compositor/elf_slot.cpp": "44e9ca2c431e92b8c0b560d82111d1e7ddece37434a0840b42685a4408064d8d",
+    "native/compositor/elf_slot.hpp": "c02c3b20bff1728d7b4b1bea725553de3653c9e2c8715db03e9049faee46dbcd",
+    "native/compositor/presentation.hpp": "9401c60ba328f50f2231e1623bba9ec9d7f0e20717f094922ef16495096eb3ef",
+    "native/compositor/surface.cpp": "581321e3228827a14ce70fcdf28dbf7fbfe287a8a7517aa671e216e2b1cbfb34",
+    "native/compositor/surface.hpp": "3a36551a2bf0df07762f3d08f7635dd754a55fa836f36d16e3b23db141a0151c"
+  }
+}

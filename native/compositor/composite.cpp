@@ -8,7 +8,7 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <unistd.h>
-namespace submit_probe {
+namespace penchat_compositor {
 namespace {
 using Clock = std::chrono::steady_clock;
 double milliseconds(Clock::time_point start) {
@@ -24,11 +24,16 @@ double median(const std::array<double, 64>& values, unsigned count) {
 }
 Composite& Composite::instance() { static auto* value = new Composite; return *value; }
 bool Composite::freshFocus() const {
-  return focused_.load() && std::uint32_t(monotonicMs() - focusAt_.load()) <= 300;
+  return nativeVisible_.load() && focused_.load() && std::uint32_t(monotonicMs() - focusAt_.load()) <= 300;
 }
 void Composite::start(const Slot& slot, int width, int height, const std::string& executable, unsigned seconds) {
+  if (seconds < 1 || seconds > 30) throw std::runtime_error("Invalid test composite lease");
+  start(slot, width, height, [&](int socket, int shared) { return spawnClient(executable, socket, shared); }, seconds, true);
+}
+void Composite::start(const Slot& slot, int width, int height, const std::function<pid_t(int,int)>& spawn, unsigned seconds, bool ownChild) {
   stop();
-  if (seconds < 1 || seconds > 30 || !slot.address || !slot.original) throw std::runtime_error("Invalid composite lease");
+  if (seconds > 30 || !slot.address || !slot.original || !spawn) throw std::runtime_error("Invalid composite session");
+  ownChild_ = ownChild; nativeVisible_ = true;
   geometry_ = Geometry::make(width, height, sysconf(_SC_PAGESIZE));
   slot_ = slot; original_ = reinterpret_cast<Present>(slot.original);
   systemFrames_ = 0; outputFrames_ = 0; coalesced_ = 0; rejected_ = 0;
@@ -50,7 +55,7 @@ void Composite::start(const Slot& slot, int width, int height, const std::string
     if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0, pair))
       throw std::runtime_error("Cannot create compositor channel");
     socket_ = pair[0];
-    try { child_ = spawnClient(executable, pair[1], shared_); }
+    try { child_ = spawn(pair[1], shared_); }
     catch (...) { close(pair[1]); throw; }
     close(pair[1]);
     Packet hello;
@@ -156,7 +161,7 @@ void Composite::loop() {
   std::string reason = "stopped";
   try {
     while (!quit_) {
-      if (std::uint32_t(monotonicMs() - started_) >= deadline_) { reason = "deadline"; break; }
+      if (deadline_ && std::uint32_t(monotonicMs() - started_) >= deadline_) { reason = "deadline"; break; }
       const bool currentFocus = freshFocus();
       if (lastFocus && !currentFocus) { postLatestSystem(); passthrough_ = true; }
       lastFocus = currentFocus;
@@ -170,7 +175,10 @@ void Composite::loop() {
         const auto result = receivePacket(socket_, packet);
         if (!result) break;
         if (result < 0) throw std::runtime_error("malformed_or_closed_channel");
-        if (packet.type == Wire::ReleaseSystem) {
+        if (packet.type == Wire::Visibility) {
+          if (packet.value > 1) throw std::runtime_error("invalid_visibility");
+          nativeVisible_ = packet.value != 0;
+        } else if (packet.type == Wire::ReleaseSystem) {
           std::lock_guard<std::mutex> system(systemMutex_);
           if (packet.index >= 2 || freeSystem_[packet.index] || slotSequence_[packet.index] != packet.sequence)
             throw std::runtime_error("invalid_system_release");
@@ -223,7 +231,7 @@ void Composite::releaseResources() {
   { std::lock_guard<std::mutex> channel(channelMutex_);
   if (socket_ >= 0) { Packet p; p.type = Wire::Stop; sendPacket(socket_, p); shutdown(socket_, SHUT_RDWR); close(socket_); socket_ = -1; }
   }
-  pid_t pid = child_.load(); reapClient(pid); child_ = pid;
+  pid_t pid = child_.load(); if (ownChild_) reapClient(pid); child_ = -1;
   if (systems_) munmap(systems_, 2 * geometry_.slotBytes);
   if (outputs_) munmap(const_cast<std::uint8_t*>(outputs_), 2 * geometry_.slotBytes);
   systems_ = nullptr; outputs_ = nullptr;

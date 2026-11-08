@@ -14,7 +14,7 @@
 #include <unistd.h>
 #include <vector>
 
-namespace submit_probe {
+namespace penchat_compositor {
 namespace {
 struct Module {
   std::uintptr_t base = 0;

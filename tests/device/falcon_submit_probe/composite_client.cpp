@@ -10,7 +10,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
-using namespace submit_probe;
+using namespace penchat_compositor;
 namespace {
 struct Pointer { int x = 0, y = 0; bool down = false; };
 struct Sample {
