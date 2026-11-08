@@ -52,8 +52,11 @@ int main(int argc, char** argv) {
   waitFor([&] { composite.focus(true); return composite.stats().outputFrames >= 5; });
   assert(pixel() == 0xff123456 && composite.stats().systemFrames == 1);
   for (auto byte : a) assert(byte == 0);
-  // A suspended bridge must not keep displaying/inputting a native layer.
+  // A brief heavy scan must not flash the transparent system frame. This
+  // lease is display-only; native input expiry remains independently bounded.
   usleep(420000);
+  assert(composite.stats().focused && pixel() == 0xff123456);
+  // A genuinely suspended bridge still loses the underlay after the deadline.
   waitFor([&] { return !composite.stats().focused && pixel() == 0; });
   const auto resumedFrom = composite.stats().outputFrames;
   composite.focus(true); submit(a.data(), all, 13, 7);

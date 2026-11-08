@@ -46,7 +46,7 @@ struct SystemMemory {
 SystemMemory systemMemory();
 struct Limits {
     unsigned maxSessions = 4;
-    unsigned idleModelMs = 5000; // 0 retains a healthy model until shutdown.
+    unsigned idleModelMs = 0; // Retain a healthy model until process shutdown by default.
     // Optional deterministic source for tests. Production reads procfs.
     std::function<SystemMemory()> memoryProbe;
     std::function<bool(std::size_t)> allocationProbe; // Optional allocation-failure injection.

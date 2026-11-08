@@ -306,6 +306,9 @@ class Worker {
     data["processing_height"] = config_.height;
     data["sensor_rotation"] = rotationName(config_.rotation);
     data["hardware_armed"] = armed_;
+    const auto model = engine_->modelPreparation();
+    data["model_ready"] = model.state == ModelState::Ready;
+    data["model_prepared_us"] = model.elapsedUs;
     if (!sendPacket(fd_, data))
       throw ControlDisconnected();
   }
@@ -407,15 +410,20 @@ class Worker {
   }
   void disarm() {
     light_.off();
-    hardware_.close();
     armed_ = false;
     ocrKeys_ = false;
     keyDown_ = false;
     state_ = "disarmed";
-    // Camera, key and guardian are restored before imposing an exit bound on
-    // cancelled work. A stuck NPU call must not leave a detached worker alive.
-    DrainDeadline deadline;
-    release(true);
+    // Do not let the stock owner rebuild shared media resources while our NN
+    // warmup/inference still uses them. Finish cancellation before handback;
+    // the bounded exit and parent's saved lease cover a stuck vendor call.
+    {
+      DrainDeadline deadline;
+      release(true);
+      while (engine_->modelPreparation().state == ModelState::Preparing)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    hardware_.close();
     lease_ = Json();
   }
   void begin(int64_t pressedUs = 0) {

@@ -6,6 +6,9 @@
 #include <sys/types.h>
 namespace penchat_compositor {
 constexpr std::uint32_t kCompositeMagic = 0x50435332;
+// Display underlay only: tolerate short CPU/SDK stalls during scanning. Explicit
+// hide/background/disconnect still revoke immediately; input has its own lease.
+constexpr std::uint32_t kDisplayLeaseMs = 1500;
 enum class Wire : std::uint32_t { Hello = 1, System = 2, ReleaseSystem = 3, Output = 4, ReleaseOutput = 5, Focus = 6, Stop = 7, Visibility = 8 };
 struct Packet {
   std::uint32_t magic = kCompositeMagic, version = 1;

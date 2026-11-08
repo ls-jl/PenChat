@@ -71,7 +71,7 @@ class Surface final : public camera::DisplaySurface {
           } else throw std::runtime_error("Unexpected compositor packet");
         }
         const unsigned now = monotonicMs();
-        if (std::uint32_t(now - heartbeat) > 300) focused = false;
+        if (std::uint32_t(now - heartbeat) > kDisplayLeaseMs) focused = false;
         std::lock_guard<std::mutex> lock(mutex_);
         if (announced != visible_) {
           Packet p; p.type = Wire::Visibility; p.value = visible_ ? 1 : 0; send(p); announced = visible_;

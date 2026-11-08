@@ -1,7 +1,7 @@
 {
   "source_commit": "21bfd280fbb97969ff7883d107aeaa8f21982fc7",
   "files": {
-    "engine/include/pen_stream/stream.hpp": "8632774c68097c3dbdf2a74207d546681fcb2153531a6abb458e285e2ebf9787",
+    "engine/include/pen_stream/stream.hpp": "b8a4de620c117525b3433f1302ff152db3061852dfaa5dcb26eb7ef8a8695090",
     "engine/include/rknn/rknn_api.h": "c48e11a6f41b451a5fd1e4ad774ea60252d3d94f78bee9b21ea3d21b21deba9a",
     "engine/src/canvas.cpp": "5810e4049196048818f861bcc6e957d92a9cacf98b60272bed1765fe72311173",
     "engine/src/geometry.cpp": "c000d303ebc84aa9696b658dae838499c0e0fb9152814e539b70d84625132842",
@@ -14,7 +14,7 @@
     "engine/src/stream.cpp": "e33eda1721298f628abd779424958e643a8d9b55c5c4838c9e9bf37c6ab29acd",
     "engine/tests/fake_runtime.cpp": "2d7f7780a3faa239bb39c7e152a06a218554559a1f3b5f540602314a666a2da8",
     "engine/tests/test_adapter.cpp": "90d08f0fad9d704c7664f7c6c017638b7c9f24bc28fdff18bd3086de41e84cc0",
-    "engine/tests/test_stream.cpp": "7eed65667c7dd25cd097571dfc644cf75125dd2b9f1be23a1dd23d2d830aaae0",
+    "engine/tests/test_stream.cpp": "248e5990d942ca45f92d2adbb26e62ded2c8305356288785372b2fda7c62bbab",
     "tests/replay.cpp": "546dc6a7b0800f18f61f0e6d12c1e6e92b7442db22ffa41158f58337ac74ee0c",
     "tests/test_memory.cpp": "ec8a65107315dcdb57ab6b24426f7fa310720b1f23b1b7f8cf8ec445cea82cf8",
     "tests/selection_golden.cpp": "ae11c32603f89a5a6236d374208c03a544729fba0b295731cd24f6dc43f6a5c3",
@@ -23,7 +23,7 @@
     "src/memory_policy.hpp": "ad5ca5cb32d7debc4e0009a89f8d892ca6ee4b520de4c4b0790f5362f6077886",
     "src/runtime_io.hpp": "1920f786a5faf268e9f14a21274690b8c280fa5006a234d1a9c251e4f857ef94",
     "src/runtime_guard.cpp": "2866a54afd4e71a58e84e8362392cc462cbadebda95cdcd85f32514a30c50fb9",
-    "src/main.cpp": "d5005b3bbc8364c298b949b2560fe9fc08d814334534c26bbe48f639b137a5c6",
+    "src/main.cpp": "382e0bfac2397d7c91bf3a9960209e7de551e9fc66a4a75ba4d2847435fb415f",
     "runtime-symbols.list": "868ca8503bbdbfab6029fe3fca3aceb20e76b4908f63be8bfdcf0f9c9ac92951",
     "tests/test_runtime_io.cpp": "726a9a9e417ad3520743a286ae755f0c857a7b164d74b7b9ea22525c31fd7d05",
     "src/hardware.cpp": "c0b5b21ae35e086bf72e3def8819ed4f12a100faf4da6e0b5711d382946fdc83",

@@ -24,7 +24,7 @@ double median(const std::array<double, 64>& values, unsigned count) {
 }
 Composite& Composite::instance() { static auto* value = new Composite; return *value; }
 bool Composite::freshFocus() const {
-  return nativeVisible_.load() && focused_.load() && std::uint32_t(monotonicMs() - focusAt_.load()) <= 300;
+  return nativeVisible_.load() && focused_.load() && std::uint32_t(monotonicMs() - focusAt_.load()) <= kDisplayLeaseMs;
 }
 void Composite::start(const Slot& slot, int width, int height, const std::string& executable, unsigned seconds) {
   if (seconds < 1 || seconds > 30) throw std::runtime_error("Invalid test composite lease");

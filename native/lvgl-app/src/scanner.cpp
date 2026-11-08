@@ -28,32 +28,6 @@ struct ScanService::Impl {
   Json status = Json::object(), lease;
   const CaptureProfile profile=detectedScanProfile();
   const bool sharedMedia=profile.cvi;
-  uint64_t mediaToken=0,mediaAck=0;bool displayHeld=false;
-  void yieldDisplay() {
-    if(!sharedMedia||displayHeld)return;
-    std::unique_lock<std::mutex> lock(mutex);const auto token=++mediaToken;
-    events.push("scan_media_release",{{"token",token}});
-    if(!cv.wait_for(lock,std::chrono::seconds(3),[&]{return mediaAck>=token||stopped;}))
-      throw std::runtime_error("native display handoff timed out");
-    displayHeld=true;
-  }
-  void resumeDisplay(bool systemOwner=false) {
-    if(!sharedMedia||!displayHeld||stopped)return;
-    if(systemOwner) {
-      // The stock owner must finish rebuilding its two VPSS outputs before a
-      // new VO file description is opened. Never race its broad SYS init.
-      const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(4);
-      int stable=0;
-      while(std::chrono::steady_clock::now()<end) {
-        const auto text=fileText("/proc/cvitek/vpss",65536);
-        if(text.find("NV12")!=std::string::npos&&text.find("YUV_400")!=std::string::npos)++stable;else stable=0;
-        if(stable>=3)break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      }
-      if(stable<3)throw std::runtime_error("system capture recovery timed out");
-    }
-    displayHeld=false;events.push("scan_media_resume");
-  }
   std::deque<Json> commands;
   int socket = -1, memory = -1, processLock = -1;
   pid_t child = -1;
@@ -211,7 +185,6 @@ struct ScanService::Impl {
       throw std::runtime_error("cannot start scanner");
   }
   void cleanup() {
-    if(sharedMedia)try{yieldDisplay();}catch(...){}
     if (socket >= 0) {
       close(socket);
       socket = -1;
@@ -285,8 +258,6 @@ struct ScanService::Impl {
         if (socket < 0 && !outgoing.empty())
           start();
         for (auto &j : outgoing) {
-          const auto type=j.value("type",std::string());
-          if(type=="disarm"||type=="cancel")yieldDisplay();
           if (!sendPacket(socket, j))throw std::runtime_error("scanner command failed");
         }
         if (socket < 0)
@@ -307,12 +278,13 @@ struct ScanService::Impl {
             throw std::runtime_error(
                 j.value("error", std::string("scanner failed")));
           if(type=="media_yield") {
-            yieldDisplay();auto ack=j;ack["type"]="media_ack";
+            // S6 composes through Falcon shared slots, not CVI VO. Capture
+            // handoff must never pause/recreate the display or wait on LVGL.
+            auto ack=j;ack["type"]="media_ack";
             if(!sendPacket(socket,ack))throw std::runtime_error("media release acknowledgement failed");
             continue;
           }
           if (type == "lease") {
-            yieldDisplay();
             lease = j.at("lease");
             if(sharedMedia)atomicText(join(data,"scanner-lease.json"),lease.dump());
             Json ack = j;
@@ -328,17 +300,12 @@ struct ScanService::Impl {
               continue;
             status = j;
             if (type == "released") {
-              disarmed = !sharedMedia;
+              disarmed = true;
               if(sharedMedia&&scanLeaseRestored(lease))unlink(join(data,"scanner-lease.json").c_str());
               lease = Json();
             }
             if (type == "error" || type == "fatal")
-              disarmed = !sharedMedia;
-          }
-          if(type=="ready")resumeDisplay();
-          if(type=="released"||type=="error") {
-            resumeDisplay(true);
-            std::lock_guard<std::mutex> l(mutex);disarmed=true;
+              disarmed = true;
           }
           if (type == "preview" || type == "progress")
             events.pushLatest("scan_" + type, j);
@@ -356,7 +323,6 @@ struct ScanService::Impl {
           j["error"] = e.what();
           status = j;
         }
-        try{resumeDisplay(true);}catch(...){}
         events.push("scan_error", j);
       }
     }
@@ -380,9 +346,6 @@ ScanService::ScanService(Events &e, const std::string &w, const std::string &d)
     : p_(new Impl(e, w, d)) {}
 ScanService::~ScanService() = default;
 void ScanService::stop() { p_->stop(); }
-void ScanService::mediaReleased(uint64_t token) {
-  std::lock_guard<std::mutex> lock(p_->mutex);p_->mediaAck=std::max(p_->mediaAck,token);p_->cv.notify_all();
-}
 void ScanService::eligible(bool enabled, const std::string &session, bool ocrKeys) {
   std::lock_guard<std::mutex> l(p_->mutex);
   if (!p_->available || p_->stopped)

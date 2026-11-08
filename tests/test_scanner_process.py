@@ -39,9 +39,37 @@ class Scanner:
         self.memory.close();os.close(self.fd);self.log.close()
 
 def run():
+    with tempfile.TemporaryDirectory(prefix='penchat-scan-cold-cancel-') as directory:
+        s = Scanner(directory, slow_ms=200, wait_ready=False)
+        try:
+            s.receive('preparing')
+            s.send('disarm')
+            released = s.receive('released')
+            assert released['model_ready'] and not released['hardware_armed'], released
+            warmup = released['model_prepared_us']
+            s.generation += 1
+            s.send('arm')
+            ready = s.receive('ready')
+            assert ready['model_ready'] and ready['model_prepared_us'] == warmup
+        finally:
+            s.close()
     with tempfile.TemporaryDirectory(prefix='penchat-scanner-') as directory:
         s=Scanner(directory)
         try:
+            # Page/editor/background handoffs release hardware only. A prepared
+            # model stays ready and reuses its original warmup in this worker.
+            warmup = None
+            for _ in range(4):
+                s.send('disarm')
+                released = s.receive('released')
+                assert released['model_ready'] and not released['hardware_armed'], released
+                if warmup is None: warmup = released['model_prepared_us']
+                assert released['model_prepared_us'] == warmup and s.process.poll() is None
+                s.generation += 1
+                s.send('arm')
+                ready = s.receive('ready')
+                assert ready['model_ready'] and ready['hardware_armed'], ready
+                assert ready['model_prepared_us'] == warmup
             s.press();s.release()
             empty=s.receive('finished');assert not empty['usable'] and empty['counts']['received']==0
             # A fresh down retries empty results; repeated down is not a new scan.
