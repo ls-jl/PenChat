@@ -4,6 +4,7 @@
 #include "jqutil_v2/jqutil.h"
 #include "jsmodules/JSCModuleExtension.h"
 #include "probe.hpp"
+#include "composite.hpp"
 #include <nlohmann/json.hpp>
 #include <dlfcn.h>
 #include <fstream>
@@ -53,6 +54,16 @@ Json statsJson() {
     {"copy_max_ms", s.copyMaxMs}, {"original_restored", s.originalRestored}, {"error", s.error},
     {"mode", "observe-and-original-pass-through"}, {"pixels_written_by_probe", false}};
 }
+Json compositeJson() {
+  const auto s = submit_probe::Composite::instance().stats();
+  return {{"running", s.running}, {"original_restored", s.originalRestored}, {"focused", s.focused},
+    {"child_pid", s.child}, {"system_frames", s.systemFrames}, {"output_frames", s.outputFrames},
+    {"native_frames", s.nativeFrames}, {"native_taps", s.taps}, {"epoch", s.epoch},
+    {"coalesced", s.coalesced}, {"rejected", s.rejected}, {"elapsed_ms", s.elapsedMs},
+    {"shared_bytes", s.sharedBytes}, {"copy_median_ms", s.copyMedianMs},
+    {"blend_median_ms", s.blendMedianMs}, {"present_median_ms", s.presentMedianMs},
+    {"reason", s.reason}, {"mode", "isolated-shared-memory-lvgl-sample"}};
+}
 void pinPlugin() {
   static void* pinned = nullptr;
   if (pinned) return;
@@ -64,8 +75,17 @@ void pinPlugin() {
 }
 class Module : public JQBaseObject {
   std::mutex action_;
-  std::string data_, phase_;
+  std::string data_, workspace_, phase_;
+  bool compositeRecorded_ = true;
   bool recorded_ = true, authorized_ = false;
+  void recordComposite() {
+    if (compositeRecorded_ || data_.empty()) return;
+    const auto s = compositeJson();
+    if (s.at("running").get<bool>() || !s.at("original_restored").get<bool>() || s.at("child_pid").get<int>() >= 0) return;
+    const auto path = data_ + "/composite-probe.json";
+    std::ofstream file(path, std::ios::trunc);
+    if (file) { file << s.dump(2) << '\n'; file.close(); chmod(path.c_str(), 0600); compositeRecorded_ = true; }
+  }
   void record() {
     if (recorded_ || data_.empty() || phase_.empty()) return;
     const auto s = statsJson();
@@ -77,11 +97,15 @@ class Module : public JQBaseObject {
 public:
   void OnCtor(JQFunctionInfo& info) override {
     authorized_ = JQuick::getAppid(info.GetContext()) == PENCHAT_SUBMIT_PROBE_APP_ID;
-    if (authorized_) data_ = JQuick::getDataDir(info.GetContext());
+    if (authorized_) {
+      data_ = JQuick::getDataDir(info.GetContext());
+      workspace_ = JQuick::getWorkspace(info.GetContext());
+    }
   }
   ~Module() override {
     if (authorized_) try {
       std::lock_guard<std::mutex> lock(action_);
+      submit_probe::Composite::instance().stop(); recordComposite();
       submit_probe::Probe::instance().stop(); record();
     } catch (...) {}
   }
@@ -96,6 +120,7 @@ public:
     std::lock_guard<std::mutex> lock(action_);
     try {
       if (!authorized_) throw std::runtime_error("Probe application identity mismatch");
+      submit_probe::Composite::instance().stop(); recordComposite();
       submit_probe::Probe::instance().stop(); record();
       const auto cfg = screen();
       const bool copy = info[0]["copy"].bool_value();
@@ -107,6 +132,46 @@ public:
       phase_ = copy ? "copy" : "pass"; recorded_ = false;
       info.post(bson(statsJson()));
     } catch (const std::exception& e) { info.postError(e.what()); }
+  }
+  void startComposite(JQAsyncInfo& info) {
+    std::lock_guard<std::mutex> lock(action_);
+    try {
+      if (!authorized_) throw std::runtime_error("Probe application identity mismatch");
+      submit_probe::Probe::instance().stop(); record();
+      submit_probe::Composite::instance().stop(); recordComposite();
+      const auto cfg = screen();
+      const auto executable = workspace_ + "/assets/bin/penchat-composite-client";
+      chmod(executable.c_str(), 0755);
+      pinPlugin();
+      auto slot = submit_probe::locate("libfalcon.so", kSymbol, kHash);
+      submit_probe::Composite::instance().start(slot, cfg.at("width").get<int>(), cfg.at("height").get<int>(), executable);
+      compositeRecorded_ = false;
+      info.post(bson(compositeJson()));
+    } catch (const std::exception& e) {
+      submit_probe::Composite::instance().stop(); recordComposite();
+      info.postError(e.what());
+    }
+  }
+  void compositeStatus(JQFunctionInfo& info) {
+    std::lock_guard<std::mutex> lock(action_);
+    if (!authorized_) { info.GetReturnValue().Set(false); return; }
+    recordComposite(); info.GetReturnValue().Set(bson(compositeJson()));
+  }
+  void focusComposite(JQFunctionInfo& info) {
+    std::lock_guard<std::mutex> lock(action_);
+    if (authorized_) submit_probe::Composite::instance().focus(info.toParamsHolder()[0].bool_value());
+    info.GetReturnValue().Set(authorized_);
+  }
+  void stopComposite(JQFunctionInfo& info) {
+    std::lock_guard<std::mutex> lock(action_);
+    if (!authorized_) { info.GetReturnValue().Set(false); return; }
+    submit_probe::Composite::instance().stop(); recordComposite();
+    info.GetReturnValue().Set(bson(compositeJson()));
+  }
+  void disconnectComposite(JQFunctionInfo& info) {
+    std::lock_guard<std::mutex> lock(action_);
+    if (authorized_) submit_probe::Composite::instance().disconnect();
+    info.GetReturnValue().Set(authorized_);
   }
   void status(JQFunctionInfo& info) {
     std::lock_guard<std::mutex> lock(action_);
@@ -128,6 +193,11 @@ int init(JSContext* ctx, JSModuleDef* module) {
   tpl->SetProtoMethod("geometry", &Module::geometry);
   tpl->SetProtoMethodPromise("start", &Module::start);
   tpl->SetProtoMethod("status", &Module::status);
+  tpl->SetProtoMethodPromise("startComposite", &Module::startComposite);
+  tpl->SetProtoMethod("compositeStatus", &Module::compositeStatus);
+  tpl->SetProtoMethod("focusComposite", &Module::focusComposite);
+  tpl->SetProtoMethod("stopComposite", &Module::stopComposite);
+  tpl->SetProtoMethod("disconnectComposite", &Module::disconnectComposite);
   tpl->SetProtoMethod("stop", &Module::stop);
   env->setModuleExport("probe", tpl->CallConstructor());
   env->setModuleExportDone(JS_UNDEFINED, exports);

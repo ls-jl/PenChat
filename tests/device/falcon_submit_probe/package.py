@@ -26,15 +26,28 @@ def main():
                     '-DCMAKE_SYSTEM_NAME=Linux', '-DCMAKE_SYSTEM_PROCESSOR=arm',
                     '-DCMAKE_CXX_COMPILER=' + compiler, '-DPENCHAT_SUBMIT_PROBE_APP_ID=' + appid], check=True)
     subprocess.run(['cmake', '--build', str(BUILD), '-j6'], check=True)
-    for name in ('src', 'libs'):
+    for name in ('src', 'libs', 'assets'):
         shutil.rmtree(STAGE / name, ignore_errors=True)
     shutil.copytree(SOURCE / 'app', STAGE / 'src')
     shutil.copytree(ROOT / 'src/platform', STAGE / 'src/platform')
     (STAGE / 'package.json').write_text(json.dumps({
         'name': 'PenChat S6 Submit Probe', 'appid': appid, 'version': '0.0.1',
-        'description': 'Isolated native submission observation; not a compositor',
+        'description': 'Isolated native submission and shared-memory compositor prototype',
         'single-js-bundle': False, 'quickjs': {'version': '20200705', 'bigNum': False},
         'dependencies': {'falcon-ui': '2.0.2'}}, indent=2))
+    client = STAGE / 'assets/bin/penchat-composite-client'
+    client.parent.mkdir(parents=True)
+    shutil.copy2(BUILD / 'penchat-composite-client', client)
+    strip = subprocess.check_output(['bash', '-c', 'source scripts/native-target.sh s6; printf "%s" "$PENCHAT_BUILD_STRIP"'], cwd=ROOT, text=True)
+    subprocess.run([strip, '--strip-unneeded', str(client)], check=True)
+    elf = client.read_bytes()
+    assert elf[:6] == b'\x7fELF\x01\x01' and int.from_bytes(elf[18:20], 'little') == 40
+    notices = STAGE / 'assets/licenses'
+    notices.mkdir()
+    for name in ['lvgl.txt', 'lvgl-COPYRIGHTS.md', 'json.txt', 'json11.txt',
+                 'sdk-Apache-NOTICES.txt', 'quickjs.txt', 'GCC-Runtime-Library-Exception-3.1.txt']:
+        shutil.copy2(ROOT / 'licenses' / name, notices / name)
+    shutil.copy2(ROOT / 'LICENSE', notices / 'LICENSE')
     payload = BUILD / 'libjsapi_penchat_submit_probe.so'
     data = payload.read_bytes()
     assert data[:6] == b'\x7fELF\x01\x01' and int.from_bytes(data[18:20], 'little') == 40
