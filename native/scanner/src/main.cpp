@@ -21,6 +21,9 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <thread>
+#ifdef SCANNER_DIAGNOSTIC_TRACE
+#include "diagnostic_trace.hpp"
+#endif
 using namespace penchat_scan;
 using namespace pen::stream;
 namespace {
@@ -171,6 +174,9 @@ public:
   }
 };
 class Worker {
+#ifdef SCANNER_DIAGNOSTIC_TRACE
+  DiagnosticTrace trace_;
+#endif
   int fd_;
   PreviewSlot *slot_;
   std::string resources_, directory_, session_, state_ = "disarmed";
@@ -286,16 +292,21 @@ class Worker {
     data["scanId"] = scan_;
     data["session"] = session_;
     data["profile"] = profile_.id;
-    data["sensor_width"] = config_.width;
-    data["sensor_height"] = config_.height;
+    data["sensor_width"] = profile_.width;
+    data["sensor_height"] = profile_.height;
+    const auto region=sensorRegion(profile_);
+    data["sensor_region"] = {region.left,region.top,region.width,region.height};
+    data["processing_width"] = config_.width;
+    data["processing_height"] = config_.height;
     data["sensor_rotation"] = rotationName(config_.rotation);
     data["hardware_armed"] = armed_;
     if (!sendPacket(fd_, data))
       throw ControlDisconnected();
   }
   void calibration() {
-    config_.width = profile_.width;
-    config_.height = profile_.height;
+    const auto region=sensorRegion(profile_);
+    config_.width = region.width;
+    config_.height = region.height;
     // Optical mounting is independent of display/touch rotation. Apply this
     // once in the engine, shared by selection, model input and raw canvas.
     // S6: clockwise90 relative to the original CCW90 view cancels to None.
@@ -317,9 +328,9 @@ class Worker {
       // Keep raw SC035GS detail; per-frame photometric estimation still runs.
       auto k = std::make_shared<Calibration>();
       k->version = profile_.id == "s6-pag7920"
-          ? "s6-pag7920-native-unrotated-neutral-v3" : profile_.id+"-native-neutral-v1";
-      k->sensorWidth = profile_.width;
-      k->sensorHeight = profile_.height;
+          ? "s6-pag7920-optical-region-neutral-v4" : profile_.id+"-native-neutral-v1";
+      k->sensorWidth = config_.width;
+      k->sensorHeight = config_.height;
       k->rotation = config_.rotation;
       k->gain.fill(1.f);
       config_.calibration = k;
@@ -361,6 +372,9 @@ class Worker {
     exported_ = Json::object();
   }
   void release(bool cancel = false) {
+#ifdef SCANNER_DIAGNOSTIC_TRACE
+    trace_.cancel();
+#endif
     cancelExport();
     preview_.cancelAndWait();
     if (scan_) {
@@ -432,6 +446,11 @@ class Worker {
     firstBatchUs_ = 0;
     warnings_ = 0;
     scan_ = begin.scan;
+#ifdef SCANNER_DIAGNOSTIC_TRACE
+    auto traceConfig=config_;
+    traceConfig.width=profile_.width;traceConfig.height=profile_.height;
+    trace_.begin(directory_,traceConfig);
+#endif
     pressTime_ = clockUs();
     lastCaptureTickUs_ = pressTime_;
     maxCaptureLoopUs_ = 0;
@@ -592,8 +611,10 @@ class Worker {
         {"reason",
          captureFailure_.empty() ? result_->reason() : captureFailure_},
         {"calibration", config_.calibration->version},
-        {"profile", profile_.id}, {"sensor_width", config_.width},
-        {"sensor_height", config_.height},
+        {"profile", profile_.id}, {"sensor_width", profile_.width},
+        {"sensor_height", profile_.height},
+        {"sensor_region", {sensorRegion(profile_).left,sensorRegion(profile_).top,
+            config_.width,config_.height}},
         {"sensor_rotation", rotationName(config_.rotation)},
         {"timing",
          {{"pressedUs", pressTime_},
@@ -756,12 +777,12 @@ public:
     } else if (mock_ && type == "test.press") {
       keyEvent(j.value("pressed", false));
     } else if (mock_ && type == "test.frame" && capturing_) {
-      std::vector<uint8_t> pixels(size_t(config_.width) * config_.height, 210);
-      for (int y = 20; y < config_.height - 20; ++y)
-        for (int x = 20; x < config_.width - 20; ++x)
+      std::vector<uint8_t> pixels(size_t(profile_.width) * profile_.height, 210);
+      for (int y = 20; y < profile_.height - 20; ++y)
+        for (int x = 20; x < profile_.width - 20; ++x)
           if ((x + y) % 11 < 3)
-            pixels[size_t(y) * config_.width + x] = 30;
-      frame(pixels.data(), config_.width,
+            pixels[size_t(y) * profile_.width + x] = 30;
+      frame(pixels.data(), profile_.width,
             j.value("rawSequence", haveSequence_ ? lastSequence_ + 1 : uint64_t(0)),
             j.value("rawTimestamp", clockUs()));
     }
@@ -813,7 +834,12 @@ public:
     lastRawTimestamp_ = timestamp;
     framesSinceGap_ = std::min(16u, framesSinceGap_ + 1);
     const bool wasDraining = draining_;
-    const auto pushed = engine_->pushFrame(scan_, pixels, config_.width, config_.height, stride, sequence, timestamp);
+    const auto region=sensorRegion(profile_);
+    const auto *paper=pixels+std::size_t(region.top)*stride+region.left;
+    const auto pushed = engine_->pushFrame(scan_, paper, config_.width, config_.height, stride, sequence, timestamp);
+#ifdef SCANNER_DIAGNOSTIC_TRACE
+    if(pushed.accepted)trace_.append(pixels,stride,sequence,timestamp);
+#endif
     if (!pushed.accepted || pushed.code == Code::StopCapture) {
       captureFailure_ = *pushed.reason ? pushed.reason : "memory_allocation_failed";
       if (!pushed.accepted) ++discardedBacklog_;
@@ -906,6 +932,9 @@ public:
         emit("stopped", {{"reason", e.reason}});
       }
       if (e.kind == Event::Kind::Finished) {
+#ifdef SCANNER_DIAGNOSTIC_TRACE
+        try {trace_.finish();}catch(...){std::fprintf(stderr,"SCAN_TRACE_SAVE_START_FAILED\n");trace_.cancel();}
+#endif
         result_ = engine_->result(scan_);
         finished_ = true;
         state_ = "result";

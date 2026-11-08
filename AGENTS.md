@@ -311,4 +311,10 @@ otherwise frees its last-entry hashmap without resetting its open ION fd.
 S6 capture must start the VPSS consumer before enabling VI output; use full native
 320x240 PAG7920 frames, never the stock downscaled/cropped outputs. CVI media DSOs
 remain on the device, with hash-locked ABI references; do not redistribute them.
+S6's fixed optical paper region is [112,8,160,192] inside that native frame.
+Exclude its stationary white housing and lower dark aperture from BOTH model
+matching and canvas painting. The hardware still captures/validates 320x240;
+copy native pixels from this region without downsampling or colour-based trimming.
+Do not restore whole-frame matching/painting: it registers stationary housing and
+overwrites previously stitched text with white. Other boards keep their full field.
 Use `docs/S6-ARMV7-DEV.md` for target builds and current acceptance limits.

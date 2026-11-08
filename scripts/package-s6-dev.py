@@ -13,7 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ui-only', action='store_true', help='Isolate UI debugging without activating capture hardware')
+    parser.add_argument('--scan-trace', action='store_true', help='Development-only, explicitly armed one-scan raw diagnostic')
     args = parser.parse_args()
+    subprocess.run(['cmake', '-S', str(ROOT / 'native/scanner'), '-B', str(ROOT / 'build/scanner-s6'),
+                    '-DSCANNER_DIAGNOSTIC_TRACE=' + ('ON' if args.scan_trace else 'OFF')], check=True)
     app = json.loads((ROOT / 'package.json').read_text())
     builds = [('s6', ['penchat-lvgl', 'penchat-sensor-guard', 'jsapi_penchat_launcher'])]
     if not args.ui_only:

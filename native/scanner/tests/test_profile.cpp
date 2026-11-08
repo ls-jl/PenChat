@@ -8,12 +8,18 @@ int main() {
   const auto s6=scanProfile("Cvitek Cv1826 for Youdao Plum V0 version","PIXART_PAG7920_MIPI_240P_100FPS_10BIT");
   assert(s6.id=="s6-pag7920"&&s6.cvi&&s6.width==320&&s6.height==240&&!s6.gatesExposure);
   assert(s6.light==ScanLight::ConfiguredGpio&&s6.videoNode.empty());
+  const auto region=sensorRegion(s6);
+  assert(region.left==112&&region.top==8&&region.width==160&&region.height==192);
+  auto badRegion=s6;badRegion.opticalRegion.width=321;
+  bool bad=false;try{sensorRegion(badRegion);}catch(...){bad=true;}assert(bad);
   assert(!scanProfile("unknown Plum","PIXART_PAG7920_MIPI_240P_100FPS_10BIT").supported());
   assert(!scanProfile("Cvitek Cv1826 for Youdao Plum V0 version","sc2356").supported());
   const auto orange = scanProfile("Rockchip RK3562 ORANGE LP4 V10 Board", "m00_f_sc2356 5-0030");
   const auto y02 = scanProfile("Rockchip RK3562 Y02 LP4 V10 Board", "m00_f_sc035gs 5-0030");
   assert(orange.id == "orange-sc2356" && orange.width == 496 && orange.height == 360);
   assert(y02.id == "y02-sc035gs" && y02.width == 640 && y02.height == 480);
+  assert(sensorRegion(y02).width==640&&sensorRegion(y02).height==480);
+  assert(sensorRegion(orange).width==496&&sensorRegion(orange).height==360);
   const auto y07=scanProfile("Rockchip RK3562 Y07 LP4 V10 Board","sc2356");
   assert(y07.id=="y07-sc2356"&&y07.width==752&&y07.height==440);
   assert(y07.light==ScanLight::LedClass&&!y07.ledBrightness.empty());

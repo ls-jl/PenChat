@@ -22,9 +22,11 @@ for profile in ('s6', 'orange', 'y02', 'melon'):
             image = worker.receive('exported')['image']
             assert image['metadata']['sensor_rotation'] == expected, image
             if profile == 's6':
-                assert image['metadata']['calibration'] == 's6-pag7920-native-unrotated-neutral-v3'
+                assert image['metadata']['calibration'] == 's6-pag7920-optical-region-neutral-v4'
+                assert image['metadata']['sensor_region'] == [112,8,160,192]
+                assert (image['metadata']['sensor_width'],image['metadata']['sensor_height']) == (320,240)
                 header = pathlib.Path(image['path']).read_bytes()[:24]
-                assert struct.unpack('>II', header[16:24])[1] == 240
+                assert struct.unpack('>II', header[16:24])[1] == 192
             worker.send('discard')
             worker.receive('ready')
         finally:
