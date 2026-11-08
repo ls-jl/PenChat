@@ -985,6 +985,7 @@ void App::clear() {
   archiveViewButtons_.clear();
   imageRequests_.clear();
   placeholders_.clear();
+  cameraRotatingControls_.clear();
   if (screenObj_) {
     lv_obj_delete(screenObj_);
     screenObj_ = nullptr;
@@ -2626,6 +2627,14 @@ void App::cameraMode(bool automatic,int angle) {
   build();
   if(visible_ && !keyboard_) startCamera();
 }
+void App::cameraControlsOrientation() {
+  const int angle=photoTransforms(cameraAngle_,false).workspace;
+  for(auto visual:cameraRotatingControls_) {
+    lv_obj_set_style_transform_pivot_x(visual,lv_obj_get_width(visual)/2,0);
+    lv_obj_set_style_transform_pivot_y(visual,lv_obj_get_height(visual)/2,0);
+    lv_obj_set_style_transform_rotation(visual,angle*10,0);
+  }
+}
 void App::cameraPage() {
   lv_obj_set_scrollable(body_, false);
   lv_obj_update_layout(body_);
@@ -2640,11 +2649,20 @@ void App::cameraPage() {
     lv_obj_set_style_radius(control,12,0);
     lv_obj_set_style_bg_color(control,lv_color_hex(theme::surface),LV_STATE_PRESSED);
     const bool stacked=area.height>=64;
-    auto mark=box(control,stacked?(area.width-28)/2:6,stacked?4:(area.height-28)/2,28,28);
+    auto visual=control;
+    const int visualWidth=layout().portrait()?72:area.width;
+    if(layout().portrait()) {
+      // Rotate a square visual, never the larger hit area. All four turns stay
+      // inside the same safe bottom row, including captions and their baselines.
+      visual=box(control,(area.width-72)/2,0,72,72);
+      lv_obj_set_style_bg_opa(visual,LV_OPA_TRANSP,0);lv_obj_set_scrollable(visual,false);lv_obj_set_clickable(visual,false);
+      cameraRotatingControls_.push_back(visual);
+    }
+    auto mark=box(visual,stacked?(visualWidth-28)/2:6,stacked?4:(area.height-28)/2,28,28);
     lv_obj_set_style_bg_opa(mark,LV_OPA_TRANSP,0);lv_obj_set_scrollable(mark,false);lv_obj_set_clickable(mark,false);
     attachIcon(mark,name,theme::text);
-    auto caption=label(control,title,stacked?2:36,stacked?40:(area.height-24)/2,
-      area.width-(stacked?4:40),stacked?16:15,theme::muted);
+    auto caption=label(visual,title,stacked?2:36,stacked?40:(area.height-24)/2,
+      visualWidth-(stacked?4:40),stacked?16:15,theme::muted);
     lv_obj_set_height(caption,24);lv_label_set_long_mode(caption,LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);
     lv_obj_set_clickable(caption,false);
@@ -2657,9 +2675,14 @@ void App::cameraPage() {
   lv_obj_set_style_border_width(shutter,3,0);lv_obj_set_style_border_color(shutter,lv_color_hex(theme::text),0);
   auto center=box(shutter,7,7,workspace.shutter.width-14,workspace.shutter.height-14,theme::text);lv_obj_set_style_radius(center,LV_RADIUS_CIRCLE,0);
   lv_obj_set_scrollable(center,false);lv_obj_set_clickable(center,false);lv_obj_center(center);
+  auto shutterMark=box(center,0,0,28,28);
+  lv_obj_set_style_bg_opa(shutterMark,LV_OPA_TRANSP,0);lv_obj_set_scrollable(shutterMark,false);lv_obj_set_clickable(shutterMark,false);lv_obj_center(shutterMark);
+  attachIcon(shutterMark,"camera",theme::background);
+  if(layout().portrait())cameraRotatingControls_.push_back(shutterMark);
   onClick(shutter,[this]{if(!cameraCapturing_){cameraCapturing_=true;camera_.capture(cameraAngle_);}});
   auxiliary(workspace.turn,"rotate90","转向90°",
     [this]{events_.push("camera_mode",{{"auto",false},{"angle",(cameraAngle_+90)%360}});});
+  lv_obj_update_layout(body_);cameraControlsOrientation();
   status_=label(preview,cameraError_.empty()?"相机启动中…":cameraError_,12,layout().portrait()?layout().safeTop()+56:12,lv_obj_get_width(preview)-24,19,theme::muted);
 }
 void App::albumPage() {
@@ -3661,9 +3684,9 @@ void App::tick() {
   syncReplyControls();
   if (view_ == "camera" && cameraAutomatic_ && pendingCameraAngle_>=0 && !cameraCapturing_ && !touchDown_ && visible_) {
     cameraAngle_=pendingCameraAngle_;pendingCameraAngle_=-1;
-    // Fixed portrait controls and preview geometry do not change with pose.
-    // Keep their image object alive instead of flashing a rebuilt workspace.
-    if (!layout().portrait()) build();
+    // Rotate portrait control visuals in place; their hit regions and the
+    // optically corrected preview keep fixed geometry without a page rebuild.
+    if (layout().portrait())cameraControlsOrientation();else build();
   }
   if (view_ == "camera" && visible_ && !keyboard_ && !navigationOpen_ &&
       ticks() - lastCameraFrame_ >= 60) {
@@ -3879,6 +3902,11 @@ Json App::diagnostics() const {
       {"camera_ready",
        cameraImage_ && textures_.count(cameraImage_) && cameraError_.empty()},
       {"camera_angle", cameraAngle_},
+      {"camera_control_rotations", [this] {
+        Json rotations=Json::array();
+        for(auto visual:cameraRotatingControls_)rotations.push_back(lv_obj_get_style_transform_rotation(visual,LV_PART_MAIN)/10);
+        return rotations;
+      }()},
       {"camera_controls", [this] {
         Json controls=Json::object();
         if(view_!="camera"||!body_)return controls;

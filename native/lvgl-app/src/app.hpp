@@ -422,6 +422,8 @@ class App {
   lv_obj_t *backHint_ = nullptr;
   void closeNavigation(bool resumeCamera = true);
   void cameraPage();
+  void cameraControlsOrientation();
+  std::vector<lv_obj_t *> cameraRotatingControls_;
   int photoWidth() const { return !layout().portrait()&&cameraAngle_%180 ? screen_.height : screen_.width; }
   int photoHeight() const { return !layout().portrait()&&cameraAngle_%180 ? screen_.width : screen_.height; }
   lv_point_t photoPoint(lv_point_t point) const;

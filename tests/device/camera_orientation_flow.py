@@ -72,6 +72,7 @@ def run(env):
         camera_action('direction')
         d.wait(lambda: not d.state()['camera_auto'])
     poses = []
+    initial_controls=d.state()['camera_controls']
     for angle in (0, 90, 180, 270):
         for attempt in range(4):
             current = d.state()['camera_angle']
@@ -84,9 +85,12 @@ def run(env):
         assert not state['camera_auto']
         expected = {'preview': 270, 'workspace': 0, 'saved': angle}
         assert state['camera_transforms'] == expected, state['camera_transforms']
+        assert state['camera_controls'] == initial_controls
+        assert state['camera_control_rotations'] == [(360-angle)%360]*3
         assert d.pid() == native
         d.capture('camera-orientation-preview-' + str(angle))
-        poses.append({'pose': angle, 'transforms': state['camera_transforms']})
+        poses.append({'pose': angle, 'transforms': state['camera_transforms'],
+                      'control_rotations': state['camera_control_rotations']})
 
     # One true HD capture at the frozen 270-degree pose. Cancel the crop instead
     # of attaching/sending or touching the album opt-in checkbox.
