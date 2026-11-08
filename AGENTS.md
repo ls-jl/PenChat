@@ -337,7 +337,8 @@ releasing scanner ownership; new field IDs reject old OCR/pinyin results. Undo a
 secret visibility stay isolated per field. A non-input action must close a retained
 transfer and clear all pointers/actions into the keyboard it deletes. Cancel
 restores the original value; Provider edits still require explicit Save.
-Candidate/clipboard overlays may cover the reader, never move the keys. Ordinary
+Candidate expansion may cover the reader, never move the keys. Portrait clipboard
+replaces only the keyboard panel; landscape clipboard stays in the right editor. Ordinary
 page scrolling and field focus remain available above the keyboard. Rebind focused
 controls by stable page/field identity after a rebuild; cancel a missing target on
 the next UI tick, never dereference a deleted LVGL control. Portrait pull distance is based on
@@ -365,3 +366,11 @@ still down. Cancel the opening key before rebuilding and absorb its release;
 never defer the menu to pointer-up or turn that release into a short tap. Keep
 450ms caret/delete timing unchanged. The list floats just above the globe, with
 one highlighted current layout; never add unavailable reference-image features.
+
+Portrait official IME uses a real Falcon input connection aligned to the existing
+LVGL field, with only the native plane's upper logical region presented while the
+system keyboard occupies the bottom. Mirror reviewed text/caret by request ID;
+keep an edit snapshot for cancellation, never persist previews. Do not hide an IME
+window from inside its own completion callback; defer completion to the next turn.
+Only dismiss the system panel while our app owns the foreground. Do not restore
+system pinyin borrowing or copy its dictionary.

@@ -19,7 +19,7 @@ function fixture() {
   vm.runInContext(script, context)
   const options = context.module.exports
   const page = Object.assign(options.data(), options.methods, { $page: { finish: () => calls.push(['finish']), $npage: {setSupportTopPanel: value => calls.push(['topPanel',value]), setSupportBack: value => calls.push(['systemBack',value]), on: (name,cb)=>calls.push(['listen',name,cb]), off: name=>calls.push(['unlisten',name])} } })
-  return { page, options, calls, native, context, timers, edit: (...args) => editCallback(...args) }
+  return { page, options, calls, native, keyboard, context, timers, edit: (...args) => editCallback(...args) }
 }
 test('startup is deduplicated, sends clean initialization, and disposal closes exactly once', async () => {
   const f = fixture(); await Promise.all([f.page.boot(), f.page.boot()])
@@ -289,4 +289,111 @@ test('Y07 global panel visibility overrides unchanged window focus', async () =>
   f.native.systemOverlay=()=>({supported:false,visible:false});f.native.focused=false;f.page.syncWindowFocus(true)
   assert.equal(f.page._windowFocused,false)
   f.page.dispose()
+})
+
+
+
+function portraitOfficial(f) {
+  f.page._screen={width:568,height:1210}
+  f.page.$nextTick=fn=>fn()
+  f.page.$refs={officialInput:{setCursorPosition:n=>f.calls.push(['cursor',n])}}
+  f.native.officialKeyboard=()=>({supported:true,visible:true,height:550,foreground:true})
+  f.native.closeOfficialKeyboard=()=>f.calls.push(['hideOfficial'])
+}
+test('portrait official IME attaches to a real field and confirms once after callback unwinds',async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ f.page.openKeyboard({requestId:'portrait',text:'中😀',multiline:true,cursorIndex:3})
+ assert(f.page.officialInline);assert.equal(f.page.officialText,'中😀')
+ assert(!f.calls.some(c=>c[0]==='startTextEdit'))
+ assert(f.calls.some(c=>c[0]==='cursor'&&c[1]===3))
+ f.page.inlineOfficialInput('修改');f.page.finishInlineOfficial();f.page.finishInlineOfficial()
+ assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').length,0)
+ f.timers.get(f.page._keyboardTimer)()
+ const results=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result')
+ assert.equal(results.length,1);assert.equal(results[0][1].text,'修改');assert(results[0][1].confirmed)
+ assert(!f.page.officialInline);assert.equal(f.page.officialText,'');assert.equal(f.page._keyboardMonitor,null)
+ f.page.dispose()
+})
+test('portrait official cancel/late confirm and secret fields preserve the original edit session',async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ f.page.openKeyboard({requestId:'secret',text:'fixture',sensitive:true,inputType:'EnUSOnly',multiline:false})
+ assert(f.page.officialSensitive&&f.page.officialSingleLine)
+ assert.equal(f.page.officialInputType,'EnUSOnly')
+ f.page.finishInlineOfficial('discard');const stale=f.timers.get(f.page._keyboardTimer)
+ f.page.cancelOfficialKeyboard();stale()
+ const results=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result')
+ assert.equal(results.length,1);assert(!results[0][1].confirmed)
+ assert.equal(f.page._keyboardMonitor,null);assert.equal(f.page.officialText,'')
+ f.page.dispose()
+})
+test('portrait official monitoring survives page hide and recovers an unavailable panel',async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ f.page.openKeyboard({requestId:'unavailable',text:'保留'})
+ const monitor=f.page._keyboardMonitor
+ f.options.onHide.call(f.page)
+ assert(f.timers.has(monitor))
+ f.native.officialKeyboard=()=>({supported:true,visible:false})
+ f.page._officialDeadline=0;f.page._keyboardWatchAt=1;f.timers.get(monitor)()
+ const results=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result')
+ assert.equal(results.length,1);assert(!results[0][1].confirmed);assert(results[0][1].error)
+ assert.equal(f.page._keyboardMonitor,null)
+ f.page.dispose()
+})
+for(const failure of ['throw','empty-uuid','missing-window']) {
+ test(`official editor ${failure} restores native editing once`,async()=>{
+  const f=fixture();await f.page.boot()
+  f.native.officialKeyboard=()=>({supported:true,visible:false})
+  if(failure==='empty-uuid')f.keyboard.startTextEdit=()=>''
+  if(failure==='throw')f.keyboard.startTextEdit=()=>{throw Error('fixture')}
+  f.page.openKeyboard({requestId:'failed',text:'保留'})
+  if(failure==='missing-window'){f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()}
+  assert.equal(f.page.keyboardOpen,false)
+  const results=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result')
+  assert.equal(results.length,1);assert.equal(results[0][1].confirmed,false);assert(results[0][1].error)
+  f.page.dispose()
+ })
+}
+
+test('portrait official field stays in the original page and forwards live text/cursor',async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ f.page.openKeyboard({requestId:'inline',text:'原文',field:{x:24,y:520,width:520,height:44}})
+ assert.equal(f.page.officialInputStyle.top,'520px')
+ f.page.inlineOfficialInput({text:'修改😀',cursorPosition:4})
+ const change=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.change').at(-1)[1]
+ assert.equal(change.text,'修改😀');assert.equal(change.cursorIndex,4)
+ f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
+ const layout=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.layout').at(-1)[1]
+ assert(layout.foreground);assert.equal(layout.height,550)
+ f.page.inlineOfficialField({requestId:'stale',x:1,y:2,width:30,height:40})
+ assert.equal(f.page.officialInputStyle.top,'520px')
+ f.page.inlineOfficialField({requestId:'inline',x:24,y:530,width:520,height:44})
+ assert.equal(f.page.officialInputStyle.top,'530px')
+ f.page.dispose()
+})
+
+test('portrait system confirm/cancel signals match the active ID and never tear down reentrantly',async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ f.page.openKeyboard({requestId:'first',text:'原文',multiline:true})
+ f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
+ assert.equal(f.calls.filter(c=>c[0]==='startTextEdit').length,1)
+ const config=f.calls.find(c=>c[0]==='startTextEdit')[1]
+ assert(!('text' in config),'Portrait system signal must not duplicate input contents')
+ f.page.inlineOfficialInput('修改')
+ f.edit('stale',JSON.stringify({editConfirmed:true,text:'stale'}));assert(!f.page._keyboardCompleting)
+ f.edit('edit-1',JSON.stringify({editConfirmed:true,text:''}))
+ assert(f.page._keyboardCompleting&&f.page.keyboardOpen)
+ assert(!f.calls.some(c=>c[0]==='hideOfficial'))
+ f.page._keyboardWatchAt=1;f.native.officialKeyboard=()=>({supported:true,visible:false})
+ f.page.checkOfficialKeyboard();assert(f.page.keyboardOpen)
+ f.timers.get(f.page._keyboardTimer)()
+ const result=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').at(-1)[1]
+ assert(result.confirmed);assert.equal(result.text,'修改')
+ f.page.openKeyboard({requestId:'second',text:'原文'})
+ f.native.officialKeyboard=()=>({supported:true,visible:true,height:550,foreground:true})
+ f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
+ f.edit('edit-1',JSON.stringify({editConfirmed:false}))
+ assert(f.page.keyboardOpen);f.timers.get(f.page._keyboardTimer)()
+ assert(!f.page.keyboardOpen)
+ assert(!f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').at(-1)[1].confirmed)
+ f.page.dispose()
 })

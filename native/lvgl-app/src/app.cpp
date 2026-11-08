@@ -3182,16 +3182,42 @@ void App::handle(const Json &m) {
     for(const char *key:{"window_api","window_valid","app_focused","panel_api","panel_available","panel_supported","panel_visible"})
       if(m.contains(key)&&m[key].is_boolean())systemOverlayStatus_[key]=m[key];
   }
+  else if(type=="keyboard.layout" || type=="keyboard.change") {
+    if(!keyboard_||!officialDocked_||m.value("requestId",std::string())!=keyboardId_)return;
+    if(type=="keyboard.change") {
+      const auto text=m.value("text",std::string());
+      if(editLength(text)>editor_.limit)return;
+      const bool changed=text!=editor_.text;
+      editor_.text=text;editor_.preedit.clear();editor_.position(editLength(text));
+      const auto utf16=m.value("cursorIndex",editUtf16(text,editor_.cursor));
+      size_t cursor=0,units=0;for(unsigned char c:text) {if(units>=utf16)break;if((c&192)!=128){units+=c>=240?2:1;++cursor;}}
+      editor_.position(cursor);editorUpstream_=std::string::npos;
+      editorSyncText(changed);
+    } else {
+      const int height=m.value("height",0);
+      if(height<=0||height>=screen_.height-100)return;
+      const bool resized=height!=officialHeight_;officialHeight_=height;
+      if(resized){editorViewport();editorSyncText(true);}
+      display_.topHeight(screen_.height-height);
+      const bool foreground=m.value("foreground",false);
+      if(display_.visible()!=foreground||resized)display_.visible(foreground);
+    }
+    const auto area=editorTextArea();
+    bridge_.send("keyboard.field",{{"requestId",keyboardId_},{"x",area.x},{"y",area.y},
+        {"width",area.width},{"height",area.height},{"cursorIndex",editUtf16(editor_.text,editor_.cursor)}});
+  }
   else if (type == "keyboard.result") {
     if (!keyboard_ || m.value("requestId", std::string()) != keyboardId_)
       return;
-    keyboard_ = false;
+    if(officialDocked_&&!m.value("confirmed",false))editor_=std::move(officialBackup_);
+    officialBackup_=EditorState{};officialDocked_=false;officialHeight_=0;
+    keyboard_ = false;display_.topHeight(0);
     if (editor_.active) {
       if (m.value("confirmed", false)) {
         auto text = m.value("text", std::string());
         if (editLength(text) <= editor_.limit) { editor_.text = text; editor_.preedit.clear(); editorFinish(true); }
         else { editor_.notice = "官方输入超过长度上限，请调整";editorPolicy(true);editorBuild();editorOcrStart(); }
-      } else {editorPolicy(true);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
+      } else {editorPolicy(true);editorChanged();editor_.notice=m.value("error",std::string());editorFollowCursor_=false;editorBuild();editorOcrStart();}
     }
     display_.visible(visible_);
 
@@ -3859,7 +3885,7 @@ Json App::diagnostics() const {
       {"generating", generating_},
       {"compressing", contextBusy_},
       {"keyboard", keyboard_},
-      {"display_visible", display_.visible()},
+      {"display_visible", display_.visible()},{"display_top_height",display_.topHeight()},
       {"ocr", editorOcrActive_},
       {"visible", visible_},
       {"page_visible",pageVisible_},{"window_focused",windowFocused_},

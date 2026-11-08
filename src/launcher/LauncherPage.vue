@@ -1,6 +1,10 @@
 <template>
   <div class="native-page">
     <hole class="native-hole"></hole>
+    <div v-if="officialInline" class="official-editor">
+      <input v-if="officialSingleLine" ref="officialInput" class="official-input" :style="officialInputStyle" :type="officialSensitive ? 'password' : 'text'" :value="officialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="true" cursorColor="#4ade80" @input="inlineOfficialInput" @confirm="finishInlineOfficial" />
+      <textarea v-else ref="officialInput" class="official-input" :style="officialInputStyle" :value="officialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="true" cursorColor="#4ade80" @input="inlineOfficialInput" @confirm="finishInlineOfficial" />
+    </div>
     <div v-if="errorText" class="failure-panel">
       <text class="failure-title">{{ appName }}</text>
       <text class="failure-text">{{ errorText }}</text>
@@ -24,7 +28,7 @@ function parse(value) {
   try { return JSON.parse(value) } catch (err) { return null }
 }
 export default {
-  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false } },
+  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, officialInline: false, officialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
   mounted() { this.boot() },
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
@@ -94,18 +98,21 @@ export default {
     poll() {
       try {
         this.syncWindowFocus()
+        this.checkOfficialKeyboard()
         for (const event of launcher.poll() || []) {
           if (event.generation !== undefined && event.generation !== this._generation && event.type !== 'booted' && event.type !== 'fatal' && event.type !== 'exit') continue
           if (event.type === 'booted') {
             const screen = event.screen
             if (!screen || !Number.isInteger(screen.width) || !Number.isInteger(screen.height) || screen.width <= 0 || screen.height <= 0)
               throw new Error('Invalid Falcon display configuration')
+            this._screen = screen
             this.send('display.area', { x: 0, y: 0, width: screen.width, height: screen.height })
           }
           else if (event.type === 'ready') { this._nativeReady = true; clearTimeout(this._readyTimer); this._readyTimer = null; if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
           else if (event.type === 'editor.state') this.editorState(event)
           else if (event.type === 'navigation.state') this.navigationState(event)
           else if (event.type === 'keyboard.open') this.openKeyboard(event)
+          else if (event.type === 'keyboard.field') this.inlineOfficialField(event)
           else if (event.type === 'ocr.prepare') this.startOcr(event, true)
           else if (event.type === 'ocr.pen') { if (this._ocr) this._ocr.pen(event) }
           else if (event.type === 'ocr.start') this.startOcr(event)
@@ -223,23 +230,111 @@ export default {
       if (this._ocr) this._ocr.stop()
       this._ocr = null; this._ocrRequest = null
     },
-    cancelOfficialKeyboard() {
-      if (!this.keyboardOpen) return
-      const requestId = this._keyboardRequest
-      const uuid = this._keyboardUuid
+    closeKeyboardState(closePanel = true) {
+      clearTimeout(this._keyboardTimer); this._keyboardTimer = null
+      clearInterval(this._keyboardMonitor); this._keyboardMonitor = null
+      this.officialInline = false; this.officialText = ''
       this.keyboardOpen = false
-      this._keyboardUuid = ''
-      this._keyboardRequest = ''
+      this._keyboardUuid = ''; this._keyboardRequest = ''; this._keyboardWatchAt = 0; this._keyboardCompleting = false; this._officialOpenConfig = null
+      try { if (closePanel && typeof launcher.closeOfficialKeyboard === 'function') launcher.closeOfficialKeyboard() } catch (_) {}
+    },
+    cancelOfficialKeyboard(error = '') {
+      if (!this.keyboardOpen) return
+      const requestId = this._keyboardRequest, uuid = this._keyboardUuid
+      // Clear identity before closing: Falcon may emit its cancellation inline.
+      this.closeKeyboardState()
       try { if (this._global && uuid && this._global.closeTextEdit) this._global.closeTextEdit(uuid) } catch (_) {}
-      this.send('keyboard.result', { requestId, confirmed: false, text: '' })
+      this.send('keyboard.result', { requestId, confirmed: false, text: '', error })
+    },
+    checkOfficialKeyboard() {
+      if (!this.keyboardOpen || this._keyboardCompleting || !this._keyboardWatchAt || Date.now() < this._keyboardWatchAt) return
+      this._keyboardWatchAt = Date.now() + 200
+      try {
+        const state = launcher.officialKeyboard()
+        if (this.officialInline) {
+          if (state && state.supported && state.visible) {
+            this._officialSeen = true
+            if (!this._keyboardUuid && this._officialOpenConfig) {
+              const uuid = this._global.startTextEdit(this._officialOpenConfig)
+              if (typeof uuid !== 'string' || !uuid) throw new Error('official request rejected')
+              this._keyboardUuid = uuid
+            }
+            this.send('keyboard.layout', { requestId: this._keyboardRequest, height: state.height, foreground: state.foreground === true })
+            const input = this.$refs && this.$refs.officialInput
+            const requestId = this._keyboardRequest, generation = this._generation
+            if (input && input.getCursorPosition && !this._officialCursorPending) {
+              this._officialCursorPending = true
+              input.getCursorPosition(position => {
+                if (!this.keyboardOpen || !this.officialInline || requestId !== this._keyboardRequest || generation !== this._generation) return
+                this._officialCursorPending = false
+                const cursor = Number.isInteger(position) ? position : position && position.cursorPosition
+                if (Number.isInteger(cursor)) this.send('keyboard.change', { requestId, text: this.officialText, cursorIndex: cursor })
+              })
+            }
+          } else if (this._officialSeen || Date.now() >= this._officialDeadline) {
+            this.cancelOfficialKeyboard(this._officialSeen ? '' : '官方键盘未能显示，已恢复内置键盘')
+          }
+        } else if (!state || !state.supported || !state.visible)
+          this.cancelOfficialKeyboard('官方键盘未能显示，已恢复内置键盘')
+      } catch (_) { this.cancelOfficialKeyboard('官方键盘状态异常，已恢复内置键盘') }
+    },
+    inlineOfficialField(field) {
+      if (!this.officialInline || field.requestId !== this._keyboardRequest) return
+      if (![field.x, field.y, field.width, field.height].every(Number.isFinite) || field.width <= 0 || field.height <= 0) return
+      this.officialInputStyle = { left: field.x + 'px', top: field.y + 'px', width: field.width + 'px', height: field.height + 'px' }
+    },
+    openInlineOfficial(event) {
+      // Portrait themes expose an inline IM panel, not a standalone text
+      // editor. Give that panel a real Falcon InputConnection and return the
+      // reviewed value through the same native edit session.
+      this.officialText = event.text || ''
+      this.officialSingleLine = !event.multiline
+      this.officialSensitive = event.sensitive === true
+      this.officialInputType = event.inputType || 'ZhCNPreferred'
+      this.officialLimit = event.maxlength || 4096
+      this.officialInline = true
+      this.inlineOfficialField(Object.assign({ requestId: this._keyboardRequest }, event.field || {}))
+      const requestId = this._keyboardRequest, generation = this._generation
+      this.$nextTick(() => {
+        if (!this.keyboardOpen || this._keyboardRequest !== requestId || generation !== this._generation) return
+        const input = this.$refs && this.$refs.officialInput
+        if (input && input.setCursorPosition) input.setCursorPosition(event.cursorIndex || 0)
+      })
+      this._officialSeen = false; this._officialCursorPending = false
+      this._officialDeadline = Date.now() + 3000
+      this._keyboardWatchAt = Date.now() + 100
+      this._keyboardMonitor = setInterval(() => this.checkOfficialKeyboard(), 200)
+    },
+    inlineOfficialInput(value) {
+      if (!this.keyboardOpen || !this.officialInline) return
+      if (typeof value === 'string') this.officialText = value
+      else if (value && typeof value.value === 'string') this.officialText = value.value
+      else if (value && typeof value.text === 'string') this.officialText = value.text
+      const cursorIndex = value && Number.isInteger(value.cursorPosition) ? value.cursorPosition : this.officialText.length
+      this.send('keyboard.change', { requestId: this._keyboardRequest, text: this.officialText, cursorIndex })
+    },
+    finishInlineOfficial(value) {
+      if (!this.keyboardOpen || !this.officialInline || this._keyboardCompleting) return
+      this.inlineOfficialInput(value)
+      this._keyboardCompleting = true
+      const requestId = this._keyboardRequest, generation = this._generation
+      // Finish after the system IME's confirm callback has unwound.
+      this._keyboardTimer = setTimeout(() => {
+        this._keyboardCompleting = false
+        if (!this.keyboardOpen || this._keyboardRequest !== requestId || this._generation !== generation) return
+        const text = this.officialText
+        this.closeKeyboardState()
+        this.send('keyboard.result', { requestId, confirmed: true, text })
+      }, 0)
     },
     openKeyboard(event) {
+      if (this.keyboardOpen || !this.visible || this._windowFocused === false) { this.send('keyboard.result', { requestId: event.requestId, confirmed: false, text: '' }); return }
       this.setNativeEditorPolicy(false)
       this.stopOcr()
-      if (this.keyboardOpen || !this.visible || this._windowFocused === false) { this.send('keyboard.result', { requestId: event.requestId, confirmed: false, text: '' }); return }
       this.keyboardOpen = true
       this.setBackPolicy(false)
       this._keyboardRequest = event.requestId
+      const generation = this._generation
       try {
         if (!this._global) this._global = new globalModule.Global()
         if (!this._editFinished) {
@@ -247,23 +342,48 @@ export default {
             const data = parse(json === undefined ? uuid : json) || {}
             const callbackUuid = json === undefined ? this._keyboardUuid : uuid
             if (!this.keyboardOpen || String(callbackUuid) !== String(this._keyboardUuid)) return
-            this.send('keyboard.result', { requestId: this._keyboardRequest, confirmed: data.editConfirmed === true || data.editConfirmed === 'true', text: String(data.text !== undefined ? data.text : data.content || ''), cursorIndex: data.cursorIndex })
-            this.keyboardOpen = false
-            this._keyboardUuid = ''
+            const requestId = this._keyboardRequest
+            if (this.officialInline) {
+              if (data.editConfirmed === true || data.editConfirmed === 'true') this.finishInlineOfficial()
+              else {
+                this._keyboardCompleting = true
+                this._keyboardTimer = setTimeout(() => {
+                  this._keyboardCompleting = false
+                  if (this.keyboardOpen && this._keyboardRequest === requestId) this.cancelOfficialKeyboard()
+                }, 0)
+              }
+              return
+            }
+            // The official confirm/cancel handler owns its window teardown.
+            // Hiding it reentrantly here can destroy the executing IME page.
+            this.closeKeyboardState(false)
+            this.send('keyboard.result', { requestId, confirmed: data.editConfirmed === true || data.editConfirmed === 'true', text: String(data.text !== undefined ? data.text : data.content || ''), cursorIndex: data.cursorIndex })
           }
           this._global.textEditFinished.on(this._editFinished)
         }
-        this._keyboardUuid = this._global.startTextEdit(JSON.stringify({ text: event.text || '', placeholder: event.placeholder || '请输入', inputType: event.inputType || 'ZhCNPreferred', maxlength: event.maxlength || 4096, autofocus: true, showCursor: true, multiLinesEditVisible: event.multiline === true, cursorIndex: event.cursorIndex || 0, confirmButtonDisabledOnTextEmpty: false, enterButtonText: '确认' }))
-      } catch (err) {
-        this.send('keyboard.result', { requestId: event.requestId, confirmed: false, text: '' })
-        this.keyboardOpen = false
-      }
+        if (this._screen && this._screen.height > this._screen.width) {
+          this._officialOpenConfig = JSON.stringify({ inputType: event.inputType || 'ZhCNPreferred', confirmButtonDisabledOnTextEmpty: false, enterButtonText: '确认' })
+          this.openInlineOfficial(event); return
+        }
+        const start = () => {
+          this._keyboardTimer = null
+          if (!this.keyboardOpen || this._keyboardRequest !== event.requestId || this._generation !== generation || this._disposed) return
+          try {
+            const uuid = this._global.startTextEdit(JSON.stringify({ text: event.text || '', placeholder: event.placeholder || '请输入', inputType: event.inputType || 'ZhCNPreferred', maxlength: event.maxlength || 4096, autofocus: true, showCursor: true, multiLinesEditVisible: event.multiline === true, cursorIndex: event.cursorIndex || 0, confirmButtonDisabledOnTextEmpty: false, enterButtonText: '确认' }))
+            if (typeof uuid !== 'string' || !uuid) throw new Error('official editor rejected request')
+            this._keyboardUuid = uuid
+            this._keyboardWatchAt = typeof launcher.officialKeyboard === 'function' ? Date.now() + 2000 : 0
+          } catch (_) { this.cancelOfficialKeyboard('未能打开官方键盘，输入已保留') }
+        }
+        start()
+      } catch (_) { this.cancelOfficialKeyboard('未能打开官方键盘，输入已保留') }
     },
     fail(message) {
       this._nativeImage = false
       this.setBackPolicy(true)
       this.setNativeEditorPolicy(false)
       this.stopOcr()
+      this.cancelOfficialKeyboard()
       if (this._disposed) return
       this.errorText = message
       this.running = false
@@ -279,6 +399,7 @@ export default {
       this.setBackPolicy(true)
       this.setNativeEditorPolicy(false)
       this._nativeEditor = null
+      this.cancelOfficialKeyboard()
       this._disposed = true
       if (this._updateBridge) this._updateBridge.dispose()
       this.stopOcr()
@@ -298,6 +419,8 @@ export default {
 <style lang="less" scoped>
 .native-page { width: 100vw; height: 100vh; position: relative; background-color: #212121; }
 .native-hole { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
+.official-editor { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #212121; }
+.official-input { position: absolute; background-color: #303030; color: #ececec; font-size: 20px; padding: 0px; }
 .failure-panel { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #212121; padding-left: 32px; padding-top: 20px; }
 .failure-title { color: #ececec; font-size: 30px; }
 .failure-text { color: #b4b4b4; font-size: 21px; margin-top: 14px; }

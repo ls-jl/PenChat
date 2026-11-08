@@ -199,6 +199,31 @@ public:
     info.GetReturnValue().Set(
         Bson::object{{"alive", pid_ > 0 && fd_ >= 0}, {"pid", int(pid_)}});
   }
+  void closeOfficialKeyboard(JQFunctionInfo &info) {
+    if(JQuick::getTopApp()!=ownId_){info.GetReturnValue().Set(false);return;}
+    void *module=dlopen("libfalcon.so",RTLD_LAZY|RTLD_NOLOAD);
+    void *scope=module?module:RTLD_DEFAULT;
+    auto panel=reinterpret_cast<void **>(dlsym(scope,"_ZN7greenui9_im_panelE"));
+    auto hide=reinterpret_cast<void (*)(void *)>(dlsym(scope,"_ZN2im13FalconIMPanel4hideEv"));
+    if(panel&&*panel&&hide)hide(*panel);
+    if(module)dlclose(module);
+    info.GetReturnValue().Set(true);
+  }
+  void officialKeyboard(JQFunctionInfo &info) {
+    // UI-only status. The focused Falcon input creates its own IM panel; no
+    // pinyin API, foreign Storage, object layout or fixed address is used.
+    void *module=dlopen("libfalcon.so",RTLD_LAZY|RTLD_NOLOAD);
+    void *scope=module?module:RTLD_DEFAULT;
+    using Height=int (*)(void *);using Showing=bool (*)(const void *);
+    auto panel=reinterpret_cast<void **>(dlsym(scope,"_ZN7greenui9_im_panelE"));
+    auto height=reinterpret_cast<Height>(dlsym(scope,"_ZN2im13FalconIMPanel14getPanelHeightEv"));
+    auto showing=reinterpret_cast<Showing>(dlsym(scope,"_ZNK7greenui7NWindow9isShowingEv"));
+    const bool supported=panel&&height&&showing;
+    const bool visible=supported&&*panel&&showing(*panel);
+    const int pixels=visible?height(*panel):0;
+    if(module)dlclose(module);
+    info.GetReturnValue().Set(Bson::object{{"supported",supported},{"visible",visible},{"height",pixels},{"foreground",JQuick::getTopApp()==ownId_&&!systemOverlay_.state().visible}});
+  }
   void systemOverlay(JQFunctionInfo &info) {
     const auto state=systemOverlay_.state();
     info.GetReturnValue().Set(Bson::object{{"available",systemOverlay_.available()},{"supported",state.supported},{"visible",state.visible}});
@@ -285,6 +310,8 @@ int init(JSContext *ctx, JSModuleDef *module) {
   tpl->SetProtoMethod("ocrStroke", &Launcher::ocrStroke);
   tpl->SetProtoMethod("status", &Launcher::status);
   tpl->SetProtoMethod("systemOverlay", &Launcher::systemOverlay);
+  tpl->SetProtoMethod("officialKeyboard", &Launcher::officialKeyboard);
+  tpl->SetProtoMethod("closeOfficialKeyboard", &Launcher::closeOfficialKeyboard);
   tpl->SetProtoMethodPromise("stop", &Launcher::stop);
   env->setModuleExport("launcher", tpl->CallConstructor());
   env->setModuleExportDone(JS_UNDEFINED, exports);

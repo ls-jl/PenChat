@@ -207,6 +207,8 @@ void App::editorBuild() {
     auto b=control(title,a.x,a.y,a.width,actionName);
     if(actionName=="done"&&layout.portrait) {
       lv_obj_set_style_bg_opa(b,LV_OPA_TRANSP,0);attachIcon(b,"keyboard-done",theme::text);
+      // Grow only the invisible target; leave space below the Enter key.
+      lv_obj_set_ext_click_area(b,8);
     } else if(actionName=="done"&&!editorInlineChat_)primary(b);
     if(actionName=="clipboard")attachIcon(b,"clipboard",theme::text);
   }
@@ -300,21 +302,31 @@ void App::editorBuild() {
     }
   }
   if(editorClipboardOpen_) {
-    auto head=box(editorRoot_,layout.textX,layout.portrait?layout.overlayY():0,layout.textWidth,74,0x111111);lv_obj_set_scrollable(head,false);
-    label(head,"剪贴板 · "+std::to_string(editorClipboard_.records.size()),4,12,layout.textWidth-188,19);
-    editorLocalActions_["clip-clear"]=button(head,editorClipboardConfirm_?"确认清空":"清空",layout.textWidth-182,6,98,44,[action]{action("clip-clear");});
-    editorLocalActions_["clip-close"]=button(head,"关闭",layout.textWidth-78,6,74,44,[action]{action("clip-close");});
-    auto list=box(editorRoot_,layout.textX,layout.overlayY()+(layout.portrait?74:0),layout.textWidth,layout.overlayHeight()-(layout.portrait?74:0),0x111111);lv_obj_set_scroll_dir(list,LV_DIR_VER);
+    // Docked clipboard replaces the keyboard, never the focused page above it.
+    const int x=layout.portrait?this->layout().safeSide():layout.textX;
+    const int width=layout.portrait?screen_.width-2*x:layout.textWidth;
+    const int top=layout.portrait?layout.panelTop:0;
+    if(layout.portrait) {
+      auto cover=box(editorRoot_,0,top,screen_.width,screen_.height-top,0x111111);
+      lv_obj_set_scrollable(cover,false);lv_obj_set_clickable(cover,true);
+    }
+    auto head=box(editorRoot_,x,top,width,74,0x111111);lv_obj_set_scrollable(head,false);
+    label(head,"剪贴板 · "+std::to_string(editorClipboard_.records.size()),4,12,width-188,19);
+    editorLocalActions_["clip-clear"]=button(head,editorClipboardConfirm_?"确认清空":"清空",width-182,6,98,44,[action]{action("clip-clear");});
+    editorLocalActions_["clip-close"]=button(head,"关闭",width-78,6,74,44,[action]{action("clip-close");});
+    const int listTop=layout.portrait?top+74:layout.overlayY();
+    const int listHeight=layout.portrait?screen_.height-this->layout().safeBottom()-listTop:layout.overlayHeight();
+    auto list=box(editorRoot_,x,listTop,width,listHeight,0x111111);lv_obj_set_scroll_dir(list,LV_DIR_VER);
     int cy=0;
     // A sensitive explicit copy may be pasted once from the current slot but is never a history row.
     if(editorClipboard_.sensitiveCurrent) {
-      button(list,"临时复制内容 · 点击粘贴",0,cy,layout.textWidth-8,44,[action]{action("paste");},theme::surface,LV_TEXT_ALIGN_LEFT);cy+=50;
+      button(list,"临时复制内容 · 点击粘贴",0,cy,width-8,44,[action]{action("paste");},theme::surface,LV_TEXT_ALIGN_LEFT);cy+=50;
     }
-    if(editorClipboard_.records.empty()&&!editorClipboard_.sensitiveCurrent) label(list,"暂无记录",8,12,layout.textWidth-30,18,theme::muted);
+    if(editorClipboard_.records.empty()&&!editorClipboard_.sensitiveCurrent) label(list,"暂无记录",8,12,width-30,18,theme::muted);
     for(size_t i=0;i<editorClipboard_.records.size();++i) {
       auto item=editorClipboard_.records[i];std::replace(item.begin(),item.end(),'\n',' ');
-      button(list,item,0,cy,layout.textWidth-58,44,[action,i]{action("clip-paste:"+std::to_string(i));},theme::surface,LV_TEXT_ALIGN_LEFT);
-      auto del=button(list,"",layout.textWidth-52,cy,44,44,[action,i]{action("clip-delete:"+std::to_string(i));});attachIcon(del,"trash",theme::muted);cy+=50;
+      button(list,item,0,cy,width-58,44,[action,i]{action("clip-paste:"+std::to_string(i));},theme::surface,LV_TEXT_ALIGN_LEFT);
+      auto del=button(list,"",width-52,cy,44,44,[action,i]{action("clip-delete:"+std::to_string(i));});attachIcon(del,"trash",theme::muted);cy+=50;
     }
   }
   if(editorLayoutMenu_||editorPunctuation_) {
@@ -677,15 +689,20 @@ void App::editorOfficial() {
   if(editorText_)editorTextScroll_=lv_obj_get_scroll_y(editorText_);
   std::string text=editor_.text; text.insert(editByte(text,editor_.cursor),editor_.preedit);
   if (editLength(text)>editor_.limit) { editor_.notice="已达到长度上限"; editorBuild(); return; }
-  editorInterrupt(); keyboard_=true; keyboardId_=uid("official");
+  const auto officialField=editorTextArea();
+  editorInterrupt();officialDocked_=editorLayout().docked;officialHeight_=0;
+  if(officialDocked_)officialBackup_=editor_;
+  keyboard_=true;keyboardId_=uid("official");
+  if(officialDocked_&&editorRoot_)lv_obj_set_hidden(editorRoot_,true);
   display_.visible(false);
   const bool sent = bridge_.send("keyboard.open",{{"requestId",keyboardId_},{"text",text},{"placeholder",editor_.placeholder},
     {"maxlength",editor_.limit},{"multiline",editor_.multiline},{"sensitive",editor_.secret},
     {"cursorIndex",editUtf16(text,editor_.cursor+editor_.preedit.size())},
-    {"inputType",editor_.chinese?"ZhCNPreferred":"EnUSOnly"}});
+    {"inputType",editor_.chinese?"ZhCNPreferred":"EnUSOnly"},
+    {"field",{{"x",officialField.x},{"y",officialField.y},{"width",officialField.width},{"height",officialField.height}}}});
   if (!sent) {
-    keyboard_ = false;
-    keyboardId_.clear();
+    keyboard_ = false;officialDocked_=false;officialHeight_=0;officialBackup_=EditorState{};
+    keyboardId_.clear();display_.topHeight(0);
     display_.visible(visible_);
     editorPolicy(true);
     editorChanged();
@@ -1149,7 +1166,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
       if(!editor_.preedit.empty()&&editor_.raw()) {editorChanged();editorSyncText(true);}
       editorTextScroll_=lv_obj_get_scroll_y(editorText_);input_.cancel();return;
     }
-    if(!popupHit&&!editorLayoutMenu_&&!editorPunctuation_)for(size_t i=0;i<editorKeys_.size();++i) {
+    if(!popupHit&&!editorLayoutMenu_&&!editorPunctuation_&&!(editorClipboardOpen_&&layout.portrait))for(size_t i=0;i<editorKeys_.size();++i) {
       const auto &k=editorKeys_[i];
       if(k.hit.contains(x,y)) {
         editorHeld_=int(i);editorPress_=k;lv_obj_set_style_bg_color(k.object,lv_color_hex(theme::border),0);editorRepeat_=ticks()+(k.value=="language"?layoutHoldMs:450);break;

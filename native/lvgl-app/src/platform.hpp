@@ -8,12 +8,15 @@ class Display {
   lv_display_t *display_ = nullptr;
   std::vector<uint8_t> buffer_;
   Screen screen_;
+  int topHeight_ = 0;
   bool shown_ = true, headless_ = false;
 
 public:
   Display(const Screen &s, bool headless);
   ~Display();
   void visible(bool value);
+  void topHeight(int height);
+  int topHeight() const { return topHeight_; }
   bool visible() const { return shown_; }
   void screenshot(const std::string &path);
   void flush(lv_display_t *, const lv_area_t *, uint8_t *);

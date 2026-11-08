@@ -89,8 +89,8 @@ def run(w,h):
             for c in 'nihao':key(a,c)
             ready(a);key(a,'space');selected(a)
             layout(a,'en26');a.editor_action('clipboard');assert editor(a)['clipboard_open']
-            length=editor(a)['length'];key(a,'x');assert editor(a)['length']==length+1
-            a.tap(w-30,28);assert not editor(a)['clipboard_open']
+            length=editor(a)['length'];key(a,'x');assert editor(a)['length']==length+(0 if h>w else 1)
+            a.editor_action('clip-close');assert not editor(a)['clipboard_open']
             a.editor_action('done');time.sleep(.12);assert profile.read_bytes()==old
             a.open_settings();a.setting('keyboard')
             row=a.diag()['settings']['rows']['clear_pinyin']['bounds'];a.tap((row[0]+row[2])//2,(row[1]+row[3])//2)

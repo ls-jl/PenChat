@@ -506,8 +506,15 @@ class App {
   std::string editorChosenWord_;
   uint64_t editorPaintedKey_=0, editorBuildCount_=0, editorRefreshCount_=0;
 
-  EditorLayout editorLayout() const { return EditorLayout(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_); }
+  EditorLayout editorLayout() const {
+    EditorLayout result(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_);
+    if(officialDocked_&&keyboard_&&officialHeight_>0)result.panelTop=screen_.height-officialHeight_;
+    return result;
+  }
   EditorState editor_;
+  EditorState officialBackup_;
+  bool officialDocked_=false;
+  int officialHeight_=0;
   Json editorLearning_ = Json::array(), editorExact_ = Json::array(), editorPinyinPending_;
   bool editorLayoutMenu_ = false, editorLayoutHold_ = false, editorPunctuation_ = false;
   std::map<std::string, lv_obj_t *> editorLocalActions_;

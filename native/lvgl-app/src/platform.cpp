@@ -36,7 +36,7 @@ Display::~Display() {
 }
 void Display::flush(lv_display_t *d, const lv_area_t *, uint8_t *) {
   if (shown_ && !headless_)
-    overlay_.presentBgra(buffer_.data(), screen_.width, screen_.height);
+    overlay_.presentBgra(buffer_.data(), screen_.width, topHeight_?topHeight_:screen_.height);
   if(lv_display_flush_is_last(d)) trimFontCache();
   lv_display_flush_ready(d);
 }
@@ -48,6 +48,14 @@ void Display::visible(bool value) {
     lv_obj_invalidate(lv_screen_active());
     lv_refr_now(display_);
   }
+}
+void Display::topHeight(int height) {
+  height=std::max(0,std::min(screen_.height,height));
+  if(topHeight_==height)return;
+  topHeight_=height;
+  if(!headless_)overlay_.setHole(camera::HoleRect(0,0,screen_.width,height?height:screen_.height,
+      screen_.width,screen_.height,screen_.rotation,0,0,screen_.xoffset,screen_.yoffset));
+  if(shown_) {lv_obj_invalidate(lv_screen_active());lv_refr_now(display_);}
 }
 void Display::screenshot(const std::string &path) {
   lv_refr_now(display_);
