@@ -85,7 +85,7 @@ def run():
                 assert max(k['bounds'][3] for k in e['keys'] if k['key']!='language')==1122
                 assert 'cancel' not in e['actions']
                 assert e['actions']['done'][1]>1122
-                assert next(k for k in e['keys'] if k['key']=='language')['y']==1165
+                assert next(k for k in e['keys'] if k['key']=='language')['y']==1162
                 assert next(k for k in e['keys'] if k['key']=='space')['bounds'][2]-next(k for k in e['keys'] if k['key']=='space')['bounds'][0]>210
                 shot(a,'chat-keyboard')
                 key(a,'language')

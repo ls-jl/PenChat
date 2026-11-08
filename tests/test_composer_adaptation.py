@@ -45,7 +45,7 @@ for w,h in [(960,266),(936,280),(568,1210)]:
                 assert d['page_content_height']<d['reader_height']+120
                 globe=next(k for k in d['editor']['keys'] if k['key']=='language')
                 comma=next(k for k in d['editor']['keys'] if k['key']==',')
-                assert abs(globe['y']-(comma['bounds'][3]+h-1)/2)<=1
+                assert abs(globe['y']-((comma['bounds'][3]+h-1)/2-3))<=1
                 capture(a,OUT/'portrait-form-bottom.png')
                 a.editor_action('done');d=a.diag()
                 assert d['reader_height']==h and d['scroll_y']+d['scroll_bottom']<=0

@@ -83,7 +83,7 @@ void paint(lv_event_t *event) {
     lv_draw_line_dsc_init(&d);
     d.color = ink;
     d.opa = opacity;
-    d.width = icon->name=="keyboard-done"?3:2;
+    d.width = 2;
     d.round_start = d.round_end = 1;
     d.p1 = {int32_t(std::lround(cx + x * scale)), int32_t(std::lround(cy + y * scale))};
     d.p2 = {int32_t(std::lround(cx + u * scale)), int32_t(std::lround(cy + v * scale))};
@@ -130,10 +130,8 @@ void paint(lv_event_t *event) {
   } else if(k=="check") {
     line(-8,0,-2,6);line(-2,6,9,-7);
   } else if(k=="keyboard-done") {
-    // Native 22px-tall collapse mark, not a text glyph. Each arm is 22.5
-    // degrees from vertical, giving a 45-degree included angle at the tip.
-    const float half=22.f*0.41421356237f;
-    line(-half,-11,0,11);line(0,11,half,-11);
+    // Compact native chevron: its two equal diagonals meet at 90 degrees.
+    line(-8,-4,0,4);line(0,4,8,-4);
   } else if(k=="info") {
     circle(0,0,10);line(0,-1,0,6);rect(-1,-7,2,2,LV_RADIUS_CIRCLE,true);
   } else if(k=="copy") {
@@ -146,8 +144,15 @@ void paint(lv_event_t *event) {
     line(-6,-5,-6,5);line(-6,2,0,2);arc(0,90,6,0,-4);line(6,-4,6,-5);
     circle(-6,-8,2.5);circle(-6,8,2.5);circle(6,-8,2.5);
   } else if(k=="globe"||k=="globe-large") {
-    circle(0,0,10);line(-10,0,10,0);line(-8,-5,8,-5);line(-8,5,8,5);
-    rect(-4,-10,8,20,LV_RADIUS_CIRCLE);
+    // Stop round-capped parallels at the inner edge of the outer stroke.
+    // The stroke stays 2px at either scale, so fixed endpoints protrude when
+    // they meet a border whose stroke is drawn inside its circular bounds.
+    const float inside=10.f-2.f/scale;
+    const float parallel=std::sqrt(inside*inside-25.f);
+    line(-inside,0,inside,0);
+    line(-parallel,-5,parallel,-5);line(-parallel,5,parallel,5);
+    rect(-4,-inside,8,2*inside,LV_RADIUS_CIRCLE);
+    circle(0,0,10);
   } else if(k=="clipboard") {
     rect(-8,-8,16,18,2);rect(-4,-11,8,5,2);line(-4,0,4,0);line(-4,5,2,5);
   } else if(k=="selection-handle") {line(0,-10,0,0);circle(0,4,4);}

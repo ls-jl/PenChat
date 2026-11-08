@@ -317,8 +317,9 @@ drags hide the composer, downward drags reveal it without changing follow state.
 pill alone keeps 25px around the 44px send circle. Chinese
 composition uses the same row as the official/OCR/clipboard actions; never add
 a separate candidate row in portrait. The borderless globe is 1.5x, below and
-slightly left of comma, centered between the comma key bottom edge and screen bottom. Portrait finish
-uses a borderless narrow downward V. Docked form content height follows the
+slightly left of comma, centered 3px above the midpoint between the comma key bottom edge and screen bottom.
+Its parallels terminate inside the outer stroke. Portrait finish uses a compact
+borderless 90-degree downward chevron. Docked form content height follows the
 visible reader instead of retaining a full-screen minimum spacer. Switching fields commits the prior
 field (including raw unfinished preedit) once before focusing the next. Retain the
 keyboard root, viewport and top-panel policy during that transfer; compatible

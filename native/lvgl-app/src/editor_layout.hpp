@@ -100,7 +100,7 @@ struct EditorLayout {
   Popup globeKey() const {
     const int commaCenter=8+px(keyWidth+14)+px(keyWidth+10)/2;
     const int centerY=px((bottomY+bottomHeight-1.+height-1)/2.);
-    return {commaCenter-14-24,centerY-24,48,48};
+    return {commaCenter-14-24,centerY-3-24,48,48};
   }
   struct Action { const char *name; int x, width, y; };
   std::vector<Action> actions(bool chat=false) const {
