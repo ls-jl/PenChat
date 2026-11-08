@@ -58,7 +58,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
          const std::string &fontPath, const std::string &resources, bool nativeTouch, const Json &configuration)
     : db_(db), bridge_(bridge), display_(display), input_(input), screen_(s), touchInput_(s, nativeTouch),
       pinyin_(events_, join(workspace, "assets/pinyin"), dataDir),
-      images_(events_), camera_(events_, join(dataDir, "camera-tmp"), workspace),
+      images_(events_), camera_(events_, join(dataDir, "camera-tmp"), workspace, s.height > s.width),
       scanner_(events_, workspace, dataDir),
       rich_(fontPath, resources,
             join(workspace, "assets/fonts/DejaVuSans.ttf")),
@@ -1021,7 +1021,7 @@ void App::build() {
   if (photo && cameraAngle_ && !layout().portrait()) {
     lv_obj_set_style_transform_pivot_x(screenObj_,canvasW/2,0);
     lv_obj_set_style_transform_pivot_y(screenObj_,canvasH/2,0);
-    lv_obj_set_style_transform_rotation(screenObj_,(360-cameraAngle_)*10,0);
+    lv_obj_set_style_transform_rotation(screenObj_,photoTransforms(cameraAngle_, false).workspace*10,0);
   }
   lv_obj_set_scrollable(screenObj_, false);
   if(view_=="onboarding") {
@@ -3633,13 +3633,16 @@ void App::tick() {
   flushChatRender();
   syncReplyControls();
   if (view_ == "camera" && cameraAutomatic_ && pendingCameraAngle_>=0 && !cameraCapturing_ && !touchDown_ && visible_) {
-    cameraAngle_=pendingCameraAngle_;pendingCameraAngle_=-1;build();
+    cameraAngle_=pendingCameraAngle_;pendingCameraAngle_=-1;
+    // Fixed portrait controls and preview geometry do not change with pose.
+    // Keep their image object alive instead of flashing a rebuilt workspace.
+    if (!layout().portrait()) build();
   }
   if (view_ == "camera" && visible_ && !keyboard_ && !navigationOpen_ &&
       ticks() - lastCameraFrame_ >= 60) {
     lastCameraFrame_ = ticks();
     auto frame = camera_.frame();
-    if (frame && cameraImage_ && frame->rotation == cameraAngle_) {
+    if (frame && cameraImage_ && frame->cameraPose == cameraAngle_) {
       texture(cameraImage_, frame);
       if(status_ && cameraError_.empty()) lv_label_set_text(status_, "");
       auto holder = lv_obj_get_parent(cameraImage_);
@@ -3849,6 +3852,9 @@ Json App::diagnostics() const {
       {"camera_ready",
        cameraImage_ && textures_.count(cameraImage_) && cameraError_.empty()},
       {"camera_angle", cameraAngle_},
+      {"camera_transforms", {{"preview", photoTransforms(cameraAngle_, layout().portrait()).preview},
+                             {"workspace", photoTransforms(cameraAngle_, layout().portrait()).workspace},
+                             {"saved", photoTransforms(cameraAngle_, layout().portrait()).saved}}},
       {"camera_auto", cameraAutomatic_},
       {"camera_sensor", cameraSensorAvailable_},
       {"crop_source", {cropPhoto_.value("width", 0), cropPhoto_.value("height", 0)}},

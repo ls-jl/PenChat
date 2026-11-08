@@ -2,10 +2,12 @@
 #include "capture.h"
 #include "common.hpp"
 #include "markdown.hpp"
+#include "photo_orientation.hpp"
 #include <set>
 namespace penchat {
 struct ImageFrame {
   int width = 0, height = 0, rotation = 0;
+  int cameraPose = 0; // Pose tag; rotation describes the actual preview pixels.
   std::vector<uint8_t> pixels;
 };
 class Images {
@@ -46,17 +48,19 @@ class Camera {
   Events &events_;
   std::atomic<bool> save_{false};
   std::string directory_, workspace_;
+  const bool fixedWorkspace_;
   std::atomic<int> orientation_{0}, manualOrientation_{-1}, captureOrientation_{0};
   void work();
 
 public:
-  Camera(Events &events, std::string directory, std::string workspace)
-      : events_(events), directory_(std::move(directory)), workspace_(std::move(workspace)) {}
+  Camera(Events &events, std::string directory, std::string workspace, bool fixedWorkspace)
+      : events_(events), directory_(std::move(directory)), workspace_(std::move(workspace)),
+        fixedWorkspace_(fixedWorkspace) {}
   ~Camera() { stop(); }
   void start();
   void stop();
   uint64_t generation() const { return generation_.load(); }
-  void capture(int angle = 0) { captureOrientation_ = angle; save_ = true; }
+  void capture(int angle = 0) { captureOrientation_ = photoTransforms(angle, fixedWorkspace_).saved; save_ = true; }
   void orientation(bool automatic, int angle) { orientation_ = angle; manualOrientation_ = automatic ? -1 : angle; }
   std::shared_ptr<ImageFrame> frame();
 };

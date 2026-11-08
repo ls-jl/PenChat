@@ -4,6 +4,18 @@
 #include <cstdint>
 #include <vector>
 namespace penchat {
+// Sensor pose normalizes the saved photo, not the live view. A fixed portrait
+// workspace must show native camera pixels without rotating them on every pose
+// change. Landscape workspaces retain their inverse UI transform. Display/touch
+// rotation and optical mounting calibration are separate from these transforms.
+struct PhotoTransforms {
+  int preview = 0, workspace = 0, saved = 0;
+};
+inline PhotoTransforms photoTransforms(int pose, bool fixedWorkspace) {
+  const int angle = ((pose % 360) + 360) % 360;
+  return {fixedWorkspace ? 0 : angle,
+          fixedWorkspace ? 0 : (360 - angle) % 360, angle};
+}
 // Ported from Camera's auto-orientation.js: projected gravity, smoothing and
 // 600 ms stability avoid changing pose on flat placement or a transient shake.
 struct PhotoOrientation {

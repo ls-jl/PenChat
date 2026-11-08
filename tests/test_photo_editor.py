@@ -27,7 +27,9 @@ def run(w,h,angle):
             begin(a,p,angle,iw,ih);s=a.diag();frame=s['crop_selection'];x,y,fw,fh=frame
             assert s['crop_source_rect']==[0,0,iw,ih]
             assert set(s['crop_actions'])=={'cancel','reset','album','confirm'}
-            assert s['crop_viewport'][0]==(h if angle%180 else w)-16
+            assert s['crop_viewport'][0]==(h if w>=h and angle%180 else w)-16
+            transforms=s['camera_transforms']
+            assert transforms=={'preview':angle if w>=h else 0,'workspace':(360-angle)%360 if w>=h else 0,'saved':angle}
             assert abs(fw/fh-iw/ih)<.001
             snapshot(a,f'photo-fit-{w}-{angle}')
             pan=s['crop_pan'];drag(a,x+2,y+2,45,35,True)
@@ -60,6 +62,6 @@ def run(w,h,angle):
         finally:a.close()
 
 if __name__=='__main__':
-    for w,h in [(960,266),(936,280)]:
+    for w,h in [(960,266),(936,280),(568,1210)]:
         for angle in (0,90,180,270):run(w,h,angle)
-    print('Photo gestures: two screens/four poses, fixed frame, edge resize, pinch IDs, pan, reset, black content and original-pixel crop output passed.')
+    print('Photo gestures: three screens/four poses, fixed frame, edge resize, pinch IDs, pan, reset, black content and original-pixel crop output passed.')

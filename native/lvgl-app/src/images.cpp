@@ -290,7 +290,11 @@ void Camera::work() {
       float scale = std::min(1.f, (highResolution?720.f:240.f) / f.height);
       frame->width = int(f.width * scale);
       frame->height = int(f.height * scale);
-      frame->rotation = orientation_;
+      // Freeze one pose for both the metadata tag and this conversion. Preview
+      // pixels stay in screen coordinates on a fixed portrait workspace; the
+      // shutter pose below independently normalizes the full-resolution photo.
+      frame->cameraPose = orientation_.load();
+      frame->rotation = photoTransforms(frame->cameraPose, fixedWorkspace_).preview;
       if (frame->rotation % 180) std::swap(frame->width,frame->height);
       frame->pixels.resize(size_t(frame->width) * frame->height * 4);
       camera::nv12ToBgra(bytes.data(),
