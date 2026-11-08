@@ -19,6 +19,9 @@ struct ScanWorkspace {
 struct CameraWorkspace {
   LayoutRect preview, direction, shutter, turn;
 };
+struct CropWorkspace {
+  LayoutRect viewport, cancel, reset, album, confirm;
+};
 struct GuideWorkspace {
   bool portrait; int split,right,measure,footer,demoHeight;
 };
@@ -64,6 +67,20 @@ struct AppLayout {
     return {{8,8,w-144,h-16},{w-132,12,124,48},
       {w-70-diameter/2,(h-diameter)/2,diameter,diameter},
       {w-132,h-60,124,48}};
+  }
+  CropWorkspace cropWorkspace(int w,int h) const {
+    if(portrait()) {
+      const int side=safeSide(),available=w-2*side;
+      const int y=h-safeBottom()-12-48,albumY=y-56;
+      const int buttonWidth=(available-24)/3;
+      return {{side,safeTop(),available,albumY-safeTop()-16},
+        {side,y,buttonWidth,48},{side+buttonWidth+12,y,buttonWidth,48},
+        {side,albumY,available,44},{w-side-buttonWidth,y,buttonWidth,48}};
+    }
+    const bool narrow=w<440;const int y=h-52,bw=narrow?(w-32)/3:72;
+    return {{8,8,w-16,h-(narrow?120:68)},{8,y,bw,44},
+      {narrow?16+bw:88,y,bw,44},{narrow?12:168,narrow?h-104:y,narrow?w-24:184,44},
+      {w-8-bw,y,bw,44}};
   }
   GuideWorkspace guideWorkspace() const {
     const bool p=portrait();const int split=p?width-4:width/2,right=p?20:split+20;

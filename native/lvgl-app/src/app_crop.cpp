@@ -31,9 +31,9 @@ void App::beginCrop(const Json &photo) {
   cameraAngle_ = photo.value("orientation", 0);
   cropPhoto_ = photo; cropResult_ = Json::object();
   cropSaveAlbum_ = db_.settings().value("penchat_settings", Json::object()).value("saveCameraToAlbum", false);
-  const bool narrow = photoWidth() < 440;
-  cropViewportW_ = std::max(1, photoWidth() - 16);
-  cropViewportH_ = std::max(1, photoHeight() - (narrow ? 120 : 68));
+  const auto workspace=layout().cropWorkspace(photoWidth(),photoHeight());
+  cropViewportW_ = std::max(1, workspace.viewport.width);
+  cropViewportH_ = std::max(1, workspace.viewport.height);
   cropLoaded_ = false; imageGesture_ = {}; imageTouchPeak_ = imagePinchUpdates_ = 0;
   cropImageKey_ = images_.request(photo.at("path").get<std::string>(), 1600, 1600);
   show("crop");
@@ -110,8 +110,15 @@ void App::cropView(const std::string &action) {
 void App::cropPage() {
   lv_obj_set_scrollable(body_,false);
   const int width=photoWidth(), height=photoHeight();
-  const bool narrow=width<440;
-  cropViewport_=box(body_,8,8,cropViewportW_,cropViewportH_,theme::sidebar);
+  const auto workspace=layout().cropWorkspace(width,height);
+  if(layout().portrait()) {
+    // Paint the entire logical page, including margins and footer. Black is a
+    // UI backing only; it must never enter the source pixels or saved crop.
+    lv_obj_set_style_bg_color(screenObj_,lv_color_hex(theme::scrim),0);
+    lv_obj_set_style_bg_color(body_,lv_color_hex(theme::scrim),0);
+  }
+  cropViewport_=box(body_,workspace.viewport.x,workspace.viewport.y,cropViewportW_,cropViewportH_,
+                    layout().portrait()?theme::scrim:theme::sidebar);
   lv_obj_set_scrollable(cropViewport_,false);
   cropBitmap_=imageWidget(cropViewport_); lv_obj_set_clickable(cropBitmap_,false);
   auto loading=label(cropViewport_,"正在载入…",8,8,cropViewportW_-16,17,theme::muted);
@@ -137,13 +144,13 @@ void App::cropPage() {
     lv_obj_align(handle,align,0,0);lv_obj_set_clickable(handle,false);lv_obj_set_scrollable(handle,false);
   }
   cropActions_.clear();
-  const int y=height-52, bw=narrow?(width-32)/3:72;
-  cropActions_["cancel"]=button(body_,"取消",8,y,bw,44,[this]{events_.push("crop_cancel");});
-  cropActions_["reset"]=button(body_,"还原",narrow?16+bw:88,y,bw,44,[this]{events_.push("crop_view",{{"action","reset"}});});
+  const auto &cancel=workspace.cancel;const auto &reset=workspace.reset;
+  cropActions_["cancel"]=button(body_,"取消",cancel.x,cancel.y,cancel.width,cancel.height,[this]{events_.push("crop_cancel");});
+  cropActions_["reset"]=button(body_,"还原",reset.x,reset.y,reset.width,reset.height,[this]{events_.push("crop_view",{{"action","reset"}});});
   auto check=lv_checkbox_create(body_);cropActions_["album"]=check;
   lv_checkbox_set_text(check,"加入系统相册");
-  lv_obj_set_pos(check,narrow?12:168,narrow?height-104:y);
-  lv_obj_set_size(check,narrow?width-24:184,44);
+  lv_obj_set_pos(check,workspace.album.x,workspace.album.y);
+  lv_obj_set_size(check,workspace.album.width,workspace.album.height);
   lv_obj_set_style_text_font(check,font(19),0);
   lv_obj_set_style_text_color(check,lv_color_hex(theme::text),0);
   lv_obj_set_style_bg_color(check,lv_color_hex(theme::surface),LV_PART_INDICATOR);
@@ -158,7 +165,8 @@ void App::cropPage() {
     auto settings=a->db_.settings().value("penchat_settings",Json::object());
     settings["saveCameraToAlbum"]=a->cropSaveAlbum_;a->db_.setting("penchat_settings",settings);
   },LV_EVENT_VALUE_CHANGED,this);
-  auto confirm=button(body_,cropBusy_?"处理中":"确定",width-8-bw,y,bw,44,[this]{events_.push("crop_confirm");});
+  const auto &confirmRect=workspace.confirm;
+  auto confirm=button(body_,cropBusy_?"处理中":"确定",confirmRect.x,confirmRect.y,confirmRect.width,confirmRect.height,[this]{events_.push("crop_confirm");});
   cropActions_["confirm"]=confirm;primary(confirm);
   updateCrop();
   if(!cropLoaded_)lv_obj_add_state(confirm,LV_STATE_DISABLED);

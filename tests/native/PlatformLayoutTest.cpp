@@ -77,6 +77,20 @@ int main() {
         assert(c.shutter.y+c.shutter.height<c.turn.y);
         assert(c.preview.x+c.preview.width<c.direction.x);
       }
+      const int cropW=!layout.portrait()&&quarter?size.second:size.first;
+      const int cropH=!layout.portrait()&&quarter?size.first:size.second;
+      const auto crop=layout.cropWorkspace(cropW,cropH);
+      for(const auto r:{crop.viewport,crop.cancel,crop.reset,crop.album,crop.confirm})
+        assert(r.x>=0&&r.y>=0&&r.width>=44&&r.height>=44&&r.x+r.width<=cropW&&r.y+r.height<=cropH);
+      if(layout.portrait()) {
+        assert(crop.viewport.x>=layout.safeSide()&&crop.viewport.y>=layout.safeTop());
+        assert(crop.viewport.y+crop.viewport.height+16<=crop.album.y);
+        assert(crop.album.y+crop.album.height+12<=crop.cancel.y);
+        assert(crop.cancel.x+crop.cancel.width+12<=crop.reset.x);
+        assert(crop.reset.x+crop.reset.width+12<=crop.confirm.x);
+        assert(crop.confirm.x+crop.confirm.width<=cropW-layout.safeSide());
+        assert(crop.confirm.y+crop.confirm.height<=cropH-layout.safeBottom()-12);
+      }
     }
   }
   Json y02={{"screen",{{"width",936},{"height",280},{"direction",270},{"tp_direction",270}}}};

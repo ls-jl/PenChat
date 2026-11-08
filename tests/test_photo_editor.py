@@ -27,7 +27,16 @@ def run(w,h,angle):
             begin(a,p,angle,iw,ih);s=a.diag();frame=s['crop_selection'];x,y,fw,fh=frame
             assert s['crop_source_rect']==[0,0,iw,ih]
             assert set(s['crop_actions'])=={'cancel','reset','album','confirm'}
-            assert s['crop_viewport'][0]==(h if w>=h and angle%180 else w)-16
+            if h>w:
+                left,top,right,bottom=s['crop_viewport_bounds'];safe=s['safe_insets']
+                assert left>=safe[0] and top>=safe[1] and right<w-safe[2]
+                for key in ('cancel','reset','confirm'):
+                    b=s['crop_actions'][key]
+                    assert b[0]>=safe[0] and b[2]<w-safe[2] and b[3]<h-safe[3]-12
+                assert bottom<s['crop_actions']['album'][1]
+                assert s['crop_actions']['album'][3]<s['crop_actions']['cancel'][1]
+            else:
+                assert s['crop_viewport'][0]==(h if angle%180 else w)-16
             transforms=s['camera_transforms']
             assert transforms=={'preview':angle if w>=h else 0,'workspace':(360-angle)%360 if w>=h else 0,'saved':angle}
             assert abs(fw/fh-iw/ih)<.001
