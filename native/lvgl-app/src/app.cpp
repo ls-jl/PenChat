@@ -195,7 +195,7 @@ void App::texture(lv_obj_t *object, std::shared_ptr<ImageFrame> frame,
   t->frame = std::move(frame);
   auto &d = t->descriptor;
   d.header.magic = LV_IMAGE_HEADER_MAGIC;
-  d.header.cf = LV_COLOR_FORMAT_ARGB8888;
+  d.header.cf = t->frame->opaque?LV_COLOR_FORMAT_XRGB8888:LV_COLOR_FORMAT_ARGB8888;
   d.header.w = t->frame->width;
   d.header.h = t->frame->height;
   d.header.stride = t->frame->width * 4;
@@ -2640,6 +2640,7 @@ void App::cameraPage() {
   lv_obj_update_layout(body_);
   const int w=lv_obj_get_width(body_),h=lv_obj_get_height(body_);
   const auto workspace=layout().cameraWorkspace(w,h,cameraAngle_%180!=0);
+  camera_.previewSize(workspace.preview.width,workspace.preview.height);
   auto preview=box(body_,workspace.preview.x,workspace.preview.y,workspace.preview.width,workspace.preview.height,theme::background);
   lv_obj_set_scrollable(preview,false);
   cameraImage_=imageWidget(preview);lv_obj_center(cameraImage_);
@@ -3689,10 +3690,11 @@ void App::tick() {
     if (layout().portrait())cameraControlsOrientation();else build();
   }
   if (view_ == "camera" && visible_ && !keyboard_ && !navigationOpen_ &&
-      ticks() - lastCameraFrame_ >= 60) {
+      ticks() - lastCameraFrame_ >= 33) {
     lastCameraFrame_ = ticks();
     auto frame = camera_.frame();
-    if (frame && cameraImage_ && frame->cameraPose == cameraAngle_) {
+    if (frame && cameraImage_ && frame->cameraPose == cameraAngle_ &&
+        (!textures_.count(cameraImage_)||textures_.at(cameraImage_)->frame!=frame)) {
       texture(cameraImage_, frame);
       if(status_ && cameraError_.empty()) lv_label_set_text(status_, "");
       auto holder = lv_obj_get_parent(cameraImage_);

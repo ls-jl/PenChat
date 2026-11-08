@@ -39,49 +39,43 @@ int yuv2rgb(int y, int u, int v, int c)
     return val;
 }
 
-void mapRotatedSrc(int dx, int dy, int dstW, int dstH, int srcW, int srcH, int rotate, int* sx, int* sy)
-{
-    int x = dx;
-    int y = dy;
-    if (rotate == 90) {
-        x = dy * srcW / dstH;
-        y = (dstW - 1 - dx) * srcH / dstW;
-    } else if (rotate == 270) {
-        x = (dstH - 1 - dy) * srcW / dstH;
-        y = dx * srcH / dstW;
-    } else if (rotate == 180) {
-        x = (dstW - 1 - dx) * srcW / dstW;
-        y = (dstH - 1 - dy) * srcH / dstH;
-    } else {
-        x = dx * srcW / dstW;
-        y = dy * srcH / dstH;
-    }
-    if (x < 0) x = 0;
-    if (y < 0) y = 0;
-    if (x >= srcW) x = srcW - 1;
-    if (y >= srcH) y = srcH - 1;
-    if (sx) *sx = x;
-    if (sy) *sy = y;
-}
 
 }  // namespace
 
 void nv12ToBgra(const uint8_t* yPlane, const uint8_t* uvPlane, int width, int height,
     int yStride, int uvStride, uint8_t* dst, int dstW, int dstH, int rotate)
 {
-    for (int dy = 0; dy < dstH; ++dy) {
-        for (int dx = 0; dx < dstW; ++dx) {
-            int sx = 0, sy = 0;
-            mapRotatedSrc(dx, dy, dstW, dstH, width, height, rotate, &sx, &sy);
-            const int y = yPlane[sy * yStride + sx];
-            const int uvIndex = (sy / 2) * uvStride + (sx & ~1);
-            const int u = uvPlane[uvIndex];
-            const int v = uvPlane[uvIndex + 1];
-            uint8_t* p = dst + (dy * dstW + dx) * 4;
-            p[0] = static_cast<uint8_t>(yuv2rgb(y, u, v, 2));
-            p[1] = static_cast<uint8_t>(yuv2rgb(y, u, v, 1));
-            p[2] = static_cast<uint8_t>(yuv2rgb(y, u, v, 0));
-            p[3] = 255;
+    if (width <= 0 || height <= 0 || dstW <= 0 || dstH <= 0) return;
+    const bool quarter = rotate == 90 || rotate == 270;
+    const bool flipX = rotate == 90 || rotate == 180;
+    const bool flipY = rotate == 180 || rotate == 270;
+    std::vector<int> columns(dstW), rows(dstH);
+    // The same nearest-neighbour mapping, computed once per axis rather than
+    // two integer divisions and a rotation branch for every output pixel.
+    for (int x = 0; x < dstW; ++x)
+        columns[x] = int(int64_t(flipX ? dstW - 1 - x : x) * (quarter ? height : width) / dstW);
+    for (int y = 0; y < dstH; ++y)
+        rows[y] = int(int64_t(flipY ? dstH - 1 - y : y) * (quarter ? width : height) / dstH);
+    // Quarter-turns otherwise walk entire source columns with poor locality.
+    // Small tiles keep both the sensor planes and the BGRA destination hot.
+    const int tile = quarter ? 16 : std::max(dstW, dstH);
+    for (int top = 0; top < dstH; top += tile) {
+        for (int left = 0; left < dstW; left += tile) {
+            const int endY = std::min(dstH, top + tile), endX = std::min(dstW, left + tile);
+            for (int dy = top; dy < endY; ++dy) {
+                for (int dx = left; dx < endX; ++dx) {
+                    const int sx = quarter ? rows[dy] : columns[dx];
+                    const int sy = quarter ? columns[dx] : rows[dy];
+                    const int y = yPlane[size_t(sy) * yStride + sx];
+                    const size_t uvIndex = size_t(sy / 2) * uvStride + (sx & ~1);
+                    const int u = uvPlane[uvIndex], v = uvPlane[uvIndex + 1];
+                    uint8_t* p = dst + (size_t(dy) * dstW + dx) * 4;
+                    p[0] = static_cast<uint8_t>(yuv2rgb(y, u, v, 2));
+                    p[1] = static_cast<uint8_t>(yuv2rgb(y, u, v, 1));
+                    p[2] = static_cast<uint8_t>(yuv2rgb(y, u, v, 0));
+                    p[3] = 255;
+                }
+            }
         }
     }
 }

@@ -141,6 +141,10 @@ PenChat is an independent application. Never read external application databases
 
 - Keep ongoing and temporary changes on the local `dev` branch. `main` contains
   released work; do not merge development into it for each user request.
+- Ordinary development device acceptance is performed by the user. Do not automatically
+  run device test flows, screenshots or performance benchmarks unless the user asks
+  for testing or a Release. Necessary compilation/package identity checks and already
+  authorized installation remain allowed; never describe pending manual checks as passed.
 - Commit completed logical changes locally on `dev` after appropriate targeted
   verification. Do not automatically push commits, create releases, bump the app
   version or run the full test suite for ordinary development requests.

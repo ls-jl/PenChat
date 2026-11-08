@@ -9,6 +9,7 @@
 #include "stb_image_write.h"
 #include "util.h"
 #include <cstring>
+#include <array>
 #include <cmath>
 #include <stdexcept>
 #include <unistd.h>
@@ -218,6 +219,10 @@ void Camera::work() {
   PhotoOrientation orientationFilter;
   bool highResolution=false;
   int64_t nextSensor = 0;
+  int64_t nextPreview = 0;
+  // Latest frame, displayed frame and one writable frame; reuse only an owner
+  // not published to either reader. The pool dies when the camera worker exits.
+  std::array<std::shared_ptr<ImageFrame>,3> previews;
   try {
     if(!camera::deviceCapabilities().photoCamera)
       throw std::runtime_error("此机型没有独立拍照设备，可使用笔头扫描或相册");
@@ -268,6 +273,20 @@ void Camera::work() {
         if(!received||f.width!=3264||f.height!=2448)throw std::runtime_error("高清照片采集失败，请重试");
         source=&high;
       } else if (!capture.grab(&f, 200))continue;
+      if(source==&capture) {
+        // Capture requests four V4L2 buffers. Drain at most the other three:
+        // preview freshness matters more than replaying already stale frames.
+        // This is not the scanner's ordered/no-drop capture path.
+        for(int queued=0;queued<3&&!stop_;++queued) {
+          camera::CaptureFrame newer;
+          if(!capture.grab(&newer,0))break;
+          if(!capture.release(f.index)) {
+            capture.release(newer.index);
+            throw std::runtime_error("Cannot release camera preview buffer");
+          }
+          f=newer;
+        }
+      }
       if (f.width < 2 || f.height < 2 || f.width > 4096 || f.height > 4096 ||
           f.yStride < f.width || f.uvStride < f.width ||
           f.size < size_t(f.yStride) * f.height ||
@@ -275,6 +294,47 @@ void Camera::work() {
                 : f.size < size_t(f.yStride) * f.height +
                                size_t(f.uvStride) * f.height / 2)) {
         source->release(f.index);
+        continue;
+      }
+      if(stop_){source->release(f.index);break;}
+      // A shutter arriving during preview conversion remains pending for the
+      // next frame. Y07 can only consume it after receiving the true HD frame.
+      const bool takePhoto=(!highResolution||source==&high)&&save_.exchange(false);
+      if(!takePhoto) {
+        const auto now=ticks();
+        if(now<nextPreview){source->release(f.index);continue;}
+        // Allow the small timestamp jitter of a 30fps sensor; an exact 33ms
+        // gate can otherwise reject alternate frames that arrive 32ms apart.
+        nextPreview=now+30;
+        std::shared_ptr<ImageFrame> frame;
+        for(auto &slot:previews) {
+          if(!slot)slot=std::make_shared<ImageFrame>();
+          if(slot.use_count()==1){frame=slot;break;}
+        }
+        if(!frame){source->release(f.index);continue;}
+        frame->cameraPose=orientation_.load();
+        frame->rotation=transforms(frame->cameraPose).preview;
+        const int rotatedW=frame->rotation%180?f.height:f.width;
+        const int rotatedH=frame->rotation%180?f.width:f.height;
+        float scale=std::min(1.f,(highResolution?720.f:240.f)/f.height);
+        const int targetW=previewWidth_.load(),targetH=previewHeight_.load();
+        if(targetW>0&&targetH>0)
+          scale=std::min(scale,std::min(float(targetW)/rotatedW,float(targetH)/rotatedH));
+        frame->width=std::max(1,int(rotatedW*scale));
+        frame->height=std::max(1,int(rotatedH*scale));
+        frame->opaque=true;
+        frame->pixels.resize(size_t(frame->width)*frame->height*4);
+        // Convert directly from the mapped sensor planes. No packed NV12 copy
+        // or full-size intermediate is needed for a disposable preview.
+        camera::nv12ToBgra(f.data,f.uv?f.uv:f.data+size_t(f.yStride)*f.height,
+          f.width,f.height,f.yStride,f.uvStride,frame->pixels.data(),
+          frame->width,frame->height,frame->rotation);
+        if(!source->release(f.index))throw std::runtime_error("Cannot release camera preview buffer");
+        if(stop_)break;
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          frame_=std::move(frame);
+        }
         continue;
       }
       std::vector<uint8_t> bytes(size_t(f.width) * f.height * 3 / 2);
@@ -290,28 +350,7 @@ void Camera::work() {
       source->release(f.index);
       if(source==&high)high.close();
       if(stop_)break;
-      auto frame = std::make_shared<ImageFrame>();
-      float scale = std::min(1.f, (highResolution?720.f:240.f) / f.height);
-      frame->width = int(f.width * scale);
-      frame->height = int(f.height * scale);
-      // Freeze one pose for both the metadata tag and this conversion. Preview
-      // pixels stay in screen coordinates on a fixed portrait workspace; the
-      // shutter pose below independently normalizes the full-resolution photo.
-      frame->cameraPose = orientation_.load();
-      frame->rotation = transforms(frame->cameraPose).preview;
-      if (frame->rotation % 180) std::swap(frame->width,frame->height);
-      frame->pixels.resize(size_t(frame->width) * frame->height * 4);
-      camera::nv12ToBgra(bytes.data(),
-                         bytes.data() + size_t(f.width) * f.height, f.width,
-                         f.height, f.width, f.width, frame->pixels.data(),
-                         frame->width, frame->height, frame->rotation);
-      {
-        std::lock_guard<std::mutex> lock(mutex_);
-        frame_ = frame;
-      }
-      // A shutter arriving during preview conversion stays pending until the
-      // next high-resolution frame; never save that in-flight preview as a photo.
-      if ((!highResolution || source==&high) && save_.exchange(false)) {
+      if (takePhoto) {
         ensureDirectory(directory_);
         struct ReservedPhoto {
           std::string final,part;

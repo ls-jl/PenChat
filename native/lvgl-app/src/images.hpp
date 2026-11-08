@@ -8,6 +8,7 @@ namespace penchat {
 struct ImageFrame {
   int width = 0, height = 0, rotation = 0;
   int cameraPose = 0; // Pose tag; rotation describes the actual preview pixels.
+  bool opaque = false;
   std::vector<uint8_t> pixels;
 };
 class Images {
@@ -49,6 +50,7 @@ class Camera {
   std::atomic<bool> save_{false};
   std::string directory_, workspace_;
   const bool fixedWorkspace_;
+  std::atomic<int> previewWidth_{0}, previewHeight_{0};
   std::atomic<int> orientation_{0}, manualOrientation_{-1}, captureOrientation_{0};
   void work();
 
@@ -61,6 +63,7 @@ public:
   void stop();
   uint64_t generation() const { return generation_.load(); }
   PhotoTransforms transforms(int pose) const;
+  void previewSize(int width,int height) {previewWidth_=width;previewHeight_=height;}
   void capture(int angle = 0) { captureOrientation_ = photoTransforms(angle, fixedWorkspace_).saved; save_ = true; }
   void orientation(bool automatic, int angle) { orientation_ = angle; manualOrientation_ = automatic ? -1 : angle; }
   std::shared_ptr<ImageFrame> frame();
