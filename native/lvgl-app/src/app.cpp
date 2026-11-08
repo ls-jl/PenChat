@@ -333,7 +333,8 @@ void App::toggleAttachments() {
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
-  auto menu = box(attachments_, 20, 12, std::min(320, screen_.width - 126), screen_.height - 78, theme::surface);
+  const int menuWidth=std::min(320,layout().portrait()?layout().composerWidth():screen_.width-126);
+  auto menu = box(attachments_, 20, 12, menuWidth, screen_.height - 78, theme::surface);
   lv_obj_set_style_radius(menu, 16, 0);
   lv_obj_set_scroll_dir(menu, LV_DIR_VER);
   lv_obj_set_scroll_elastic(menu, false);
@@ -354,6 +355,18 @@ void App::toggleAttachments() {
   ids.push_back("session_info");
   names.push_back("会话信息");
   icons.push_back("info");
+  if(layout().portrait()) {
+    const int anchor=chatComposerY()-4;
+    const int available=std::max(44,anchor-layout().safeTop());
+    const int height=std::min(available,std::min(int(names.size())*44+8,5*44+8));
+    lv_obj_set_align(menu,LV_ALIGN_BOTTOM_LEFT);
+    lv_obj_set_pos(menu,layout().composerX(),anchor-screen_.height);
+    lv_obj_set_height(menu,0);
+    lv_anim_t animation;lv_anim_init(&animation);lv_anim_set_var(&animation,menu);
+    lv_anim_set_exec_cb(&animation,[](void *object,int32_t value){lv_obj_set_height(static_cast<lv_obj_t *>(object),value);});
+    lv_anim_set_values(&animation,0,height);lv_anim_set_duration(&animation,180);
+    lv_anim_set_path_cb(&animation,lv_anim_path_ease_out);lv_anim_start(&animation);
+  }
   for (int i = 0; i < int(names.size()); ++i) {
     auto action = [this, i, infoIndex] {
       if (i == infoIndex) { openSessionInfo(); return; }
@@ -400,7 +413,7 @@ void App::toggleAttachments() {
       lv_obj_set_style_arc_rounded(contextUsageArc_, true, LV_PART_INDICATOR);
       lv_obj_set_style_bg_opa(contextUsageArc_, LV_OPA_TRANSP, LV_PART_KNOB);
     } else icon(menu, icons[i], 4, 4 + i * 44, 44, 44, action, theme::surface);
-    auto entry = button(menu, names[i], 48, 4 + i * 44, std::min(320, screen_.width - 126) - 52, 44, action, theme::surface,
+    auto entry = button(menu, names[i], 48, 4 + i * 44, menuWidth - 52, 44, action, theme::surface,
                         LV_TEXT_ALIGN_LEFT);
     attachmentEntries_[ids[i]] = entry;
     if (i == 4) contextUsageLabel_ = lv_obj_get_child(entry, 0);
@@ -1285,7 +1298,7 @@ bool App::atLatestBottom() const {
 bool App::readerInteracting() const {
   if (view_ != "chat" || !body_ || chatLayout_ || keyboard_ || (editor_.active&&!editorLayout().docked) || imageViewer_ ||
       navigationOpen_ || modal_) return false;
-  if (readerPointer_ || lv_obj_is_scrolling(body_)) return true;
+  if (editorDismissing_ || editorDismissReturnAt_ || readerPointer_ || lv_obj_is_scrolling(body_)) return true;
   for (const auto &r : rasters_) if (lv_obj_is_scrolling(r.holder)) return true;
   return false;
 }
@@ -1311,7 +1324,7 @@ void App::readerTouch(int x, int y, bool pressed, bool cancelled) {
     const int dx = x - readerStartX_, dy = y - readerStartY_;
     if (std::abs(dy) > 12 && std::abs(dy) > std::abs(dx)) {
       readerVertical_ = true;
-      if(std::abs(y-readerMotionY_)>=2) {
+      if(!layout().portrait()&&std::abs(y-readerMotionY_)>=2) {
         chatComposerHidden_=y<readerMotionY_;
         readerMotionY_=y;updateChatControls(true);
       }
@@ -1374,7 +1387,7 @@ void App::updateChatControls(bool animate) {
   }
   lv_obj_set_style_bg_opa(toBottom_, overContent ? 160 : 255, 0);
   lv_obj_set_style_border_opa(toBottom_, overContent ? 160 : 255, 0);
-  const int target = !chatComposerHidden_ && !pulling_ ? chatComposerY() : screen_.height + 2;
+  const int target = (layout().portrait()||!chatComposerHidden_) && !pulling_ ? chatComposerY() : screen_.height + 2;
   if (chatControlsTarget_ == target)
     return;
   chatControlsTarget_ = target;
@@ -2927,7 +2940,7 @@ void App::windowFocus(bool focused) {
   finishImageGesture(false);nonImageMulti_=false;
   if(imageViewer_||view_=="crop")imageGesture_.mode=-2;
   if(!foreground) {
-    editorCancelKeys();editorMagnify(false);editorOcrStop();editorTopBlocked_=false;
+    editorResetDismiss();editorCancelKeys();editorMagnify(false);editorOcrStop();editorTopBlocked_=false;
     editorPointer_=editorTextTouch_=editorCursorDrag_=false;editorHandle_=-1;editorHeld_=-1;editorRepeat_=0;editorLastTap_=0;
     camera_.stop();
     display_.visible(false);
@@ -3005,8 +3018,10 @@ void App::routeTouch(const Json &m) {
        !editorExpanded_&&!editorClipboardOpen_&&!editorMenu_&&!editorUndoMenu_&&!editorLayoutMenu_&&!editorPunctuation_)
       editorReaderTouch_=true;
     if(editorReaderTouch_) {
-      readerTouch(x,y,down,cancelled);
-      if(cancelled)input_.cancel();else input_.touch(x,y,down);
+      if(!editorDismissTouch(x,y,down,cancelled)) {
+        readerTouch(x,y,down,cancelled);
+        if(cancelled)input_.cancel();else input_.touch(x,y,down);
+      }
       if(!down||cancelled)editorReaderTouch_=false;
     } else editorTouch(x,y,down,cancelled);
     return;
@@ -3144,6 +3159,7 @@ void App::handle(const Json &m) {
       if(!down)systemEdgeGesture_=false;
       return;
     }
+    if(editor_.active&&down&&!editorReaderTouch_&&editorDismissReturnAt_)editorResetDismiss();
     const bool multi=m.contains("points") && m["points"].is_array() && m["points"].size()>1;
     if(editor_.active && !imageViewer_ && view_!="crop" && !nonImageMulti_ && editorKeyTouch(m)) {
       resetBack();

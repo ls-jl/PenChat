@@ -25,7 +25,7 @@ for w,h in [(960,266),(936,280),(568,1210)]:
             swipe(a,w//2,90,100 if h<w else 280)
             assert not a.diag()['following_latest']
             swipe(a,w//2,155 if h<w else 450,-80 if h<w else -180)
-            d=a.diag();assert d['composer_hidden'] and d['toolbar_y']>=h
+            d=a.diag();assert (d['composer_hidden'] and d['toolbar_y']>=h) if h<w else (not d['composer_hidden'] and d['composer_bounds'][3]<h)
             capture(a,OUT/f'{w}-hidden.png')
             swipe(a,w//2,70,70 if h<w else 200)
             d=a.diag();assert not d['composer_hidden'] and d['composer_bounds'][3]<h and not d['following_latest']
@@ -33,7 +33,7 @@ for w,h in [(960,266),(936,280),(568,1210)]:
             if h>w:
                 open_input(a);assert a.diag()['editor']['docked']
                 swipe(a,w//2,350,-180)
-                assert a.diag()['composer_hidden'] and a.diag()['editor']['active']
+                assert not a.diag()['composer_hidden'] and a.diag()['editor']['active']
                 swipe(a,w//2,160,180)
                 assert not a.diag()['composer_hidden'] and a.diag()['editor']['active']
                 a.editor_action('done');a.open_settings();a.setting('models');a.page_action('添加 Provider')
@@ -49,5 +49,5 @@ for w,h in [(960,266),(936,280),(568,1210)]:
                 capture(a,OUT/'portrait-form-bottom.png')
                 a.editor_action('done');d=a.diag()
                 assert d['reader_height']==h and d['scroll_y']+d['scroll_bottom']<=0
-            print(f'{w}x{h}: draft hides upward/reveals downward without changing follow; docked viewport has no stale full-screen spacer.',flush=True)
+            print(f'{w}x{h}: orientation-specific composer visibility and bounded docked viewport passed.',flush=True)
         finally:a.close()

@@ -462,19 +462,66 @@ void App::editorRefreshCandidates() {
   }
   lv_obj_scroll_to(choices,0,0,LV_ANIM_OFF);
 }
+void App::editorMoveDismiss(int offset) {
+  editorDismissOffset_=std::max(0,offset);
+  if(editorRoot_)lv_obj_set_style_translate_y(editorRoot_,editorDismissOffset_,0);
+  if(editorInlineChat_&&chatControls_)lv_obj_set_style_translate_y(chatControls_,editorDismissOffset_,0);
+  if(view_=="chat"&&toBottom_)lv_obj_set_style_translate_y(toBottom_,editorDismissOffset_,0);
+  if(body_&&editor_.active&&editorLayout().docked) {
+    const bool previous=chatLayout_;chatLayout_=true;
+    const int scroll=lv_obj_get_scroll_y(body_);
+    const int base=editorDismissTracking_||editorDismissing_||editorDismissReturnAt_?editorDismissBodyHeight_:
+        view_=="chat"?chatComposerY()-8:editorLayout().panelTop;
+    lv_obj_set_height(body_,base+editorDismissOffset_);lv_obj_update_layout(body_);
+    const int maximum=std::max(0,int(lv_obj_get_scroll_y(body_)+lv_obj_get_scroll_bottom(body_)));
+    lv_obj_scroll_to_y(body_,std::min(scroll,maximum),LV_ANIM_OFF);
+    chatLayout_=previous;paintVisible();
+  }
+}
+void App::editorResetDismiss() {
+  editorDismissTracking_=editorDismissing_=false;editorDismissReturnAt_=0;
+  editorMoveDismiss(0);
+}
+bool App::editorDismissTouch(int x,int y,bool down,bool cancelled) {
+  if(!editor_.active||!editorLayout().docked)return false;
+  if(down&&!editorDismissTracking_) {
+    editorDismissTracking_=true;editorDismissStartX_=x;editorDismissStartY_=y;
+    const auto l=editorLayout();editorDismissBoundary_=l.panelTop;
+    editorDismissBodyHeight_=lv_obj_get_height(body_);
+    editorDismissThreshold_=std::max(64,std::min(120,(screen_.height-l.panelTop)/4));
+  }
+  const int dy=y-editorDismissStartY_,dx=x-editorDismissStartX_;
+  if(!cancelled&&down&&!editorDismissing_&&y>=editorDismissBoundary_&&dy>12&&dy>std::abs(dx)) {
+    editorDismissing_=true;editorPointer_=true;
+    input_.cancel();lv_obj_stop_scroll_anim(body_);
+  }
+  if(editorDismissing_) {
+    if(down&&!cancelled)editorMoveDismiss(std::min(screen_.height-editorDismissBoundary_,std::max(0,y-editorDismissBoundary_)));
+    if(!down||cancelled) {
+      const bool finish=!cancelled&&editorDismissOffset_>=editorDismissThreshold_;
+      editorDismissTracking_=editorDismissing_=editorPointer_=false;
+      readerDown_=readerPointer_=readerVertical_=false;readerSettle_=true;
+      if(finish) {editorResetDismiss();editorAction("dismiss");}
+      else {editorDismissReturnFrom_=editorDismissOffset_;editorDismissReturnAt_=ticks();}
+    }
+    return true;
+  }
+  if(!down||cancelled)editorDismissTracking_=false;
+  return false;
+}
 void App::editorViewport() {
   if(!body_)return;
   const auto l=editorLayout();const bool docked=editor_.active&&l.docked;
   const int composerY=chatComposerY();
   if(view_=="chat")layoutChatComposer();
   if(view_=="chat"&&chatControls_) {
-    const int target=chatComposerHidden_?screen_.height+2:composerY;
+    const int target=layout().portrait()||!chatComposerHidden_?composerY:screen_.height+2;
     lv_anim_delete(chatControls_,nullptr);lv_obj_set_y(chatControls_,target);
     chatControlsTarget_=target;
   }
   if(toBottom_)lv_obj_set_y(toBottom_,composerY-56);
   if(view_=="chat"&&messageContent_)lv_obj_set_style_pad_bottom(messageContent_,docked?16:chatComposerHeight()+16+this->layout().safeBottom(),0);
-  const int height=docked?(view_=="chat"?composerY-8:l.panelTop):screen_.height;
+  const int height=docked?(view_=="chat"?composerY-8:l.panelTop)+editorDismissOffset_:screen_.height;
   const bool previous=chatLayout_;chatLayout_=true;
   const int scroll=lv_obj_get_scroll_y(body_);const bool resized=lv_obj_get_height(body_)!=height;
   lv_obj_set_height(body_,height);
@@ -502,6 +549,9 @@ void App::editorViewport() {
   if(lv_obj_get_scroll_y(body_)>maximum)lv_obj_scroll_to_y(body_,maximum,LV_ANIM_OFF);
   chatLayout_=previous;
   if(docked)editorAttachTarget();
+  if(editorRoot_)lv_obj_set_style_translate_y(editorRoot_,editorDismissOffset_,0);
+  if(editorInlineChat_&&chatControls_)lv_obj_set_style_translate_y(chatControls_,editorDismissOffset_,0);
+  if(view_=="chat"&&toBottom_)lv_obj_set_style_translate_y(toBottom_,editorDismissOffset_,0);
   if(resized){paintVisible();lv_obj_invalidate(screenObj_);}
 }
 bool App::editorCandidateRow() const {
@@ -693,6 +743,7 @@ void App::editorAction(const std::string &a) {
     const auto session=session_;editorFinish(true);
     events_.push("composer_send",{{"session",session}});return;
   }
+  if(a=="dismiss") {editorAccept();return;}
   if(a=="cancel") { editorFinish(false); return; }
   if (a=="official") { editorOfficial(); return; }
   if(a=="copy"||a=="cut") {
@@ -1134,6 +1185,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
   input_.touch(x,y,pressed);
 }
 void App::editorInterrupt() {
+  editorResetDismiss();editorReaderTouch_=false;
   editorCancelKeys();
   editorMagnify(false);
   editorPolicy(false);editorOcrStop();editorTextTouch_=editorCursorDrag_=false;editorHandle_=-1;
@@ -1144,6 +1196,12 @@ void App::editorInterrupt() {
 void App::editorTick() {
   if (!editor_.active || keyboard_ || !visible_) { editorAutoScrollAt_=0;return; }
   const auto now=ticks();
+  if(editorDismissReturnAt_) {
+    const double progress=std::min(1.,double(now-editorDismissReturnAt_)/160.);
+    const double remaining=1.-progress;
+    editorMoveDismiss(int(std::lround(editorDismissReturnFrom_*remaining*remaining*remaining)));
+    if(progress>=1.){editorDismissReturnAt_=0;editorMoveDismiss(0);}
+  }
   if(editorText_&&editorUpstream_==editor_.cursor) {
     const int phase=editorPointer_?0:int((now-editorAffinityTime_)/500)%2;
     if(phase!=editorAffinityPhase_){editorAffinityPhase_=phase;lv_obj_invalidate(editorText_);}
@@ -1249,7 +1307,7 @@ Json App::editorDiagnostic() const {
   }
   Json anchor=Json::array();
   if(editorTarget_){lv_area_t a;lv_obj_get_coords(editorTarget_,&a);anchor={a.x1,a.y1,a.x2,a.y2};}
-  return {{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"in_place",editor_.active&&editorInPlace()&&editorTarget_!=nullptr},{"input_anchor",editorTargetKey_},{"docked",layout.docked},{"inline_chat",editorInlineChat_},{"panel_top",layout.panelTop},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
+  return {{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"in_place",editor_.active&&editorInPlace()&&editorTarget_!=nullptr},{"input_anchor",editorTargetKey_},{"docked",layout.docked},{"dismiss_offset",editorDismissOffset_},{"dismiss_threshold",editorDismissThreshold_},{"dismissing",editorDismissing_},{"dismiss_returning",editorDismissReturnAt_!=0},{"inline_chat",editorInlineChat_},{"panel_top",layout.panelTop},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
     {"layout",editor_.layout==0?"zh26":editor_.layout==1?"en26":"zh9"},{"preferred_layout",editor_.preferredChinese==2?"zh9":"zh26"},
     {"layout_menu",editorLayoutMenu_},{"expanded",editorExpanded_},{"punctuation_menu",editorPunctuation_},{"exact_count",editorExact_.size()},
     {"parked_count",int(!editor_.parked[0].raw.empty())+int(!editor_.parked[1].raw.empty())},

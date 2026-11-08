@@ -490,6 +490,13 @@ class App {
   bool editorInPlace() const {return layout().portrait()&&!editorSelectionOnly_;}
   bool editorSelectionOnly_ = false, editorInlineChat_ = false, editorReaderTouch_ = false;
   void editorViewport();
+  bool editorDismissTouch(int x,int y,bool down,bool cancelled);
+  void editorMoveDismiss(int offset);
+  void editorResetDismiss();
+  bool editorDismissTracking_=false, editorDismissing_=false;
+  int editorDismissStartX_=0,editorDismissStartY_=0,editorDismissBoundary_=0;
+  int editorDismissOffset_=0,editorDismissThreshold_=0,editorDismissReturnFrom_=0,editorDismissBodyHeight_=0;
+  int64_t editorDismissReturnAt_=0;
   void editorRefresh();
   void editorRefreshCandidates();
   uint64_t editorPaintKey() const;

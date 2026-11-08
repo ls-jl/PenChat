@@ -312,8 +312,14 @@ an open keyboard, give text its own full-width region above attachment/gauge/sen
 grow upward to 3x the original height, then scroll. Expanded portrait composers use a
 12px inner inset and bottom-aligned tool row; landscape keeps text between its
 controls, one row for short drafts and at most 2x height with local text scrolling.
-Its corner radius stays at the single-row radius when growing. Upward reader
-drags hide the composer, downward drags reveal it without changing follow state. The collapsed portrait
+Its corner radius stays at the single-row radius when growing. Landscape upward reader
+drags hide the composer, downward drags reveal it without changing follow state.
+Portrait keeps the composer visible. A page-origin downward drag that crosses
+the docked keyboard panel may push it down; release beyond the frozen threshold
+closes editing without sending, otherwise return over 160ms. Key/caret/selection
+drags never dismiss. Lifecycle and multi-touch cancel the push and reset transforms.
+The portrait attachment menu expands upwards from the composer, capped at five
+44px rows plus padding; remaining items scroll locally, never stretch to the top. The collapsed portrait
 pill alone keeps 25px around the 44px send circle. Chinese
 composition uses the same row as the official/OCR/clipboard actions; never add
 a separate candidate row in portrait. The borderless globe is 1.5x, below and
