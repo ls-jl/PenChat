@@ -140,6 +140,14 @@ class Native:
         assert self.diag()['view']=='settings'
     def settings_swipe(self, delta):
         start=220 if delta<0 else 75
+        state=self.diag()
+        if state['view']=='chat':
+            # A downward reader swipe can now reveal a draft above the bottom.
+            # Begin later swipes inside the reader, not its overlay composer.
+            bottom=state['reader_height']-8
+            if not state['composer_hidden']:bottom=min(bottom,state['composer_bounds'][1]-8)
+            start=min(start,bottom)
+            delta=max(16-start,min(bottom-start,delta))
         for i in range(7):
             self.send('touch',x=500,y=start+int(delta*i/6),pressed=True);time.sleep(.025)
         time.sleep(.2) # Settle at the destination before release, without a fling.
@@ -162,7 +170,8 @@ class Native:
         with sqlite3.connect(self.directory/'penchat.db') as db:
             return db.execute('select role,status,output_text,error_json from chat_messages order by created_at,seq').fetchall()
     def edit(self,value):
-        screen=self.diag();wait_for(lambda:self.diag()['toolbar_y']==screen['height']-(94 if screen['height']>screen['width'] else 48)-screen.get('safe_insets',[0,0,0,10])[3])
+        screen=self.diag();bounds=screen['composer_bounds'];height=bounds[3]-bounds[1]+1
+        wait_for(lambda:self.diag()['toolbar_y']==screen['height']-height-screen.get('safe_insets',[0,0,0,10])[3])
         self.tap(screen['width']//2,screen['height']-34);request=self.receive('keyboard.open')
         self.send('keyboard.result',requestId='stale',confirmed=True,text='must not appear')
         assert self.diag()['keyboard'] is True
@@ -274,7 +283,7 @@ if __name__ == '__main__':
                 app.send('touch',x=500,y=230,pressed=False);time.sleep(.8)
                 scrolled=app.diag()
                 assert not scrolled['following_latest'] and scrolled['to_bottom_visible']
-                assert scrolled['toolbar_y']>=266
+                assert not scrolled['composer_hidden'] and scrolled['toolbar_y']==208 # Downward reader drag reveals the composer.
                 assert scrolled['to_bottom_x']==499 and scrolled['to_bottom_y']==152
                 assert scrolled['to_bottom_opacity']==160
                 app.open_navigation();assert app.diag()['navigation_open']

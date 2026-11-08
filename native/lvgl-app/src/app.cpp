@@ -793,6 +793,12 @@ bool App::chatTouch(int x, int y, bool pressed) {
                      !attachments_ && hasConversationContent_ &&
                      messageOffset_ == 0 && chatFollowing_ && body_ &&
                      lv_obj_get_scroll_bottom(body_) <= 10 && inPullArea;
+    // A bounded landscape draft owns its scroll until the gesture ends.
+    // Reaching its last line cannot turn that same touch into chat creation.
+    // A fresh upward pull at the local bottom still uses the normal guard.
+    if(pullCandidate_ && inComposer && lv_obj_is_scrollable(composer_) &&
+       lv_obj_get_scroll_bottom(composer_)>0)
+      pullCandidate_=false;
     if (pullCandidate_ && inReader) {
       for (const auto &r : rasters_) {
         lv_area_t a;
@@ -3823,6 +3829,7 @@ Json App::diagnostics() const {
       {"composer_hidden", chatComposerHidden_},
       {"composer_radius",chatControls_?lv_obj_get_style_radius(chatControls_,LV_PART_MAIN):0},
       {"composer_scroll", composer_ ? lv_obj_get_scroll_y(composer_) : 0},
+      {"composer_scroll_bottom", composer_ ? lv_obj_get_scroll_bottom(composer_) : 0},
       {"reader_height",body_?lv_obj_get_height(body_):0},
       {"page_content_height",pageContent_?lv_obj_get_height(pageContent_):0},
       {"safe_insets", {layout().safeSide(),layout().safeTop(),layout().safeSide(),layout().safeBottom()}},
