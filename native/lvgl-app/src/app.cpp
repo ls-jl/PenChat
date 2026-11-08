@@ -2940,7 +2940,7 @@ void App::windowFocus(bool focused) {
   finishImageGesture(false);nonImageMulti_=false;
   if(imageViewer_||view_=="crop")imageGesture_.mode=-2;
   if(!foreground) {
-    editorResetDismiss();editorCancelKeys();editorMagnify(false);editorOcrStop();editorTopBlocked_=false;
+    editorLayoutHold_=false;editorResetDismiss();editorCancelKeys();editorMagnify(false);editorOcrStop();editorTopBlocked_=false;
     editorPointer_=editorTextTouch_=editorCursorDrag_=false;editorHandle_=-1;editorHeld_=-1;editorRepeat_=0;editorLastTap_=0;
     camera_.stop();
     display_.visible(false);
@@ -3013,6 +3013,10 @@ void App::routeTouch(const Json &m) {
   if (editor_.active) {
     const int x=m.value("x",0),y=m.value("y",0);
     const bool down=m.value("pressed",false),cancelled=m.value("cancelled",false);
+    if(editorLayoutHold_) {
+      if(!down||cancelled)editorLayoutHold_=false;
+      return;
+    }
     const auto inputArea=editorTextArea();
     if(editorLayout().docked&&!editorPointer_&&down&&!inputArea.contains(x,y)&&y<editorLayout().panelTop&&
        !editorExpanded_&&!editorClipboardOpen_&&!editorMenu_&&!editorUndoMenu_&&!editorLayoutMenu_&&!editorPunctuation_)

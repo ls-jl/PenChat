@@ -13,13 +13,13 @@ def key(a,value):
  k=next(k for k in state(a)['keys'] if k['key']==value);a.tap(k['x'],k['y'])
 def layout(a,value):
  k=next(k for k in state(a)['keys'] if k['key']=='language')
- hold(a,k['x'],k['y']);t.wait_for(lambda:state(a)['layout_menu'])
+ hold(a,k['x'],k['y'],.82);t.wait_for(lambda:state(a)['layout_menu'])
  a.editor_action('layout:'+str({'zh26':0,'en26':1,'zh9':2}[value]))
  assert state(a)['layout']==value
 def official(a,confirmed=False,text=''):
  a.editor_action('official');r=a.receive('keyboard.open');a.send('keyboard.result',requestId=r['requestId'],confirmed=confirmed,text=text);time.sleep(.1);return r
 def export_text(a):return official(a)['text']
-def hold(a,x,y):a.send('touch',x=x,y=y,pressed=True);time.sleep(.52);a.send('touch',x=x,y=y,pressed=False);time.sleep(.12)
+def hold(a,x,y,duration=.52):a.send('touch',x=x,y=y,pressed=True);time.sleep(duration);a.send('touch',x=x,y=y,pressed=False);time.sleep(.12)
 def double(a,x,y):a.tap(x,y);a.tap(x,y)
 def seed(a,text):
  official(a,True,text);a.tap(500,232)

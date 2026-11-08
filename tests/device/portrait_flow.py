@@ -33,7 +33,7 @@ def run(env):
    b=d.state()['editor']['actions']['expand'];d.tap((b[0]+b[2])//2,(b[1]+b[3])//2);d.capture('portrait-candidates-expanded')
    b=d.state()['editor']['actions']['expand'];d.tap((b[0]+b[2])//2,(b[1]+b[3])//2);key('space')
    key('language');d.capture('portrait-keyboard-English');key('mode');d.capture('portrait-keyboard-number');key('symbols');d.capture('portrait-keyboard-symbol');key('mode')
-   k=next(k for k in d.state()['editor']['keys'] if k['key']=='language');rx,ry=d.raw(k['x'],k['y']);d.shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+d.event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 550')
+   k=next(k for k in d.state()['editor']['keys'] if k['key']=='language');rx,ry=d.raw(k['x'],k['y']);d.shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+d.event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 850')
    d.wait(lambda:d.state()['editor']['layout_menu']);b=d.state()['editor']['actions']['layout:2'];d.tap((b[0]+b[2])//2,(b[1]+b[3])//2);d.capture('portrait-keyboard-9')
   control('cancel');d.wait(lambda:not d.state()['editor']['active'])
  after=len(d.shell('ls -1 /proc/'+d.pid()+'/fd').splitlines());assert after<=before+12,(before,after)

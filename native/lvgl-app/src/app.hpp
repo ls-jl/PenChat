@@ -509,7 +509,7 @@ class App {
   EditorLayout editorLayout() const { return EditorLayout(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_); }
   EditorState editor_;
   Json editorLearning_ = Json::array(), editorExact_ = Json::array(), editorPinyinPending_;
-  bool editorLayoutMenu_ = false, editorPunctuation_ = false;
+  bool editorLayoutMenu_ = false, editorLayoutHold_ = false, editorPunctuation_ = false;
   std::map<std::string, lv_obj_t *> editorLocalActions_;
   void keyboardSettingsPage();
   void editorUseLayout(int layout, bool cycle = false);

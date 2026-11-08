@@ -50,10 +50,11 @@ def run(width,height):
                 frame([('single',keys[name])]);frame([]);time.sleep(.04)
             expected+='Al';t.wait_for(lambda:p.editor(a)['length']==len(expected))
             assert p.official(a)['text']==expected
-            # Native-contact long press opens the globe selector only on release;
+            # Native-contact long press opens the globe selector while held;
             # held delete repeats, and its final release never adds an extra tap.
-            frame([('globe',k['language'])]);time.sleep(.55);frame([])
+            frame([('globe',k['language'])]);time.sleep(.82)
             t.wait_for(lambda:p.editor(a)['layout_menu'])
+            frame([]);assert p.editor(a)['layout_menu']
             a.editor_action('layout:1')
             t.wait_for(lambda:not p.editor(a)['layout_menu'])
             before=p.editor(a)['length'];frame([('delete',k['delete'])]);time.sleep(.72)

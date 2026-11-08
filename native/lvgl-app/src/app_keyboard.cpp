@@ -5,6 +5,7 @@
 #include <cctype>
 namespace penchat {
 namespace {
+constexpr uint64_t layoutHoldMs=750;
 int keyboardClusterWidth(lv_obj_t *label,size_t first,size_t last) {
   const char *text=lv_label_get_text(label),*begin=text,*end=text;
   for(size_t index=0;*end&&index<last;++index) {
@@ -325,17 +326,30 @@ void App::editorBuild() {
       app->events_.push("editor_action",{{"id",app->editor_.id},{"action","layout-close"}});
     },LV_EVENT_CLICKED,this);
     const bool layouts=editorLayoutMenu_;
-    const auto popup=layout.floatingPopup(100,layout.bottomY-(layouts?156:160),layouts?224:304,layouts?152:156);
+    auto popup=layout.floatingPopup(100,layout.bottomY-160,304,156);
+    const int rowHeight=layout.portrait?64:48,padding=layout.portrait?8:4;
+    if(layouts) {
+      auto globe=layout.globeKey();
+      for(const auto &key:editorKeys_)if(key.value=="language")globe={key.x,key.y,key.w,key.h};
+      const int width=layout.portrait?std::min(320,screen_.width-2*this->layout().safeSide()):224;
+      const int height=3*rowHeight+2*padding;
+      popup=layout.floatingPopup(layout.portrait?this->layout().safeSide():globe.x-16,
+                                  globe.y-12-height,width,height);
+    }
     auto panel=box(editorRoot_,popup.x,popup.y,popup.width,popup.height,theme::sidebar);
-    lv_obj_set_style_radius(panel,12,0);lv_obj_set_scrollable(panel,false);
+    lv_obj_set_style_radius(panel,layouts?(layout.portrait?24:16):12,0);lv_obj_set_scrollable(panel,false);
+    if(layouts){lv_obj_set_style_border_width(panel,1,0);lv_obj_set_style_border_color(panel,lv_color_hex(theme::border),0);}
     if(layouts) {
       const char *names[]={"26键拼音","English","九宫格拼音"};
       for(int i=0;i<3;++i) {
         const auto command="layout:"+std::to_string(i);
-        auto item=button(panel,names[i],4,4+i*48,popup.width-8,44,[action,command]{action(command);},editor_.layout==i?theme::border:theme::surface,LV_TEXT_ALIGN_LEFT);
-        lv_obj_set_width(lv_obj_get_child(item,0),popup.width-60);lv_obj_align(lv_obj_get_child(item,0),LV_ALIGN_LEFT_MID,12,0);
+        const int itemHeight=rowHeight-(layout.portrait?8:4);
+        auto item=button(panel,names[i],padding,padding+i*rowHeight,popup.width-2*padding,itemHeight,
+                         [action,command]{action(command);},editor_.layout==i?theme::surface:theme::sidebar,LV_TEXT_ALIGN_LEFT);
+        lv_obj_set_style_radius(item,itemHeight/2,0);
+        auto caption=lv_obj_get_child(item,0);lv_obj_set_style_text_font(caption,font(layout.portrait?22:20),0);
+        lv_obj_set_width(caption,popup.width-2*padding-24);lv_obj_align(caption,LV_ALIGN_LEFT_MID,16,0);
         editorLocalActions_[command]=item;
-        if(editor_.layout==i){auto mark=box(item,popup.width-52,0,44,44,theme::border);lv_obj_set_scrollable(mark,false);lv_obj_set_clickable(mark,false);attachIcon(mark,"check",theme::text);}
       }
     } else {
       const char *marks[]={"，","。","？","！","、","：","；","“","”","（","）","'"};
@@ -628,7 +642,7 @@ void App::editorFinish(bool confirmed) {
   if(confirmed&&!editor_.secret&&db_.settings().value("pinyin_learning",true))pinyin_.commit(editorLearning_,editor_.text);
   editorLearning_=editorExact_=Json::array();editorPinyinPending_=Json();
   if(!transfer)editorLocalActions_.clear();
-  editorLayoutMenu_=editorPunctuation_=false;
+  editorLayoutHold_=false;editorLayoutMenu_=editorPunctuation_=false;
   if(transfer) {
     editorMagnify(false);editorCancelKeys();editorPointer_=editorTextTouch_=editorCursorDrag_=false;
     editorHandle_=editorHeld_=-1;editorRepeat_=0;editorInFlight_=editorDue_=0;
@@ -1093,7 +1107,7 @@ bool App::editorKeyTouch(const Json &m) {
     if(std::any_of(editorContacts_.begin(),editorContacts_.end(),[&](const EditorContact &c){return c.id==id;}))continue;
     const int x=p["x"],y=p["y"];
     const auto key=std::find_if(editorKeys_.begin(),editorKeys_.end(),[&](const EditorKey &k){return k.hit.contains(x,y);});
-    editorContacts_.push_back({id,*key,false,false,0,uint64_t(ticks())+450});
+    editorContacts_.push_back({id,*key,false,false,0,uint64_t(ticks())+(key->value=="language"?layoutHoldMs:450)});
     lv_obj_set_style_bg_color(key->object,lv_color_hex(theme::border),0);
   }
   editorPointer_=!points.empty();
@@ -1138,7 +1152,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
     if(!popupHit&&!editorLayoutMenu_&&!editorPunctuation_)for(size_t i=0;i<editorKeys_.size();++i) {
       const auto &k=editorKeys_[i];
       if(k.hit.contains(x,y)) {
-        editorHeld_=int(i);editorPress_=k;lv_obj_set_style_bg_color(k.object,lv_color_hex(theme::border),0);editorRepeat_=ticks()+450;break;
+        editorHeld_=int(i);editorPress_=k;lv_obj_set_style_bg_color(k.object,lv_color_hex(theme::border),0);editorRepeat_=ticks()+(k.value=="language"?layoutHoldMs:450);break;
       }
     }
   }
@@ -1185,7 +1199,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
   input_.touch(x,y,pressed);
 }
 void App::editorInterrupt() {
-  editorResetDismiss();editorReaderTouch_=false;
+  editorLayoutHold_=false;editorResetDismiss();editorReaderTouch_=false;
   editorCancelKeys();
   editorMagnify(false);
   editorPolicy(false);editorOcrStop();editorTextTouch_=editorCursorDrag_=false;editorHandle_=-1;
@@ -1236,16 +1250,23 @@ void App::editorTick() {
   }
   if (!editorChoosing_ && !editorSelectPending_ && !editorDeferred_.empty()) { auto pending=std::move(editorDeferred_); editorDeferred_.clear(); for(const auto &a:pending) { if(!editor_.active) break; editorAction(a); } }
   if (!editor_.active || keyboard_) return;
+  bool openLayouts=false;
   for(auto &c:editorContacts_) {
     if(&c!=&editorContacts_.front()||c.released||c.slid||!c.repeatAt||uint64_t(ticks())<c.repeatAt)continue;
     if(c.key.value=="delete") {
       ++c.repeats;editorAction("delete");c.repeatAt=ticks()+std::max(60,180-c.repeats*20);
     } else if(c.key.value=="language"&&!c.repeats) {
-      ++c.repeats;c.repeatAt=0;editorLayoutMenu_=true;editorRebuild_=true;
+      ++c.repeats;c.repeatAt=0;openLayouts=true;break;
     }
   }
   if(editorHeld_>=0&&editorRepeat_&&uint64_t(ticks())>=editorRepeat_&&editorPress_.value=="language"&&!editorSlid_&&!editorRepeats_) {
-    ++editorRepeats_;editorRepeat_=0;editorLayoutMenu_=true;editorBuild();
+    ++editorRepeats_;editorRepeat_=0;openLayouts=true;
+  }
+  if(openLayouts) {
+    // The opening contact is cancelled before rebuilding; its later release
+    // cannot become a short globe tap or a click on the new floating list.
+    editorCancelKeys();editorHeld_=-1;editorRepeat_=0;editorPointer_=false;
+    editorLayoutHold_=true;editorLayoutMenu_=true;input_.cancel();editorBuild();return;
   }
   if(editorHeld_>=0 && editorRepeat_ && uint64_t(ticks())>=editorRepeat_ && editorPress_.value=="delete") {
     const int held=editorHeld_; ++editorRepeats_; editorAction("delete"); editorHeld_=held;
@@ -1300,6 +1321,12 @@ Json App::editorDiagnostic() const {
     lv_area_t a;lv_obj_get_coords(editorHandles_[i],&a);const auto anchor=editorPoint(i?range.second:range.first);
     handles.push_back({{"endpoint",i},{"x",(a.x1+a.x2)/2},{"y",(a.y1+a.y2)/2},{"anchor",{anchor.x,anchor.y}},{"bounds",{a.x1,a.y1,a.x2,a.y2}}});
   }
+  Json layoutPopup=Json::array();
+  const auto layoutItem=editorLocalActions_.find("layout:0");
+  if(editorLayoutMenu_&&layoutItem!=editorLocalActions_.end()) {
+    lv_area_t area;lv_obj_get_coords(lv_obj_get_parent(layoutItem->second),&area);
+    layoutPopup={area.x1,area.y1,area.x2,area.y2};
+  }
   auto caret=editorPoint(editor_.cursor);
   Json targets=Json::object();
   for(const auto &entry:inputTargets_)if(entry.second.style>0||entry.second.key=="chat-composer") {
@@ -1309,7 +1336,7 @@ Json App::editorDiagnostic() const {
   if(editorTarget_){lv_area_t a;lv_obj_get_coords(editorTarget_,&a);anchor={a.x1,a.y1,a.x2,a.y2};}
   return {{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"in_place",editor_.active&&editorInPlace()&&editorTarget_!=nullptr},{"input_anchor",editorTargetKey_},{"docked",layout.docked},{"dismiss_offset",editorDismissOffset_},{"dismiss_threshold",editorDismissThreshold_},{"dismissing",editorDismissing_},{"dismiss_returning",editorDismissReturnAt_!=0},{"inline_chat",editorInlineChat_},{"panel_top",layout.panelTop},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
     {"layout",editor_.layout==0?"zh26":editor_.layout==1?"en26":"zh9"},{"preferred_layout",editor_.preferredChinese==2?"zh9":"zh26"},
-    {"layout_menu",editorLayoutMenu_},{"expanded",editorExpanded_},{"punctuation_menu",editorPunctuation_},{"exact_count",editorExact_.size()},
+    {"layout_menu",editorLayoutMenu_},{"layout_popup",layoutPopup},{"layout_hold",editorLayoutHold_},{"expanded",editorExpanded_},{"punctuation_menu",editorPunctuation_},{"exact_count",editorExact_.size()},
     {"parked_count",int(!editor_.parked[0].raw.empty())+int(!editor_.parked[1].raw.empty())},
     {"pending",editorInFlight_!=0||editorDue_!=0},{"chinese",editor_.chinese},{"shift",editor_.shift},{"multiline",editor_.multiline},{"secret",editor_.secret},
     {"length",editLength(editor_.text)},{"painted_length",editorText_?editLength(lv_textarea_get_text(editorText_)):0},{"cursor",editor_.cursor},{"caret_upstream",editorUpstream_==editor_.cursor},

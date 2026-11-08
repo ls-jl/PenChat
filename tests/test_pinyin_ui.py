@@ -14,7 +14,7 @@ def open_editor(a):
     s=a.diag();a.tap(s['width']//2,s['height']-34);t.wait_for(lambda:editor(a)['active'])
 def layout(a,name):
     k=next(k for k in editor(a)['keys'] if k['key']=='language')
-    a.send('touch',x=k['x'],y=k['y'],pressed=True);time.sleep(.55)
+    a.send('touch',x=k['x'],y=k['y'],pressed=True);time.sleep(.82)
     a.send('touch',x=k['x'],y=k['y'],pressed=False)
     t.wait_for(lambda:editor(a)['layout_menu'])
     a.editor_action('layout:'+str({'zh26':0,'en26':1,'zh9':2}[name]));t.wait_for(lambda:editor(a)['layout']==name)

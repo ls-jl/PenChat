@@ -14,7 +14,7 @@ def run(ctx):
     def open_editor():tap(W//2,H-34);wait(lambda:state()['active'])
     def choose_layout(value):
         k=next(k for k in state()['keys'] if k['key']=='language');x,y=ctx['raw'](k['x'],k['y'])
-        ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap --hold '+f'{x} {y} 550 2>/dev/null')
+        ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap --hold '+f'{x} {y} 850 2>/dev/null')
         wait(lambda:state()['layout_menu']);capture('pinyin-layout-menu')
         action('layout:'+str({'zh26':0,'en26':1,'zh9':2}[value]));wait(lambda:state()['layout']==value)
     def ready():

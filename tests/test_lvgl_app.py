@@ -120,8 +120,8 @@ class Native:
     def history_action(self,key):
         x1,y1,x2,y2=self.diag()["history_actions"][key]
         self.tap((x1+x2)//2,(y1+y2)//2)
-    def long_press(self,x,y):
-        self.send('touch',x=x,y=y,pressed=True);time.sleep(.65);self.send('touch',x=x,y=y,pressed=False);time.sleep(.08)
+    def long_press(self,x,y,duration=.65):
+        self.send('touch',x=x,y=y,pressed=True);time.sleep(duration);self.send('touch',x=x,y=y,pressed=False);time.sleep(.08)
     def diag(self):
         self.send('diagnostic');return self.receive('diagnostic')
     def to_chat(self):

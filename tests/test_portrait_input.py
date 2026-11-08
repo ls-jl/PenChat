@@ -184,7 +184,7 @@ def run():
                 a.editor_action('expand');shot(a,'expanded-candidates')
                 a.editor_action('expand');key(a,'space');t.wait_for(lambda:a.diag()['editor']['length']>0)
                 k=next(k for k in a.diag()['editor']['keys'] if k['key']=='language')
-                a.long_press(k['x'],k['y']);a.editor_action('layout:2');shot(a,'nine-key')
+                a.long_press(k['x'],k['y'],.85);a.editor_action('layout:2');shot(a,'nine-key')
                 a.editor_action('clipboard');shot(a,'clipboard');a.editor_action('clip-close')
                 a.send('visibility',visible=False);a.send('visibility',visible=True)
                 t.wait_for(lambda:a.diag()['editor']['active'] and a.diag()['editor']['docked'])
