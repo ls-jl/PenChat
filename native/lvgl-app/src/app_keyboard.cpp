@@ -1045,7 +1045,9 @@ void App::editorOcrStart() {
   whenScannerReleased([this,session] {
     if(editorSelectionOnly_||!editor_.active||editor_.id!=session||keyboard_||!visible_||!inputFocused_||editorOcrActive_||!editorOcrStopId_.empty())return;
     editorOcrActive_=true;editorOcrId_=uid("editor-ocr");editorOcrCapture_=0;
-    bridge_.send("ocr.start",{{"requestId",editorOcrId_},{"session",session},{"mode",editorOcrMulti_?"multi":"single"},{"continuous",true}});
+    if(!bridge_.send("ocr.start",{{"requestId",editorOcrId_},{"session",session},{"mode",editorOcrMulti_?"multi":"single"},{"continuous",true}}))
+      editorOcrResult({{"requestId",editorOcrId_},{"session",session},{"mode",editorOcrMulti_?"multi":"single"},
+        {"capture",1},{"confirmed",false},{"terminal",true},{"error","OCR请求未送达，请重试或手动输入"}});
   });
 }
 void App::editorOcrPrepared(const Json &m) {
@@ -1072,9 +1074,13 @@ void App::editorOcrResult(const Json &m) {
   if(!editor_.active||keyboard_||!visible_||!editorOcrActive_||m.value("session",std::string())!=editor_.id||
       m.value("requestId",std::string())!=editorOcrId_||m.value("mode",std::string())!=(editorOcrMulti_?"multi":"single"))return;
   auto capture=m.value("capture",uint64_t(0));
-  if(capture<=editorOcrCapture_)return;
+  const bool terminal=m.value("terminal",false);
+  // A route failure may refer to the last delivered stroke. It must still
+  // withdraw OCR readiness; treating it as duplicate leaves a dead session armed.
+  if(capture<=editorOcrCapture_&&!terminal)return;
   if(editorPointer_) {
-    for(const auto &pending:editorOcrPending_)if(pending.value("capture",uint64_t(0))==capture||pending.value("overflow",false))return;
+    for(const auto &pending:editorOcrPending_)
+      if((pending.value("capture",uint64_t(0))==capture&&pending.value("terminal",false)==terminal)||pending.value("overflow",false))return;
     if(editorOcrPending_.size()<63)editorOcrPending_.push_back(m);
     else {
       auto failure=m;failure.erase("text");failure["confirmed"]=false;failure["overflow"]=true;
@@ -1082,7 +1088,7 @@ void App::editorOcrResult(const Json &m) {
     }
     return;
   }
-  editorOcrCapture_=capture;editorOcrBusy_=false;editorOcrShown_=true;
+  editorOcrCapture_=std::max(editorOcrCapture_,capture);editorOcrBusy_=false;editorOcrShown_=true;
   if(!m.value("confirmed",false)) {
     editor_.notice=m.value("error",std::string("未识别到文字，请重试"));
     if(m.value("terminal",false)){editorOcrActive_=false;if(layout().portrait()){editorOcrPreparing_=true;syncScanner();}}
@@ -1243,11 +1249,12 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
   if(!pressed){editorPointer_=false;if(editorSlid_){input_.cancel();return;}}
   input_.touch(nativeX,nativeY,pressed);
 }
-void App::editorInterrupt() {
+void App::editorInterrupt(bool releaseOcr) {
   editorLayoutHold_=false;editorResetDismiss();editorReaderTouch_=false;
   editorCancelKeys();
   editorMagnify(false);
-  editorPolicy(false);editorOcrStop();editorTextTouch_=editorCursorDrag_=false;editorHandle_=-1;
+  if(releaseOcr){editorPolicy(false);editorOcrStop();}
+  editorTextTouch_=editorCursorDrag_=false;editorHandle_=-1;
   editorPointer_=false; editorHeld_=-1; editorRepeat_=0; editorInFlight_=editorDue_=0; editorSelectPending_=editorSelectPending_||editorChoosing_;editorChoosing_=false;editorRefreshPending_=false; ++editorRevision_;
   input_.cancel();
   editor_.globeChain=false;editorLayoutMenu_=editorPunctuation_=false;editorPinyinPending_=Json();

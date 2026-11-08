@@ -601,7 +601,7 @@ class App {
   void editorQuery(const std::string &operation = "query", int candidate = -1);
   void editorResult(const Json &message);
   void editorTick();
-  void editorInterrupt();
+  void editorInterrupt(bool releaseOcr = true);
   void editorTouch(int x, int y, bool pressed, bool cancelled);
   Json editorDiagnostic() const;
   void edit(const std::string &text, const std::string &placeholder,

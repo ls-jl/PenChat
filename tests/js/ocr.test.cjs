@@ -220,3 +220,56 @@ test('failed unregister retains cleanup for retry and never reports release succ
   assert.equal(f.session.stop(),false)
   fail=false;assert.equal(f.session.stop(),true);assert.equal(f.session.stop(),true)
 })
+
+test('empty word notification keeps the stroke alive for a delayed real result', () => {
+  const f=fixture();f.session.start('late',{continuous:true,session:'editor'})
+  f.manager.ocrStartChanged.fire(true)
+  f.manager.scanWordResultChanged.fire(0,'')
+  f.flush(0);f.flush(900)
+  assert(!f.events.some(e=>e.type==='ocr.result'))
+  f.manager.scanWordResultChanged.fire(0,{text:'稍后到达的文字'});f.flush(0)
+  const results=f.events.filter(e=>e.type==='ocr.result')
+  assert.equal(results.length,1);assert.equal(results[0].text,'稍后到达的文字')
+  f.flush(2500);f.flush(0);assert.equal(f.events.filter(e=>e.type==='ocr.result').length,1)
+  f.session.stop()
+})
+
+test('stop before the text property waits for recognition, and cancellation rejects delayed timers', () => {
+  const f=fixture();f.session.start('late-property',{continuous:true,session:'editor'})
+  f.manager.ocrStartChanged.fire(true);f.manager.ocrStopChanged.fire('')
+  f.flush(900);f.flush(0);assert(!f.events.some(e=>e.type==='ocr.result'))
+  f.manager.ocrResultChanged.fire({text:'后到的属性'});f.flush(120);f.flush(0)
+  assert.equal(f.events.at(-1).text,'后到的属性')
+  f.manager.ocrStartChanged.fire(true);f.manager.ocrCompleteChanged.fire('')
+  const stale=[...f.timers.values()].find(t=>t.delay===2500)
+  f.session.start('replacement',{continuous:true,session:'other-editor'})
+  stale();f.flush(0)
+  assert.equal(f.events.filter(e=>e.type==='ocr.result').length,1)
+  f.session.stop()
+})
+
+test('prepare activation retains listeners and an early stroke without registering twice', () => {
+  const f=fixture(()=>true,()=>true)
+  const options={continuous:true,session:'editor',nativePen:true}
+  f.session.start('handoff',{...options,prepareOnly:true})
+  const active=f.session.active,listener=[...f.manager.ocrStartChanged.callbacks][0]
+  f.manager.ocrStartChanged.fire(true);f.manager.ocrResultChanged.fire({text:'交接中的笔画'})
+  f.session.start('handoff',options)
+  assert.equal(f.session.active,active);assert.equal([...f.manager.ocrStartChanged.callbacks][0],listener)
+  assert.equal(f.calls.filter(c=>c[0]==='addUseOcrAppId').length,1)
+  assert.equal(f.session.active.capture,1);assert(f.session.active.started)
+  f.manager.ocrStopChanged.fire();f.flush(900);f.flush(0)
+  assert.equal(f.events.at(-1).text,'交接中的笔画');assert.equal(f.events.at(-1).capture,1)
+  f.session.stop()
+})
+
+test('duplicate activation leaves an ongoing stroke intact', () => {
+  const f=fixture();const options={continuous:true,session:'editor'}
+  f.session.start('same',options);const active=f.session.active
+  f.manager.ocrStartChanged.fire(true);f.manager.ocrResultChanged.fire({text:'正在识别'})
+  f.session.start('same',options)
+  assert.equal(f.session.active,active);assert.equal(f.calls.filter(c=>c[0]==='addUseOcrAppId').length,1)
+  f.manager.scanWordResultChanged.fire(0,{text:'完整文字'});f.flush(0)
+  assert.equal(f.events.at(-1).text,'完整文字');assert.equal(f.events.at(-1).capture,1)
+  f.session.stop()
+})

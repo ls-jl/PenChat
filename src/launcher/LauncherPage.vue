@@ -246,11 +246,15 @@ export default {
       this.send('editor.policy', { session: event.session, sequence: event.sequence, ok, blocked: ok && active })
     },
     startOcr(event, prepareOnly = false) {
-      if (!this.visible || this._windowFocused === false || this.keyboardOpen) { this.send('ocr.result', { requestId: event.requestId, confirmed: false, error: '当前无法启动扫描。' }); return }
+      const failed = error => this.send(prepareOnly ? 'ocr.prepared' : 'ocr.result', {
+        requestId: event.requestId, session: event.session, mode: event.mode,
+        capture: 1, ok: false, confirmed: false, terminal: true, error
+      })
+      if (!this.visible || this._windowFocused === false || this.keyboardOpen) { failed('当前无法启动扫描，请返回输入框重试。'); return }
       try {
       if (!this._global) this._global = new globalModule.Global()
       if (this._ocr && this._ocr.pendingCleanup && this.stopOcr() === false) {
-        this.send('ocr.result', { requestId: event.requestId, session: event.session, mode: event.mode, capture: 1, confirmed: false, terminal: true, error: '系统扫描资源尚未释放，请重试。' })
+        failed('系统扫描资源尚未释放，请重试。')
         return
       }
       const generation = this._generation
@@ -262,9 +266,8 @@ export default {
       active => typeof launcher.ocrRoute === 'function' && launcher.ocrRoute(active))
       this._ocr.start(event.requestId, { session: event.session, mode: event.mode, continuous: event.continuous, nativePen: event.nativePen === true, prepareOnly })
       } catch (err) {
-        if (!prepareOnly) throw err
         this.stopOcr()
-        this.send('ocr.prepared', { requestId: event.requestId, session: event.session, mode: event.mode, ok: false })
+        failed('系统 OCR 启动失败，请重试或手动输入。')
       }
     },
     stopOcr(requestId, acknowledge = false) {

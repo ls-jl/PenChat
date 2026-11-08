@@ -37,12 +37,26 @@ export class OcrSession {
   }
   start(requestId, options = {}) {
     const previous = this.active
+    const mode = options.mode === 'multi' ? 'multi' : 'single'
+    // Prepare/activate are two phases of one edit session, not two scans.
+    // Replacing listeners here can erase a pen-down/start that arrived during
+    // the native hardware handoff. Duplicate activation must be idempotent too.
+    if (previous && !previous.finishing && previous.requestId === requestId &&
+        previous.session === (options.session || '') && previous.mode === mode &&
+        previous.nativePen === (options.nativePen === true) &&
+        previous.continuous === (options.continuous === true) &&
+        options.prepareOnly !== true && (previous.prepared || previous.activated)) {
+      if (!previous.activated) {
+        try { previous.activate() } catch (_) { previous.startFailure() }
+      }
+      return
+    }
     const retained = !!(previous && previous.continuous && options.continuous === true && (previous.registered || previous.opened))
     if(this.stop(retained) === false) {
       this.emit('ocr.result', { requestId, session: options.session || '', mode: options.mode === 'multi' ? 'multi' : 'single', capture: 1, confirmed: false, terminal: true, error: '系统扫描资源尚未释放，请重试。' })
       return
     }
-    const current = { requestId, subscriptions: [], candidate: '', started: false, capture: 0, delivered: 0, pendingTimers: new Set(), continuous: options.continuous === true, session: options.session || '', mode: options.mode === 'multi' ? 'multi' : 'single' }
+    const current = { requestId, subscriptions: [], candidate: '', started: false, capture: 0, delivered: 0, pendingTimers: new Set(), continuous: options.continuous === true, session: options.session || '', mode, nativePen: options.nativePen === true, prepared: false, activated: false, ending: false }
     if (retained) {
       current.registered = previous.registered; current.opened = previous.opened
       current.imageChanged = previous.imageChanged; current.multiChanged = previous.multiChanged
@@ -60,7 +74,7 @@ export class OcrSession {
       const payload = Object.assign(metadata(), result)
       const keep = current.continuous && result.terminal !== true
       if (keep) {
-        current.delivered = current.capture; current.started = false; current.candidate = ''
+        current.delivered = current.capture; current.started = false; current.ending = false; current.candidate = ''
       } else current.finishing = true
       const timer = setTimeout(() => {
         current.pendingTimers.delete(timer)
@@ -89,20 +103,54 @@ export class OcrSession {
       return false
     }
     const bind = (name, callback) => bindSignal(this.manager[name], callback)
+    const settle = delay => {
+      clearTimeout(current.fallback)
+      const capture = current.capture
+      current.fallback = setTimeout(() => {
+        if (this.active === current && current.started && current.capture === capture)
+          finish(current.candidate ? { confirmed: true, text: current.candidate } : { confirmed: false, error: '未识别到文字，请重新划扫。' })
+      }, delay)
+    }
     const remember = value => {
       if (!current.started) return
       try {
         const text = scanText(value)
-        if (text) current.candidate = text
+        if (text) {
+          current.candidate = text
+          // Some firmware announces stop/complete before its text property.
+          // Once text arrives, settle the final value without waiting for a
+          // second completion signal. No timer is armed while the pen is idle.
+          if (current.ending) settle(120)
+          return true
+        }
       } catch (_) { finish({ confirmed: false, error: '扫描内容过长，请分段扫描。' }) }
+      return false
     }
     const final = value => {
       if (!current.started) return
       remember(value)
-      clearTimeout(current.fallback)
-      current.fallback = setTimeout(() => {
-        if (current.started) finish(current.candidate ? { confirmed: true, text: current.candidate } : { confirmed: false, error: '未识别到文字，请重新划扫。' })
-      }, 900)
+      if (!current.started) return
+      current.ending = true
+      // Empty notifications are not proof of an empty scan. Keep listeners
+      // alive for delayed recognition instead of discarding the later text.
+      settle(current.candidate ? 900 : 2500)
+    }
+    current.startFailure = () => finish({ confirmed: false, terminal: true, error: '系统 OCR 启动失败，请重试或手动输入。' })
+    current.activate = () => {
+      if (current.activated) return
+      if (typeof this.manager.setShowImgScanMode === 'function') { current.imageChanged = true; this.manager.setShowImgScanMode(false) }
+      // Older Global bridges (including S6) arm through currentAppId + OCR
+      // registration and do not expose the newer scan-open setter.
+      if (typeof this.manager.setIsOpenScan === 'function') {
+        current.opened = true
+        this.manager.setIsOpenScan(true)
+      } else if (typeof this.manager.setCurrentAppId !== 'function') throw new Error('System OCR registration control unavailable')
+      if (typeof this.manager.startAlmondMultiScan === 'function') { current.multiChanged = true; this.manager.startAlmondMultiScan(current.mode === 'multi' ? 1 : 0) }
+      current.prepared = false; current.activated = true
+      this.emit('ocr.status', Object.assign(metadata(), { started: current.started }))
+      if (!current.continuous) current.timeout = setTimeout(() => finish({ confirmed: false, error: '扫描超时，请重新扫描或手动输入。' }), 45000)
+      // Opening a continuous editor only arms the physical pen, never scans.
+      if (!current.continuous && this.manager.startScan() === false) throw new Error('System OCR failed to start')
     }
     try {
       for (const name of ['addUseOcrAppId', 'deleteUseOcrAppId'])
@@ -110,7 +158,7 @@ export class OcrSession {
       if (!current.continuous && typeof this.manager.startScan !== 'function') throw new Error('System OCR unavailable')
       const startSignal = bind('ocrStartChanged', active => {
         if (active === false || current.started) return
-        current.started = true; ++current.capture; current.candidate = ''; clearTimeout(current.fallback)
+        current.started = true; current.ending = false; ++current.capture; current.candidate = ''; clearTimeout(current.fallback)
         clearTimeout(current.timeout)
         current.timeout = setTimeout(() => finish({ confirmed: false, error: '扫描超时，请重新扫描。' }), 45000)
         this.emit('ocr.status', Object.assign(metadata(), { started: true }))
@@ -122,8 +170,11 @@ export class OcrSession {
       let outputs = 0
       for (const name of ['scanWordResultChanged', 'apolloScanWordResultChanged']) {
         if (bind(name, (kind, result) => {
-          remember(result === undefined ? kind : result)
-          if (current.started) finish(current.candidate ? { confirmed: true, text: current.candidate } : { confirmed: false, error: '未识别到文字，请重新划扫。' })
+          const populated = remember(result === undefined ? kind : result)
+          if (current.started) {
+            if (populated) finish({ confirmed: true, text: current.candidate })
+            else final()
+          }
         })) ++outputs
       }
       for (const name of ['ocrCompleteChanged', 'ocrStopChanged']) if (bind(name, final)) ++outputs
@@ -142,22 +193,11 @@ export class OcrSession {
       if (this.manager.addUseOcrAppId(JSON.stringify({ appid: this.appid, scanMethod: current.mode === 'multi' ? 1 : 0, useOcr: true, stopSoundPlayerOnHeadButtonPressed: false })) === false) throw new Error('System OCR registration failed')
       if (this.manager.setCurrentAppId) this.manager.setCurrentAppId(this.appid, true)
       if (options.prepareOnly === true) {
+        current.prepared = true
         this.emit('ocr.prepared', Object.assign(metadata(), { ok: true }))
         return
       }
-      if (typeof this.manager.setShowImgScanMode === 'function') { current.imageChanged = true; this.manager.setShowImgScanMode(false) }
-      // Older Global bridges (including S6) arm through currentAppId + OCR
-      // registration and do not expose the newer scan-open setter.
-      if (typeof this.manager.setIsOpenScan === 'function') {
-        current.opened = true
-        this.manager.setIsOpenScan(true)
-      } else if (typeof this.manager.setCurrentAppId !== 'function') throw new Error('System OCR registration control unavailable')
-      if (typeof this.manager.startAlmondMultiScan === 'function') { current.multiChanged = true; this.manager.startAlmondMultiScan(current.mode === 'multi' ? 1 : 0) }
-      this.emit('ocr.status', Object.assign(metadata(), { started: false }))
-      if (!current.continuous) current.timeout = setTimeout(() => finish({ confirmed: false, error: '扫描超时，请重新扫描或手动输入。' }), 45000)
-      // Continuous keyboard OCR waits for the pen tip. startScan actively starts
-      // a capture, so calling it here would turn opening the editor into a scan.
-      if (!current.continuous && this.manager.startScan() === false) throw new Error('System OCR failed to start')
+      current.activate()
     } catch (err) {
       if (options.prepareOnly === true) {
         // Keep the page-local routing lease, but block pen capture until retry.
@@ -167,7 +207,7 @@ export class OcrSession {
         current.subscriptions = []; current.finishing = false
         try { this.manager.setIsOpenScan(false); current.opened = true; current.imageChanged = typeof this.manager.setShowImgScanMode === 'function' } catch (_) {}
         this.emit('ocr.prepared', Object.assign(metadata(), { ok: false, error: '系统 OCR 准备失败，可重试或手动输入。' }))
-      } else finish({ confirmed: false, terminal: true, error: '系统 OCR 启动失败，请重试或手动输入。' })
+      } else current.startFailure()
     }
   }
   pen(event) {

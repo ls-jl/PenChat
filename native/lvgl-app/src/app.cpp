@@ -2934,7 +2934,9 @@ void App::cancelNativeInteraction() {
   resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
   finishImageGesture(false); nonImageMulti_ = false; viewerLastTap_ = 0;
   if (imageViewer_ || view_ == "crop") imageGesture_.mode = -2;
-  if (editor_.active) editorInterrupt();
+  // A short input-heartbeat gap cancels fingers/keys, not an OCR stroke.
+  // Media has a separate lease and explicit focus loss still revokes it.
+  if (editor_.active) editorInterrupt(!inputFocused_);
 }
 void App::updateInputFocus() {
   const auto permission=inputFocus_.permissions(ticks(),pageVisible_,windowFocused_,keyboard_,
@@ -2943,8 +2945,12 @@ void App::updateInputFocus() {
   if (display_.visible() != shown) display_.visible(shown);
   if(inputFocused_!=media) {
     inputFocused_=media;
-    if(!media)camera_.stop();
-    else if(view_=="camera"&&!keyboard_)startCamera();
+    if(!media) {
+      camera_.stop();
+      // This can occur after input already expired, so it must not depend on
+      // touchLeaseActive_ changing a second time to release the OCR session.
+      if(editor_.active){editorPolicy(false);editorOcrStop();}
+    } else if(view_=="camera"&&!keyboard_)startCamera();
     syncScanner();
   }
   const bool touch=permission.input;
