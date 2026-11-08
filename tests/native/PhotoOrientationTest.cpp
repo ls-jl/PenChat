@@ -59,6 +59,21 @@ int main() {
   assert(photoPreviewCorrection("RK3562 ORANGE V1") == 0);
   assert(photoPreviewCorrection("RK3562 Y070 V1") == 0);
   assert(photoPreviewCorrection("") == 0);
+  assert(photoAccelerometerCorrection("Rockchip RK3562 Y07 LP4 V10 Board") == 270);
+  assert(photoAccelerometerCorrection("RK3562 Y02 V1") == 0);
+  assert(photoAccelerometerCorrection("RK3562 ORANGE V1") == 0);
+  assert(photoAccelerometerCorrection("RK3562 Y070 V1") == 0);
+  const int axes[4][2]={{1024,0},{0,1024},{-1024,0},{0,-1024}};
+  for(int i=0;i<4;++i) {
+    const int standard=i*90,corrected=(standard+270)%360;
+    PhotoOrientation ordinary, y07(270);
+    const int starting=(corrected+180)%360;
+    assert(ordinary.update(axes[i][0],axes[i][1],0,100,(standard+180)%360)==(standard+180)%360);
+    assert(ordinary.update(axes[i][0],axes[i][1],0,700,(standard+180)%360)==standard);
+    assert(y07.update(axes[i][0],axes[i][1],0,100,starting)==starting);
+    assert(y07.update(axes[i][0],axes[i][1],0,700,starting)==corrected);
+    assert(y07.update(0,0,0,800,corrected)==corrected);
+  }
   for (int pose : {0,90,180,270}) {
     const auto y07 = photoTransforms(pose, true, 270);
     assert(y07.preview == 270 && y07.workspace == 0 && y07.saved == pose);

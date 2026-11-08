@@ -12,11 +12,21 @@ namespace penchat {
 struct PhotoTransforms {
   int preview = 0, workspace = 0, saved = 0;
 };
+struct PhotoCalibration {
+  int preview, accelerometer;
+};
+inline PhotoCalibration photoCalibration(const std::string &boardModel) {
+  const bool y07=boardModel.compare(0, 20, "Rockchip RK3562 Y07 ") == 0 ||
+                 boardModel.compare(0, 11, "RK3562 Y07 ") == 0;
+  // Two independent corrections, both user-confirmed as anticlockwise 90 on
+  // Y07. Neither is derived from Falcon's display/touch/video rotation fields.
+  return {y07?270:0,y07?270:0};
+}
 inline int photoPreviewCorrection(const std::string &boardModel) {
-  // Physically checked Y07 optical mounting: clockwise 270 = anticlockwise 90.
-  // This is independent of Falcon's video_direction and screen geometry.
-  return boardModel.compare(0, 20, "Rockchip RK3562 Y07 ") == 0 ||
-         boardModel.compare(0, 11, "RK3562 Y07 ") == 0 ? 270 : 0;
+  return photoCalibration(boardModel).preview;
+}
+inline int photoAccelerometerCorrection(const std::string &boardModel) {
+  return photoCalibration(boardModel).accelerometer;
 }
 inline PhotoTransforms photoTransforms(int pose, bool fixedWorkspace,
                                        int previewCorrection = 0) {
@@ -28,6 +38,9 @@ inline PhotoTransforms photoTransforms(int pose, bool fixedWorkspace,
 // Ported from Camera's auto-orientation.js: projected gravity, smoothing and
 // 600 ms stability avoid changing pose on flat placement or a transient shake.
 struct PhotoOrientation {
+  const int angleOffset;
+  explicit PhotoOrientation(int correction=0)
+      : angleOffset(((correction%360)+360)%360) {}
   double x = 0, y = 0, z = 0;
   int candidate = -1;
   int64_t since = 0, last = 0;
@@ -65,6 +78,7 @@ struct PhotoOrientation {
       z += (sz - z) * .45;
     }
     int next = classify(x, y, z);
+    if(next>=0)next=(next+angleOffset)%360;
     if (next < 0 || next == current) {
       candidate = -1;
       return current;

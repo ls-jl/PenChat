@@ -216,7 +216,6 @@ void Camera::work() {
   auto event=[this,generation](const std::string &name,Json data){data["generation"]=generation;events_.push(name,std::move(data));};
   camera::Capture capture;
   int sensorSession = 0;
-  PhotoOrientation orientationFilter;
   bool highResolution=false;
   int64_t nextSensor = 0;
   int64_t nextPreview = 0;
@@ -226,7 +225,9 @@ void Camera::work() {
   try {
     if(!camera::deviceCapabilities().photoCamera)
       throw std::runtime_error("此机型没有独立拍照设备，可使用笔头扫描或相册");
-    highResolution=fileText("/proc/device-tree/model",4096).find("RK3562 Y07 ")!=std::string::npos;
+    const auto boardModel=fileText("/proc/device-tree/model",4096);
+    PhotoOrientation orientationFilter(photoAccelerometerCorrection(boardModel));
+    highResolution=boardModel.find("RK3562 Y07 ")!=std::string::npos;
     if(highResolution&&fileText("/sys/class/video4linux/v4l-subdev7/name",4096).find("gc08a8")==std::string::npos)
       throw std::runtime_error("Y07相机传感器与高清配置不匹配");
 #ifdef PENCHAT_NATIVE_DEVICE
@@ -316,7 +317,9 @@ void Camera::work() {
         frame->rotation=transforms(frame->cameraPose).preview;
         const int rotatedW=frame->rotation%180?f.height:f.width;
         const int rotatedH=frame->rotation%180?f.width:f.height;
-        float scale=std::min(1.f,(highResolution?720.f:240.f)/f.height);
+        // Every photo-capable board fits once to its actual viewport. A fixed
+        // 240px/720px intermediary only makes LVGL resample the preview again.
+        float scale=1.f;
         const int targetW=previewWidth_.load(),targetH=previewHeight_.load();
         if(targetW>0&&targetH>0)
           scale=std::min(scale,std::min(float(targetW)/rotatedW,float(targetH)/rotatedH));
