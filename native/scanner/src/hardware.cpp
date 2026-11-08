@@ -1,4 +1,6 @@
 #include "hardware.hpp"
+#include "capture_timing.hpp"
+#include <time.h>
 #include "melon_config.hpp"
 #include "s6_config.hpp"
 #include "start_policy.hpp"
@@ -367,6 +369,8 @@ void Hardware::reserve(const Json &lease) {
     key_ = ::open(profile_.keyNode.c_str(),
                   O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     require(key_ >= 0, "scan key unavailable");
+    int keyClock = CLOCK_MONOTONIC;
+    keyMonotonic_ = io(key_, EVIOCSCLOCKID, &keyClock) == 0;
     char name[128]{};
     require(io(key_, EVIOCGNAME(sizeof(name)), name) >= 0 &&
                 std::string(name) == "led_control",
@@ -503,7 +507,7 @@ void Hardware::openCamera() {
     }
   }
 }
-bool Hardware::keyEvent(bool &down) {
+bool Hardware::keyEvent(bool &down, int64_t *timestamp) {
   input_event e{};
   while (::read(key_, &e, sizeof(e)) == sizeof(e)) {
     if (e.type == EV_SYN && e.code == SYN_DROPPED)
@@ -520,6 +524,14 @@ bool Hardware::keyEvent(bool &down) {
       continue;
     pressed_ = next;
     down = next;
+    if (timestamp) {
+      timespec mono{}, real{};
+      require(clock_gettime(CLOCK_MONOTONIC, &mono) == 0 && clock_gettime(CLOCK_REALTIME, &real) == 0,
+              "cannot timestamp scan key");
+      *timestamp = scanKeyTimestamp(e.time.tv_sec, e.time.tv_usec, keyMonotonic_,
+          int64_t(mono.tv_sec)*1000000 + mono.tv_nsec/1000,
+          int64_t(real.tv_sec)*1000000 + real.tv_nsec/1000);
+    }
     return true;
   }
   if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
@@ -600,6 +612,6 @@ void Hardware::close() noexcept {
   }
   lease_ = Json();
   lightProfile={};gpioExportMarker.clear();
-  pressed_ = waitRelease_ = false;
+  pressed_ = waitRelease_ = keyMonotonic_ = false;
 }
 } // namespace penchat_scan

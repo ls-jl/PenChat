@@ -23,11 +23,11 @@
     "src/memory_policy.hpp": "ad5ca5cb32d7debc4e0009a89f8d892ca6ee4b520de4c4b0790f5362f6077886",
     "src/runtime_io.hpp": "1920f786a5faf268e9f14a21274690b8c280fa5006a234d1a9c251e4f857ef94",
     "src/runtime_guard.cpp": "2866a54afd4e71a58e84e8362392cc462cbadebda95cdcd85f32514a30c50fb9",
-    "src/main.cpp": "a43cc2e94e4799dd88ecc256efbcd5616fe1d10a7e1bd7119fef5110bfff7a35",
+    "src/main.cpp": "23cb3890d581cc12db6de121e688def5ab1c2609a747246869e644e4b7a55f0b",
     "runtime-symbols.list": "868ca8503bbdbfab6029fe3fca3aceb20e76b4908f63be8bfdcf0f9c9ac92951",
     "tests/test_runtime_io.cpp": "726a9a9e417ad3520743a286ae755f0c857a7b164d74b7b9ea22525c31fd7d05",
-    "src/hardware.cpp": "410e1c7038cabbecfbf05e114fc91970f8ca5b5908de171f44a831691495a86d",
-    "src/hardware.hpp": "190b79a2477b7711a2eb792d0c04f45918c491105198a6beb6e4efb64989684c",
+    "src/hardware.cpp": "21f6796f03ede892b6661440822050739f9d90e3b691a0a9994b23b2e7c5159a",
+    "src/hardware.hpp": "3535e3b04393afaa83f5b7e8e28ebb100fd55369388a3183b9ed56d5b850811d",
     "engine/src/geometry_quality.cpp": "d513e838a60c818614d77b72322161e1e4b9d919a294c76ca5c45d4faa531a41",
     "tests/test_geometry_quality.cpp": "b66e7c45a3d0832c64ab3d8114147c6d395d192c6de0af23aaaf6855e2ab7086",
     "src/profile.hpp": "3a0f2933b8cb45d550b5ec37c90e674e74c9ba352f0861248399920932aa09a3",
@@ -43,7 +43,8 @@
     "src/cvi_capture.cpp": "1d39eeb808553fd44f9aafe230dcbc6b27babdcd353d343be126ccdff73ff91b",
     "src/cvi_capture.hpp": "4f2ae8c683c8d4c9f569d3552867b1c560f434d9117055c358abe449c8f833a6",
     "src/cvi_media_link.c": "7ca99e7bf029ea714df8ad19d63ab835821dc53f19bd04efef973068e9544e85",
-    "cvi-runtime-symbols.list": "468ac2df68529c88b94b55f67f7a85903817762e166439add84df2a8044ea0c3"
+    "cvi-runtime-symbols.list": "468ac2df68529c88b94b55f67f7a85903817762e166439add84df2a8044ea0c3",
+    "src/capture_timing.hpp": "4e978b9b206d4267ea43073a658beb27a11f8474c5b447c0d2431cefbfc43854"
   },
   "resources": {
     "pintu_32.rknn": {

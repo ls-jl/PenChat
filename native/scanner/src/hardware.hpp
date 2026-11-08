@@ -23,7 +23,7 @@ class Hardware {
   int video_ = -1, sensor_ = -1, key_ = -1;
   int stride_ = 0;
   CaptureProfile profile_;
-  bool stream_ = false, pressed_ = false, waitRelease_ = false;
+  bool stream_ = false, pressed_ = false, waitRelease_ = false, keyMonotonic_ = false;
   Json lease_;
   std::vector<Buffer> buffers_;
   void openCamera();
@@ -38,7 +38,7 @@ public:
   void reserve(const Json &lease);
   void start();
   void close() noexcept;
-  bool keyEvent(bool &down);
+  bool keyEvent(bool &down, int64_t *timestamp = nullptr);
   bool readFrame(const std::function<void(const uint8_t *, int, uint64_t,
                                           int64_t)> &consume);
   void light(bool on) { setScanLight(on); }

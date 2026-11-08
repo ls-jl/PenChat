@@ -5,6 +5,7 @@
 #include "preview.hpp"
 #include "protocol.hpp"
 #include "sequence_gap.hpp"
+#include "capture_timing.hpp"
 #include <array>
 #include <algorithm>
 #include <chrono>
@@ -205,6 +206,8 @@ class Worker {
   bool requireRelease_ = false, keyDown_ = false, draining_ = false;
   bool retryWhenEmpty_ = false;
   unsigned afterStop_ = 0;
+  int64_t releaseObservedUs_ = 0;
+  uint64_t rejectedAfterRelease_ = 0;
   bool haveSequence_ = false;
   uint64_t lastSequence_ = 0, droppedRaw_ = 0, recoveredGaps_ = 0;
   uint64_t recoveredFrames_ = 0;
@@ -265,6 +268,7 @@ class Worker {
             {"system_available_bytes", m.systemAvailableBytes}, {"system_reserve_bytes", m.systemReserveBytes},
             {"spilled", 0},
             {"discarded_backlog", discardedBacklog_},
+            {"post_release_rejected", rejectedAfterRelease_},
             {"memory_stop_code", captureFailure_ == "system_memory_low" ? 1 :
                 captureFailure_ == "system_memory_unavailable" ? 2 :
                 captureFailure_ == "memory_allocation_failed" ? 3 :
@@ -411,7 +415,7 @@ class Worker {
     release(true);
     lease_ = Json();
   }
-  void begin() {
+  void begin(int64_t pressedUs = 0) {
     if (!armed_ || scan_ || requireRelease_)
       return;
     mkdir(directory_.c_str(), 0700);
@@ -451,7 +455,9 @@ class Worker {
     traceConfig.width=profile_.width;traceConfig.height=profile_.height;
     trace_.begin(directory_,traceConfig);
 #endif
-    pressTime_ = clockUs();
+    const auto now = clockUs();
+    pressTime_ = pressedUs > 0 && pressedUs <= now ? pressedUs : now;
+    releaseObservedUs_ = 0; rejectedAfterRelease_ = 0;
     lastCaptureTickUs_ = pressTime_;
     maxCaptureLoopUs_ = 0;
     firstFrame_ = 0;
@@ -473,7 +479,7 @@ class Worker {
     emit("started",
          {{"pressedUs", pressTime_}, {"lightRequestedUs", lightRequestedUs_}});
   }
-  bool retryEmpty() {
+  bool retryEmpty(int64_t pressedUs = 0) {
     if (!armed_ || !finished_ || !result_)
       return false;
     const auto bounds = result_->bounds();
@@ -483,23 +489,24 @@ class Worker {
     requireRelease_ = false;
     if (!mock_)
       hardware_.exposure(true);
-    begin();
+    begin(pressedUs);
     return true;
   }
-  void keyEvent(bool down) {
+  void keyEvent(bool down, int64_t eventUs = 0) {
     if (!armed_ || down == keyDown_)
       return;
     keyDown_ = down;
     if (down) {
-      if (retryEmpty())
+      if (retryEmpty(eventUs))
         return;
       // Finish deciding whether there is an image before discarding anything.
       retryWhenEmpty_ = scan_ && !capturing_ && !finished_;
-      begin();
+      begin(eventUs);
     } else {
       retryWhenEmpty_ = false;
       requireRelease_ = false;
-      drain();
+      releaseObservedUs_ = clockUs();
+      drain(eventUs);
     }
   }
   void seal() {
@@ -511,10 +518,11 @@ class Worker {
     state_ = "processing";
     emit("processing", {{"counts", counts()}});
   }
-  void drain() {
+  void drain(int64_t releasedUs = 0) {
     if (!capturing_ || draining_)
       return;
-    sourceCutoffUs_ = clockUs();
+    const auto now = clockUs();
+    sourceCutoffUs_ = releasedUs > 0 ? std::max(pressTime_, std::min(releasedUs, now)) : now;
     light_.request(false);
     if (mock_) {
       seal();
@@ -622,7 +630,9 @@ class Worker {
           {"lightRequestedUs", lightRequestedUs_},
           {"firstSelectedUs", firstSelectedUs_.load()},
           {"firstBatchUs", firstBatchUs_.load()},
-          {"maxCaptureLoopUs", maxCaptureLoopUs_}}}};
+          {"maxCaptureLoopUs", maxCaptureLoopUs_},
+          {"captureEndedUs", sourceCutoffUs_},
+          {"releaseObservedUs", releaseObservedUs_}}}};
     const auto result=result_;
     exportCancel_=false;exportReview_=review;exportRequest_=request_;
     exportTask_=std::async(std::launch::async,[this,result,image,b]() mutable {
@@ -795,8 +805,8 @@ public:
       return;
     if (!mock_ && timestamp < pressTime_)
       return;
-    if (!mock_ && !profile_.gatesExposure && draining_ &&
-        timestamp > sourceCutoffUs_) {
+    if (!mock_ && afterReleasedFrame(timestamp, sourceCutoffUs_, draining_, profile_.gatesExposure)) {
+      ++rejectedAfterRelease_;
       // Outside the released pen's capture window, not a lost in-window frame.
       seal();
       return;
@@ -900,16 +910,24 @@ public:
       }
     }
     if (armed_ && !mock_) {
-      bool down = false;
-      while (hardware_.keyEvent(down))
-        keyEvent(down);
-      // Always dequeue standby frames, but copy only while capturing.
-      for (int n = 0; n < 16; ++n)
-        if (!hardware_.readFrame(
-                [&](const uint8_t *y, int stride, uint64_t seq, int64_t ts) {
-                  frame(y, stride, seq, ts);
-                }))
-          break;
+      auto keys = [this] {
+        bool down = false; int64_t eventUs = 0;
+        while (hardware_.keyEvent(down, &eventUs)) keyEvent(down, eventUs);
+      };
+      // Keep standby draining, but never let a blocking 16-frame batch defer
+      // the release event. The callback checks again after each CVI read.
+      bool readAny = false;
+      pollCaptureBatch(keys,
+          [this](const auto& consume) { return hardware_.readFrame(consume); },
+          [this, &readAny](const uint8_t* y, int stride, uint64_t seq, int64_t ts) {
+            readAny = true; frame(y, stride, seq, ts);
+          },
+          [this, &readAny] {
+            // After S6 seals, return promptly to endScan/control processing;
+            // sixteen blocking standby reads must not delay result/commands.
+            return (!profile_.cvi || capturing_ || !readAny) &&
+                   (!draining_ || clockUs() < drainDeadline_);
+          });
       if (draining_ && clockUs() >= drainDeadline_)
         seal();
       if (capturing_ && clockUs() - lastFrame_ > 5000000)
@@ -962,6 +980,7 @@ public:
               {"firstBatchUs", firstBatchUs_.load()},
               {"maxCaptureLoopUs", maxCaptureLoopUs_},
               {"captureEndedUs", sourceCutoffUs_},
+              {"releaseObservedUs", releaseObservedUs_},
               {"lastSourceFrameUs", lastRawTimestamp_}});
         if (retryWhenEmpty_ && keyDown_)
           retryEmpty();
