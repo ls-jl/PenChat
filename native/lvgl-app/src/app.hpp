@@ -1,4 +1,5 @@
 #pragma once
+#include "input_focus.hpp"
 #include "database.hpp"
 #include "transfer.hpp"
 #include "feedback.hpp"
@@ -262,6 +263,11 @@ class App {
   uint64_t windowFocusSequence_=0;
   Json systemOverlayStatus_=Json::object();
   bool systemEdgeDown_=false, systemEdgeGesture_=false;
+  InputFocus inputFocus_;
+  bool inputFocused_ = false, startupReadyPending_ = false;
+  bool touchLeaseActive_ = false;
+  void cancelNativeInteraction();
+  void updateInputFocus();
   std::atomic<bool> cancel_{false};
   std::thread network_;
   std::thread modelWorker_;
@@ -532,7 +538,8 @@ class App {
   void editorOcrPrepared(const Json &);
   bool editorOcrMulti_=false, editorOcrActive_=false, editorOcrBusy_=false, editorOcrShown_=false;
   bool editorTopBlocked_=false;
-  std::string editorOcrId_;
+  std::string editorOcrId_, editorOcrStopId_;
+  int64_t editorOcrStopRetry_ = 0;
   uint64_t editorOcrCapture_=0, editorPolicySequence_=0,editorOcrInserted_=0;
   bool editorTextTouch_=false, editorTextMoved_=false, editorCursorDrag_=false;
   int editorHandle_=-1, editorTextScroll_=0, editorLastTapX_=0, editorLastTapY_=0, editorTouchX_=0,editorTouchY_=0;
@@ -554,6 +561,7 @@ class App {
   void editorDrawCaret(lv_event_t *event);
   void editorOcrStart();
   void editorOcrStop();
+  void editorOcrFlushStop();
   void editorOcrResult(const Json &);
   void editorPolicy(bool active);
   lv_obj_t *editorRoot_ = nullptr, *editorText_ = nullptr;

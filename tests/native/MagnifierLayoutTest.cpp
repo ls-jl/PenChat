@@ -37,8 +37,8 @@ int main() {
   for(auto size:{std::make_pair(120,42),std::make_pair(40,120),std::make_pair(1,1)}) {
     const EditorLayout l{size.first,size.second};
     const auto p=l.magnifierPopup(size.first,size.second);
-    assert(p.x>=0&&p.y>=0&&p.width>0&&p.height>0&&p.x+p.width<=size.first&&p.y+p.height<=size.second);
-    assert(p.width<180&&p.height<=58);
+    assert(p.x>=0&&p.y>=0&&p.width>0&&p.height>0&&p.x+p.width<=l.width&&p.y+p.height<=l.height);
+    assert(p.width<=180&&p.height<=58);
   }
   std::cout<<"Magnifier: all safe edges, off-screen anchors, preferred size/offset and constrained viewports passed\n";
 }

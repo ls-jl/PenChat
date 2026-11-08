@@ -122,7 +122,7 @@ test('ready delivered during poll registration cancels the already armed timeout
   f.context.setInterval = fn => { f.timers.set(998, fn); fn(); return 998 }
   f.native.poll = () => [{ type: 'ready', generation: f.page._generation }]
   await f.page.boot()
-  assert.equal(f.page._nativeReady, true)
+  assert.equal(f.page.nativeReady, true)
   assert.equal(f.timers.has(999), false)
   timeout() // A queued callback may still run after clearTimeout.
   assert.equal(f.page.running, true)
@@ -396,4 +396,44 @@ test('portrait system confirm/cancel signals match the active ID and never tear 
  assert(!f.page.keyboardOpen)
  assert(!f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').at(-1)[1].confirmed)
  f.page.dispose()
+})
+
+test('startup cover is reactive and remains until a successfully presented native page is ready', async () => {
+  const f=fixture();await f.page.boot();assert.equal(f.page.nativeReady,false)
+  f.native.poll=()=>[{type:'startup',stage:'data'}];f.page.poll()
+  assert.equal(f.page.startupText,'正在读取数据…');assert.equal(f.page.nativeReady,false)
+  f.native.poll=()=>[{type:'ready',generation:f.page._generation}];f.page.poll()
+  assert.equal(f.page.nativeReady,true);f.page.dispose()
+})
+
+test('OCR cancel acknowledges completed cleanup and leaves a newer registration intact', async () => {
+  const f=fixture();await f.page.boot();let stops=0,ok=false
+  f.page._ocrRequest='one';f.page._ocr={stop:()=>{++stops;return ok}}
+  f.native.poll=()=>[{type:'ocr.cancel',requestId:'one',generation:f.page._generation}]
+  f.page.poll();let ack=f.calls.filter(c=>c[0]==='send'&&c[1].type==='ocr.stopped').at(-1)[1]
+  assert.equal(ack.ok,false);assert(f.page._ocr)
+  ok=true;f.page.poll();ack=f.calls.filter(c=>c[0]==='send'&&c[1].type==='ocr.stopped').at(-1)[1]
+  assert.equal(ack.ok,true);assert.equal(f.page._ocr,null)
+  f.page._ocrRequest='new';f.page._ocr={stop:()=>{throw new Error('Must preserve newer OCR')}}
+  f.page.poll();assert.equal(f.page._ocrRequest,'new');assert.equal(stops,2)
+  f.page._ocr=null;f.page.dispose()
+})
+
+test('restart does not launch native capture while old OCR cleanup is unconfirmed', async () => {
+  const f=fixture();f.page._ocr={pendingCleanup:true,stop:()=>false};f.page._ocrRequest='old'
+  await f.page.boot();assert(!f.calls.some(c=>c[0]==='start'));assert(f.page.errorText.includes('尚未释放'))
+  f.page._ocr=null;f.page.dispose()
+})
+
+test('focus combines system panel visibility with composited display lease and fails input closed', async () => {
+  const f=fixture();await f.page.boot();f.page.nativeReady=true
+  const latest=()=>f.calls.filter(c=>c[0]==='send'&&c[1].type==='input.focus').at(-1)[1]
+  f.page.syncWindowFocus(true);f.page.syncInputFocus(true);assert(latest().active)
+  f.native.panelVisible=true;f.page.syncWindowFocus(true)
+  assert.equal(latest().active,false);assert.equal(latest().displayActive,true)
+  f.native.panelVisible=false;f.page.syncWindowFocus(true);assert(latest().active)
+  f.native.focused=false;f.page.syncWindowFocus(true)
+  assert.equal(latest().active,false);assert.equal(latest().displayActive,true)
+  f.options.onHide.call(f.page);assert.equal(latest().displayActive,false)
+  f.page.dispose()
 })

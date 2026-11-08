@@ -1,3 +1,4 @@
+#include "bounded.hpp"
 #include "internal.hpp"
 #include <algorithm>
 #include <cmath>
@@ -198,8 +199,8 @@ bool MemoryCanvas::draw(const cv::Mat &gray, const cv::Matx33d &h, const cv::Mat
                     double reciprocal = 1. / den, qx = nx * reciprocal, qy = ny * reciprocal;
                     if (qx < -.5 || qy < -.5 || qx >= gray.cols - .5 || qy >= gray.rows - .5)
                         continue;
-                    double sx = std::clamp(qx, 0., double(gray.cols - 1)),
-                           sy = std::clamp(qy, 0., double(gray.rows - 1));
+                    double sx = bounded(qx, 0., double(gray.cols - 1)),
+                           sy = bounded(qy, 0., double(gray.rows - 1));
                     int ix = int(sx), iy = int(sy), jx = std::min(ix + 1, gray.cols - 1),
                         jy = std::min(iy + 1, gray.rows - 1);
                     float ax = float(sx - ix), ay = float(sy - iy);
@@ -211,7 +212,7 @@ bool MemoryCanvas::draw(const cv::Mat &gray, const cv::Matx33d &h, const cv::Mat
                     // and general matrix product at every output pixel.
                     double smallX = toSmall(0, 0) * qx + toSmall(0, 1) * qy + toSmall(0, 2),
                            smallY = toSmall(1, 0) * qx + toSmall(1, 1) * qy + toSmall(1, 2);
-                    float alpha = first ? 1.f : std::clamp(float((smallX - 32.) / 7.), 0.f, 1.f);
+                    float alpha = first ? 1.f : bounded(float((smallX - 32.) / 7.), 0.f, 1.f);
                     if (smallX < 0 || smallX >= 159 || smallY < 0 || smallY >= 287)
                         alpha = 0;
                     int k = (y - ty * T) * T + (x - tx * T);
@@ -269,7 +270,7 @@ Code MemoryCanvas::row(int row, std::uint8_t *gray, std::uint8_t *mask, std::siz
             int k = (y - ty * T) * T + x - tx * T, j = x - bounds_.x;
             if (valid[k]) {
                 mask[j] = 255;
-                gray[j] = std::uint8_t(std::clamp(values[k] + .5f, 0.f, 255.f));
+                gray[j] = std::uint8_t(bounded(values[k] + .5f, 0.f, 255.f));
             }
         }
     }
@@ -309,7 +310,7 @@ Code MemoryCanvas::preview(int w, int h, std::uint8_t *gray, std::uint8_t *mask,
             if (mask[out]) {
                 float v;
                 std::memcpy(&v, p + k * 4, 4);
-                gray[out] = std::uint8_t(std::clamp(v + .5f, 0.f, 255.f));
+                gray[out] = std::uint8_t(bounded(v + .5f, 0.f, 255.f));
             } else
                 gray[out] = 255;
         }

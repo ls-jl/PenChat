@@ -426,7 +426,7 @@ void validatePreset(const Json &p) {
 Transfer::Transfer(Database &d, Events &e, const std::string &data)
     : db_(d), events_(e), data_(data), root_("/userdisk/Favorite/PenChat"),
       stage_(join(data, "transfer-tmp")) {
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
   root_ = join(data_, "transfer-files");
   if (auto p = getenv("PENCHAT_TRANSFER_ROOT"))
     root_ = p;

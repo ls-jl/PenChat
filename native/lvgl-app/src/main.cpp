@@ -1,11 +1,28 @@
 #include "app.hpp"
+#include "device_profile.h"
 #include <csignal>
 #include <fcntl.h>
 #include <iostream>
 #include <unistd.h>
+#ifdef PENCHAT_CVI_PLATFORM
+#include <ucontext.h>
+#include "surface.hpp"
+#endif
 namespace {
 volatile sig_atomic_t running = 1, snapshotRequested = 0;
 void stop(int) { running = 0; }
+#ifdef PENCHAT_CVI_PLATFORM
+void mediaFault(int signal,siginfo_t *,void *context) {
+  // Address-only diagnostic, no heap allocation or application content.
+  auto *cpu=static_cast<ucontext_t *>(context);
+  char line[]="S6_NATIVE_FAULT pc=00000000 lr=00000000\n";
+  const unsigned long values[2]={cpu->uc_mcontext.arm_pc,cpu->uc_mcontext.arm_lr};
+  for(int n=0;n<2;++n)for(int i=0;i<8;++i)
+    line[(n?31:19)+i]="0123456789abcdef"[(values[n]>>(28-4*i))&15];
+  ::write(STDERR_FILENO,line,sizeof(line)-1);
+  _exit(128+signal);
+}
+#endif
 void snapshot(int) { snapshotRequested = 2; }
 void diagnostic(int) {
   if (!snapshotRequested)
@@ -17,6 +34,9 @@ int main(int argc, char **argv) {
   std::string data, workspace, fontPath, resources, screenshot, demo,
       screenConfig = "/etc/miniapp/resources/cfg.json";
   int fd = -1, frames = 0;
+#ifdef PENCHAT_CVI_PLATFORM
+  int compositorFd = -1, compositorMemory = -1;
+#endif
   bool headless = false;
   std::unique_ptr<Bridge> bridgeOwner;
   try {
@@ -29,6 +49,10 @@ int main(int argc, char **argv) {
     };
     if (arg == "--bridge-fd")
       fd = std::stoi(value());
+#ifdef PENCHAT_CVI_PLATFORM
+    else if (arg == "--compositor-fd") compositorFd = std::stoi(value());
+    else if (arg == "--compositor-memory") compositorMemory = std::stoi(value());
+#endif
     else if (arg == "--data-dir")
       data = value();
     else if (arg == "--workspace")
@@ -58,6 +82,10 @@ int main(int argc, char **argv) {
       fontPath = "/etc/miniapp/resources/fonts/HarmonyOS_Sans_SC_Regular.ttf";
     if (resources.empty())
       resources = join(workspace, "assets/microtex");
+#ifdef PENCHAT_CVI_PLATFORM
+    struct sigaction fault{};fault.sa_sigaction=mediaFault;fault.sa_flags=SA_SIGINFO;
+    sigemptyset(&fault.sa_mask);sigaction(SIGSEGV,&fault,nullptr);sigaction(SIGBUS,&fault,nullptr);
+#endif
     signal(SIGUSR1, snapshot);
     signal(SIGUSR2, diagnostic);
     signal(SIGTERM, stop);
@@ -67,23 +95,44 @@ int main(int argc, char **argv) {
     if (configuration.empty())
       throw std::runtime_error("Cannot read Falcon screen configuration: " + screenConfig);
     const auto parsedConfiguration = Json::parse(configuration);
-    const auto screen = Screen::fromConfig(parsedConfiguration);
+    const auto capabilities=camera::deviceCapabilities();
+    if(!headless && *capabilities.requiredBoard && fileText("/proc/device-tree/model",4096).find(capabilities.requiredBoard)==std::string::npos)
+      throw std::runtime_error("This native build does not support the detected device");
+    const bool physicalPanel=capabilities.physicalScreenConfig;
+    const auto screen = Screen::fromConfig(parsedConfiguration,physicalPanel);
+    const bool standalone = headless && fd < 0;
+    bridgeOwner.reset(new Bridge(fd)); fd=-1;
+    auto &bridge=*bridgeOwner;
+    const auto startupAt=ticks();
+    auto startup=[&](const char *stage) {
+      const auto elapsed=ticks()-startupAt;
+      std::fprintf(stderr,"NATIVE_STARTUP stage=%s elapsed_ms=%lld\n",stage,static_cast<long long>(elapsed));
+      bridge.send("startup",{{"stage",stage},{"elapsed_ms",elapsed}});
+    };
+    // Give Falcon its real viewport before loading fonts, media or the DB. Its
+    // startup cover stays visible until the first native frame is submitted.
+    bridge.send("booted", {{"screen", screen.descriptor()},{"version",PENCHAT_VERSION},{"appid",PENCHAT_APP_ID}});
+    startup("display");
     lv_init();
     lv_tick_set_cb([]() -> uint32_t { return uint32_t(ticks()); });
     initializeFonts(fontPath, join(workspace, "assets/fonts/DejaVuSans.ttf"));
     struct FontCleanup { ~FontCleanup() { lv_deinit(); shutdownFonts(); } } fontCleanup;
+    if(!headless&&capabilities.sharedCaptureDisplay)ScanService::recoverHardware(data);
+#ifdef PENCHAT_CVI_PLATFORM
+    if(!headless)penchat_compositor::configureDisplay(compositorFd, compositorMemory);
+#endif
     Display display(screen, headless);
     Input input;
-    const bool standalone = headless && fd < 0;
-    bridgeOwner.reset(new Bridge(fd)); fd=-1;
-    auto &bridge=*bridgeOwner;
+    startup("data");
     Database db(join(data, "penchat.db"));
+    startup("interface");
     App app(db, bridge, display, input, screen, workspace, data, fontPath,
             resources, !headless, parsedConfiguration);
     if (!demo.empty())
       app.demo(fileText(demo));
-    bridge.send("booted", {{"screen", screen.descriptor()},{"version",PENCHAT_VERSION},{"appid",PENCHAT_APP_ID}});
+    startup("frame");
     int frame = 0;
+    bool firstFrameReported=false;
     while (running && (standalone || bridge.connected())) {
       for (const auto &m : bridge.receive()) {
         if (m.value("type", std::string()) == "exit")
@@ -95,6 +144,11 @@ int main(int argc, char **argv) {
       app.tick();
       if(app.updateExit())break;
       const auto nextTimer = lv_timer_handler();
+      display.check();
+      if(!firstFrameReported&&display.presented()) {
+        firstFrameReported=true;
+        std::fprintf(stderr,"NATIVE_STARTUP stage=presented elapsed_ms=%lld\n",static_cast<long long>(ticks()-startupAt));
+      }
       if (snapshotRequested) {
         const bool includeImage = snapshotRequested == 2;
         snapshotRequested = 0;
@@ -105,7 +159,7 @@ int main(int argc, char **argv) {
       }
       if (frames && ++frame >= frames)
         break;
-      const auto pause = app.interactive() ? std::min<uint32_t>(16,nextTimer) : 50;
+      const auto pause = (app.interactive()||display.pending()) ? std::min<uint32_t>(16,nextTimer) : 50;
       app.waitInput(std::max<uint32_t>(1,pause));
     }
     if (!screenshot.empty())

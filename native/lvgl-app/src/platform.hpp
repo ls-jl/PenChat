@@ -1,15 +1,16 @@
 #pragma once
 #include "common.hpp"
-#include "overlay.h"
+#include "display_surface.h"
 #include <lvgl/lvgl.h>
 namespace penchat {
 class Display {
-  camera::Overlay overlay_;
+  std::unique_ptr<camera::DisplaySurface> surface_;
   lv_display_t *display_ = nullptr;
   std::vector<uint8_t> buffer_;
   Screen screen_;
   int topHeight_ = 0;
-  bool shown_ = true, headless_ = false;
+  std::string error_;
+  bool shown_ = true, headless_ = false, mediaPaused_ = false, pending_ = false, presented_ = false;
 
 public:
   Display(const Screen &s, bool headless);
@@ -17,7 +18,13 @@ public:
   void visible(bool value);
   void topHeight(int height);
   int topHeight() const { return topHeight_; }
+  bool supportsTopRegion() const { return headless_ || (surface_ && surface_->supportsTopRegion()); }
+  void mediaHandoff(bool release);
+  void check();
+  bool presented() const {return presented_;}
+  bool pending() const {return pending_;}
   bool visible() const { return shown_; }
+  bool systemOverlaySafe() const { return surface_ && surface_->systemOverlaySafe(); }
   void screenshot(const std::string &path);
   void flush(lv_display_t *, const lv_area_t *, uint8_t *);
   lv_display_t *handle() { return display_; }
@@ -33,6 +40,8 @@ public:
   void touch(int x, int y, bool down);
   void release();
   void cancel();
+  // Outside LVGL callbacks: revoke a gesture and settle only elastic overflow.
+  void interrupt();
 };
 class Bridge {
   int fd_ = -1;

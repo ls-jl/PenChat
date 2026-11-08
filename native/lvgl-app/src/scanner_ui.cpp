@@ -31,12 +31,12 @@ void App::syncScanner() {
   // A transient global overlay must not disarm and destroy the result that
   // this page (or its original-image reader) still owns. Real backgrounding
   // continues through suspend() and its normal cancel/join/release path.
-  if(active&&pageVisible_&&!windowFocused_)return;
-  bool eligible = bridge_.generation() > 0 && visible_ && !keyboard_ &&
-                  !editor_.active && (!imageViewer_ || viewerScanResult_) && !imageStoreBusy_ && !contextBusy_ && !replyBusy_ && !editorOcrActive_ &&
+  if(active&&pageVisible_&&(!windowFocused_||!inputFocused_))return;
+  bool eligible = bridge_.generation() > 0 && visible_ && inputFocused_ && !keyboard_ &&
+                  !editor_.active && (!imageViewer_ || viewerScanResult_) && !imageStoreBusy_ && !contextBusy_ && !replyBusy_ && !editorOcrActive_ && editorOcrStopId_.empty() &&
                   !navigationOpen_ && !modal_ && !attachments_ && !pulling_ &&
                   (view_ == "chat" || active);
-  const bool ocrKeys=layout().portrait()&&editor_.active&&visible_&&!keyboard_;
+  const bool ocrKeys=scanner_.nativeOcrKeys()&&editor_.active&&visible_&&inputFocused_&&!keyboard_;
   scanner_.eligible(eligible, session_, ocrKeys);
   if (scanHint_) {
     auto state = scanner_.state().value("type", std::string());
@@ -50,7 +50,7 @@ void App::syncScanner() {
   }
 }
 void App::whenScannerReleased(std::function<void()> callback) {
-  scanner_.eligible(false, session_, layout().portrait()&&editor_.active&&visible_&&!keyboard_);
+  scanner_.eligible(false, session_, scanner_.nativeOcrKeys()&&editor_.active&&visible_&&inputFocused_&&!keyboard_);
   if (scanner_.released())
     callback();
   else
@@ -58,12 +58,13 @@ void App::whenScannerReleased(std::function<void()> callback) {
 }
 void App::scanPage() {
   lv_obj_set_scrollable(body_, false);
-  scanLabel_ = label(body_, "请从左向右扫描，松开笔头后完成拼接", layout().portrait()?72:10, layout().portrait()?16:0, layout().portrait()?screen_.width-88:screen_.width-120, 19,
+  const auto workspace=layout().scanWorkspace();
+  scanLabel_ = label(body_, "请从左向右扫描，松开笔头后完成拼接", workspace.caption.x, workspace.caption.y, workspace.caption.width, 19,
                      theme::muted);
   lv_label_set_long_mode(scanLabel_, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(scanLabel_, font(19)->line_height);
   const bool portrait=layout().portrait();
-  auto holder = box(body_, 10, portrait?56:32, portrait?screen_.width-20:screen_.width-330, portrait?screen_.height-186:screen_.height-88, theme::surface);
+  auto holder = box(body_,workspace.preview.x,workspace.preview.y,workspace.preview.width,workspace.preview.height,theme::surface);
   scanHolder_=holder;
   scanWarning_=label(body_,"",10,28,screen_.width-120,17,theme::danger);
   lv_obj_set_hidden(scanWarning_,true);
@@ -83,8 +84,8 @@ void App::scanPage() {
   lv_obj_center(scanImage_);
   bool usable = scanResult_.value("usable", false);
   const bool partial = scanResult_.value("status", 1) != 1;
-  scanUse_ = button(body_, !usable ? (scanResult_.empty() ? "等待扫描结果" : "无可用图像") : partial ? "使用部分图像" : "使用图片", portrait?16:screen_.width-305, portrait?screen_.height-112:32,
-                    portrait?screen_.width-32:200, 44, [this] {
+  scanUse_ = button(body_, !usable ? (scanResult_.empty() ? "等待扫描结果" : "无可用图像") : partial ? "使用部分图像" : "使用图片", workspace.use.x, workspace.use.y,
+                    workspace.use.width, workspace.use.height, [this] {
                       if (scanConfirming_ || scanConfirmed_ == scanId_ ||
                           !scanResult_.value("usable", false))
                         return;
@@ -132,18 +133,18 @@ void App::scanPage() {
 void App::updateScanWarning(const Json &counts) {
   if(!scanWarning_ || !scanHolder_)return;
   const auto lost=counts.value("dropped_raw",uint64_t(0));
-  const bool portrait=layout().portrait();
+  const auto workspace=layout().scanWorkspace();
   lv_obj_update_layout(scanLabel_);
-  const int top=std::max(portrait?48:28,int(lv_obj_get_y(scanLabel_)+lv_obj_get_height(scanLabel_)+8));
-  lv_obj_set_pos(scanWarning_,portrait?16:10,top);
-  lv_obj_set_width(scanWarning_,portrait?screen_.width-32:screen_.width-330);
+  const int top=std::max(workspace.captionFloor,int(lv_obj_get_y(scanLabel_)+lv_obj_get_height(scanLabel_)+8));
+  lv_obj_set_pos(scanWarning_,workspace.warning.x,top);
+  lv_obj_set_width(scanWarning_,workspace.warning.width);
   lv_label_set_long_mode(scanWarning_,LV_LABEL_LONG_MODE_WRAP);
   lv_label_set_text(scanWarning_,("本次漏采"+std::to_string(lost)+"帧，请放大检查是否有缺字、重影或错位。").c_str());
   lv_obj_set_hidden(scanWarning_,!lost);lv_obj_update_layout(scanWarning_);
   const int extra=lost?lv_obj_get_height(scanWarning_)+8:0;
   const int holderTop=top+extra+4;
   lv_obj_set_y(scanHolder_,holderTop);
-  lv_obj_set_height(scanHolder_,std::max(24,(portrait?screen_.height-130:screen_.height-56)-holderTop));
+  lv_obj_set_height(scanHolder_,std::max(24,workspace.previewBottom-holderTop));
   if(auto frame=scanner_.preview(scanId_)) {
     lv_image_set_scale(scanImage_,std::min(256,std::min((lv_obj_get_width(scanHolder_)-8)*256/frame->width,
       (lv_obj_get_height(scanHolder_)-8)*256/frame->height)));lv_obj_center(scanImage_);
@@ -155,6 +156,10 @@ void App::viewScanResult() {
   openImageViewer("",true);scanViewRequest_=scanner_.prepareReview(scanId_);
 }
 void App::scanEvent(const Event &event) {
+  if(event.type=="scan_media_release") {
+    display_.mediaHandoff(true);scanner_.mediaReleased(event.data.at("token").get<uint64_t>());return;
+  }
+  if(event.type=="scan_media_resume") {display_.mediaHandoff(false);return;}
   const auto &j = event.data;
   if (j.value("generation", uint64_t(0)) != scanner_.generation() ||
       j.value("session", std::string()) != session_)

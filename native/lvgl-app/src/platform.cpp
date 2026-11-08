@@ -13,11 +13,7 @@ Display::Display(const Screen &s, bool headless)
     : screen_(s), headless_(headless) {
   buffer_.resize(size_t(s.width) * s.height * 4);
   if (!headless_) {
-    camera::HoleRect r(0, 0, s.width, s.height, s.width, s.height, s.rotation,
-                       0, 0, s.xoffset, s.yoffset);
-    overlay_.setHole(r);
-    if (!overlay_.open())
-      throw std::runtime_error(overlay_.lastError());
+    surface_=camera::makeDisplaySurface({s.width,s.height,s.rotation,s.xoffset,s.yoffset,s.panelWidth,s.panelHeight});
   }
   display_ = lv_display_create(s.width, s.height);
   lv_display_set_color_format(display_, LV_COLOR_FORMAT_ARGB8888);
@@ -30,21 +26,41 @@ Display::Display(const Screen &s, bool headless)
       });
 }
 Display::~Display() {
-  overlay_.close();
+  surface_.reset();
   if (display_)
     lv_display_delete(display_);
 }
 void Display::flush(lv_display_t *d, const lv_area_t *, uint8_t *) {
-  if (shown_ && !headless_)
-    overlay_.presentBgra(buffer_.data(), screen_.width, topHeight_?topHeight_:screen_.height);
+  if (shown_ && !headless_ && surface_) {
+    try {pending_=!surface_->present(buffer_.data(), screen_.width, screen_.height);presented_|=!pending_;}
+    catch(const std::exception &e) {
+      error_=e.what();shown_=false;pending_=false;
+      try{surface_->hide();}catch(...){}
+    }
+  }
+  if(headless_)presented_=true;
   if(lv_display_flush_is_last(d)) trimFontCache();
   lv_display_flush_ready(d);
 }
+void Display::check() {
+  if(!error_.empty())throw std::runtime_error(error_);
+  if(surface_)surface_->check();
+  // The full LVGL CPU buffer already contains the newest frame. Retry that
+  // buffer directly; no extra redraw, queue, copied snapshot or UI wait.
+  if(pending_&&shown_&&surface_) {
+    pending_=!surface_->present(buffer_.data(),screen_.width,screen_.height);
+    presented_|=!pending_;
+  }
+}
 void Display::visible(bool value) {
   shown_ = value;
-  if (!value && !headless_)
-    overlay_.disable();
+  if(!value)pending_=false;
+  if (!value && !headless_ && surface_) {
+    if(surface_->releaseOnHide())surface_.reset();
+    else surface_->hide();
+  }
   if (value) {
+    if(!surface_&&!mediaPaused_&&!headless_)mediaHandoff(false);
     lv_obj_invalidate(lv_screen_active());
     lv_refr_now(display_);
   }
@@ -53,9 +69,20 @@ void Display::topHeight(int height) {
   height=std::max(0,std::min(screen_.height,height));
   if(topHeight_==height)return;
   topHeight_=height;
-  if(!headless_)overlay_.setHole(camera::HoleRect(0,0,screen_.width,height?height:screen_.height,
-      screen_.width,screen_.height,screen_.rotation,0,0,screen_.xoffset,screen_.yoffset));
+  if(surface_)surface_->topRegion(height);
   if(shown_) {lv_obj_invalidate(lv_screen_active());lv_refr_now(display_);}
+}
+void Display::mediaHandoff(bool release) {
+  if(headless_)return;
+  if(surface_&&surface_->sharedCaptureSafe())return;
+  mediaPaused_=release;
+  if(release){pending_=false;surface_.reset();}
+  else if(!surface_&&shown_) {
+    surface_=camera::makeDisplaySurface({screen_.width,screen_.height,screen_.rotation,
+      screen_.xoffset,screen_.yoffset,screen_.panelWidth,screen_.panelHeight});
+    surface_->topRegion(topHeight_);
+    if(shown_)lv_obj_invalidate(lv_screen_active());
+  }
 }
 void Display::screenshot(const std::string &path) {
   lv_refr_now(display_);
@@ -94,6 +121,23 @@ void Input::cancel() {
   pressed_ = false;
   lv_indev_reset(input_, nullptr);
   lv_indev_read(input_);
+}
+void Input::interrupt() {
+  auto scroll = lv_indev_get_scroll_obj(input_);
+  lv_anim_delete(input_, nullptr);
+  if (scroll) {
+    lv_obj_stop_scroll_anim(scroll);
+    // A reset alone drops LVGL's scroll owner before its elastic return runs.
+    // Stop at the nearest valid offset, without moving a valid reading position.
+    const int x = lv_obj_get_scroll_x(scroll), y = lv_obj_get_scroll_y(scroll);
+    const int maxX = std::max(0, int(lv_obj_get_scroll_left(scroll) + lv_obj_get_scroll_right(scroll)));
+    const int maxY = std::max(0, int(lv_obj_get_scroll_top(scroll) + lv_obj_get_scroll_bottom(scroll)));
+    const bool rtl = lv_obj_get_style_base_dir(scroll, LV_PART_MAIN) == LV_BASE_DIR_RTL;
+    const int targetX = rtl ? std::max(-maxX, std::min(0, x)) : std::max(0, std::min(maxX, x));
+    const int targetY = std::max(0, std::min(maxY, y));
+    lv_obj_scroll_by_bounded(scroll, x - targetX, y - targetY, LV_ANIM_OFF);
+  }
+  cancel();
 }
 void Input::release() {
   pressed_ = false;

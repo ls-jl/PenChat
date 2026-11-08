@@ -61,6 +61,12 @@ std::vector<Json> TouchFrames::event(int type, int code, int value) {
     if (points.empty()) waitClear_ = false;
     return out;
   }
+  // Nonexclusive reading must not send the system top-panel gesture to LVGL,
+  // even during Falcon's focus-notification delay. Discard the entire contact.
+  if (previous_.empty() && !points.empty() && points[0]["y"].get<int>() < topInset_) {
+    waitClear_ = true;
+    return out;
+  }
   // Reject gestures that begin on a physical bezel. An accepted pointer may
   // drift beyond the viewport: preserve its movement/release so edge keys use
   // their normal slop and image/text drags keep their existing bounds.
@@ -120,9 +126,10 @@ void NativeTouch::open() {
   }
   throw std::runtime_error("无法打开原生触摸设备，请检查设备连接或权限");
 }
-std::vector<Json> NativeTouch::poll(bool foreground) {
+std::vector<Json> NativeTouch::poll(bool foreground, int reservedTop) {
   std::vector<Json> out;
   if (!foreground || !enabled_) { close(); return out; }
+  frames_.reserveTop(reservedTop);
   if (fd_ < 0) open();
   input_event events[64];
   for (int batch = 0; batch < 8; ++batch) {

@@ -202,7 +202,7 @@ void App::confirmCrop() {
             throw std::runtime_error("裁剪保存失败");
           if (album) {
             std::string directory = "/userdisk/Pictures";
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
             if (const char *test = getenv("PENCHAT_TEST_ALBUM"))
               directory = test;
 #endif

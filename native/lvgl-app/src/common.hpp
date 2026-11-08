@@ -80,7 +80,8 @@ public:
 struct Screen {
   int width = 0, height = 0, rotation = 0, xoffset = 0, yoffset = 0;
   int touchRotation = 0, touchXoffset = 0, touchYoffset = 0;
-  static Screen fromConfig(const Json &cfg);
+  int panelWidth = 0, panelHeight = 0;
+  static Screen fromConfig(const Json &cfg, bool physicalPanel = false);
   Json descriptor() const;
 };
 } // namespace penchat

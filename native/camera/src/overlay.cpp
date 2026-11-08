@@ -506,7 +506,7 @@ bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int sr
         decltype(&drmModeAtomicFree) freeReq = DRM_SYM(drmModeAtomicFree);
         decltype(&drmModeAtomicCommit) commitFn = DRM_SYM(drmModeAtomicCommit);
         drmModeAtomicReq* req = alloc();
-        if (!req) return false;
+        if (!req) { error_="DRM atomic allocation failed"; return false; }
         const bool propsOk =
             addProp(req, planeId_, propFb_, fbId) &&
             addProp(req, planeId_, propCrtc_, fbId ? crtcId_ : 0) &&
@@ -520,6 +520,7 @@ bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int sr
             addProp(req, planeId_, propCrtcH_, static_cast<uint64_t>(h)) &&
             (!propZpos_ || addProp(req, planeId_, propZpos_, zpos_));
         if (!propsOk) {
+            error_ = "DRM atomic property setup failed";
             CAMLOG("operation=atomicAddProperty failed plane=%u", planeId_);
             freeReq(req);
             return false;
@@ -534,7 +535,7 @@ bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int sr
         if (commitError == EBUSY || commitError == EAGAIN) return false;
         CAMLOG("atomic commit rc=%d errno=%d, retry without zpos", rc, errno);
         req = alloc();
-        if (!req) return false;
+        if (!req) { error_="DRM atomic allocation failed"; return false; }
         addProp(req, planeId_, propFb_, fbId);
         addProp(req, planeId_, propCrtc_, fbId ? crtcId_ : 0);
         addProp(req, planeId_, propSrcX_, 0);
@@ -556,9 +557,10 @@ bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int sr
         CAMLOG("atomic commit failed rc=%d errno=%d", rc2, errno);
     }
     decltype(&drmModeSetPlane) setPlane = DRM_SYM(drmModeSetPlane);
-    if (!setPlane) return false;
+    if (!setPlane) { error_ = "DRM plane submission unavailable"; return false; }
     const int rc = setPlane(fd_, planeId_, crtcId_, fbId, 0, x, y, w, h, 0, 0, srcW << 16, srcH << 16);
     if (rc == 0) presented_ = fbId != 0;
+    else if(errno!=EBUSY && errno!=EAGAIN) error_="DRM plane submission failed: "+std::to_string(errno);
     return rc == 0;
 }
 
@@ -593,7 +595,9 @@ bool Overlay::commitPlacedBgra(const uint8_t* bgra, int cw, int ch, int cx, int 
 bool Overlay::presentBgra(const uint8_t* bgra, int width, int height)
 {
     pthread_mutex_lock(&mu_);
+    error_.clear();
     if (!bgra || width < 1 || height < 1) {
+        error_="Invalid DRM frame geometry";
         pthread_mutex_unlock(&mu_);
         return false;
     }

@@ -52,6 +52,7 @@ class Native:
         self.pending=[]
         self.ocr_prepare_adapter=ocr_prepare_adapter
         self.official_adapter=official_adapter
+        self.ocr_cancel_ack=True
         self.directory=pathlib.Path(directory);self.directory.mkdir(parents=True,exist_ok=True)
         dbpath=self.directory/'penchat.db'
         if not dbpath.exists():
@@ -70,7 +71,9 @@ class Native:
         if bridge_send_buffer is not None:child.setsockopt(socket.SOL_SOCKET,socket.SO_SNDBUF,bridge_send_buffer)
         self.parent.settimeout(float(os.environ.get("PENCHAT_TEST_TIMEOUT", "10")))
         self.log=(self.directory/'runtime.log').open('wb')
-        self.process=subprocess.Popen([str(binary),'--headless','--screen-config',str(config),'--bridge-fd',str(child.fileno()),'--data-dir',str(self.directory),'--workspace',str(ROOT),'--font',str(ROOT/'.deps/chinese.ttf'),'--tex-resources',str(ROOT/'.deps/microtex/res')],pass_fds=[child.fileno()],stdout=self.log,stderr=self.log)
+        child_env=os.environ.copy()
+        child_env['PENCHAT_TEST_NATIVE_OCR_KEYS']='1' if display['height']>display['width'] else '0'
+        self.process=subprocess.Popen([str(binary),'--headless','--screen-config',str(config),'--bridge-fd',str(child.fileno()),'--data-dir',str(self.directory),'--workspace',str(ROOT),'--font',str(ROOT/'.deps/chinese.ttf'),'--tex-resources',str(ROOT/'.deps/microtex/res')],env=child_env,pass_fds=[child.fileno()],stdout=self.log,stderr=self.log)
         child.close();self.generation=17
         self.send('init')
         try:self.receive('ready')
@@ -93,6 +96,9 @@ class Native:
             if value.get("type")==kind:return self.pending.pop(i)
         while True:
             value=json.loads(self.parent.recv(65536))
+            if value.get('type')=='ocr.cancel' and self.ocr_cancel_ack:
+                self.send('ocr.stopped',requestId=value['requestId'],ok=True)
+                continue
             if value.get('type')=='ocr.prepare' and self.ocr_prepare_adapter:
                 self.send('ocr.prepared',requestId=value['requestId'],session=value['session'],mode=value['mode'],ok=True)
                 continue

@@ -4,7 +4,7 @@ import hashlib, json, pathlib, re, struct, zipfile, subprocess, sys, runpy
 from runtime_policy import check_native_payload
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 APP=json.loads((ROOT/'package.json').read_text())
-path = ROOT / ('dist/'+APP['appid']+'.'+APP['version'].replace('.', '_')+'.amr')
+path = pathlib.Path(sys.argv[1]) if len(sys.argv)>1 else ROOT / ('dist/'+APP['appid']+'.'+APP['version'].replace('.', '_')+'.amr')
 subprocess.run([sys.executable,str(ROOT/'tests/check_licenses.py'),'--amr',str(path)],check=True)
 with zipfile.ZipFile(path) as archive:
     names = archive.namelist()

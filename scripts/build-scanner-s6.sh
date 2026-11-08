@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+source "$ROOT/scripts/native-target.sh" s6
+python3 "$ROOT/scripts/prepare-scanner-cvi.py"
+python3 "$ROOT/scripts/prepare-s6-deps.py"
+CVI_SOURCE="$ROOT/.deps/opencv-s6-source"
+cmake -S "$CVI_SOURCE" -B "$ROOT/build/opencv-s6" -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=arm \
+  -DCMAKE_C_COMPILER="$PENCHAT_BUILD_CC" -DCMAKE_CXX_COMPILER="$PENCHAT_BUILD_CXX" \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$ROOT/.deps/opencv-s6" -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+  -DBUILD_LIST=core,imgproc -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
+  -DBUILD_opencv_apps=OFF -DWITH_IPP=OFF -DWITH_ITT=OFF -DWITH_OPENCL=OFF -DWITH_TBB=OFF -DWITH_OPENMP=OFF \
+  -DWITH_FFMPEG=OFF -DWITH_V4L=OFF -DWITH_JPEG=OFF -DWITH_PNG=OFF -DWITH_WEBP=OFF -DWITH_PROTOBUF=OFF \
+  -DBUILD_ZLIB=ON -DBUILD_JAVA=OFF -DBUILD_opencv_python2=OFF -DBUILD_opencv_python3=OFF -DENABLE_NEON=OFF -DCPU_BASELINE= -DCPU_DISPATCH=
+cmake --build "$ROOT/build/opencv-s6" -j"${JOBS:-6}"
+cmake --install "$ROOT/build/opencv-s6"
+cmake -S "$ROOT/native/scanner" -B "$ROOT/build/scanner-s6" -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=arm -DCMAKE_C_COMPILER="$PENCHAT_BUILD_CC" \
+  -DCMAKE_CXX_COMPILER="${PENCHAT_S6_CLANG:-/usr/lib/llvm-18/bin/clang++}" -DCMAKE_CXX_COMPILER_TARGET=arm-linux-gnueabihf \
+  -DCMAKE_CXX_FLAGS="--gcc-toolchain=$PENCHAT_BUILD_GCC --sysroot=$PENCHAT_BUILD_GCC/arm-linux-gnueabihf/libc -march=armv7-a -mfpu=neon -mfloat-abi=hard" \
+  -DSCANNER_TARGET=s6 -DSCANNER_TESTS=OFF -DSCANNER_CV_ROOT="$ROOT/.deps/opencv-s6" -DSCANNER_PNG_ROOT="$ROOT/.deps/s6-png"
+cmake --build "$ROOT/build/scanner-s6" --target penchat-scanner penchat_cvi_media -j"${JOBS:-6}"
+STAGE="$ROOT/build/payload-s6/assets"
+mkdir -p "$STAGE/bin" "$STAGE/scanner/lib"
+python3 "$ROOT/scripts/prepare-scanner-cvi.py" --stage "$STAGE/scanner"
+install -m755 "$ROOT/build/scanner-s6/penchat-scanner" "$STAGE/bin/penchat-scanner"
+install -m644 "$ROOT/build/scanner-s6/libpenchat_cvi_media.so" "$STAGE/scanner/lib/"
+cp "$ROOT/.deps/s6-png/lib/"* "$STAGE/scanner/lib/"
+cp "$ROOT/native/scanner/cvi-media.lock.json" "$STAGE/scanner/"
+for file in "$STAGE/bin/penchat-scanner" "$STAGE/scanner/lib/"*; do "$PENCHAT_BUILD_STRIP" --strip-unneeded "$file"; done

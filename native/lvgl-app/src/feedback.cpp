@@ -397,7 +397,7 @@ struct Feedback::Impl {
       ++keyGeneration;collecting=true;keyStep=step;draft["steps"].erase(step);clearPreview();saveDraft();
       if(native)keys.start(step,keyGeneration);
       else {
-#ifdef __aarch64__
+#ifdef PENCHAT_NATIVE_DEVICE
         throw std::runtime_error("当前环境不能采集按键");
 #endif
       }

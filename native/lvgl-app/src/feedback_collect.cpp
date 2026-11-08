@@ -203,7 +203,7 @@ FeedbackConfig FeedbackConfig::build() {
   FeedbackConfig config;
   config.endpoint = FeedbackBuild_endpoint; config.token = FeedbackBuild_token;
   config.nodes = Json::parse(FeedbackBuild_nodes).get<std::vector<std::string>>();
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
   if (const auto path = getenv("PENCHAT_TEST_FEEDBACK_CONFIG")) {
     const auto data = feedbackRead(path, 16384);
     if (data.is_object()) {

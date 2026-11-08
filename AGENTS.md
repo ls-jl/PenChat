@@ -1,6 +1,7 @@
 # Repository Guidelines
 
-PenChat is a native LVGL app for explicit ORANGE, Y02, Y07 and MELON RK3562/AArch64 profiles.
+PenChat shares native LVGL UI/business components across explicit Rockchip/AArch64
+and S6/CV1826/ARMv7 profiles. Hardware backends and payloads are target-isolated.
 Read display geometry/rotation from Falcon, never a device-specific screen fallback.
 The Falcon AMR is a thin launcher with a full-screen hole, system IME and
 lifecycle forwarding. Do not put business UI or networking back into Vue.
@@ -18,6 +19,7 @@ previews and join/cancel readers before releasing scan results.
 - `native/lvgl-app/`: native UI, Markdown/math, HTTP/SSE, SQLite, images/camera.
 - `native/scanner/`: Stream32 source, isolated worker, hardware lease and row PNG encoding.
 - `native/launcher/`: source-built Falcon launch/IPC bridge.
+- `native/compositor/`: S6 verified Falcon shared-memory/alpha backend.
 - `native/pinyin/`: locked libpinyinime source overlay and resource provenance.
 - `native/camera/`: reused V4L2/DRM/image primitives; no opaque camera libraries.
 - `src/launcher/`: thin AMR page; `assets/images/`: product icons.
@@ -117,7 +119,8 @@ and `npm run build:prod` when the user explicitly requests a new release.
 use targeted ORANGE verification when necessary; do not automatically test and
 install on every device for each change.
 Device test helpers use real touchscreen events. Authorized targets are ORANGE
-MEB0400008900794, Y02 MEA2300009007113 and Y07 7G12000010905426; do not target other devices.
+MEB0400008900794, Y02 MEA2300009007113, Y07 7G12000010905426 and S6
+JDA0700006552216. Do not target unlisted devices.
 The user has temporarily forbidden all Y02/113 device operations; do not access
 MEA2300009007113 until the user explicitly resumes it. This restriction overrides
 the allowlist.
@@ -374,3 +377,32 @@ keep an edit snapshot for cancellation, never persist previews. Do not hide an I
 window from inside its own completion callback; defer completion to the next turn.
 Only dismiss the system panel while our app owns the foreground. Do not restore
 system pinyin borrowing or copy its dictionary.
+S6 adaptation is integrated on dev. S6
+JDA0700006552216 is an explicit CV1826/ARMv7 target; reuse the accepted CVI INT8
+bundle and public runtime in place, never load RKNN or copy device libraries into
+the system. Follow docs/S6-ARMV7-DEV.md. Keep the independent s6-armv7 worktree unchanged. Y02/113 remains forbidden.
+
+S6 uses the same LVGL pages and keyboard state machine, scaled as a whole on its
+narrow landscape screen. Physical panel dimensions and rotation come from Falcon;
+S6 uses native/compositor shared-memory output through Falcon's verified original
+post_fb. Never initialize the old CVI VO display backend or fall back to it on
+an unknown firmware. Rotation occurs once in Falcon; never use touch offsets to
+shift display pixels. The main UI process holds no CVI display descriptors/VMAs;
+scanner mediaHandoff must retain this shared surface. Keep the exact ELF hash and
+slot-ownership gate, bounded ready/release slots, focus epochs and 300ms expiry.
+On app/IPC exit restore the original function and release frames/threads; retain
+only the pinned relay for in-flight calls until the host naturally exits.
+Retain the public-API 4KiB process ION anchor until final exit: the verified libsys
+otherwise frees its last-entry hashmap without resetting its open ION fd.
+S6 capture must start the VPSS consumer before enabling VI output; use full native
+320x240 PAG7920 frames, never the stock downscaled/cropped outputs. CVI media DSOs
+remain on the device, with hash-locked ABI references; do not redistribute them.
+S6's fixed optical paper region is [112,8,160,192] inside that native frame.
+Exclude its stationary white housing and lower dark aperture from BOTH model
+matching and canvas painting. The hardware still captures/validates 320x240;
+copy native pixels from this region without downsampling or colour-based trimming.
+Do not restore whole-frame matching/painting: it registers stationary housing and
+overwrites previously stitched text with white. Other boards keep their full field.
+Use `docs/S6-ARMV7-DEV.md` for target builds and current acceptance limits.
+
+Shared UI uses LayoutClass (portrait, >=3:1 wide landscape, compact landscape). Classify only interpreted Falcon logical geometry; never select hardware by aspect ratio. Compact editor design scaling is isolated in EditorLayout. DisplaySurface false means temporary busy/retry; preserve latest pixels. DRM topRegion retains portrait official IME clipping. Keep S6 CVI reopening instability documented separately; merge is not proof of hardware recovery.

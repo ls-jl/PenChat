@@ -162,7 +162,7 @@ void Database::migrate(const std::string &path) {
       run("INSERT INTO " + entry.first + "_v2 SELECT * FROM " + entry.first);
       run("DROP TABLE " + entry.first);
       run("ALTER TABLE " + entry.first + "_v2 RENAME TO " + entry.first);
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
       if (entry.first == "chat_messages" && std::getenv("PENCHAT_TEST_PAUSE_MIGRATION"))
         raise(SIGSTOP);
 #endif

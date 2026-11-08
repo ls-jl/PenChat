@@ -7,10 +7,10 @@ function fixture(stroke,route) {
   const signal = () => { const callbacks = new Set(); return { callbacks, on: f => callbacks.add(f), off: f => callbacks.delete(f), fire: (...a) => [...callbacks].forEach(f => f(...a)) } }
   const manager = Object.fromEntries(['ocrStartChanged','scanWordResultChanged','ocrCompleteChanged','ocrStopChanged','ocrResultChanged','scanErrorChanged'].map(k => [k,signal()]))
   for (const name of ['addUseOcrAppId','deleteUseOcrAppId','setIsOpenScan','setShowImgScanMode','setCurrentAppId','startScan']) manager[name] = (...args) => calls.push([name,...args])
-  const context = vm.createContext({ module: {}, setTimeout: f => { timers.set(++clock,f);return clock }, clearTimeout: id => timers.delete(id) })
+  const context = vm.createContext({ module: {}, setTimeout: (f,delay=0) => { const call=()=>f();call.delay=delay;timers.set(++clock,call);return clock }, clearTimeout: id => timers.delete(id) })
   vm.runInContext(fs.readFileSync('src/launcher/ocr.js','utf8').replace('export class OcrSession','module.exports = class OcrSession'),context)
   const session = new context.module.exports(manager,'test-app',(type,data) => events.push({type,...data}), stroke, route)
-  return { session, manager, timers, calls, events, flush: () => { for (const [id,f] of [...timers.entries()]) { if(timers.delete(id)) f() } } }
+  return { session, manager, timers, calls, events, flush: (delay) => { for (const [id,f] of [...timers.entries()]) { if((delay===undefined||f.delay===delay)&&timers.delete(id)) f() } } }
 }
 test('single-line system OCR preserves case and cleans up before delivering text', () => {
   const f=fixture();f.session.start('one')
@@ -177,4 +177,46 @@ test('forwarded pen edges reassert text mode after the vendor press forces image
     assert.equal(f.manager.showImgScanMode,false)
   }
   f.session.stop()
+})
+
+test('registration-only firmware does not require newer scan-control methods', () => {
+  const f=fixture();delete f.manager.setIsOpenScan;delete f.manager.setShowImgScanMode;delete f.manager.startScan
+  f.session.start('s6',{continuous:true,session:'input'})
+  f.flush();assert(f.session.active);assert(!f.events.some(e=>e.type==='ocr.result'))
+  f.manager.ocrStartChanged.fire(false);f.manager.ocrCompleteChanged.fire('');f.flush()
+  assert(!f.events.some(e=>e.type==='ocr.result'||e.started===true))
+  f.manager.ocrStartChanged.fire(true);f.manager.ocrResultChanged.fire({text:'识别文字'})
+  f.manager.ocrStopChanged.fire();f.flush(900);f.flush(0)
+  assert.equal(f.events.at(-1).text,'识别文字');assert(f.session.active)
+  f.session.stop();assert(f.calls.some(c=>c[0]==='deleteUseOcrAppId'))
+})
+
+test('registration-only multiline cleanup restores optional modes without an open setter', () => {
+  const f=fixture();delete f.manager.setIsOpenScan
+  f.manager.showImgScanMode=true
+  f.manager.startAlmondMultiScan=mode=>f.calls.push(['multi',mode])
+  f.session.start('multi',{continuous:true,session:'input',mode:'multi'})
+  assert(f.calls.some(c=>c[0]==='multi'&&c[1]===1))
+  f.session.stop()
+  assert(f.calls.some(c=>c[0]==='multi'&&c[1]===0))
+  assert(f.calls.some(c=>c[0]==='setShowImgScanMode'&&c[1]===true))
+  assert.equal(f.manager.ocrStartChanged.callbacks.size,0)
+  assert.equal(f.timers.size,0)
+})
+
+test('missing both scan-control paths fails cleanly instead of pretending OCR is armed', () => {
+  const f=fixture();delete f.manager.setIsOpenScan;delete f.manager.setCurrentAppId
+  f.session.start('unsupported',{continuous:true,session:'input'});f.flush()
+  const result=f.events.filter(e=>e.type==='ocr.result').at(-1)
+  assert.equal(result.confirmed,false);assert(result.terminal)
+  assert.equal(f.manager.ocrStartChanged.callbacks.size,0);assert.equal(f.timers.size,0)
+})
+
+test('failed unregister retains cleanup for retry and never reports release success', () => {
+  const f=fixture();f.session.start('cleanup',{continuous:true,session:'input'})
+  let fail=true;f.manager.deleteUseOcrAppId=()=>{if(fail)throw new Error('service busy')}
+  assert.equal(f.session.stop(),false);assert.equal(f.session.active,null)
+  assert.equal(f.manager.ocrStartChanged.callbacks.size,0);assert.equal(f.timers.size,0)
+  assert.equal(f.session.stop(),false)
+  fail=false;assert.equal(f.session.stop(),true);assert.equal(f.session.stop(),true)
 })

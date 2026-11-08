@@ -1,9 +1,13 @@
 <template>
-  <div class="native-page">
-    <hole class="native-hole"></hole>
+  <div class="native-page" :style="nativeAreaStyle">
+    <hole class="native-hole" :style="nativeAreaStyle"></hole>
     <div v-if="officialInline" class="official-editor">
       <input v-if="officialSingleLine" ref="officialInput" class="official-input" :style="officialInputStyle" :type="officialSensitive ? 'password' : 'text'" :value="officialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="true" cursorColor="#4ade80" @input="inlineOfficialInput" @confirm="finishInlineOfficial" />
       <textarea v-else ref="officialInput" class="official-input" :style="officialInputStyle" :value="officialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="true" cursorColor="#4ade80" @input="inlineOfficialInput" @confirm="finishInlineOfficial" />
+    </div>
+    <div v-if="!nativeReady && !errorText" class="startup-panel">
+      <text class="startup-title">{{ appName }}</text>
+      <text class="startup-text">{{ startupText }}</text>
     </div>
     <div v-if="errorText" class="failure-panel">
       <text class="failure-title">{{ appName }}</text>
@@ -28,12 +32,13 @@ function parse(value) {
   try { return JSON.parse(value) } catch (err) { return null }
 }
 export default {
-  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, officialInline: false, officialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
+  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, officialInline: false, officialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
   mounted() { this.boot() },
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
   onHide() {
     this.visible = false
+    this.syncInputFocus(true)
     this.setBackPolicy(true)
     this.setNativeEditorPolicy(false)
     this.stopOcr()
@@ -46,6 +51,7 @@ export default {
     resume() {
       this._disposed = false
       this.visible = true
+      this.watchInputFocus()
       this.setBackPolicy(false)
       this.setNativeEditorPolicy(!!this._nativeEditor && !this.keyboardOpen)
       if (this.running && (typeof launcher.status !== 'function' || !launcher.status().alive)) {
@@ -57,6 +63,7 @@ export default {
       this._poll = setInterval(() => this.poll(), 20)
       this.syncWindowFocus(true)
       this.send('visibility', { visible: true })
+      this.syncInputFocus(true)
     },
     send(type, payload) {
       if (!this.running) return false
@@ -65,6 +72,9 @@ export default {
     async boot() {
       if (this._starting || this.running || this._disposed) return
       this._starting = true
+      if (this.stopOcr() === false) {
+        this._starting = false; this.fail('系统扫描资源尚未释放，请重试'); return
+      }
       this.cancelOfficialKeyboard()
       this._generation = ++generationSeed
       this._nativeImage = false; this._navigationSequence = 0
@@ -72,8 +82,11 @@ export default {
       const generation = this._generation
       this.setNativeEditorPolicy(false)
       this._nativeEditor = null; this._editorPolicySequence = 0
-      this._nativeReady = false
-      this._windowFocused = true; this._focusSequence = 0; this._focusNextCheck = 0; this._focusPending = false; this._overlayStatus = ''
+      this._windowFocused = true; this._windowSequence = 0; this._focusNextCheck = 0; this._focusPending = false; this._overlayStatus = ''
+      this.nativeReady = false
+      this.startupText = '正在打开…'
+      this._focusSequence = 0; this._focusSent = null; this._focusAt = 0
+      this.watchInputFocus()
       this._requestSequence = 0
       this.errorText = ''
       try {
@@ -85,11 +98,11 @@ export default {
         this.running = true
         this.send('init', {})
         this.send('visibility', { visible: this.visible })
-        this.syncWindowFocus(true)
+        this.syncInputFocus(true)
         // Arm before polling: Falcon may deliver an already queued ready event
         // during interval registration. A stale timeout cannot close a ready page.
         this._readyTimer = setTimeout(() => {
-          if (this.running && !this._nativeReady && this._generation === generation) this.fail('原生页面启动超时，请重试')
+          if (this.running && !this.nativeReady && this._generation === generation) this.fail('原生页面启动超时，请重试')
         }, 15000)
         this._poll = setInterval(() => this.poll(), 20)
       } catch (err) { this.fail(err && err.message ? err.message : String(err)) }
@@ -98,17 +111,20 @@ export default {
     poll() {
       try {
         this.syncWindowFocus()
+        this.syncInputFocus()
         this.checkOfficialKeyboard()
         for (const event of launcher.poll() || []) {
-          if (event.generation !== undefined && event.generation !== this._generation && event.type !== 'booted' && event.type !== 'fatal' && event.type !== 'exit') continue
+          if (event.generation !== undefined && event.generation !== this._generation && event.type !== 'booted' && event.type !== 'startup' && event.type !== 'fatal' && event.type !== 'exit') continue
           if (event.type === 'booted') {
             const screen = event.screen
             if (!screen || !Number.isInteger(screen.width) || !Number.isInteger(screen.height) || screen.width <= 0 || screen.height <= 0)
               throw new Error('Invalid Falcon display configuration')
             this._screen = screen
+            this.nativeAreaStyle = { left: '0px', top: '0px', width: screen.width + 'px', height: screen.height + 'px' }
             this.send('display.area', { x: 0, y: 0, width: screen.width, height: screen.height })
           }
-          else if (event.type === 'ready') { this._nativeReady = true; clearTimeout(this._readyTimer); this._readyTimer = null; if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
+          else if (event.type === 'startup') { this.startupText = ({ display: '正在准备显示…', data: '正在读取数据…', interface: '正在准备页面…', frame: '正在显示页面…' })[event.stage] || '正在打开…' }
+          else if (event.type === 'ready') { this.nativeReady = true; this.syncWindowFocus(true); this.syncInputFocus(true); clearTimeout(this._readyTimer); this._readyTimer = null; if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
           else if (event.type === 'editor.state') this.editorState(event)
           else if (event.type === 'navigation.state') this.navigationState(event)
           else if (event.type === 'keyboard.open') this.openKeyboard(event)
@@ -116,13 +132,34 @@ export default {
           else if (event.type === 'ocr.prepare') this.startOcr(event, true)
           else if (event.type === 'ocr.pen') { if (this._ocr) this._ocr.pen(event) }
           else if (event.type === 'ocr.start') this.startOcr(event)
-          else if (event.type === 'ocr.cancel') this.stopOcr(event.requestId)
+          else if (event.type === 'ocr.cancel') this.stopOcr(event.requestId, true)
           else if (event.type === 'update.install') this.installUpdate(event)
           else if (event.type === 'finish') this.finish()
           else if (event.type === 'fatal') this.fail(event.error || '原生页面启动失败')
           else if (event.type === 'exit' && !this._updating) this.fail(event.status < 0 ? '原生程序意外退出，请重试' : `原生程序已退出（${event.status}）`)
         }
       } catch (err) { this.fail('原生页面通信失败') }
+    },
+    watchInputFocus() {
+      if (this._focusListener || !am || typeof am.on !== 'function') return
+      this._focusListener = () => { this.syncWindowFocus(true); this.syncInputFocus(true) }
+      try { am.on('topApp', this._focusListener) } catch (_) {}
+      try { am.on('windowAttachState', this._focusListener) } catch (_) {}
+    },
+    syncInputFocus(force = false) {
+      if (!this.running) return
+      let active = false
+      try { active = this.nativeReady && this.visible && !this._disposed && !this.keyboardOpen && this._windowFocused !== false && am.hasWindowFocus() === true } catch (_) {}
+      // A system overlay owns input, but its transparent pixels still reveal
+      // the compositor's lower LVGL layer. Background/official input withdraw it.
+      const displayActive = this.nativeReady && this.visible && !this._disposed && !this.keyboardOpen
+      const now = Date.now()
+      const elapsed = now - this._focusAt
+      if (!force && active === this._focusSent && displayActive === this._displayFocusSent && elapsed >= 0 && elapsed < 100) return
+      const sequence = (this._focusSequence || 0) + 1
+      if (this.send('input.focus', { sequence, active, displayActive })) {
+        this._focusSequence = sequence; this._focusSent = active; this._displayFocusSent = displayActive; this._focusAt = now
+      }
     },
     async installUpdate(ticket) {
       if (this._updating) return
@@ -179,7 +216,8 @@ export default {
       this.setBackPolicy(!focused)
       this.setNativeEditorPolicy(!!this._nativeEditor && !this.keyboardOpen)
       if (!focused) this.stopOcr()
-      this._focusPending = !this.send('window.focus', { focused, sequence: ++this._focusSequence })
+      this._focusPending = !this.send('window.focus', { focused, sequence: ++this._windowSequence })
+      this.syncInputFocus(true)
     },
     setBackPolicy(allow) {
       try {
@@ -211,6 +249,10 @@ export default {
       if (!this.visible || this._windowFocused === false || this.keyboardOpen) { this.send('ocr.result', { requestId: event.requestId, confirmed: false, error: '当前无法启动扫描。' }); return }
       try {
       if (!this._global) this._global = new globalModule.Global()
+      if (this._ocr && this._ocr.pendingCleanup && this.stopOcr() === false) {
+        this.send('ocr.result', { requestId: event.requestId, session: event.session, mode: event.mode, capture: 1, confirmed: false, terminal: true, error: '系统扫描资源尚未释放，请重试。' })
+        return
+      }
       const generation = this._generation
       this._ocrRequest = event.requestId
       if (!this._ocr) this._ocr = new OcrSession(this._global, appConfig.appid, (type, data) => {
@@ -225,10 +267,15 @@ export default {
         this.send('ocr.prepared', { requestId: event.requestId, session: event.session, mode: event.mode, ok: false })
       }
     },
-    stopOcr(requestId) {
-      if (requestId && requestId !== this._ocrRequest) return
-      if (this._ocr) this._ocr.stop()
-      this._ocr = null; this._ocrRequest = null
+    stopOcr(requestId, acknowledge = false) {
+      let ok = true
+      if (!requestId || requestId === this._ocrRequest || (this._ocr && this._ocr.pendingCleanup && this._ocr.pendingCleanup.requestId === requestId)) {
+        if (this._ocr) ok = this._ocr.stop() !== false
+        if (ok) { this._ocr = null; this._ocrRequest = null }
+      }
+      // Already-stopped old IDs are acknowledged without touching a newer lease.
+      if (acknowledge) this.send('ocr.stopped', { requestId, ok })
+      return ok
     },
     closeKeyboardState(closePanel = true) {
       clearTimeout(this._keyboardTimer); this._keyboardTimer = null
@@ -332,6 +379,7 @@ export default {
       this.setNativeEditorPolicy(false)
       this.stopOcr()
       this.keyboardOpen = true
+      this.syncInputFocus(true)
       this.setBackPolicy(false)
       this._keyboardRequest = event.requestId
       const generation = this._generation
@@ -361,7 +409,7 @@ export default {
           }
           this._global.textEditFinished.on(this._editFinished)
         }
-        if (this._screen && this._screen.height > this._screen.width) {
+        if (event.inline !== false && this._screen && this._screen.height > this._screen.width) {
           this._officialOpenConfig = JSON.stringify({ inputType: event.inputType || 'ZhCNPreferred', confirmButtonDisabledOnTextEmpty: false, enterButtonText: '确认' })
           this.openInlineOfficial(event); return
         }
@@ -401,6 +449,12 @@ export default {
       this._nativeEditor = null
       this.cancelOfficialKeyboard()
       this._disposed = true
+      this.syncInputFocus(true)
+      if (this._focusListener && am && typeof am.off === 'function') {
+        try { am.off('topApp', this._focusListener) } catch (_) {}
+        try { am.off('windowAttachState', this._focusListener) } catch (_) {}
+      }
+      this._focusListener = null
       if (this._updateBridge) this._updateBridge.dispose()
       this.stopOcr()
       this.send('exit')
@@ -421,6 +475,9 @@ export default {
 .native-hole { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
 .official-editor { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #212121; }
 .official-input { position: absolute; background-color: #303030; color: #ececec; font-size: 20px; padding: 0px; }
+.startup-panel { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #212121; justify-content: center; align-items: center; }
+.startup-title { color: #ececec; font-size: 28px; }
+.startup-text { color: #b4b4b4; font-size: 20px; margin-top: 14px; }
 .failure-panel { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #212121; padding-left: 32px; padding-top: 20px; }
 .failure-title { color: #ececec; font-size: 30px; }
 .failure-text { color: #b4b4b4; font-size: 21px; margin-top: 14px; }

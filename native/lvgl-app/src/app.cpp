@@ -63,6 +63,8 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
       rich_(fontPath, resources,
             join(workspace, "assets/fonts/DejaVuSans.ttf")),
       workspace_(std::move(workspace)), dataDir_(std::move(dataDir)) {
+  inputFocus_ = InputFocus(nativeTouch);
+  inputFocused_ = touchLeaseActive_ = !nativeTouch;
   initializeMessageEdits();
   feedback_.reset(new Feedback(events_, dataDir_, feedbackScreen(configuration, s), nativeTouch));
   transfer_.reset(new Transfer(db_, events_, dataDir_));
@@ -1253,8 +1255,9 @@ void App::rebuildChatControls() {
         },
         8192, "ZhCNPreferred", {}, true, false, false, true);
   };
+  const auto preview = layout().compact()?chatDraftPreview(draft_):draft_;
   composer_ = button(
-      chatControls_, draft_.empty() ? "询问 " PENCHAT_NAME : draft_, entryLeft, 2,
+      chatControls_, preview.empty() ? "询问 " PENCHAT_NAME : preview, entryLeft, 2,
       composerWidth - entryLeft - layout().composerEntryRight(gauge), 44,
       compose,
       theme::surface, LV_TEXT_ALIGN_LEFT);
@@ -2625,21 +2628,20 @@ void App::cameraMode(bool automatic,int angle) {
 void App::cameraPage() {
   lv_obj_set_scrollable(body_, false);
   lv_obj_update_layout(body_);
-  const bool portrait=layout().portrait()||cameraAngle_%180;
   const int w=lv_obj_get_width(body_),h=lv_obj_get_height(body_);
-  auto preview=box(body_,8,8,portrait?w-16:w-140,portrait?h-204:h-16,theme::sidebar);
+  const auto workspace=layout().cameraWorkspace(w,h,cameraAngle_%180!=0);
+  auto preview=box(body_,workspace.preview.x,workspace.preview.y,workspace.preview.width,workspace.preview.height,theme::sidebar);
   lv_obj_set_scrollable(preview,false);
   cameraImage_=imageWidget(preview);lv_obj_center(cameraImage_);
-  const int railX=portrait?12:w-130;
-  button(body_,cameraAutomatic_?"自动方向":"方向已锁定",railX,portrait?h-190:16,portrait?w-24:124,44,
+  button(body_,cameraAutomatic_?"自动方向":"方向已锁定",workspace.direction.x,workspace.direction.y,workspace.direction.width,workspace.direction.height,
          [this]{events_.push("camera_mode",{{"auto",!cameraAutomatic_},{"angle",cameraAngle_}});});
-  auto shutter=box(body_,portrait?(w-72)/2:railX+26,portrait?h-126:(h-72)/2,72,72,theme::background);
+  auto shutter=box(body_,workspace.shutter.x,workspace.shutter.y,workspace.shutter.width,workspace.shutter.height,theme::background);
   lv_obj_set_scrollable(shutter,false);lv_obj_set_style_radius(shutter,LV_RADIUS_CIRCLE,0);
   lv_obj_set_style_border_width(shutter,3,0);lv_obj_set_style_border_color(shutter,lv_color_hex(theme::text),0);
   auto center=box(shutter,5,5,56,56,theme::text);lv_obj_set_style_radius(center,LV_RADIUS_CIRCLE,0);
   lv_obj_set_scrollable(center,false);lv_obj_set_clickable(center,false);lv_obj_center(center);
   onClick(shutter,[this]{if(!cameraCapturing_){cameraCapturing_=true;camera_.capture(cameraAngle_);}});
-  button(body_,"转向 90°",railX,portrait?h-48:h-66,portrait?w-24:124,44,
+  button(body_,"转向 90°",workspace.turn.x,workspace.turn.y,workspace.turn.width,workspace.turn.height,
          [this]{events_.push("camera_mode",{{"auto",false},{"angle",(cameraAngle_+90)%360}});});
   status_=label(preview,cameraError_.empty()?"相机启动中…":cameraError_,12,12,lv_obj_get_width(preview)-24,19,theme::muted);
 }
@@ -2883,8 +2885,36 @@ void App::attach(const Json &image) {
       sendMessage();
   });
 }
+void App::cancelNativeInteraction() {
+  touchInput_.close(); input_.interrupt();
+  systemEdgeDown_=systemEdgeGesture_=false;
+  readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
+  navigationBackdrop_ = navigationPointerDown_ = false;
+  resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
+  finishImageGesture(false); nonImageMulti_ = false; viewerLastTap_ = 0;
+  if (imageViewer_ || view_ == "crop") imageGesture_.mode = -2;
+  if (editor_.active) editorInterrupt();
+}
+void App::updateInputFocus() {
+  const auto permission=inputFocus_.permissions(ticks(),pageVisible_,windowFocused_,keyboard_,
+      keyboard_&&display_.topHeight()>0&&display_.supportsTopRegion(),display_.systemOverlaySafe(),!display_.presented());
+  const bool media=permission.media,shown=permission.display;
+  if (display_.visible() != shown) display_.visible(shown);
+  if(inputFocused_!=media) {
+    inputFocused_=media;
+    if(!media)camera_.stop();
+    else if(view_=="camera"&&!keyboard_)startCamera();
+    syncScanner();
+  }
+  const bool touch=permission.input;
+  if(touchLeaseActive_==touch)return;
+  touchLeaseActive_=touch;
+  if(!touch)cancelNativeInteraction();
+  else if(editor_.active){editorPolicy(!editorSelectionOnly_);editorChanged();editorOcrStart();}
+}
 void App::suspend(bool value) {
   pageVisible_=!value;
+  if(value)inputFocus_.block();
   diagnosticRecord("lifecycle", value ? "background" : "foreground");
   if(onboarding_)onboarding_->tick(false);
   if (value && feedback_) feedback_->background();
@@ -2916,9 +2946,9 @@ void App::suspend(bool value) {
   resetPull();
   touchDown_ = false;
   pullTrackActivity_ = false;
-  visible_ = pageVisible_&&windowFocused_;
-  input_.release();
-  display_.visible(visible_ && !keyboard_);
+  visible_ = pageVisible_;
+  input_.cancel();
+  updateInputFocus();
   if (value) {
     camera_.stop();
   } else if (visible_ && editor_.active && !keyboard_) {editorPolicy(!editorSelectionOnly_);editorChanged();editorFollowCursor_=false;editorBuild();editorOcrStart();}
@@ -2928,30 +2958,12 @@ void App::suspend(bool value) {
 void App::windowFocus(bool focused) {
   if(windowFocused_==focused)return;
   windowFocused_=focused;
-  const bool foreground=pageVisible_&&focused;
-  if(visible_==foreground)return;
-  visible_=foreground;
-  // Global panels do not deliver page onHide/onShow. Yield the native plane
-  // and input without closing the current page, drawer or prepared scan result.
-  touchInput_.close();input_.cancel();resetPull();resetBack();
-  systemEdgeDown_=systemEdgeGesture_=false;
-  touchDown_=readerDown_=readerPointer_=readerVertical_=readerSettle_=false;
-  pullTrackActivity_=false;viewerLastTap_=0;
-  finishImageGesture(false);nonImageMulti_=false;
-  if(imageViewer_||view_=="crop")imageGesture_.mode=-2;
-  if(!foreground) {
-    editorLayoutHold_=false;editorResetDismiss();editorCancelKeys();editorMagnify(false);editorOcrStop();editorTopBlocked_=false;
-    editorPointer_=editorTextTouch_=editorCursorDrag_=false;editorHandle_=-1;editorHeld_=-1;editorRepeat_=0;editorLastTap_=0;
-    camera_.stop();
-    display_.visible(false);
-  } else {
-    if(editor_.active&&!keyboard_) {editorPolicy(!editorSelectionOnly_);editorFollowCursor_=false;editorOcrStart();editorRefresh();}
-    else if(view_=="camera"&&!keyboard_)startCamera();
-    display_.visible(!keyboard_);
-  }
-  syncScanner();
+  updateInputFocus();
 }
 void App::shutdown() {
+#ifdef PENCHAT_CVI_PLATFORM
+  display_.mediaHandoff(true);
+#endif
   if (shutdownComplete_) return;
   shutdownComplete_ = true;
   if(onboarding_)onboarding_->tick(false);
@@ -3085,7 +3097,7 @@ void App::routeTouch(const Json &m) {
 }
 void App::handle(const Json &m) {
   auto type = m.value("type", std::string());
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
   if(type=="update.test" && std::getenv("PENCHAT_TEST_UPDATE_CONFIG")){updater_->request(m.value("operation",std::string()),m.value("args",Json::object()));return;}
   if (type == "feedback.test" && std::getenv("PENCHAT_TEST_FEEDBACK_CONFIG")) {
     feedback_->request(m.value("operation",std::string()),m.value("args",Json::object()));
@@ -3124,13 +3136,18 @@ void App::handle(const Json &m) {
 #endif
   if (type == "init") {
     bridge_.generation(m.value("generation", 0));
-    bridge_.send("ready");
+    startupReadyPending_ = true;
     syncBackPolicy();
     syncScanner();
     return;
   }
   if (m.value("generation", bridge_.generation()) != bridge_.generation())
     return;
+  if(type == "input.focus") {
+    if(inputFocus_.update(m.value("sequence",uint64_t(0)),m.value("active",false),ticks()))
+      updateInputFocus();
+    return;
+  }
   if(type=="update.install.result") {updater_->request("install_result",m);return;}
   if (type == "display.area") {
     if (m.value("x", 0) != 0 || m.value("y", 0) != 0 ||
@@ -3148,7 +3165,7 @@ void App::handle(const Json &m) {
   }
   if (type == "touch.debug")
     lastTouch_ = m;
-  if (type == "touch" && visible_ && !keyboard_) {
+  if (type == "touch" && visible_ && !keyboard_ && inputFocused_ && inputFocus_.allowed(ticks())) {
     if (imageStoreBusy_) return;
     // Production input has one owner. Never replay Falcon or delayed IPC touches.
     if (touchInput_.enabled() && m.value("source", std::string()) != "native-evdev") return;
@@ -3219,7 +3236,7 @@ void App::handle(const Json &m) {
         else { editor_.notice = "官方输入超过长度上限，请调整";editorPolicy(true);editorBuild();editorOcrStart(); }
       } else {editorPolicy(true);editorChanged();editor_.notice=m.value("error",std::string());editorFollowCursor_=false;editorBuild();editorOcrStart();}
     }
-    display_.visible(visible_);
+    display_.visible(visible_ && (inputFocused_ || display_.systemOverlaySafe()));
 
   } else if(type=="navigation.policy") {
     if(m.value("sequence",uint64_t(0))==backPolicySequence_) {
@@ -3232,6 +3249,10 @@ void App::handle(const Json &m) {
     }
   } else if(type=="ocr.prepared") {
     editorOcrPrepared(m);
+  } else if(type=="ocr.stopped") {
+    if(!editorOcrStopId_.empty() && m.value("requestId",std::string())==editorOcrStopId_ && m.value("ok",false)) {
+      editorOcrStopId_.clear();editorOcrStopRetry_=0;editorOcrStart();
+    }
   } else if(type=="ocr.status") {
     if(editor_.active&&editorOcrActive_&&m.value("requestId",std::string())==editorOcrId_&&m.value("session",std::string())==editor_.id) {
       editorOcrBusy_=m.value("started",false);if(editorOcrBusy_){editorOcrShown_=true;editor_.notice.clear();}editorBuild();
@@ -3247,9 +3268,17 @@ void App::handle(const Json &m) {
   syncScanner();
 }
 void App::tick() {
-  auto touches=touchInput_.poll(visible_ && !keyboard_);
+  updateInputFocus();
+  editorOcrFlushStop();
+  if(startupReadyPending_ && display_.presented()) {
+    startupReadyPending_ = false;
+    bridge_.send("ready");
+  }
+  const int reservedTop = display_.systemOverlaySafe() && !editor_.active && !imageViewer_ && view_ != "crop"
+      ? std::max(8, std::min(screen_.width, screen_.height) / 25) : 0;
+  auto touches=touchInput_.poll(visible_ && !keyboard_ && touchLeaseActive_, reservedTop);
   for(const auto &touch:touches){
-    if(!visible_ || keyboard_) { touchInput_.close(); break; }
+    if(!visible_ || keyboard_ || !inputFocused_ || !inputFocus_.allowed(ticks())) { updateInputFocus();touchInput_.close();break; }
     handle(touch);
   }
   imageReturnTick();
@@ -3355,7 +3384,7 @@ void App::tick() {
       if(editor_.active&&!editorTarget_&&e.data.value("id",std::string())==editor_.id)editorFinish(false);
       continue;
     }
-    if (e.type == "editor_action") { if (editor_.active && visible_ && !keyboard_ && e.data.value("id",std::string()) == editor_.id) editorAction(e.data.value("action",std::string())); continue; }
+    if (e.type == "editor_action") { if (editor_.active && visible_ && touchLeaseActive_ && !keyboard_ && e.data.value("id",std::string()) == editor_.id) editorAction(e.data.value("action",std::string())); continue; }
     if (e.type.find("scan_") == 0) {
       scanEvent(e);
       continue;
@@ -3890,6 +3919,7 @@ Json App::diagnostics() const {
       {"visible", visible_},
       {"page_visible",pageVisible_},{"window_focused",windowFocused_},
       {"system_overlay",systemOverlayStatus_},
+      {"display_present_pending",display_.pending()},{"ocr_release_pending",!editorOcrStopId_.empty()},{"input_focused",touchLeaseActive_},
       {"width", screen_.width},
       {"height", screen_.height},
       {"rotation", screen_.rotation}};

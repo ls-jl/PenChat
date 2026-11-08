@@ -1,13 +1,25 @@
 #include "melon_config.hpp"
+#include "s6_config.hpp"
 #include "start_policy.hpp"
 #include <cassert>
 #include <iostream>
 using namespace penchat_scan;
 int main() {
+  const auto s6=scanProfile("Cvitek Cv1826 for Youdao Plum V0 version","PIXART_PAG7920_MIPI_240P_100FPS_10BIT");
+  assert(s6.id=="s6-pag7920"&&s6.cvi&&s6.width==320&&s6.height==240&&!s6.gatesExposure);
+  assert(s6.light==ScanLight::ConfiguredGpio&&s6.videoNode.empty());
+  const auto region=sensorRegion(s6);
+  assert(region.left==112&&region.top==8&&region.width==160&&region.height==192);
+  auto badRegion=s6;badRegion.opticalRegion.width=321;
+  bool bad=false;try{sensorRegion(badRegion);}catch(...){bad=true;}assert(bad);
+  assert(!scanProfile("unknown Plum","PIXART_PAG7920_MIPI_240P_100FPS_10BIT").supported());
+  assert(!scanProfile("Cvitek Cv1826 for Youdao Plum V0 version","sc2356").supported());
   const auto orange = scanProfile("Rockchip RK3562 ORANGE LP4 V10 Board", "m00_f_sc2356 5-0030");
   const auto y02 = scanProfile("Rockchip RK3562 Y02 LP4 V10 Board", "m00_f_sc035gs 5-0030");
   assert(orange.id == "orange-sc2356" && orange.width == 496 && orange.height == 360);
   assert(y02.id == "y02-sc035gs" && y02.width == 640 && y02.height == 480);
+  assert(sensorRegion(y02).width==640&&sensorRegion(y02).height==480);
+  assert(sensorRegion(orange).width==496&&sensorRegion(orange).height==360);
   const auto y07=scanProfile("Rockchip RK3562 Y07 LP4 V10 Board","sc2356");
   assert(y07.id=="y07-sc2356"&&y07.width==752&&y07.height==440);
   assert(y07.light==ScanLight::LedClass&&!y07.ledBrightness.empty());
@@ -32,6 +44,16 @@ int main() {
   assert(!scanProfile("Rockchip RK3562 MELON LP4 Board","sc2356").supported());
   assert(!scanProfile("Rockchip RK3562 ORANGE LP4 Board","ov7251").supported());
   using Json=nlohmann::json;
+  const Json s6keys={{"Plum_V0",{{"head_key_id","platform-led_control-event"},
+    {"head_key_code","134"},{"home_key_code","139"}}}};
+  const Json s6leds={{"Plum_V0",{{"ir_gpio_number","491"},{"white_gpio_number","492"}}}};
+  const auto s6configured=s6Config(s6,s6keys,s6leds);
+  assert(s6configured.gpio==492 && s6configured.keyCode==134 && s6configured.homeCode==139);
+  auto s6Rejected=[&](Json k,Json l) {bool failed=false;try{s6Config(s6,k,l);}catch(...){failed=true;}assert(failed);};
+  auto badS6=s6leds;badS6["Plum_V0"]["white_gpio_number"]="491";s6Rejected(s6keys,badS6);
+  badS6=s6leds;badS6["Plum_V0"].erase("white_gpio_number");s6Rejected(s6keys,badS6);
+  badS6=s6leds;badS6["Plum_V0"]["white_gpio_number"]="-1";s6Rejected(s6keys,badS6);
+  badS6=s6keys;badS6["Plum_V0"]["head_key_id"]="unknown";s6Rejected(badS6,s6leds);
   Json keys={{"RK3562_Melon_V0",{{"head_key_id","platform-led_control-event"},{"head_key_code","134"},
     {"home_key_id","platform-adc-keys-event"},{"home_key_code","102"}}}};
   Json leds={{"RK3562_Melon_V0",{{"ir_gpio_number","43"},{"white_gpio_number","44"}}}};

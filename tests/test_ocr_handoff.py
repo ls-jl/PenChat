@@ -34,8 +34,10 @@ def run():
             assert a.receive('ocr.start')['requestId']==retry['requestId'];ready(a)
             a.send('ocr.result',requestId=request['requestId'],session=request['session'],mode='single',capture=1,confirmed=True,text='stale')
             assert a.diag()['editor']['length']==2
+            a.ocr_cancel_ack=False
             a.send('visibility',visible=False);t.wait_for(lambda:not a.diag()['editor']['ocr_preparing'])
             cancel=a.receive('ocr.cancel');assert cancel['requestId']==retry['requestId']
+            a.send('ocr.stopped',requestId=cancel['requestId'],ok=True);a.ocr_cancel_ack=True
             a.send('visibility',visible=True);resumed=a.receive('ocr.prepare');acknowledge(a,resumed)
             assert a.receive('ocr.start')['requestId']==resumed['requestId'];ready(a)
             a.editor_action('done');t.wait_for(lambda:not a.diag()['editor']['active'])

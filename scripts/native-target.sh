@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Source-only build identity. Device sizes are read at runtime, never set here.
+PENCHAT_BUILD_TARGET=${1:-orange}
+PENCHAT_BUILD_SDK=${RK_SDK_ROOT:-/home/ls-jl/dictpen/x7pro/android13_sdk/RK3562_Android13.0_SDK}
+case "$PENCHAT_BUILD_TARGET" in
+  orange)
+    PENCHAT_BUILD_GCC=${JSAPI_TOOLCHAIN_ROOT:-$PENCHAT_BUILD_SDK/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu}
+    PENCHAT_BUILD_TRIPLE=aarch64-linux-gnu
+    PENCHAT_BUILD_CPU=aarch64
+    PENCHAT_BUILD_SERIAL=${PENCHAT_ADB_SERIAL:-MEB0400008900794}
+    PENCHAT_BUILD_ELF_MACHINE=183
+    PENCHAT_BUILD_LIBDIR=arm64-orange
+    ;;
+  s6)
+    PENCHAT_BUILD_GCC=${PENCHAT_S6_TOOLCHAIN:-$PENCHAT_BUILD_SDK/prebuilts/gcc/linux-x86/arm/gcc-linaro-6.3.1-2017.05-x86_64_arm-linux-gnueabihf}
+    PENCHAT_BUILD_TRIPLE=arm-linux-gnueabihf
+    PENCHAT_BUILD_CPU=arm
+    PENCHAT_BUILD_SERIAL=${PENCHAT_ADB_SERIAL:-JDA0700006552216}
+    PENCHAT_BUILD_ELF_MACHINE=40
+    PENCHAT_BUILD_LIBDIR=arm32-s6
+    ;;
+  host) PENCHAT_BUILD_CPU=$(uname -m);;
+  *) echo "Unknown native build target: $PENCHAT_BUILD_TARGET" >&2;return 2;;
+esac
+if [ "$PENCHAT_BUILD_TARGET" != host ]; then
+  PENCHAT_BUILD_CC="$PENCHAT_BUILD_GCC/bin/$PENCHAT_BUILD_TRIPLE-gcc"
+  PENCHAT_BUILD_CXX="$PENCHAT_BUILD_GCC/bin/$PENCHAT_BUILD_TRIPLE-g++"
+  PENCHAT_BUILD_AR="$PENCHAT_BUILD_GCC/bin/$PENCHAT_BUILD_TRIPLE-ar"
+  PENCHAT_BUILD_STRIP="$PENCHAT_BUILD_GCC/bin/$PENCHAT_BUILD_TRIPLE-strip"
+fi

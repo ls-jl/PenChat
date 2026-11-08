@@ -1,3 +1,4 @@
+#include "bounded.hpp"
 #include "internal.hpp"
 #include <algorithm>
 #include <cmath>
@@ -18,14 +19,14 @@ void resizeCamera(const cv::Mat &src, cv::Mat &dst, int width, int height) {
         float q = float(x) * sx + ox;
         int hi = int(std::ceil(q));
         wx[x] = int((float(hi) - q) * 128);
-        left[x] = std::clamp(hi - 1, 0, src.cols - 1);
-        right[x] = std::clamp(hi, 0, src.cols - 1);
+        left[x] = bounded(hi - 1, 0, src.cols - 1);
+        right[x] = bounded(hi, 0, src.cols - 1);
     }
     for (int y = 0; y < height; ++y) {
         float q = float(y) * sy + oy;
         int lo = int(std::floor(q)), wy = int((float(lo + 1) - q) * 128);
-        auto *a = src.ptr<std::uint8_t>(std::clamp(lo, 0, src.rows - 1));
-        auto *b = src.ptr<std::uint8_t>(std::clamp(lo + 1, 0, src.rows - 1));
+        auto *a = src.ptr<std::uint8_t>(bounded(lo, 0, src.rows - 1));
+        auto *b = src.ptr<std::uint8_t>(bounded(lo + 1, 0, src.rows - 1));
         auto *out = dst.ptr<std::uint8_t>(y);
         for (int x = 0; x < width; ++x) {
             int u = (a[left[x]] * wy + b[left[x]] * (128 - wy) + 64) >> 7,

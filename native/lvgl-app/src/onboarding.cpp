@@ -1,4 +1,5 @@
 #include "onboarding.hpp"
+#include "layout.hpp"
 #include "icons.hpp"
 #include "src/misc/cache/instance/lv_image_cache.h"
 namespace penchat {
@@ -152,10 +153,10 @@ void Onboarding::scene(int phase,lv_obj_t *p) {
 Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool replaying,bool configured,std::function<void(const std::string &)> action)
   : action_(std::move(action)),step_(step) {
   root_=rect(parent,0,0,width,height,theme::background,0);
-  const bool portrait=height>width;
-  const int split=portrait?width-4:width/2, right=portrait?20:split+20;
-  const int measure=width-right-20,footer=height-56;
-  const int demoH=portrait?std::min(520,int(height*.43)):height-80;
+  const auto geometry=AppLayout{width,height}.guideWorkspace();
+  const bool portrait=geometry.portrait;
+  const int split=geometry.split,right=geometry.right,measure=geometry.measure;
+  const int footer=geometry.footer,demoH=geometry.demoHeight;
   auto demo=rect(root_,16,12,portrait?width-32:split-28,demoH,theme::sidebar,14);
   text(demo,"操作演示",14,8,portrait?width-64:split-60,16,theme::muted);
   sceneWidth_=std::min(640,portrait?width-48:split-44);
@@ -184,8 +185,8 @@ Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool repla
   const int top=portrait?demoH+92:13;
   text(root_,std::to_string(step+1)+" / 7"+(step<3?" · 必看":" · 功能介绍"),right,top,measure,16,theme::muted);
   text(root_,titles[step],right,top+30,measure,portrait?28:24);
-  auto description=text(root_,copy[step],right,top+70,measure,portrait?21:18);
-  lv_obj_set_style_text_line_space(description,5,0);
+  auto description=text(root_,copy[step],right,top+70,measure,portrait?21:(measure<340?16:18));
+  lv_obj_set_style_text_line_space(description,measure<340&&!portrait?3:5,0);
   if(step==2&&configured)text(root_,"已配置模型，可直接继续",right,portrait?top+176:174,measure,16,theme::link);
   if(step==6)text(root_,"可在“关于 PenChat”中重看引导",right,portrait?top+176:174,measure,16,theme::muted);
   const int playbackY=portrait?demoH+28:footer;

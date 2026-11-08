@@ -17,7 +17,14 @@ def database_failure():
         args[args.index('--bridge-fd')+1]=str(child.fileno())
         process=subprocess.Popen(args,pass_fds=[child.fileno()],stdout=subprocess.PIPE,stderr=subprocess.STDOUT);child.close()
         try:
-            message=json.loads(parent.recv(65536));assert message['type']=='fatal' and message['error']=='fixture startup failure',message
+            # Geometry/startup progress now precedes DB initialization. Failure
+            # must still be terminal, and must never advertise a ready UI.
+            for _ in range(8):
+                message=json.loads(parent.recv(65536))
+                assert message['type']!='ready',message
+                if message['type']=='fatal':break
+                assert message['type'] in ('booted','startup'),message
+            assert message['type']=='fatal' and message['error']=='fixture startup failure',message
             log=process.communicate(timeout=15)[0].decode(errors='replace')
             assert process.returncode==1 and not any(marker in log for marker in ['terminate called','ERROR: AddressSanitizer','ERROR: LeakSanitizer','runtime error:']),(process.returncode,log)
         finally:

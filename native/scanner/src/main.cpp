@@ -5,6 +5,7 @@
 #include "preview.hpp"
 #include "protocol.hpp"
 #include "sequence_gap.hpp"
+#include "capture_timing.hpp"
 #include <array>
 #include <algorithm>
 #include <chrono>
@@ -21,9 +22,21 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <thread>
+#ifdef SCANNER_DIAGNOSTIC_TRACE
+#include "diagnostic_trace.hpp"
+#endif
 using namespace penchat_scan;
 using namespace pen::stream;
 namespace {
+const char *rotationName(Rotation rotation) {
+  switch (rotation) {
+  case Rotation::None: return "none";
+  case Rotation::Clockwise90: return "clockwise90";
+  case Rotation::HalfTurn: return "halfturn";
+  case Rotation::CounterClockwise90: return "counterclockwise90";
+  }
+  return "unknown";
+}
 volatile sig_atomic_t running = 1;
 void stop(int) { running = 0; }
 struct ControlDisconnected : std::runtime_error {
@@ -162,6 +175,9 @@ public:
   }
 };
 class Worker {
+#ifdef SCANNER_DIAGNOSTIC_TRACE
+  DiagnosticTrace trace_;
+#endif
   int fd_;
   PreviewSlot *slot_;
   std::string resources_, directory_, session_, state_ = "disarmed";
@@ -173,9 +189,27 @@ class Worker {
   std::atomic<int> mockMemory_{0};
 #endif
   CaptureProfile profile_;
+  std::deque<Json> deferredControl_;
+  uint64_t mediaToken_=0;
+  void yieldMedia() {
+    if(!running)return;
+    const auto token=++mediaToken_;emit("media_yield",{{"token",token}});
+    const auto end=clockUs()+3000000;
+    while(clockUs()<end) {
+      const auto packet=receivePacket(fd_);
+      if(packet.is_boolean())throw ControlDisconnected();
+      if(packet.is_null()){pollfd p{fd_,POLLIN,0};poll(&p,1,10);continue;}
+      if(packet.value("type",std::string())=="media_ack"&&packet.value("token",uint64_t(0))==token)return;
+      if(deferredControl_.size()>=32)throw std::runtime_error("media handoff command queue full");
+      deferredControl_.push_back(packet);
+    }
+    throw std::runtime_error("native display release timed out");
+  }
   bool requireRelease_ = false, keyDown_ = false, draining_ = false;
   bool retryWhenEmpty_ = false;
   unsigned afterStop_ = 0;
+  int64_t releaseObservedUs_ = 0;
+  uint64_t rejectedAfterRelease_ = 0;
   bool haveSequence_ = false;
   uint64_t lastSequence_ = 0, droppedRaw_ = 0, recoveredGaps_ = 0;
   uint64_t recoveredFrames_ = 0;
@@ -236,6 +270,7 @@ class Worker {
             {"system_available_bytes", m.systemAvailableBytes}, {"system_reserve_bytes", m.systemReserveBytes},
             {"spilled", 0},
             {"discarded_backlog", discardedBacklog_},
+            {"post_release_rejected", rejectedAfterRelease_},
             {"memory_stop_code", captureFailure_ == "system_memory_low" ? 1 :
                 captureFailure_ == "system_memory_unavailable" ? 2 :
                 captureFailure_ == "memory_allocation_failed" ? 3 :
@@ -263,15 +298,26 @@ class Worker {
     data["scanId"] = scan_;
     data["session"] = session_;
     data["profile"] = profile_.id;
-    data["sensor_width"] = config_.width;
-    data["sensor_height"] = config_.height;
+    data["sensor_width"] = profile_.width;
+    data["sensor_height"] = profile_.height;
+    const auto region=sensorRegion(profile_);
+    data["sensor_region"] = {region.left,region.top,region.width,region.height};
+    data["processing_width"] = config_.width;
+    data["processing_height"] = config_.height;
+    data["sensor_rotation"] = rotationName(config_.rotation);
     data["hardware_armed"] = armed_;
     if (!sendPacket(fd_, data))
       throw ControlDisconnected();
   }
   void calibration() {
-    config_.width = profile_.width;
-    config_.height = profile_.height;
+    const auto region=sensorRegion(profile_);
+    config_.width = region.width;
+    config_.height = region.height;
+    // Optical mounting is independent of display/touch rotation. Apply this
+    // once in the engine, shared by selection, model input and raw canvas.
+    // S6: clockwise90 relative to the original CCW90 view cancels to None.
+    config_.rotation = profile_.id == "s6-pag7920"
+        ? Rotation::None : Rotation::CounterClockwise90;
     if(profile_.id=="y07-sc2356") {
       std::ifstream source(resources_+"/y07-sc2356.json");Json j;source>>j;
       if(j.value("profile",std::string())!=profile_.id || j.value("sensor_width",0)!=profile_.width ||
@@ -283,13 +329,14 @@ class Worker {
       k->sensorHeight=profile_.height;k->rotation=config_.rotation;k->gain.fill(gain);
       config_.calibration=k;config_.diagnosticAcceptAll=mock_;return;
     }
-    if (profile_.id == "y02-sc035gs" || profile_.id == "melon-ov7251") {
+    if (profile_.id == "y02-sc035gs" || profile_.id == "melon-ov7251" || profile_.cvi) {
       // Independent neutral flat-field, NOT the ORANGE illumination resource.
       // Keep raw SC035GS detail; per-frame photometric estimation still runs.
       auto k = std::make_shared<Calibration>();
-      k->version = profile_.id+"-native-neutral-v1";
-      k->sensorWidth = profile_.width;
-      k->sensorHeight = profile_.height;
+      k->version = profile_.id == "s6-pag7920"
+          ? "s6-pag7920-optical-region-neutral-v4" : profile_.id+"-native-neutral-v1";
+      k->sensorWidth = config_.width;
+      k->sensorHeight = config_.height;
       k->rotation = config_.rotation;
       k->gain.fill(1.f);
       config_.calibration = k;
@@ -331,6 +378,9 @@ class Worker {
     exported_ = Json::object();
   }
   void release(bool cancel = false) {
+#ifdef SCANNER_DIAGNOSTIC_TRACE
+    trace_.cancel();
+#endif
     cancelExport();
     preview_.cancelAndWait();
     if (scan_) {
@@ -368,7 +418,7 @@ class Worker {
     release(true);
     lease_ = Json();
   }
-  void begin() {
+  void begin(int64_t pressedUs = 0) {
     if (!armed_ || scan_ || requireRelease_)
       return;
     mkdir(directory_.c_str(), 0700);
@@ -403,7 +453,14 @@ class Worker {
     firstBatchUs_ = 0;
     warnings_ = 0;
     scan_ = begin.scan;
-    pressTime_ = clockUs();
+#ifdef SCANNER_DIAGNOSTIC_TRACE
+    auto traceConfig=config_;
+    traceConfig.width=profile_.width;traceConfig.height=profile_.height;
+    trace_.begin(directory_,traceConfig);
+#endif
+    const auto now = clockUs();
+    pressTime_ = pressedUs > 0 && pressedUs <= now ? pressedUs : now;
+    releaseObservedUs_ = 0; rejectedAfterRelease_ = 0;
     lastCaptureTickUs_ = pressTime_;
     maxCaptureLoopUs_ = 0;
     firstFrame_ = 0;
@@ -425,7 +482,7 @@ class Worker {
     emit("started",
          {{"pressedUs", pressTime_}, {"lightRequestedUs", lightRequestedUs_}});
   }
-  bool retryEmpty() {
+  bool retryEmpty(int64_t pressedUs = 0) {
     if (!armed_ || !finished_ || !result_)
       return false;
     const auto bounds = result_->bounds();
@@ -435,23 +492,24 @@ class Worker {
     requireRelease_ = false;
     if (!mock_)
       hardware_.exposure(true);
-    begin();
+    begin(pressedUs);
     return true;
   }
-  void keyEvent(bool down) {
+  void keyEvent(bool down, int64_t eventUs = 0) {
     if (!armed_ || down == keyDown_)
       return;
     keyDown_ = down;
     if (down) {
-      if (retryEmpty())
+      if (retryEmpty(eventUs))
         return;
       // Finish deciding whether there is an image before discarding anything.
       retryWhenEmpty_ = scan_ && !capturing_ && !finished_;
-      begin();
+      begin(eventUs);
     } else {
       retryWhenEmpty_ = false;
       requireRelease_ = false;
-      drain();
+      releaseObservedUs_ = clockUs();
+      drain(eventUs);
     }
   }
   void seal() {
@@ -463,10 +521,11 @@ class Worker {
     state_ = "processing";
     emit("processing", {{"counts", counts()}});
   }
-  void drain() {
+  void drain(int64_t releasedUs = 0) {
     if (!capturing_ || draining_)
       return;
-    sourceCutoffUs_ = clockUs();
+    const auto now = clockUs();
+    sourceCutoffUs_ = releasedUs > 0 ? std::max(pressTime_, std::min(releasedUs, now)) : now;
     light_.request(false);
     if (mock_) {
       seal();
@@ -563,15 +622,20 @@ class Worker {
         {"reason",
          captureFailure_.empty() ? result_->reason() : captureFailure_},
         {"calibration", config_.calibration->version},
-        {"profile", profile_.id}, {"sensor_width", config_.width},
-        {"sensor_height", config_.height},
+        {"profile", profile_.id}, {"sensor_width", profile_.width},
+        {"sensor_height", profile_.height},
+        {"sensor_region", {sensorRegion(profile_).left,sensorRegion(profile_).top,
+            config_.width,config_.height}},
+        {"sensor_rotation", rotationName(config_.rotation)},
         {"timing",
          {{"pressedUs", pressTime_},
           {"firstFrameUs", firstFrame_},
           {"lightRequestedUs", lightRequestedUs_},
           {"firstSelectedUs", firstSelectedUs_.load()},
           {"firstBatchUs", firstBatchUs_.load()},
-          {"maxCaptureLoopUs", maxCaptureLoopUs_}}}};
+          {"maxCaptureLoopUs", maxCaptureLoopUs_},
+          {"captureEndedUs", sourceCutoffUs_},
+          {"releaseObservedUs", releaseObservedUs_}}}};
     const auto result=result_;
     exportCancel_=false;exportReview_=review;exportRequest_=request_;
     exportTask_=std::async(std::launch::async,[this,result,image,b]() mutable {
@@ -609,6 +673,7 @@ public:
         directory_(std::move(directory)), mock_(mock), profile_(profile), light_(mock) {
     if (!profile_.supported())
       throw std::runtime_error("unsupported scan board or pen sensor");
+    if(profile_.cvi)hardware_.beforeRestore([this]{yieldMedia();});
     std::unique_ptr<Inference> backend;
 #ifdef SCANNER_TEST_SOURCE
     if (mock_)
@@ -620,7 +685,11 @@ public:
       const auto runtime = profile_.privateRuntime.empty()
           ? std::string("librknnrt.so")
           : resources_ + "/lib/" + profile_.privateRuntime;
+#ifdef PENCHAT_CVI_CAPTURE
+      backend = makeCvi32(resources_ + "/pintu_rgb32_int8.cvimodel", "/oem/YoudaoDictPen/output/libs/libcviruntime.so");
+#else
       backend = makeRknn32(resources_ + "/pintu_32.rknn", runtime);
+#endif
     }
     Limits limits;
     limits.maxSessions = 1;
@@ -649,9 +718,17 @@ public:
     result_.reset();
     engine_.reset();
   }
+  void drainDeferred() {
+    while(!deferredControl_.empty()){auto commandPacket=std::move(deferredControl_.front());deferredControl_.pop_front();command(commandPacket);}
+  }
   void command(const Json &j) {
     auto type = j.value("type", std::string());
     auto generation = j.value("generation", uint64_t(0));
+#ifdef SCANNER_TEST_SOURCE
+    if(mock_&&type=="test.media_disarm") {
+      yieldMedia();disarm();emit("released");return;
+    }
+#endif
     if (type == "ocr_keys" && profile_.id != "y07-sc2356")
       throw std::runtime_error("key-only OCR is not supported on this profile");
     if (type == "ocr_keys" && generation > generation_ && armed_) {
@@ -735,12 +812,12 @@ public:
         if (down!=keyDown_) { keyDown_=down; if(down)++ocrSequence_; emit("ocr_key",{{"down",down},{"sequence",ocrSequence_}}); }
       } else keyEvent(j.value("pressed", false));
     } else if (mock_ && type == "test.frame" && capturing_) {
-      std::vector<uint8_t> pixels(size_t(config_.width) * config_.height, 210);
-      for (int y = 20; y < config_.height - 20; ++y)
-        for (int x = 20; x < config_.width - 20; ++x)
+      std::vector<uint8_t> pixels(size_t(profile_.width) * profile_.height, 210);
+      for (int y = 20; y < profile_.height - 20; ++y)
+        for (int x = 20; x < profile_.width - 20; ++x)
           if ((x + y) % 11 < 3)
-            pixels[size_t(y) * config_.width + x] = 30;
-      frame(pixels.data(), config_.width,
+            pixels[size_t(y) * profile_.width + x] = 30;
+      frame(pixels.data(), profile_.width,
             j.value("rawSequence", haveSequence_ ? lastSequence_ + 1 : uint64_t(0)),
             j.value("rawTimestamp", clockUs()));
     }
@@ -753,8 +830,8 @@ public:
       return;
     if (!mock_ && timestamp < pressTime_)
       return;
-    if (!mock_ && !profile_.gatesExposure && draining_ &&
-        timestamp > sourceCutoffUs_) {
+    if (!mock_ && afterReleasedFrame(timestamp, sourceCutoffUs_, draining_, profile_.gatesExposure)) {
+      ++rejectedAfterRelease_;
       // Outside the released pen's capture window, not a lost in-window frame.
       seal();
       return;
@@ -792,7 +869,12 @@ public:
     lastRawTimestamp_ = timestamp;
     framesSinceGap_ = std::min(16u, framesSinceGap_ + 1);
     const bool wasDraining = draining_;
-    const auto pushed = engine_->pushFrame(scan_, pixels, config_.width, config_.height, stride, sequence, timestamp);
+    const auto region=sensorRegion(profile_);
+    const auto *paper=pixels+std::size_t(region.top)*stride+region.left;
+    const auto pushed = engine_->pushFrame(scan_, paper, config_.width, config_.height, stride, sequence, timestamp);
+#ifdef SCANNER_DIAGNOSTIC_TRACE
+    if(pushed.accepted)trace_.append(pixels,stride,sequence,timestamp);
+#endif
     if (!pushed.accepted || pushed.code == Code::StopCapture) {
       captureFailure_ = *pushed.reason ? pushed.reason : "memory_allocation_failed";
       if (!pushed.accepted) ++discardedBacklog_;
@@ -860,16 +942,24 @@ public:
       }
     }
     if (armed_ && !mock_) {
-      bool down = false;
-      while (hardware_.keyEvent(down))
-        keyEvent(down);
-      // Always dequeue standby frames, but copy only while capturing.
-      for (int n = 0; n < 16; ++n)
-        if (!hardware_.readFrame(
-                [&](const uint8_t *y, int stride, uint64_t seq, int64_t ts) {
-                  frame(y, stride, seq, ts);
-                }))
-          break;
+      auto keys = [this] {
+        bool down = false; int64_t eventUs = 0;
+        while (hardware_.keyEvent(down, &eventUs)) keyEvent(down, eventUs);
+      };
+      // Keep standby draining, but never let a blocking 16-frame batch defer
+      // the release event. The callback checks again after each CVI read.
+      bool readAny = false;
+      pollCaptureBatch(keys,
+          [this](const auto& consume) { return hardware_.readFrame(consume); },
+          [this, &readAny](const uint8_t* y, int stride, uint64_t seq, int64_t ts) {
+            readAny = true; frame(y, stride, seq, ts);
+          },
+          [this, &readAny] {
+            // After S6 seals, return promptly to endScan/control processing;
+            // sixteen blocking standby reads must not delay result/commands.
+            return (!profile_.cvi || capturing_ || !readAny) &&
+                   (!draining_ || clockUs() < drainDeadline_);
+          });
       if (draining_ && clockUs() >= drainDeadline_)
         seal();
       if (capturing_ && clockUs() - lastFrame_ > 5000000)
@@ -892,6 +982,9 @@ public:
         emit("stopped", {{"reason", e.reason}});
       }
       if (e.kind == Event::Kind::Finished) {
+#ifdef SCANNER_DIAGNOSTIC_TRACE
+        try {trace_.finish();}catch(...){std::fprintf(stderr,"SCAN_TRACE_SAVE_START_FAILED\n");trace_.cancel();}
+#endif
         result_ = engine_->result(scan_);
         finished_ = true;
         state_ = "result";
@@ -919,6 +1012,7 @@ public:
               {"firstBatchUs", firstBatchUs_.load()},
               {"maxCaptureLoopUs", maxCaptureLoopUs_},
               {"captureEndedUs", sourceCutoffUs_},
+              {"releaseObservedUs", releaseObservedUs_},
               {"lastSourceFrameUs", lastRawTimestamp_}});
         if (retryWhenEmpty_ && keyDown_)
           retryEmpty();
@@ -956,7 +1050,7 @@ public:
       emit("error", {{"error", why}});
     }
   }
-  bool idle() const { return state_ == "disarmed"; }
+  bool idle() const { return state_ == "disarmed" && deferredControl_.empty(); }
 };
 } // namespace
 int main(int argc, char **argv) {
@@ -970,7 +1064,7 @@ int main(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
 #ifdef SCANNER_TEST_SOURCE
-    if (a == "--simulate" || a == "--simulate-y02" || a == "--simulate-melon" || a == "--simulate-y07") {
+    if (a == "--simulate" || a == "--simulate-y02" || a == "--simulate-melon" || a == "--simulate-y07" || a == "--simulate-s6") {
       mock = true;
       mockProfile=a=="--simulate"?"orange":a.substr(std::string("--simulate-").size());
       continue;
@@ -1021,6 +1115,7 @@ int main(int argc, char **argv) {
       profile = mockProfile=="y02" ? scanProfile("Rockchip RK3562 Y02 LP4 V10 Board", "sc035gs")
               : mockProfile=="melon" ? scanProfile("Rockchip RK3562 MELON LP4 V10 Board", "ov7251")
               : mockProfile=="y07" ? scanProfile("Rockchip RK3562 Y07 LP4 V10 Board", "sc2356")
+              : mockProfile=="s6" ? scanProfile("Cvitek Cv1826 for Youdao Plum V0 version", "PIXART_PAG7920_MIPI_240P_100FPS_10BIT")
               : scanProfile("Rockchip RK3562 ORANGE LP4 V10 Board", "sc2356");
 #endif
     Worker worker(fd, slot, resources, directory, mock, profile);
@@ -1030,6 +1125,7 @@ int main(int argc, char **argv) {
       if (p.revents & (POLLHUP | POLLERR | POLLNVAL))
         break;
       try {
+        worker.drainDeferred();
         for (int n = 0; n < 32; ++n) {
           auto j = receivePacket(fd);
           if (j.is_boolean()) {

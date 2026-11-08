@@ -3,27 +3,34 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TARGET=${1:-orange}
 python3 "$ROOT/scripts/stage-fonts.py"
-bash "$ROOT/scripts/prepare-native-system.sh"
+source "$ROOT/scripts/native-target.sh" "$TARGET"
+if [ "$TARGET" != host ]; then bash "$ROOT/scripts/prepare-native-system.sh" "$TARGET"; fi
 python3 "$ROOT/scripts/fetch-lvgl-deps.py"
 python3 "$ROOT/scripts/prepare-microtex.py"
 python3 "$ROOT/scripts/prepare-pinyin.py"
 bash "$ROOT/scripts/build-render-deps.sh" "$TARGET"
 bash "$ROOT/scripts/build-http-deps.sh" "$TARGET"
 ARGS=()
-if [ "$TARGET" = orange ]; then
-  SDK=${RK_SDK_ROOT:-/home/ls-jl/dictpen/x7pro/android13_sdk/RK3562_Android13.0_SDK}
-  GCC=${JSAPI_TOOLCHAIN_ROOT:-$SDK/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu}
-  ARGS=(-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_C_COMPILER="$GCC/bin/aarch64-linux-gnu-gcc" -DCMAKE_CXX_COMPILER="$GCC/bin/aarch64-linux-gnu-g++")
+if [ "$TARGET" != host ]; then
+  ARGS=(-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR="$PENCHAT_BUILD_CPU" -DCMAKE_C_COMPILER="$PENCHAT_BUILD_CC" -DCMAKE_CXX_COMPILER="$PENCHAT_BUILD_CXX" -DPENCHAT_TARGET="$TARGET")
 fi
 cmake -S "$ROOT/native/lvgl-app" -B "$ROOT/build/$TARGET" -DCMAKE_BUILD_TYPE=Release "${ARGS[@]}"
-cmake --build "$ROOT/build/$TARGET" -j"${JOBS:-6}"
-if [ "$TARGET" = orange ]; then
-  mkdir -p "$ROOT/assets/bin" "$ROOT/native/prebuilt/arm64-orange"
-  install -m 0755 "$ROOT/build/orange/penchat-lvgl" "$ROOT/assets/bin/penchat-lvgl"
-  "$GCC/bin/aarch64-linux-gnu-strip" --strip-unneeded "$ROOT/assets/bin/penchat-lvgl"
-  install -m 0644 "$ROOT/build/orange/libjsapi_penchat_launcher.so" "$ROOT/native/prebuilt/arm64-orange/libjsapi_penchat_launcher.so"
-  "$GCC/bin/aarch64-linux-gnu-strip" --strip-unneeded "$ROOT/native/prebuilt/arm64-orange/libjsapi_penchat_launcher.so"
-  install -m 0755 "$ROOT/build/orange/penchat-sensor-guard" "$ROOT/assets/bin/penchat-sensor-guard"
-  "$GCC/bin/aarch64-linux-gnu-strip" --strip-unneeded "$ROOT/assets/bin/penchat-sensor-guard"
+if [ "$TARGET" = host ]; then
+  cmake --build "$ROOT/build/$TARGET" -j"${JOBS:-6}"
+else
+  cmake --build "$ROOT/build/$TARGET" --target penchat-lvgl jsapi_penchat_launcher penchat-sensor-guard -j"${JOBS:-6}"
+  STAGE="$ROOT/build/payload-$TARGET"
+  mkdir -p "$STAGE/assets/bin" "$STAGE/libs/$PENCHAT_BUILD_LIBDIR"
+  for name in penchat-lvgl penchat-sensor-guard; do
+    install -m755 "$ROOT/build/$TARGET/$name" "$STAGE/assets/bin/$name"
+    "$PENCHAT_BUILD_STRIP" --strip-unneeded "$STAGE/assets/bin/$name"
+  done
+  install -m644 "$ROOT/build/$TARGET/libjsapi_penchat_launcher.so" "$STAGE/libs/$PENCHAT_BUILD_LIBDIR/"
+  "$PENCHAT_BUILD_STRIP" --strip-unneeded "$STAGE/libs/$PENCHAT_BUILD_LIBDIR/libjsapi_penchat_launcher.so"
+  if [ "$TARGET" = orange ]; then
+    mkdir -p "$ROOT/assets/bin" "$ROOT/native/prebuilt/arm64-orange"
+    cp "$STAGE/assets/bin/"* "$ROOT/assets/bin/"
+    cp "$STAGE/libs/arm64-orange/"* "$ROOT/native/prebuilt/arm64-orange/"
+  fi
   python3 "$ROOT/scripts/stage-lvgl-assets.py"
 fi

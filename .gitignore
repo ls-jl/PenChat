@@ -46,3 +46,6 @@ assets/pinyin/
 
 # Native updater packages, tickets, cached notes and unpublished release staging.
 .updates/
+
+# Local prototype delivery archives; source and archive index remain tracked.
+/docs/archives/*.zip

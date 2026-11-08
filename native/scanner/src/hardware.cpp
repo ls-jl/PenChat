@@ -1,5 +1,11 @@
 #include "hardware.hpp"
+#ifdef PENCHAT_CVI_CAPTURE
+#include "cvi_capture.hpp"
+#endif
+#include "capture_timing.hpp"
+#include <time.h>
 #include "melon_config.hpp"
+#include "s6_config.hpp"
 #include "start_policy.hpp"
 #include "file_read.hpp"
 #include "app_identity.hpp"
@@ -59,6 +65,10 @@ void require(bool b, const char *s) {
     throw std::runtime_error(s);
 }
 CaptureProfile configured(CaptureProfile p) {
+  if(p.cvi) {
+    return s6Config(p,Json::parse(read("/usr/configs/hal_key_config.json")),
+                      Json::parse(read("/usr/configs/hal_led_config.json")));
+  }
   if(p.ov7251Startup)
     return melonConfig(p,Json::parse(read("/usr/configs/hal_key_config.json")),
                        Json::parse(read("/usr/configs/hal_led_config.json")));
@@ -120,7 +130,7 @@ bool validScanProcessLock(int fd) {
 }
 CaptureProfile detectedScanProfile() {
   return scanProfile(read("/proc/device-tree/model"),
-                     read("/sys/class/video4linux/v4l-subdev2/name"));
+                     read("/sys/class/video4linux/v4l-subdev2/name")+read("/usr/configs/sensor_cfg.ini"));
 }
 Json scanLeaseSnapshot() {
   const auto profile = configured(detectedScanProfile());
@@ -153,7 +163,14 @@ Json scanLeaseSnapshot() {
   // runCapFrame may still be starting CaptureFrame after our previous release.
   // Taking an empty snapshot would leave that late child outside the lease.
   require(!j["captures"].empty(), "system capture preparing");
-  if(profile.ov7251Startup) {
+  if(profile.cvi) {
+    j["gpio_existed"]=true;
+    j["gpio_number"]=profile.gpio;
+    const auto base="/sys/class/gpio/gpio"+std::to_string(profile.gpio);
+    j["gpio_value"]=read(base+"/value");j["gpio_direction"]=read(base+"/direction");
+    require(j["gpio_direction"]=="out\n","S6 scan light not configured");
+    require(j["gpio_value"]=="0\n" || j["gpio_value"]=="1\n","S6 scan light state unavailable");
+  } else if(profile.ov7251Startup) {
     j["video_formats"]=Json::array();
     for(const auto &v: {std::make_pair("/dev/video12","rkisp_selfpath"),std::make_pair("/dev/video11","rkisp_mainpath")}) {
       auto saved=savedVideo(v.first,v.second);if(!saved.is_null())j["video_formats"].push_back(saved);
@@ -273,7 +290,7 @@ void restoreScanLease(const Json &j) noexcept {
   } catch (...) {
   }
   try {
-    if(j.value("profile",std::string())=="melon-ov7251" && j.contains("gpio_number")) {
+    if((j.value("profile",std::string())=="melon-ov7251" || j.value("profile",std::string())=="s6-pag7920") && j.contains("gpio_number")) {
       const auto number=std::to_string(j.at("gpio_number").get<unsigned>());
       const auto marker=j.value("gpio_export_marker",std::string());
       const bool owned=!marker.empty() && read(marker)==number;
@@ -294,6 +311,17 @@ void restoreScanLease(const Json &j) noexcept {
   } catch (...) {
   }
 }
+bool scanLeaseRestored(const Json &snapshot) noexcept {
+  try {
+    for(const auto &p:snapshot.value("guardians",Json::array())) {
+      if(!same(p)||!match(p.at("pid"),"guardian_run","/usr/bin/runCapFrame"))continue;
+      const auto state=read("/proc/"+std::to_string(p.at("pid").get<int>())+"/stat");
+      const auto end=state.rfind(')');
+      if(end==std::string::npos||state.size()<=end+2||state[end+2]=='T')return false;
+    }
+    return true;
+  }catch(...){return false;}
+}
 void Hardware::open(const Json &lease) {
   reserve(lease);
   start();
@@ -305,8 +333,11 @@ void Hardware::reserve(const Json &lease) {
     profile_ = configured(detectedScanProfile());
     require(profile_.supported() && lease_.value("profile", profile_.id) == profile_.id,
             "scan lease profile mismatch");
-    if(profile_.ov7251Startup)
+    if(profile_.ov7251Startup || profile_.cvi)
       require(profile_.gpio==lease_.at("gpio_number").get<unsigned>(),"scan light configuration changed");
+#ifdef PENCHAT_CVI_CAPTURE
+    if(profile_.cvi)verifyCviCaptureRuntime();
+#endif
     lightProfile=profile_;
     for (auto &p : lease_.at("guardians"))
       if (!p["paused"].get<bool>() && same(p) &&
@@ -337,10 +368,12 @@ void Hardware::reserve(const Json &lease) {
     }
     gpioExportMarker=lease_.value("gpio_export_marker",std::string());
     setScanLight(false);
-    if(profile_.ov7251Startup)profile_.keyNode=melonKey(profile_.keyCode);
+    if(profile_.ov7251Startup||profile_.cvi)profile_.keyNode=melonKey(profile_.keyCode);
     key_ = ::open(profile_.keyNode.c_str(),
                   O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     require(key_ >= 0, "scan key unavailable");
+    int keyClock = CLOCK_MONOTONIC;
+    keyMonotonic_ = io(key_, EVIOCSCLOCKID, &keyClock) == 0;
     char name[128]{};
     require(io(key_, EVIOCGNAME(sizeof(name)), name) >= 0 &&
                 std::string(name) == "led_control",
@@ -376,6 +409,13 @@ void Hardware::start() {
   }
 }
 void Hardware::openCamera() {
+  if(profile_.cvi) {
+#ifdef PENCHAT_CVI_CAPTURE
+    cvi_=openCviCapture();return;
+#else
+    throw std::runtime_error("CVI capture is unavailable in this executable");
+#endif
+  }
   // Revalidate identity before changing the capture format or sensor controls.
   auto sensorName = read("/sys/class/video4linux/v4l-subdev2/name");
   require(sensorName.find(profile_.sensor) != std::string::npos,
@@ -470,7 +510,7 @@ void Hardware::openCamera() {
     }
   }
 }
-bool Hardware::keyEvent(bool &down) {
+bool Hardware::keyEvent(bool &down, int64_t *timestamp) {
   input_event e{};
   while (::read(key_, &e, sizeof(e)) == sizeof(e)) {
     if (e.type == EV_SYN && e.code == SYN_DROPPED)
@@ -487,6 +527,14 @@ bool Hardware::keyEvent(bool &down) {
       continue;
     pressed_ = next;
     down = next;
+    if (timestamp) {
+      timespec mono{}, real{};
+      require(clock_gettime(CLOCK_MONOTONIC, &mono) == 0 && clock_gettime(CLOCK_REALTIME, &real) == 0,
+              "cannot timestamp scan key");
+      *timestamp = scanKeyTimestamp(e.time.tv_sec, e.time.tv_usec, keyMonotonic_,
+          int64_t(mono.tv_sec)*1000000 + mono.tv_nsec/1000,
+          int64_t(real.tv_sec)*1000000 + real.tv_nsec/1000);
+    }
     return true;
   }
   if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
@@ -504,6 +552,7 @@ void Hardware::exposure(bool enabled) {
 bool Hardware::readFrame(
     const std::function<void(const uint8_t *, int, uint64_t, int64_t)>
         &consume) {
+  if(cvi_)return cvi_->read(consume);
   v4l2_buffer b{};
   v4l2_plane p[VIDEO_MAX_PLANES]{};
   b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
@@ -545,6 +594,9 @@ void Hardware::cameraToOcr() {
   require(io(key_, EVIOCGRAB, nullptr)==0,"cannot release OCR capture key grab");
 }
 void Hardware::close() noexcept {
+  bool safeRestore=true;
+  if(!lease_.empty()&&profile_.cvi&&beforeRestore_)try{beforeRestore_();}catch(...){safeRestore=false;}
+  cvi_.reset();
   if (sensor_ >= 0 && profile_.sensor == "sc2356") {
     int zero = 0;
     io(sensor_, 0x400456ca, &zero);
@@ -568,10 +620,13 @@ void Hardware::close() noexcept {
     ::close(key_);
   }
   video_ = sensor_ = key_ = -1;
-  if (!lease_.empty())
-    restoreScanLease(lease_);
+  if (!lease_.empty()) {
+    // Parent retained the lease and will restore after its display is quiescent
+    // if the child no longer has a working control channel.
+    if(safeRestore)restoreScanLease(lease_);
+  }
   lease_ = Json();
   lightProfile={};gpioExportMarker.clear();
-  pressed_ = waitRelease_ = false;
+  pressed_ = waitRelease_ = keyMonotonic_ = false;
 }
 } // namespace penchat_scan
