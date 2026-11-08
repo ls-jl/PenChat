@@ -63,6 +63,14 @@ int main() {
   assert(photoAccelerometerCorrection("RK3562 Y02 V1") == 0);
   assert(photoAccelerometerCorrection("RK3562 ORANGE V1") == 0);
   assert(photoAccelerometerCorrection("RK3562 Y070 V1") == 0);
+  assert(photoCalibration("Rockchip RK3562 Y07 LP4 V10 Board").editorImage==270);
+  assert(photoCalibration("RK3562 Y02 V1").editorImage==0);
+  assert(photoCalibration("RK3562 ORANGE V1").editorImage==0);
+  for(int pose:{0,90,180,270}) {
+    const int pixels=photoEditorRotation(pose,270);
+    same(rotate(raw,pixels),rotate(rotate(raw,pose),270));
+    assert(photoEditorRotation(pose,0)==pose);
+  }
   const int axes[4][2]={{1024,0},{0,1024},{-1024,0},{0,-1024}};
   for(int i=0;i<4;++i) {
     const int standard=i*90,corrected=(standard+90)%360;

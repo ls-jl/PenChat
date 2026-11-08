@@ -83,7 +83,7 @@ def run(env):
         state = d.wait(lambda: (s if (s := d.state())['camera_angle'] == angle
                                and s['camera_ready'] else None), timeout=20)
         assert not state['camera_auto']
-        expected = {'preview': 270, 'workspace': 0, 'saved': angle}
+        expected = {'preview': 270, 'workspace': 0, 'saved': (angle+270)%360}
         assert state['camera_transforms'] == expected, state['camera_transforms']
         assert state['camera_controls'] == initial_controls
         assert state['camera_control_rotations'] == [(360-angle)%360]*3
@@ -97,7 +97,7 @@ def run(env):
     camera_action('shutter')
     state = d.wait(lambda: (s if (s := d.state())['view'] == 'crop'
                            and s['crop_loaded'] else None), timeout=30)
-    expected_size = [2448, 3264]
+    expected_size = [3264, 2448]  # 270-degree pose plus -90-degree editor correction.
     assert state['camera_angle'] == 270
     assert state['crop_source'] == expected_size, state['crop_source']
     assert state['crop_source_rect'] == [0, 0] + expected_size

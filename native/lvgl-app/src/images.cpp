@@ -189,8 +189,10 @@ void Images::work() {
   }
 }
 PhotoTransforms Camera::transforms(int pose) const {
-  static const int correction = photoPreviewCorrection(fileText("/proc/device-tree/model", 4096));
-  return photoTransforms(pose, fixedWorkspace_, correction);
+  static const auto calibration = photoCalibration(fileText("/proc/device-tree/model", 4096));
+  auto result=photoTransforms(pose,fixedWorkspace_,calibration.preview);
+  result.saved=photoEditorRotation(pose,calibration.editorImage);
+  return result;
 }
 void Camera::start() {
   stop();
@@ -381,7 +383,10 @@ void Camera::work() {
             out[2] = clamp((298 * Y + 516 * U + 128) >> 8);
           }
         if(stop_)break;
-        const int angle = captureOrientation_;
+        const int pose = captureOrientation_;
+        // Normalize the photo once before the first JPEG encode. Crop then
+        // displays and saves the same pixels without any UI-only rotation.
+        const int angle = transforms(pose).saved;
         const int photoW = angle % 180 ? f.height : f.width;
         const int photoH = angle % 180 ? f.width : f.height;
         if (angle) rgb = rotatePhoto(rgb,f.width,f.height,angle);
@@ -396,7 +401,8 @@ void Camera::work() {
         event("photo", {{"path", final},
                                {"width", photoW},
                                {"height", photoH},
-                               {"orientation",angle},
+                               {"orientation",pose},
+                               {"pixel_rotation",angle},
                                {"source", "camera"}});
         reserved.published=true;
       }

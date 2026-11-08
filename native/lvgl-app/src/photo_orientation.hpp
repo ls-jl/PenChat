@@ -13,20 +13,23 @@ struct PhotoTransforms {
   int preview = 0, workspace = 0, saved = 0;
 };
 struct PhotoCalibration {
-  int preview, accelerometer;
+  int preview, accelerometer, editorImage;
 };
 inline PhotoCalibration photoCalibration(const std::string &boardModel) {
   const bool y07=boardModel.compare(0, 20, "Rockchip RK3562 Y07 ") == 0 ||
                  boardModel.compare(0, 11, "RK3562 Y07 ") == 0;
-  // Independent user-calibrated Y07 corrections: preview anticlockwise 90,
-  // accelerometer clockwise 90. Neither follows Falcon's rotation fields.
-  return {y07?270:0,y07?90:0};
+  // Independent Y07 corrections: preview and editor image anticlockwise 90,
+  // accelerometer clockwise 90. None follows Falcon's rotation fields.
+  return {y07?270:0,y07?90:0,y07?270:0};
 }
 inline int photoPreviewCorrection(const std::string &boardModel) {
   return photoCalibration(boardModel).preview;
 }
 inline int photoAccelerometerCorrection(const std::string &boardModel) {
   return photoCalibration(boardModel).accelerometer;
+}
+inline int photoEditorRotation(int pose,int correction) {
+  return (((pose%360)+360)%360+((correction%360)+360)%360)%360;
 }
 inline PhotoTransforms photoTransforms(int pose, bool fixedWorkspace,
                                        int previewCorrection = 0) {
