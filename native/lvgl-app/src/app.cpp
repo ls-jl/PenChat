@@ -2135,7 +2135,7 @@ void App::settingsPage() {
   label(pageContent_, "数据与应用", left, 516, width, 16, theme::muted);
   settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 540, column,
               [this] { openTransfer(); });
-  const bool persistentExports = config.value("persistent_export_directory", true);
+  const bool persistentExports = config.value("persistent_export_directory", false);
   settingsRow("persistent_exports", "持久化导出目录",
               persistentExports ? "关闭应用后保留导出文件" : "关闭应用时清理导出文件",
               right, 540, column, [this, persistentExports] {
@@ -3002,7 +3002,7 @@ void App::shutdown() {
   diagnosticRecord("lifecycle", "stop"); flushDiagnostics();
   shutdownHttp();
   db_.flush();
-  if (transfer_ && !transfer_->finish(db_.settings().value("persistent_export_directory", true)))
+  if (transfer_ && !transfer_->finish(db_.settings().value("persistent_export_directory", false)))
     db_.setting("export_cleanup_failed", true);
 }
 void App::routeTouch(const Json &m) {

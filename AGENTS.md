@@ -226,7 +226,7 @@ archive paths, actual size/CRC, duplicates and symlinks before preview/commit. D
 preset replacement requires a separate confirmation, both in UI and service. Device
 transfer tests must isolate/restore the public transfer folder as well as DB/assets.
 
-Export persistence defaults to enabled. When disabled, normal native shutdown
+Export persistence defaults to disabled. Preserve explicit saved user choices. When disabled, normal native shutdown
 retires only the public 导出 subtree into private transfer staging before removal;
 keep 导入 and instructions. Background/IME transitions never trigger cleanup. Do not
 restart or access the device while the user says it is unavailable.

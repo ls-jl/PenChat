@@ -302,7 +302,7 @@ void App::transferPage() {
           transferData_.value("path", std::string("现有会话和全局默认配置已保留。")),
           12, top + 44, width, 19, theme::muted);
     if (transferData_.value("format_spec", false)) {
-      label(pageContent_, db_.settings().value("persistent_export_directory", true) ?
+      label(pageContent_, db_.settings().value("persistent_export_directory", false) ?
             "解压规范 ZIP 后，按使用说明复制示例。" : "持久化导出目录已关闭：退出会清理此 ZIP，请先复制。",
             12, top + 96, width, 18, theme::muted);
     }
