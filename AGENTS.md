@@ -324,7 +324,10 @@ pill alone keeps 25px around the 44px send circle. Chinese
 composition uses the same row as the official/OCR/clipboard actions; never add
 a separate candidate row in portrait. The borderless globe is 1.5x, below and
 slightly left of comma, centered 3px above the midpoint between the comma key bottom edge and screen bottom.
-Its parallels terminate inside the outer stroke. Portrait finish uses a compact
+Keep the existing grid: latitude ends overlap the outer stroke centre and
+meridians reach its poles without extending beyond the circle.
+The portrait finish and globe pixel centres mirror around the screen centre and
+share a vertical baseline. Portrait finish uses a compact
 borderless 90-degree downward chevron. Docked form content height follows the
 visible reader instead of retaining a full-screen minimum spacer. Switching fields commits the prior
 field (including raw unfinished preedit) once before focusing the next. Retain the

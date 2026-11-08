@@ -1,11 +1,20 @@
 #include "editor_layout.hpp"
 #include <cassert>
 #include <iostream>
+#include <string>
 int main() {
   using namespace penchat;
   for(auto size:{std::make_pair(960,266),std::make_pair(936,280),std::make_pair(568,1210),std::make_pair(600,1280)}) {
     const EditorLayout l{size.first,size.second};const AppLayout safe{size.first,size.second};
     const int side=std::max(4,safe.safeSide()),top=std::max(4,safe.safeTop()),bottom=std::max(4,safe.safeBottom());
+    if(l.portrait) {
+      const auto globe=l.globeKey();
+      for(const auto &action:l.actions(true))if(std::string(action.name)=="done") {
+        assert(2*globe.x+globe.width-1+2*action.x+action.width-1==2*(size.first-1));
+        assert(2*globe.y+globe.height-1==2*action.y+43);
+        assert(action.width>=44&&action.x>=safe.safeSide());
+      }
+    }
     for(int x:{-100,0,side,size.first/2,size.first-side,size.first,size.first+100})
       for(int y:{-100,0,top,size.second/2,size.second-bottom,size.second,size.second+100}) {
         const auto p=l.magnifierPopup(x,y);

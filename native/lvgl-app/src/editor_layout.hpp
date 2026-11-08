@@ -96,7 +96,6 @@ struct EditorLayout {
     const int w=(readOnly?2:4)*92+4;
     return floatingPopup(x-w/2,y-60-(portrait?52:0),w,52);
   }
-  int utilityY() const { return bottomY+bottomHeight+6; }
   Popup globeKey() const {
     const int commaCenter=8+px(keyWidth+14)+px(keyWidth+10)/2;
     const int centerY=px((bottomY+bottomHeight-1.+height-1)/2.);
@@ -112,7 +111,11 @@ struct EditorLayout {
       int total=0;for(const auto &v:a)total+=v.width;
       const int gap=(textWidth-total)/int(a.size()-1);int x=textX;
       for(auto &v:a){v.x=x;x+=v.width+gap;}
-      a.push_back({"done",width-textX-64,64,utilityY()});
+      const auto globe=globeKey();
+      // Mirror pixel centres, including even-sized hit areas, around the
+      // logical screen midpoint. The globe keeps its existing position.
+      a.push_back({"done",width-globe.x-(globe.width+64)/2,64,
+                   globe.y+(globe.height-44)/2});
       return a;
     }
     const int cancelWidth=textWidth-64-48-104-44-16;
