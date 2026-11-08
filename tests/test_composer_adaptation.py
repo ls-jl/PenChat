@@ -13,22 +13,27 @@ def swipe(a,x,y,dy):
 def open_input(a):
     b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
     t.wait_for(lambda:a.diag()['editor']['active'] and bool(a.diag()['editor']['keys']))
-for w,h in [(960,266),(936,280),(568,1210)]:
+for w,h in [(640,260),(960,266),(936,280),(568,1210)]:
     with tempfile.TemporaryDirectory(prefix='penchat-composer-adapt-') as folder:
         seed(folder,'\n\n'.join('阅读方向保持稳定。%d'%i for i in range(60)))
         a=t.Native(BINARY,folder,official_adapter=False,screen={'width':w,'height':h})
         try:
+            compact=h<=w<3*h
             open_input(a);a.editor_action('official');request=a.receive('keyboard.open')
             a.send('keyboard.result',requestId=request['requestId'],confirmed=True,text='保留这份草稿')
             t.wait_for(lambda:not a.diag()['editor']['active'])
             # Move away from bottom without returning there during assertions.
-            swipe(a,w//2,90,100 if h<w else 280)
+            swipe(a,w//2,70 if compact else 90,140 if compact else 100 if h<w else 280)
             assert not a.diag()['following_latest']
-            swipe(a,w//2,155 if h<w else 450,-80 if h<w else -180)
+            swipe(a,w//2,155 if h<w else 450,-50 if compact else -80 if h<w else -180)
             d=a.diag();assert (d['composer_hidden'] and d['toolbar_y']>=h) if h<w else (not d['composer_hidden'] and d['composer_bounds'][3]<h)
             capture(a,OUT/f'{w}-hidden.png')
             swipe(a,w//2,70,70 if h<w else 200)
-            d=a.diag();assert not d['composer_hidden'] and d['composer_bounds'][3]<h and not d['following_latest']
+            d=a.diag()
+            if compact:
+                assert d['composer_hidden'] and d['toolbar_y']>=h and not d['at_latest_bottom']
+            else:
+                assert not d['composer_hidden'] and d['composer_bounds'][3]<h and not d['following_latest']
             capture(a,OUT/f'{w}-draft-revealed.png')
             if h>w:
                 open_input(a);assert a.diag()['editor']['docked']
@@ -52,5 +57,16 @@ for w,h in [(960,266),(936,280),(568,1210)]:
                 capture(a,OUT/'portrait-form-bottom.png')
                 a.editor_action('done');d=a.diag()
                 assert d['reader_height']==h and d['scroll_y']+d['scroll_bottom']<=0
+            elif compact:
+                # Direction reversal alone cannot reveal a compact composer.
+                # Jumping to the actual latest bottom must reveal it.
+                a.tap(d['to_bottom_x']+22,d['to_bottom_y']+22)
+                t.wait_for(lambda:a.diag()['at_latest_bottom'] and not a.diag()['composer_hidden'])
+                assert a.diag()['composer_bounds'][3]<h
+                swipe(a,w//2,70,140)
+                assert a.diag()['composer_hidden']
+                a.open_navigation();old=a.diag()['session'];a.tap(80,h-30)
+                d=a.diag();assert d['session']!=old and d['at_latest_bottom']
+                assert not d['composer_hidden'] and d['composer_bounds'][3]<h
             print(f'{w}x{h}: orientation-specific composer visibility and bounded docked viewport passed.',flush=True)
         finally:a.close()

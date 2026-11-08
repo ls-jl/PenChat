@@ -559,7 +559,7 @@ void App::editorViewport() {
   const int composerY=chatComposerY();
   if(view_=="chat")layoutChatComposer();
   if(view_=="chat"&&chatControls_) {
-    const int target=layout().portrait()||!chatComposerHidden_?composerY:screen_.height+2;
+    const int target=chatComposerVisible()?composerY:screen_.height+2;
     lv_anim_delete(chatControls_,nullptr);lv_obj_set_y(chatControls_,target);
     chatControlsTarget_=target;
   }

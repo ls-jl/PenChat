@@ -1300,6 +1300,15 @@ void App::rebuildChatControls() {
 bool App::atLatestBottom() const {
   return view_ == "chat" && body_ && messageOffset_ == 0 && lv_obj_get_scroll_bottom(body_) <= 10;
 }
+bool App::chatComposerVisible() const {
+  if(pulling_)return false;
+  const auto category=layout().category();
+  if(category==LayoutClass::Portrait)return true;
+  // Compact landscape keeps the original bottom-only composer. Following a
+  // stream or reversing a finger while reading history cannot reveal it.
+  if(category==LayoutClass::CompactLandscape)return atLatestBottom();
+  return !chatComposerHidden_;
+}
 bool App::readerInteracting() const {
   if (view_ != "chat" || !body_ || chatLayout_ || keyboard_ || (editor_.active&&!editorLayout().docked) || imageViewer_ ||
       navigationOpen_ || modal_) return false;
@@ -1329,7 +1338,7 @@ void App::readerTouch(int x, int y, bool pressed, bool cancelled) {
     const int dx = x - readerStartX_, dy = y - readerStartY_;
     if (std::abs(dy) > 12 && std::abs(dy) > std::abs(dx)) {
       readerVertical_ = true;
-      if(!layout().portrait()&&std::abs(y-readerMotionY_)>=2) {
+      if(layout().category()==LayoutClass::WideLandscape&&std::abs(y-readerMotionY_)>=2) {
         chatComposerHidden_=y<readerMotionY_;
         readerMotionY_=y;updateChatControls(true);
       }
@@ -1392,7 +1401,7 @@ void App::updateChatControls(bool animate) {
   }
   lv_obj_set_style_bg_opa(toBottom_, overContent ? 160 : 255, 0);
   lv_obj_set_style_border_opa(toBottom_, overContent ? 160 : 255, 0);
-  const int target = (layout().portrait()||!chatComposerHidden_) && !pulling_ ? chatComposerY() : screen_.height + 2;
+  const int target = chatComposerVisible() ? chatComposerY() : screen_.height + 2;
   if (chatControlsTarget_ == target)
     return;
   chatControlsTarget_ = target;
@@ -3982,7 +3991,7 @@ Json App::diagnostics() const {
       {"back_navigation", {{"root",navigationRoot()},{"sequence",backPolicySequence_},{"policy_ok",backPolicyOk_},{"blocked",backPolicyBlocked_},{"claimed",backClaimed_}}},
       {"scroll_bottom", body_ ? lv_obj_get_scroll_bottom(body_) : 0},
       {"composer_width", composer_ ? lv_obj_get_width(composer_) : 0},
-      {"composer_hidden", chatComposerHidden_},
+      {"composer_hidden", layout().compact()?!chatComposerVisible():chatComposerHidden_},
       {"composer_radius",chatControls_?lv_obj_get_style_radius(chatControls_,LV_PART_MAIN):0},
       {"composer_scroll", composer_ ? lv_obj_get_scroll_y(composer_) : 0},
       {"composer_scroll_bottom", composer_ ? lv_obj_get_scroll_bottom(composer_) : 0},

@@ -120,7 +120,7 @@ void App::layoutChatComposer() {
     lv_obj_set_scroll_dir(composer_,LV_DIR_VER);
     lv_obj_set_scroll_elastic(composer_,false);lv_obj_set_scroll_chain_ver(composer_,false);
   }
-  if(oldHeight!=height&&!chatComposerHidden_&&(editing||!hasConversationContent_||chatFollowing_||atLatestBottom())) {
+  if(oldHeight!=height&&chatComposerVisible()&&(editing||!hasConversationContent_||chatFollowing_||atLatestBottom())) {
     lv_anim_delete(chatControls_,nullptr);chatControlsTarget_=chatComposerY();
     lv_obj_set_y(chatControls_,chatControlsTarget_);
   }

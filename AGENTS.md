@@ -319,9 +319,12 @@ an open keyboard, give text its own full-width region above attachment/gauge/sen
 grow upward to 3x the original height, then scroll. Expanded portrait composers use a
 12px inner inset and bottom-aligned tool row; landscape keeps text between its
 controls, one row for short drafts and at most 2x height with local text scrolling.
-Its corner radius stays at the single-row radius when growing. Landscape upward reader
+Its corner radius stays at the single-row radius when growing. Wide-landscape upward reader
 drags hide the composer, downward drags reveal it without changing follow state.
-Portrait keeps the composer visible. A page-origin downward drag that crosses
+Compact-landscape (currently S6) shows the composer only at the actual latest
+message bottom, with the existing 10px tolerance; direction reversal alone must
+not reveal it. All composer placement paths share this policy. Portrait keeps
+the composer visible. A page-origin downward drag that crosses
 the docked keyboard panel may push it down; release beyond the frozen threshold
 closes editing without sending, otherwise return over 160ms. Key/caret/selection
 drags never dismiss. Lifecycle and multi-touch cancel the push and reset transforms.

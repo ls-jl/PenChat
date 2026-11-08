@@ -299,6 +299,7 @@ class App {
   bool chatRenderPending_ = false, chatRefreshPending_ = false, chatImagesPending_ = false;
   Json chatFinishPending_ = Json::object();
   bool atLatestBottom() const;
+  bool chatComposerVisible() const;
   bool readerInteracting() const;
   void readerTouch(int x, int y, bool pressed, bool cancelled);
   void settleReader();
