@@ -71,7 +71,7 @@ void App::edit(const std::string &text, const std::string &placeholder,
     if(editorInlineChat_) {
       // Freeze the measured resting capsule once, before activating editing.
       // Rebuilds and incoming candidate results must never multiply it again.
-      editorComposerOpenHeight_=lv_obj_get_height(chatControls_)*3/2;
+      editorComposerOpenHeight_=(lv_obj_get_height(chatControls_)*7+2)/4;
       if(!messageEdit_.empty())editorSendAssets_=!messageEditImages_.empty();
       else {
         const auto latest=db_.messages(session_,0,1);

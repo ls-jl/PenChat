@@ -25,7 +25,7 @@ for width,height in [(960,266),(936,280),(568,1210)]:
                 t.wait_for(lambda:e()['active'] and bool(e()['keys']))
                 if height>width:
                     b=a.diag()['composer_bounds']
-                    assert b[3]-b[1]+1==resting_height*3//2
+                    assert b[3]-b[1]+1==(resting_height*7+2)//4
             def key(value):
                 k=next(k for k in e()['keys'] if k['key']==value);a.tap(k['x'],k['y'])
             d=a.diag();b=d['composer_bounds'];base=b[3]-b[1]+1
@@ -35,7 +35,8 @@ for width,height in [(960,266),(936,280),(568,1210)]:
             open_input()
             if height>width:
                 d=a.diag();b=d['composer_bounds'];r=e()['text_bounds'];send=e()['actions']['chat-send']
-                assert b[3]-b[1]+1==base*3//2 and r[3]<send[1]
+                assert b[3]-b[1]+1==(base*7+2)//4 and r[3]<send[1]
+                assert r[1]-b[1]==20
                 assert r[0]-b[0]==14 and b[2]-r[2]==14
                 assert send[2]-send[0]+1==54 and send[3]-send[1]+1==54
                 assert b[2]-send[2]==20 and b[3]-send[3]==20
@@ -59,6 +60,7 @@ for width,height in [(960,266),(936,280),(568,1210)]:
                 assert b[3]<height and b[3]-b[1]+1>base and r[3]<d['send_center_y2']//2-26
                 assert r[0]-b[0]==14 and b[2]-r[2]==14
                 assert b[3]-d['send_center_y2']//2-27 in (19,20)
+                assert r[1]-b[1]==20
             else:
                 assert b[3]-b[1]+1==base and r[0]>b[0]+44
                 assert d['send_center_y2']==d['capsule_center_y2']
