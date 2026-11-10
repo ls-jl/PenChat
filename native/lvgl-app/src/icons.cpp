@@ -216,6 +216,10 @@ void paint(lv_event_t *event) {
     line(0, -s * 8, 0, s * 8);
     line(-6, s * 2, 0, s * 8);
     line(0, s * 8, 6, s * 2);
+  } else if(k=="candidate-up"||k=="candidate-down") {
+    const int direction=k=="candidate-up"?-1:1;
+    line(-7,-direction*3,0,direction*4);
+    line(0,direction*4,7,-direction*3);
   } else if (k == "chevron-right") {
     line(-2, -5, 3, 0);
     line(3, 0, -2, 5);

@@ -7,6 +7,23 @@
 namespace penchat {
 namespace {
 constexpr uint64_t layoutHoldMs=500;
+void syncCompositionLabel(lv_obj_t *label,const EditorLayout &layout,const std::string &text,
+                          const lv_font_t *font) {
+  if(text!=lv_label_get_text(label))lv_label_set_text(label,text.c_str());
+  lv_label_set_long_mode(label,LV_LABEL_LONG_MODE_DOTS);
+  if(!layout.portrait) {lv_obj_set_height(label,20);return;}
+  lv_obj_set_floating(label,true);lv_obj_set_clickable(label,false);
+  lv_obj_set_hidden(label,text.empty());
+  lv_obj_set_style_bg_color(label,lv_color_hex(theme::sidebar),0);
+  lv_obj_set_style_bg_opa(label,LV_OPA_COVER,0);
+  lv_obj_set_style_radius(label,4,0);lv_obj_set_style_pad_hor(label,6,0);
+  lv_obj_set_style_pad_ver(label,3,0);
+  lv_point_t size{};
+  lv_text_get_size(&size,text.c_str(),font,0,0,LV_COORD_MAX,LV_TEXT_FLAG_EXPAND);
+  const int height=font->line_height+6;
+  lv_obj_set_size(label,std::min(layout.textWidth,std::max(12,int(size.x)+12)),height);
+  lv_obj_set_pos(label,layout.textX,layout.candidateY-height);
+}
 int keyboardClusterWidth(lv_obj_t *label,size_t first,size_t last) {
   const char *text=lv_label_get_text(label),*begin=text,*end=text;
   for(size_t index=0;*end&&index<last;++index) {
@@ -212,7 +229,8 @@ void App::editorBuild() {
     language.hit={left,top,right-left,bottom-top};
     attachIcon(language.object,"globe-large",theme::text);
   }
-  auto editorPanel=box(editorRoot_,layout.editorPanelX(),layout.panelTop,layout.editorPanelWidth(),layout.portrait?layout.keyTop-6-layout.panelTop:layout.height,0x111111); lv_obj_set_scrollable(editorPanel,false);
+  const int panelY=layout.portrait?layout.candidateY:layout.panelTop;
+  auto editorPanel=box(editorRoot_,layout.editorPanelX(),panelY,layout.editorPanelWidth(),layout.portrait?layout.keyTop-6-panelY:layout.height,0x111111); lv_obj_set_scrollable(editorPanel,false);
   // Composition/candidates never resize the keys; actions share a bottom baseline.
   if(!layout.docked)lv_obj_move_background(editorPanel);
   for(const auto &a:layout.actions(editorInlineChat_)) {
@@ -267,9 +285,7 @@ void App::editorBuild() {
   if(!editorSelectionOnly_) {
   auto pre=label(editorRoot_,editorCompositionText(),layout.textX,layout.compositionY,layout.textWidth,16,theme::muted);
   editorPreeditLabel_=pre;
-  if(layout.portrait&&editorOcrShown_&&editor_.preedit.empty()&&editor_.notice.empty())
-    lv_label_set_text(pre,editorOcrBusy_?"正在识别…":"扫描已插入 · 可继续划扫");
-  lv_label_set_long_mode(pre,LV_LABEL_LONG_MODE_DOTS); lv_obj_set_height(pre,20);
+  syncCompositionLabel(pre,layout,editorCompositionText(),font(16));
   const auto candidate=layout.candidateArea(editorExpanded_);
   if(editorExpanded_) {
     const auto bounds=layout.candidateCover();
@@ -282,7 +298,11 @@ void App::editorBuild() {
   if(layout.portrait&&!editorCandidateRow())lv_obj_set_hidden(choices,true);
   lv_obj_set_scroll_dir(choices,editorExpanded_?LV_DIR_VER:LV_DIR_HOR);
   lv_obj_set_scrollbar_mode(choices,LV_SCROLLBAR_MODE_AUTO);
-  editorExpand_ = control(editorExpanded_?"收起":"展开",layout.textRight()-44,layout.candidateToggleY(),44,"expand");
+  editorExpand_ = control(layout.portrait?"":editorExpanded_?"收起":"展开",layout.textRight()-44,layout.candidateToggleY(),44,"expand");
+  if(layout.portrait) {
+    lv_obj_set_style_bg_opa(editorExpand_,LV_OPA_TRANSP,0);
+    attachIcon(editorExpand_,editorExpanded_?"candidate-up":"candidate-down",theme::text);
+  }
   editorChoicesEmpty_=false;editorChoicesDirty_=true;editorRefreshCandidates();
   if(editor_.secret) attachIcon(control("",layout.textRight()-102,layout.portrait?layout.candidateY:6,44,"reveal"),editor_.reveal?"eye-off":"eye",theme::muted);
   if(editorOcrShown_&&!layout.portrait) {
@@ -393,6 +413,8 @@ uint64_t App::editorPaintKey() const {
 }
 std::string App::editorCompositionText() const {
   if(!editor_.notice.empty())return editor_.notice;
+  if(editorLayout().portrait&&editorOcrShown_&&editor_.preedit.empty())
+    return editorOcrBusy_?"正在识别…":"扫描已插入 · 可继续划扫";
   std::string text=editor_.preedit+(editor_.fixed.empty()?"":" · "+editor_.fixed);
   if(editor_.layout==1&&(!editor_.parked[0].raw.empty()||!editor_.parked[1].raw.empty()))text+="拼音已暂存";
   if(!editorDeferred_.empty()) {
@@ -419,8 +441,7 @@ void App::editorRefresh() {
   if(rebuild)editorRebuild_=true;
   editorRefreshPending_=false;++editorRefreshCount_;
   if(editorPreeditLabel_) {
-    const auto text=editorCompositionText();
-    if(text!=lv_label_get_text(editorPreeditLabel_))lv_label_set_text(editorPreeditLabel_,text.c_str());
+    syncCompositionLabel(editorPreeditLabel_,editorLayout(),editorCompositionText(),font(16));
   }
   // Composing pinyin does not change the text widget or its geometry.
   const bool textChanged=editorText_&&editor_.text!=lv_textarea_get_text(editorText_);
@@ -1441,6 +1462,10 @@ Json App::editorDiagnostic() const {
     lv_area_t p;lv_obj_get_coords(editorSelectionMenu_,&p);
     selectionPopup={p.x1,p.y1,p.x2,p.y2};
   }
+  Json compositionBounds=Json::array();
+  if(editorPreeditLabel_&&!lv_obj_is_hidden(editorPreeditLabel_)) {
+    lv_area_t p;lv_obj_get_coords(editorPreeditLabel_,&p);compositionBounds={p.x1,p.y1,p.x2,p.y2};
+  }
   Json candidateBounds=Json::array();
   if(editorChoices_&&!lv_obj_is_hidden(editorChoices_)) {
     lv_area_t p;lv_obj_get_coords(editorChoices_,&p);candidateBounds={p.x1,p.y1,p.x2,p.y2};
@@ -1472,7 +1497,7 @@ Json App::editorDiagnostic() const {
   }
   Json anchor=Json::array();
   if(editorTarget_){lv_area_t a;lv_obj_get_coords(editorTarget_,&a);anchor={a.x1,a.y1,a.x2,a.y2};}
-  return {{"candidate_bounds",candidateBounds},{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"selection_bounds",editorSelectionBounds_.width>0?
+  return {{"composition_bounds",compositionBounds},{"composition_floating",editorPreeditLabel_&&lv_obj_is_floating(editorPreeditLabel_)},{"candidate_bounds",candidateBounds},{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"selection_bounds",editorSelectionBounds_.width>0?
     Json::array({editorSelectionBounds_.x,editorSelectionBounds_.y,editorSelectionBounds_.x+editorSelectionBounds_.width-1,editorSelectionBounds_.y+editorSelectionBounds_.height-1}):Json::array()},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"in_place",editor_.active&&editorInPlace()&&editorTarget_!=nullptr},{"input_anchor",editorTargetKey_},{"docked",layout.docked},{"dismiss_offset",editorDismissOffset_},{"dismiss_threshold",editorDismissThreshold_},{"dismissing",editorDismissing_},{"dismiss_returning",editorDismissReturnAt_!=0},{"inline_chat",editorInlineChat_},{"panel_top",layout.panelTop},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
     {"layout",editor_.layout==0?"zh26":editor_.layout==1?"en26":"zh9"},{"preferred_layout",editor_.preferredChinese==2?"zh9":"zh26"},
     {"layout_menu",editorLayoutMenu_},{"layout_popup",layoutPopup},{"layout_hold",editorLayoutHold_},{"expanded",editorExpanded_},{"punctuation_menu",editorPunctuation_},{"exact_count",editorExact_.size()},
