@@ -25,7 +25,9 @@ for width,height in [(960,266),(568,1210)]:
                 s=a.diag();e=s['editor'];assert e['cursor_drag'] and e['magnifier']
                 left,top,right,bottom=e['magnifier_bounds'];safe=s['safe_insets'] if height>width else [4,4,4,10]
                 assert left>=safe[0] and top>=safe[1] and right<width-safe[2] and bottom<height-safe[3],(name,e['magnifier_bounds'],safe)
-                assert e['text_bounds'][0]<=left<=right<=e['text_bounds'][2]
+                # The lens floats outside the field; only screen safe bounds
+                # constrain it. Its position must not restrict caret movement.
+                assert safe[0]<=left<=right<width-safe[2]
                 c=e['magnifier_caret'];assert left<=c[0]<=c[2]<=right and top<=c[1]<=c[3]<=bottom,(name,c,e['magnifier_bounds'])
                 assert right-left+1==180 and bottom-top+1==58
                 assert abs((c[0]+c[2]+1)//2-(left+right+1)//2)<=1
@@ -41,7 +43,8 @@ for width,height in [(960,266),(568,1210)]:
                 a.send('touch',x=x,y=y,pressed=True);time.sleep(.52)
                 a.send('touch',x=x+20,y=y,pressed=True);t.wait_for(lambda:editor()['magnifier'])
                 a.send('touch',x=0,y=0,pressed=True);time.sleep(.1)
-                e=editor();assert e['magnifier_bounds'][:2]==[max(24,e['text_bounds'][0]),24],e['magnifier_bounds']
+                e=editor();safe=a.diag()['safe_insets']
+                assert e['magnifier_bounds'][:2]==[max(4,safe[0]),max(4,safe[1])],e['magnifier_bounds']
                 capture(a,OUT/f'{width}-top-field.png')
                 a.send('touch',x=0,y=0,pressed=False,cancelled=True);a.editor_action('cancel')
             print(f'Magnifier {width}x{height}: four-edge drag, safe bounds, centered lens/caret and cancel passed.',flush=True)

@@ -389,8 +389,10 @@ JDA0700006552216 is an explicit CV1826/ARMv7 target; reuse the accepted CVI INT8
 bundle and public runtime in place, never load RKNN or copy device libraries into
 the system. Follow docs/S6-ARMV7-DEV.md. Keep the independent s6-armv7 worktree unchanged. Y02/113 remains forbidden.
 
-S6 uses the same LVGL pages and keyboard state machine, scaled as a whole on its
-narrow landscape screen. Physical panel dimensions and rotation come from Falcon;
+S6 uses the same LVGL pages and keyboard state machine. CompactLandscape defaults
+to a full-width keyboard in Falcon logical coordinates with a 44px input/candidate
+strip; only its optional split editor retains the old local design scaling.
+Keep input, undo, selection, pinyin and OCR in the same session across view changes. Physical panel dimensions and rotation come from Falcon;
 S6 uses native/compositor shared-memory output through Falcon's verified original
 post_fb. Never initialize the old CVI VO display backend or fall back to it on
 an unknown firmware. Rotation occurs once in Falcon; never use touch offsets to

@@ -12,10 +12,21 @@ int main() {
   config["screen"]["width"]=240;config["screen"]["height"]=720;
   auto other=Screen::fromConfig(config,true);assert(other.width==720&&other.height==240);
   auto logical=Screen::fromConfig(config);assert(logical.width==240&&logical.height==720);
-  EditorLayout compact(640,260);assert(compact.scaled&&compact.width==960&&compact.height==266&&!compact.portrait);
-  assert(compact.fromNativeX(320)==480&&compact.fromNativeY(130)==133);
+  EditorLayout compact(640,260);assert(!compact.scaled&&compact.compactFull&&compact.width==640&&compact.height==260&&!compact.portrait);
+  assert(compact.fromNativeX(320)==320&&compact.fromNativeY(130)==130);
+  assert(compact.keySpan==640&&compact.textY==0&&compact.textHeight==44&&compact.keyTop==48);
+  assert(compact.rowHeight>=44&&compact.keyWidth>=44&&compact.bottomHeight>=44);
+  const EditorLayout expanded(640,260,false,false,false,true);
+  assert(expanded.compact&&!expanded.compactFull&&expanded.scaled&&expanded.width==960&&expanded.split==584);
+  assert(expanded.fromNativeX(320)==480&&expanded.fromNativeY(130)==133);
   assert(compact.textX+compact.textWidth<=compact.width);
-  for(auto a:compact.actions())assert(a.x>=compact.textX&&a.x+a.width<=compact.width);
+  for(auto a:compact.actions())assert(a.x>=0&&a.x+a.width<=compact.width&&a.width>=44);
+  for(auto size:{std::make_pair(640,260),std::make_pair(720,280)}) {
+    const EditorLayout full(size.first,size.second);
+    assert(full.compactFull&&!full.scaled&&full.keySpan==size.first);
+    assert(full.textHeight==44&&full.rowHeight>=44&&full.keyWidth>=44);
+    for(auto a:full.actions())assert(a.x>=0&&a.x+a.width<=full.width&&a.y+44<=full.height);
+  }
   EditorLayout landscape(960,266);assert(!landscape.scaled&&landscape.split==584&&landscape.textX==592);
   EditorLayout portrait(568,1210);assert(!portrait.scaled&&portrait.portrait&&portrait.docked);
   // Swapping is a translation of regions, not a mirror of keys or content.
@@ -38,7 +49,7 @@ int main() {
     const auto hit=swap.keyTouchBounds(cap,true,false);
     assert(hit.x==swap.keyInset&&hit.x+hit.width<=swap.keyInset+swap.keySpan);
     const auto bubble=swap.magnifierPopup(swap.textRight(),120,swap.textX,swap.textRight());
-    assert(bubble.x>=swap.textX&&bubble.x+bubble.width<=swap.textRight());
+    assert(bubble.x>=4&&bubble.x+bubble.width<=swap.width-4);
     const EditorLayout selection(size.first,size.second,true,false,true);
     assert(!selection.swapped&&selection.keyInset==0);
   }

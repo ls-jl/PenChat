@@ -12,14 +12,16 @@ struct EditorLayout {
   bool scaled=false, swapped=false;
   int width, height, split, textX, textWidth, textY = 78, textHeight;
   int actionsY, bottomY, rowHeight, keyTop=6, bottomHeight=44, candidateY=6, compositionY=54;
-  bool portrait=false, docked=false;
+  bool portrait=false, docked=false, compact=false, compactFull=false;
   int panelTop=0, textAreaWidth=0, keyboardLift=0;
   int keyInset=0, keySpan=0;
   double keyWidth;
   EditorLayout(int w, int h, bool selectionOnly = false, bool chatComposer = false,
-               bool swapWideSides = false) : nativeWidth(w),nativeHeight(h),width(w),height(h) {
+               bool swapWideSides = false, bool compactExpanded = false) : nativeWidth(w),nativeHeight(h),width(w),height(h) {
     swapped=swapWideSides&&!selectionOnly&&classifyLayout(w,h)==LayoutClass::WideLandscape;
-    scaled=classifyLayout(w,h)==LayoutClass::CompactLandscape;
+    compact=classifyLayout(w,h)==LayoutClass::CompactLandscape&&!selectionOnly;
+    compactFull=compact&&!compactExpanded;
+    scaled=classifyLayout(w,h)==LayoutClass::CompactLandscape&&!compactFull;
     if(scaled){w=width=960;h=height=266;}
     split = w - std::max(352, w * 2 / 5 - 8);
     textX = split + 8;
@@ -33,6 +35,14 @@ struct EditorLayout {
     // Translate whole regions without reflecting their local coordinates. Key
     // order, text direction and hit bounds remain identical on either side.
     if(swapped) {keyInset=w-split;textX=8;}
+    if(compactFull) {
+      split=keySpan=w;keyInset=0;
+      textX=100;textWidth=std::max(1,w-textX-48);
+      textY=candidateY=compositionY=actionsY=0;textHeight=44;
+      keyTop=48;bottomY=h-48;bottomHeight=44;
+      rowHeight=std::max(1,(bottomY-keyTop-18)/3);
+      keyWidth=(keySpan-44)/10.;
+    }
     if(portrait) {
       const AppLayout safe{w,h};
       split=w;keyInset=0;keySpan=w;
@@ -65,11 +75,17 @@ struct EditorLayout {
   int fromNativeY(int y) const {return scaled?int(std::lround(double(y)*height/nativeHeight)):y;}
   int scaleX() const {return scaled?int(std::lround(256.*nativeWidth/width)):256;}
   int scaleY() const {return scaled?int(std::lround(256.*nativeHeight/height)):256;}
-  int editorPanelX() const { return portrait?0:swapped?0:split; }
-  int editorPanelWidth() const { return portrait?width:width-split; }
+  int editorPanelX() const { return portrait||compactFull?0:swapped?0:split; }
+  int editorPanelWidth() const { return portrait||compactFull?width:width-split; }
   int textRight() const { return textX+textWidth; }
-  int overlayY() const { return docked?AppLayout{width,height}.safeTop():textY; }
-  int overlayHeight() const { return docked?compositionY-overlayY()-10:textHeight; }
+  int overlayY() const { return compactFull?keyTop:docked?AppLayout{width,height}.safeTop():textY; }
+  int overlayHeight() const { return compactFull?height-keyTop-4:docked?compositionY-overlayY()-10:textHeight; }
+  int compactPreeditWidth() const { return std::min(144,std::max(72,textWidth/3)); }
+  int candidateWidth(bool expanded) const {
+    return compactFull?(expanded?width-8:textWidth-compactPreeditWidth()-4):textWidth;
+  }
+  int compactTouchWidth() const { return compact&&!compactFull?int(std::ceil(44.*256/scaleX())):44; }
+  int controlHeight() const { return compact&&!compactFull?int(std::ceil(44.*256/scaleY())):44; }
   struct Popup {
     int x, y, width, height;
     bool contains(int px,int py) const {
@@ -117,6 +133,13 @@ struct EditorLayout {
   }
   struct Action { const char *name; int x, width, y; };
   std::vector<Action> actions(bool chat=false) const {
+    if(compactFull)return {{"cancel",4,44,0},{"tools",52,44,0},{"done",width-68,64,bottomY}};
+    if(compact) {
+      const int small=compactTouchWidth();
+      return {{"cancel",textX,textWidth-2*small-116,actionsY},
+        {"ocr-mode",textRight()-104-2*small-8,small,actionsY},
+        {"done",textRight()-small-108,104,actionsY},{"clipboard",textRight()-small,small,actionsY}};
+    }
     if(portrait) {
       std::vector<Action> a;
       if(!chat)a.push_back({"cancel",0,84,actionsY});

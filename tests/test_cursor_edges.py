@@ -80,11 +80,12 @@ for width,height in [(960,266),(568,1210)]:
                 a.send('touch',x=end[0]-1,y=y,pressed=True);time.sleep(.08)
                 assert e()['cursor']==len(text),(width,case,'last glyph right half',e()['cursor'],len(text))
                 current=e();bubble=current['magnifier_bounds'];bounds=current['text_bounds']
-                assert bounds[0]<=bubble[0]<=bubble[2]<=bounds[2],(bubble,bounds)
+                safe=a.diag()['safe_insets'] if height>width else [4,4,4,10]
+                assert safe[0]<=bubble[0]<=bubble[2]<width-safe[2],(bubble,safe)
                 capture(a,OUT/f'{width}-{case}-right.png')
                 a.send('touch',x=-80,y=bounds[1]+5,pressed=True);time.sleep(.08)
                 assert e()['cursor']==0
-                bubble=e()['magnifier_bounds'];assert bounds[0]<=bubble[0]<=bubble[2]<=bounds[2]
+                bubble=e()['magnifier_bounds'];assert safe[0]<=bubble[0]<=bubble[2]<width-safe[2]
                 a.send('touch',x=-80,y=bounds[1]+5,pressed=False)
                 assert not e()['cursor_drag'] and not e()['magnifier']
                 a.editor_action('official');request=a.receive('keyboard.open')

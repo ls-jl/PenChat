@@ -203,6 +203,18 @@ void paint(lv_event_t *event) {
     line(-6, 6, 6, -6);
   } else if (k == "minus") {
     line(-8, 0, 8, 0);
+  } else if (k == "editor-expand" || k == "editor-collapse") {
+    if(k=="editor-expand") {
+      line(-3,-9,-9,-9);line(-9,-9,-9,-3);line(3,9,9,9);line(9,9,9,3);
+      line(-8,-8,-2,-2);line(8,8,2,2);
+    } else {
+      line(-9,-3,-3,-3);line(-3,-3,-3,-9);line(9,3,3,3);line(3,3,3,9);
+      line(-9,-9,-3,-3);line(9,9,3,3);
+    }
+  } else if (k == "more-horizontal") {
+    circle(-7,0,1);circle(0,0,1);circle(7,0,1);
+  } else if (k == "chevron-up") {
+    line(-5,2,0,-3);line(0,-3,5,2);
   } else if (k == "plus") {
     line(-8, 0, 8, 0);
     line(0, -8, 0, 8);
@@ -347,6 +359,18 @@ void attachIcon(lv_obj_t *object, const std::string &name, uint32_t ink) {
       object,
       [](lv_event_t *e) { delete static_cast<Icon *>(lv_event_get_user_data(e)); },
       LV_EVENT_DELETE, data);
+}
+void setIcon(lv_obj_t *object, const std::string &name, uint32_t ink) {
+  for(uint32_t i=0;i<lv_obj_get_event_count(object);++i) {
+    auto event=lv_obj_get_event_dsc(object,i);
+    if(lv_event_dsc_get_cb(event)!=paint)continue;
+    auto data=static_cast<Icon *>(lv_event_dsc_get_user_data(event));
+    if(data->name!=name||data->ink!=ink) {
+      data->name=name;data->ink=ink;lv_obj_invalidate(object);
+    }
+    return;
+  }
+  attachIcon(object,name,ink);lv_obj_invalidate(object);
 }
 void setSelectionHandleTop(lv_obj_t *object, int top, int corner, int x, int diameterX, int diameterY) {
   for (uint32_t i=0;i<lv_obj_get_event_count(object);++i) {

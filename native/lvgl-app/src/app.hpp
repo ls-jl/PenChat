@@ -582,9 +582,16 @@ class App {
   bool editorRefreshPending_=false, editorChoicesDirty_=false, editorChoicesEmpty_=false, editorSelectPending_=false;
   std::string editorChosenWord_;
   uint64_t editorPaintedKey_=0, editorBuildCount_=0, editorRefreshCount_=0;
+  bool editorCompactExpanded_=false, editorToolsOpen_=false, editorRestoreViewScroll_=false;
+  int editorCompactScroll_[2]={0,0}, editorCompactIcon_=-1;
+  lv_obj_t *editorPreeditViewport_=nullptr;
+  bool editorCompactComposition() const;
+  void editorRefreshCompactBar();
+  void editorCompactView(bool expanded);
+  void editorCompactEnsureCaret();
 
   EditorLayout editorLayout() const {
-    EditorLayout result(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,editorSwapSides_);
+    EditorLayout result(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,editorSwapSides_,editorCompactExpanded_);
     if(officialDocked_&&keyboard_&&officialHeight_>0)result.panelTop=screen_.height-officialHeight_;
     return result;
   }
