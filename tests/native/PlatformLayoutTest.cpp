@@ -21,7 +21,11 @@ int main() {
   for(auto size:{std::make_pair(568,1210),std::make_pair(600,1280)}) {
     const EditorLayout l(size.first,size.second);
     const auto normal=l.candidateArea(false),expanded=l.candidateArea(true),cover=l.candidateCover();
-    assert(normal.y==l.candidateToggleY() && normal.height==44);
+    const auto toggle=l.candidateToggle();
+    assert(normal.x==0 && normal.y==l.candidateY && normal.height==44);
+    assert(toggle.width==64 && toggle.height==48 && toggle.x+toggle.width<=l.width);
+    assert(toggle.y+toggle.height<l.keyTop-3 && normal.x+normal.width<toggle.x);
+    assert(l.compositionTop(20)+26==l.candidateY);
     assert(cover.y==l.keyTop && cover.y+cover.height==l.bottomY+l.bottomHeight);
     assert(expanded.y>=l.keyTop && expanded.y+expanded.height<=l.bottomY+l.bottomHeight);
     assert(expanded.y>normal.y+normal.height);

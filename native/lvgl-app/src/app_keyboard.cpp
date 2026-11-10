@@ -22,7 +22,7 @@ void syncCompositionLabel(lv_obj_t *label,const EditorLayout &layout,const std::
   lv_text_get_size(&size,text.c_str(),font,0,0,LV_COORD_MAX,LV_TEXT_FLAG_EXPAND);
   const int height=font->line_height+6;
   lv_obj_set_size(label,std::min(layout.textWidth,std::max(12,int(size.x)+12)),height);
-  lv_obj_set_pos(label,layout.textX,layout.candidateY-height);
+  lv_obj_set_pos(label,layout.textX,layout.compositionTop(font->line_height));
 }
 int keyboardClusterWidth(lv_obj_t *label,size_t first,size_t last) {
   const char *text=lv_label_get_text(label),*begin=text,*end=text;
@@ -139,7 +139,8 @@ void App::editorBuild() {
   if(layout.docked) {
     lv_obj_set_style_bg_opa(editorRoot_,LV_OPA_TRANSP,0);
     lv_obj_set_clickable(editorRoot_,false);
-    auto panel=box(editorRoot_,0,layout.panelTop,editorLayout().width,editorLayout().height-layout.panelTop,theme::background);
+    const int panelY=std::max(layout.panelTop,layout.compositionTop(font(16)->line_height));
+    auto panel=box(editorRoot_,0,panelY,editorLayout().width,editorLayout().height-panelY,theme::background);
     lv_obj_set_scrollable(panel,false);lv_obj_set_clickable(panel,true);
   }
   auto action = [this](const std::string &s) { events_.push("editor_action",{{"id",editor_.id},{"action",s}}); };
@@ -298,7 +299,9 @@ void App::editorBuild() {
   if(layout.portrait&&!editorCandidateRow())lv_obj_set_hidden(choices,true);
   lv_obj_set_scroll_dir(choices,editorExpanded_?LV_DIR_VER:LV_DIR_HOR);
   lv_obj_set_scrollbar_mode(choices,LV_SCROLLBAR_MODE_AUTO);
-  editorExpand_ = control(layout.portrait?"":editorExpanded_?"收起":"展开",layout.textRight()-44,layout.candidateToggleY(),44,"expand");
+  const auto toggle=layout.candidateToggle();
+  editorExpand_ = control(layout.portrait?"":editorExpanded_?"收起":"展开",toggle.x,toggle.y,toggle.width,"expand");
+  lv_obj_set_height(editorExpand_,toggle.height);
   if(layout.portrait) {
     lv_obj_set_style_bg_opa(editorExpand_,LV_OPA_TRANSP,0);
     attachIcon(editorExpand_,editorExpanded_?"candidate-up":"candidate-down",theme::text);
@@ -486,7 +489,7 @@ void App::editorRefreshCandidates() {
   for (size_t i=0;i<editorCandidates_.size();++i) {
     const bool corrected=i<editorCandidateDetails_.size()&&editorCandidateDetails_[i].value("corrected",false);
     std::string text=editorCandidates_[i].get<std::string>(); int w=std::max(52,std::min(layout.textWidth-8,int(editLength(text))*22+(corrected?34:20)));
-    if (editorExpanded_ && cx+w>layout.textWidth) { cx=0; cy+=48; }
+    if (editorExpanded_ && cx+w>layout.candidateArea(true).width) { cx=0; cy+=48; }
     auto held=corrected?std::make_shared<bool>(false):std::shared_ptr<bool>();
     auto b=button(choices,text,cx,cy,w,44,[action,i,revision=editorRevision_,held] { if(!held||!*held)action("choose:"+std::to_string(revision)+":"+std::to_string(i)); },theme::surface);
     lv_obj_set_width(lv_obj_get_child(b,0),w-(corrected?22:8));

@@ -17,14 +17,17 @@ def run(w,h):
             for c in 'nihao':key(app,c)
             ready(app);e=editor(app);b=e['composition_bounds'];toggle=e['actions']['expand']
             assert e['composition_floating'] and len(b)==4
-            assert b[2]-b[0]<w//2 and b[3]+1==toggle[1],(b,toggle)
+            assert b[2]-b[0]<w//2 and b[3]+1==e['candidate_y'],(b,toggle)
             assert e['text_bounds']==baseline and e['panel_top']==panel
+            assert app.diag()['composer_bounds'][3]+1==b[1],(app.diag()['composer_bounds'],b)
+            assert e['candidate_bounds'][0]==0
+            assert toggle[2]-toggle[0]+1==64 and toggle[3]-toggle[1]+1==48
             capture(app,OUT/f'{w}-composing.png')
-            app.tap((toggle[0]+toggle[2])//2,(toggle[1]+toggle[3])//2)
+            app.tap(toggle[2]-2,(toggle[1]+toggle[3])//2)
             e=editor(app);assert e['expanded'] and e['actions']['expand']==toggle
             assert e['composition_bounds']==b and e['text_bounds']==baseline
             capture(app,OUT/f'{w}-expanded.png')
-            app.tap((toggle[0]+toggle[2])//2,(toggle[1]+toggle[3])//2)
+            app.tap(toggle[2]-2,(toggle[1]+toggle[3])//2)
             key(app,'space');selected(app)
             assert not editor(app)['composition_bounds'] and editor(app)['length']>0
             capture(app,OUT/f'{w}-committed.png')

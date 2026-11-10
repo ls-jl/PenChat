@@ -81,12 +81,16 @@ struct EditorLayout {
       Popup{textX,overlayY(),textWidth,overlayHeight()};
   }
   Popup candidateArea(bool expanded) const {
-    if(!expanded)return {textX,candidateY,textWidth-50,44};
+    if(!expanded)return portrait?Popup{0,candidateY,candidateToggle().x-6,44}:Popup{textX,candidateY,textWidth-50,44};
     if(!portrait)return candidateCover();
     const auto cover=candidateCover();
-    return {textX,cover.y+4,textWidth,cover.height-8};
+    return {0,cover.y+4,width,cover.height-8};
   }
-  int candidateToggleY() const {return portrait?candidateY:6;}
+  Popup candidateToggle() const {
+    return portrait?Popup{width-66,candidateY-2,64,48}:Popup{textRight()-44,6,44,44};
+  }
+  int candidateToggleY() const {return candidateToggle().y;}
+  int compositionTop(int lineHeight) const {return candidateY-lineHeight-6;}
   Popup keyTouchBounds(const Popup &cap, bool leftEdge = false,
                        bool rightEdge = false) const {
     const int left = leftEdge ? keyInset : std::max(keyInset, cap.x - 4);

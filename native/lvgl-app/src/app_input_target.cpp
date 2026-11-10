@@ -84,7 +84,11 @@ int App::chatComposerHeight() const {
 }
 int App::chatComposerY() const {
   const bool docked=editor_.active&&editorInPlace()&&view_=="chat";
-  return (docked?editorLayout().panelTop-4:screen_.height-layout().safeBottom())-chatComposerHeight();
+  const auto keyboard=editorLayout();
+  const bool official=officialDocked_&&keyboard_&&officialHeight_>0;
+  const int bottom=docked?(official?keyboard.panelTop-4:keyboard.compositionTop(font(16)->line_height)):
+    screen_.height-layout().safeBottom();
+  return bottom-chatComposerHeight();
 }
 void App::layoutChatComposer() {
   if(!chatControls_||!composer_)return;
