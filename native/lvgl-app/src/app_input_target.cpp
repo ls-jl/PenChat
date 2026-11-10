@@ -74,15 +74,15 @@ int App::chatComposerHeight() const {
     const int inset=std::max(0,(44-int(font(20)->line_height))/2);
     return std::min(base*2,std::max(base,int(size.y)+2*inset+4));
   }
-  // The expanded portrait composer uses text above its tools. The
-  // larger portrait pill inset belongs only to the collapsed single row.
-  const int pad=12;
+  // Text has its own inset; the tool row keeps the resting pill's arc center.
+  const int pad=14; // Keeps text/caret inside the fixed 47px corner.
+  const int toolsTop=layout().composerHeight()/2+layout().composerSendDiameter()/2;
   const int width=std::max(44,layout().composerWidth()-2*pad);
   lv_point_t size{};lv_text_get_size(&size,text.c_str(),font(20),0,0,width,LV_TEXT_FLAG_NONE);
-  const int minimum=std::max(2*pad+font(20)->line_height+8+44,
+  const int minimum=std::max(pad+font(20)->line_height+8+toolsTop,
                              editing?editorComposerOpenHeight_:0);
   return std::min(std::max(minimum,base*3),
-                  std::max(minimum,2*pad+std::max(int(font(20)->line_height),int(size.y))+8+44));
+                  std::max(minimum,pad+std::max(int(font(20)->line_height),int(size.y))+8+toolsTop));
 }
 int App::chatComposerY() const {
   const bool docked=editor_.active&&editorInPlace()&&view_=="chat";
@@ -99,22 +99,24 @@ void App::layoutChatComposer() {
   const bool previous=chatLayout_;chatLayout_=true;
   const int oldHeight=lv_obj_get_height(chatControls_);
   const int height=chatComposerHeight(),width=layout().composerWidth();
-  const int pad=expanded?12:layout().composerInset();
+  const int pad=expanded?14:layout().composerInset();
   lv_obj_set_height(chatControls_,height);
-  lv_obj_set_style_radius(chatControls_,layout().portrait()?(expanded?28:height/2):layout().composerHeight()/2,0);
+  lv_obj_set_style_radius(chatControls_,layout().composerHeight()/2,0);
   if(toBottom_)lv_obj_set_y(toBottom_,chatComposerY()-56);
   const bool gauge=sessionPreferences_.value("gauge",!effortMemory_.empty());
   const int x=expanded?pad:layout().composerEntryLeft();
   const int y=pad;
   const int w=expanded?width-2*pad:width-x-layout().composerEntryRight(gauge);
-  const int h=expanded?height-2*pad-8-44:height-2*pad;
+  const int toolsTop=layout().composerHeight()/2+layout().composerSendDiameter()/2;
+  const int h=expanded?height-pad-8-toolsTop:height-2*pad;
   lv_obj_set_pos(composer_,x,y);lv_obj_set_size(composer_,w,h);
   for(uint32_t i=0;i<lv_obj_get_child_count(chatControls_);++i) {
     auto child=lv_obj_get_child(chatControls_,i);if(child==composer_)continue;
     const bool send=i+1==lv_obj_get_child_count(chatControls_);
     const int grow=send?(layout().composerSendDiameter()-44)/2:0;
-    const int cx=send?width-pad-44-grow:i==0?pad:width-pad-96;
-    lv_obj_set_align(child,LV_ALIGN_TOP_LEFT);lv_obj_set_pos(child,cx,height-pad-44-grow);
+    const int toolPad=layout().composerInset();
+    const int cx=send?width-toolPad-44-grow:i==0?pad:width-toolPad-96;
+    lv_obj_set_align(child,LV_ALIGN_TOP_LEFT);lv_obj_set_pos(child,cx,height-toolPad-44-grow);
   }
   auto value=lv_obj_get_child(composer_,0);
   if(value) {
