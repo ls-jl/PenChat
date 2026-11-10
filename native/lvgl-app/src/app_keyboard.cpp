@@ -435,14 +435,20 @@ void App::editorBuild() {
     lv_obj_set_style_bg_opa(backdrop,LV_OPA_TRANSP,0);lv_obj_set_scrollable(backdrop,false);
     lv_obj_set_clickable(backdrop,true);
     lv_obj_add_event_cb(backdrop,[](lv_event_t *event){auto app=static_cast<App *>(lv_event_get_user_data(event));app->events_.push("editor_action",{{"id",app->editor_.id},{"action","tools"}});},LV_EVENT_CLICKED,this);
-    const auto popup=layout.floatingPopup(52,48,std::min(300,layout.width-8),editor_.secret?200:152);
-    auto panel=box(editorRoot_,popup.x,popup.y,popup.width,popup.height,theme::sidebar);
-    lv_obj_set_style_radius(panel,12,0);lv_obj_set_style_border_width(panel,1,0);lv_obj_set_style_border_color(panel,lv_color_hex(theme::border),0);
-    lv_obj_set_scroll_dir(panel,LV_DIR_VER);lv_obj_set_scroll_elastic(panel,false);
     const std::vector<std::pair<std::string,std::string>> items={
       {"clipboard","剪贴板"},{"ocr-mode",!editorOcrActive_&&!editorOcrId_.empty()?"重试文字扫描":editorOcrMulti_?"扫描模式：多行":"扫描模式：单行"},
       {"official","有道输入法"},{"reveal",editor_.reveal?"隐藏密钥":"显示密钥"}};
-    for(size_t i=0;i<(editor_.secret?4u:3u);++i) {
+    const size_t count=editor_.secret?4u:3u;
+    int menuWidth=52;
+    for(size_t i=0;i<count;++i) {
+      lv_point_t size{};lv_text_get_size(&size,items[i].second.c_str(),font(20),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+      menuWidth=std::max(menuWidth,int(size.x)+40);
+    }
+    const auto popup=layout.floatingPopup(52,48,menuWidth,int(count)*48+8);
+    auto panel=box(editorRoot_,popup.x,popup.y,popup.width,popup.height,theme::sidebar);
+    lv_obj_set_style_radius(panel,12,0);lv_obj_set_style_border_width(panel,1,0);lv_obj_set_style_border_color(panel,lv_color_hex(theme::border),0);
+    lv_obj_set_scroll_dir(panel,LV_DIR_VER);lv_obj_set_scroll_elastic(panel,false);
+    for(size_t i=0;i<count;++i) {
       const auto command=items[i].first;
       editorLocalActions_[command]=button(panel,items[i].second,4,4+int(i)*48,popup.width-8,44,[action,command]{action(command);},theme::sidebar,LV_TEXT_ALIGN_LEFT);
     }

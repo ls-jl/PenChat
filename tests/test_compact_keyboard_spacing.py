@@ -21,6 +21,12 @@ for width,height in [(640,260),(720,280)]:
             assert initial['actions']['tools'][0]-initial['actions']['cancel'][2]-1==4
             assert initial['text_bounds'][0]-initial['actions']['tools'][2]-1==4
             capture(a,OUT/f'{width}-spacing-empty.png')
+            a.editor_action('tools')
+            items=[e()['actions'][name] for name in ('clipboard','ocr-mode','official')]
+            assert len({b[2]-b[0]+1 for b in items})==1
+            assert all(120<=b[2]-b[0]+1<=220 and b[3]-b[1]+1==44 for b in items)
+            capture(a,OUT/f'{width}-tools-fitted.png')
+            a.editor_action('tools');assert not e()['tools_open']
             key('shift');assert e()['shift']==1
             capture(a,OUT/f'{width}-shift-active.png')
             for _ in range(2):
