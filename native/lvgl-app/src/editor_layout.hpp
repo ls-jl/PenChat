@@ -110,12 +110,6 @@ struct EditorLayout {
   int selectionHandleHeight() const {return scaled?int(std::ceil(44.*256/scaleY())):44;}
   int selectionButtonWidth() const {return std::max(88,scaled?int(std::ceil(44.*256/scaleX())):44);}
   int selectionButtonHeight() const {return std::max(44,scaled?int(std::ceil(44.*256/scaleY())):44);}
-  Popup selectionPopup(int x,int y,bool readOnly=false) const {
-    const int w=(readOnly?2:5)*(selectionButtonWidth()+4)+4,h=selectionButtonHeight()+8;
-    int py=y-h-8-(portrait?52:0);
-    if(readOnly&&py<AppLayout{width,height}.safeTop()+56)py=y+20;
-    return floatingPopup(x-w/2,py,w,h);
-  }
   Popup globeKey() const {
     const int commaCenter=8+px(keyWidth+14)+px(keyWidth+10)/2;
     const int centerY=px((bottomY+bottomHeight-1.+height-1)/2.);

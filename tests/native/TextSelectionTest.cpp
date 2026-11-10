@@ -1,6 +1,7 @@
 #include "editor.hpp"
 #include "editor_layout.hpp"
 #include "markdown.hpp"
+#include "selection_menu.hpp"
 #include "text_gesture.hpp"
 #include <cassert>
 #include <iostream>
@@ -69,6 +70,16 @@ int main(int argc, char **argv) {
   e.select(0, 3);
   e.extendSelection(0, 0);
   assert(e.selection() == u8"👩‍💻");
+  const LayoutRect safe{8, 4, 624, 346};
+  auto popup = placeSelectionMenu({200, 120, 80, 25}, safe, 188, 52);
+  assert(popup.position == SelectionMenu::Above && popup.bounds.y == 60 && popup.bounds.x == 146);
+  popup = placeSelectionMenu({10, 4, 20, 20}, safe, 188, 52);
+  assert(popup.position == SelectionMenu::Below && popup.bounds.y == 32 && popup.bounds.x == 8);
+  popup = placeSelectionMenu({100, 4, 300, 340}, safe, 188, 52);
+  assert(popup.position == SelectionMenu::LowerLeft && popup.bounds.x == 8 &&
+         popup.bounds.y == 298);
+  popup = placeSelectionMenu({620, 64, 20, 20}, safe, 188, 52);
+  assert(popup.position == SelectionMenu::Above && popup.bounds.y == 4 && popup.bounds.x == 444);
   EditorClipboard c;
   assert(c.copy("one"));
   assert(c.copy("secret", true));

@@ -67,10 +67,10 @@ def run(width,height):
             clear_selection(app)
             app.long_press(x+78,y,.52)
             assert ro(app)['start']==6 and ro(app)['end']==11,ro(app)
-            h=ro(app)['handles'][-1];hx=(h[0]+h[2])//2;hy=(h[1]+h[3])//2
+            hx,hy=ro(app)['handle_grips'][-1]
             press(app,hx,hy);press(app,x-6,y);press(app,x-6,y,False,cancelled=True);time.sleep(.08)
             assert ro(app)['start']==6 and ro(app)['end']==11 and not ro(app)['menu'],ro(app)
-            h=ro(app)['handles'][-1];hx=(h[0]+h[2])//2;hy=(h[1]+h[3])//2
+            hx,hy=ro(app)['handle_grips'][-1]
             press(app,hx,hy);press(app,x-6,y);time.sleep(.07);press(app,x-6,y,False)
             assert ro(app)['start']==0 and ro(app)['end']==6,ro(app)
             # Movement before the long hold remains a scroll even after pausing.

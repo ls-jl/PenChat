@@ -269,6 +269,7 @@ void App::readReset() {
       std::vector<size_t>().swap(part.scalarBytes);
     }
   readActive_ = 0;
+  readSelectionBounds_ = {};
   readGesture_.cancel();
   readPreview_ = readMenuPointer_ = readMenuWanted_ = readScrollPassthrough_ = false;
   readHandle_ = -1;
@@ -329,6 +330,7 @@ void App::readDraw(bool menu) {
   }
   const auto range = readSelection_.range();
   std::vector<lv_area_t> marks;
+  LayoutRect selectedBounds{};
   lv_point_t endpoints[2]{};
   int endpointTops[2]{};
   bool found[2] = {false, false};
@@ -367,6 +369,11 @@ void App::readDraw(bool menu) {
       lv_label_set_text_selection_end(part.object, selected
                                                        ? std::min(range.second, finish) - part.begin
                                                        : LV_LABEL_TEXT_SELECTION_OFF);
+      if (selected)
+        includeSelectionRect(
+            selectedBounds,
+            selectionLabelBounds(part.object, std::max(range.first, part.begin) - part.begin,
+                                 std::min(range.second, finish) - part.begin, clip));
       for (int i = 0; i < 2; ++i) {
         if (endpointParts[i] != &part)
           continue;
@@ -394,6 +401,8 @@ void App::readDraw(bool menu) {
         rect.y1 = std::max(rect.y1, clip.y1);
         rect.y2 = std::min(rect.y2, clip.y2);
         if (rect.x2 >= rect.x1 && rect.y2 >= rect.y1) {
+          includeSelectionRect(selectedBounds,
+                               {rect.x1, rect.y1, rect.x2 - rect.x1 + 1, rect.y2 - rect.y1 + 1});
           if (!marks.empty() && std::abs(marks.back().y1 - rect.y1) <= 2 &&
               std::abs(marks.back().y2 - rect.y2) <= 2 && rect.x1 <= marks.back().x2 + 2)
             marks.back().x2 = std::max(marks.back().x2, rect.x2);
@@ -437,17 +446,23 @@ void App::readDraw(bool menu) {
   for (int i = 0; i < 2; ++i) {
     lv_obj_set_hidden(readHandles_[i], !found[i] || !readSelection_.selected());
     if (found[i]) {
-      const int y=std::max(top, std::min(screen_.height-bottom-44,int(endpoints[i].y)-8));
-      lv_obj_set_pos(readHandles_[i],
-          std::max(side,std::min(screen_.width-side-44,int(endpoints[i].x)-22)),y);
-      setSelectionHandleTop(readHandles_[i],endpointTops[i]-y);
+      const int y = std::max(top, std::min(screen_.height - bottom - 44, int(endpoints[i].y) - 8));
+      const int x = std::max(side, std::min(screen_.width - side - 44, int(endpoints[i].x) - 22));
+      lv_obj_set_pos(readHandles_[i], x, y);
+      setSelectionHandleTop(
+          readHandles_[i], endpointTops[i] - y,
+          std::max(top, std::min(int(endpoints[i].y), screen_.height - bottom - 9)) - y,
+          int(endpoints[i].x) - x);
     }
     lv_obj_move_foreground(readHandles_[i]);
   }
-  lv_obj_set_pos(
-      readMenu_, std::max(side, std::min(screen_.width - side - 188, int(readMenuAnchor_.x) - 94)),
-      std::max(top, std::min(screen_.height - bottom - 52, int(readMenuAnchor_.y) - 64)));
-  lv_obj_set_hidden(readMenu_, !menu || !readSelection_.selected());
+  readSelectionBounds_ = selectedBounds;
+  const auto placement = placeSelectionMenu(
+      selectedBounds, selectionMenuSafeArea(screen_.width, screen_.height), 188, 52);
+  const auto &popup = placement.bounds;
+  lv_obj_set_pos(readMenu_, popup.x, popup.y);
+  lv_obj_set_size(readMenu_, popup.width, popup.height);
+  lv_obj_set_hidden(readMenu_, !menu || !readSelection_.selected() || selectedBounds.width <= 0);
   lv_obj_move_foreground(readMenu_);
 }
 bool App::readTouch(int x, int y, bool down, bool cancelled) {
@@ -547,11 +562,10 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
     if (readActive_ && readSelection_.selected())
       for (int i = 0; i < 2; ++i)
         if (readHandles_[i] && !lv_obj_is_hidden(readHandles_[i])) {
-          lv_area_t a;
-          lv_obj_get_coords(readHandles_[i], &a);
-          const int dx = x - (a.x1 + a.x2) / 2, dy = y - (a.y1 + a.y2) / 2;
+          const auto grip = selectionHandleGrip(readHandles_[i]);
+          const int dx = x - grip.x, dy = y - grip.y;
           const int distance = dx * dx + dy * dy;
-          if (contains(a, x, y) &&
+          if (selectionHandleContains(readHandles_[i], x, y) &&
               (distance < handleDistance || (distance == handleDistance && i && dx >= 0))) {
             handleDistance = distance;
             readHandle_ = i;
@@ -660,7 +674,6 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
   if (!down) {
     const auto mode = readGesture_.mode;
     readGesture_.end();
-    readMenuAnchor_ = {x, y};
     if (mode == TextGesture::Pending) {
       if (readGesture_.doubleTap(x, y, ticks())) {
         readWord(*region, x, y);
@@ -780,12 +793,14 @@ Json App::readDiagnostic() const {
                        {"parts", parts},
                        {"links", links}});
   }
-  Json handles = Json::array();
+  Json handles = Json::array(), grips = Json::array();
   for (auto h : readHandles_)
     if (h && !lv_obj_is_hidden(h)) {
       lv_area_t a;
       lv_obj_get_coords(h, &a);
       handles.push_back({a.x1, a.y1, a.x2, a.y2});
+      const auto grip = selectionHandleGrip(h);
+      grips.push_back({grip.x, grip.y});
     }
   Json menu = Json::array();
   if (readMenu_ && !lv_obj_is_hidden(readMenu_)) {
@@ -800,6 +815,13 @@ Json App::readDiagnostic() const {
           {"start", r.first},
           {"end", r.second},
           {"handles", handles},
+          {"handle_grips", grips},
+          {"selection_bounds",
+           readSelectionBounds_.width > 0
+               ? Json::array({readSelectionBounds_.x, readSelectionBounds_.y,
+                              readSelectionBounds_.x + readSelectionBounds_.width - 1,
+                              readSelectionBounds_.y + readSelectionBounds_.height - 1})
+               : Json::array()},
           {"menu_bounds", menu},
           {"menu", readMenu_ && !lv_obj_is_hidden(readMenu_)},
           {"gesture", int(readGesture_.mode)},

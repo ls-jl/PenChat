@@ -79,7 +79,6 @@ void App::edit(const std::string &text, const std::string &placeholder,
   editorPolicy(!editorSelectionOnly_);
   editorExpanded_ = editorMenu_ = false; editorCandidates_ = editorCandidateDetails_ = Json::array();
   const auto layout=editorLayout();
-  editorMenuAnchor_={layout.textX+layout.textWidth/2,layout.textY+52};
   editorInFlight_ = editorDue_ = 0; editorChoosing_=editorSelectPending_=false; editorDeferred_.clear();editorChosenWord_.clear();
   if(!reuse)editorBuildCount_=editorRefreshCount_=0;
   editorRefreshPending_=false;editorChoicesDirty_=true;
@@ -110,6 +109,7 @@ void App::editorBuild() {
   if(editorText_) editorTextScroll_=lv_obj_get_scroll_y(editorText_);
   const int preservedTextScroll=editorTextScroll_;
   auto previousRoot = editorRoot_;
+  editorSelectionMenu_=nullptr;editorSelectionActions_.clear();
   editorKeys_.clear(); editorLocalActions_.clear(); if(!editorInPlace())editorText_ = nullptr;
   editorRoot_ = box(lv_screen_active(),0,0,editorLayout().width,editorLayout().height,theme::background);
   lv_obj_set_scrollable(editorRoot_,false);
@@ -289,30 +289,6 @@ void App::editorBuild() {
     lv_obj_set_clickable(editorHandles_[i],false);
     attachIcon(editorHandles_[i],i?"selection-end":"selection-start",theme::link);
   }
-  if(editorMenu_) {
-    const auto popup=layout.selectionPopup(editorMenuAnchor_.x,editorMenuAnchor_.y,editorSelectionOnly_);
-    auto menu=box(editorRoot_,popup.x,popup.y,popup.width,popup.height,theme::sidebar);
-    lv_obj_set_scroll_dir(menu,LV_DIR_HOR);lv_obj_set_scroll_elastic(menu,false);
-    lv_obj_set_style_radius(menu,10,0);
-    lv_obj_set_style_shadow_color(menu,lv_color_hex(theme::scrim),0);
-    lv_obj_set_style_shadow_opa(menu,LV_OPA_40,0);
-    lv_obj_set_style_shadow_width(menu,12,0);
-    lv_obj_set_style_shadow_offset_y(menu,3,0);
-    std::vector<std::pair<std::string,std::string>> commands;
-    commands=editorSelectionOnly_?
-      std::vector<std::pair<std::string,std::string>>{{"全选","all"},{"复制","copy"}}:
-      std::vector<std::pair<std::string,std::string>>{{"全选","all"},{"复制","copy"},{"粘贴","paste"},{"剪切","cut"},{"撤销","undo"}};
-    for(size_t i=0;i<commands.size();++i) {
-      const int width=layout.selectionButtonWidth();
-      auto b=button(menu,commands[i].first,4+int(i)*(width+4),4,width,layout.selectionButtonHeight(),[action,commands,i]{action(commands[i].second);});
-      editorLocalActions_[commands[i].second]=b;
-      if((commands[i].second=="undo"&&editor_.undo.empty())||
-         ((commands[i].second=="copy"||commands[i].second=="cut")&&editor_.secret&&!editor_.reveal)||
-         ((commands[i].second=="copy"||commands[i].second=="cut")&&!editor_.selected())||
-         (commands[i].second=="all"&&editor_.text.empty())||
-         (commands[i].second=="paste"&&editorClipboard_.current.empty()))lv_obj_add_state(b,LV_STATE_DISABLED);
-    }
-  }
   if(editorClipboardOpen_) {
     // Docked clipboard replaces the keyboard, never the focused page above it.
     const int x=layout.portrait?this->layout().safeSide():layout.textX;
@@ -401,7 +377,7 @@ void App::editorBuild() {
 uint64_t App::editorPaintKey() const {
   uint64_t key=uint64_t(editor_.layout+editor_.mode*4+editor_.shift*16);
   const bool flags[]={editorSelectionOnly_,editor_.secret,editor_.reveal,editorExpanded_,editorClipboardOpen_,
-    editorMenu_,editorLayoutMenu_,editorPunctuation_,editorCandidateRow(),
+    editorLayoutMenu_,editorPunctuation_,editorCandidateRow(),
     editorOcrShown_,editorOcrBusy_,editorOcrActive_,!editor_.notice.empty()};
   for(size_t i=0;i<sizeof(flags)/sizeof(flags[0]);++i)if(flags[i])key|=uint64_t(1)<<(8+i);
   return key;
@@ -427,7 +403,7 @@ void App::editorRefresh() {
   if(!editor_.active||keyboard_||!editorRoot_)return;
   if(editorPointer_&&editorHeld_<0){editorRefreshPending_=true;return;}
   const bool rebuild=editorRebuild_||editorPaintedKey_!=editorPaintKey()||editorSelectionOnly_||editorExpanded_||editorClipboardOpen_||
-    editorMenu_||editorLayoutMenu_||editorPunctuation_;
+    editorLayoutMenu_||editorPunctuation_;
   if(rebuild&&!editorPointer_){editorBuild();return;}
   // A held delete may cross the composition/text boundary. Keep editing text
   // responsive, but retain every key and defer structural work until release.
@@ -1018,10 +994,77 @@ void App::editorSyncText(bool text) {
     lv_obj_set_hidden(editorHandles_[i],!editor_.selected()||editorClipboardOpen_||editorExpanded_||!lineVisible);
     const auto handle=editorLayout().floatingPopup(int(point.x)-editorLayout().selectionHandleWidth()/2,int(point.y)-editorLayout().selectionHandleHeight()/2,editorLayout().selectionHandleWidth(),editorLayout().selectionHandleHeight());
     lv_obj_set_pos(editorHandles_[i],handle.x,handle.y);
-    setSelectionHandleTop(editorHandles_[i],std::max(area.y,lineBottom-font(20)->line_height)-handle.y);
+    setSelectionHandleTop(editorHandles_[i],std::max(area.y,lineBottom-font(20)->line_height)-handle.y,
+      std::max(std::max(4,AppLayout{editorLayout().width,editorLayout().height}.safeTop()),
+        std::min({lineBottom,area.y+area.height,editorLayout().height-std::max(4,AppLayout{editorLayout().width,editorLayout().height}.safeBottom())-9}))-handle.y,int(point.x)-handle.x);
     lv_obj_move_foreground(editorHandles_[i]);
   }
   editorMagnify(editorPointer_&&(editorCursorDrag_||editorHandle_>=0));
+  editorSyncSelectionMenu();
+}
+void App::editorSyncSelectionMenu() {
+  editorSelectionBounds_={};
+  if(!editorRoot_||!editorText_)return;
+  const auto layout=editorLayout();
+  auto hide=[this]{if(editorSelectionMenu_)lv_obj_set_hidden(editorSelectionMenu_,true);};
+  if(!editorMenu_||editorPointer_||editorExpanded_||editorClipboardOpen_||editorLayoutMenu_||editorPunctuation_) {hide();return;}
+  const auto area=editorTextArea();
+  lv_area_t clip{std::max(0,area.x),std::max(0,area.y),
+    std::min(layout.width-1,area.x+area.width-1),std::min(layout.height-1,area.y+area.height-1)};
+  LayoutRect selected{};
+  if(editor_.selected()) {
+    const auto range=editor_.range();
+    selected=selectionLabelBounds(lv_textarea_get_label(editorText_),range.first,range.second,clip);
+  } else {
+    const auto caret=editorPoint(editor_.cursor);
+    const int top=caret.y-8-font(20)->line_height;
+    const int first=std::max(int(clip.y1),top),last=std::min(int(clip.y2)+1,top+font(20)->line_height);
+    selected={std::max(int(clip.x1),std::min(int(clip.x2),int(caret.x))),first,1,last-first};
+  }
+  editorSelectionBounds_=selected;
+  if(selected.width<=0||selected.height<=0){hide();return;}
+  const double sx=layout.scaleX()/256.,sy=layout.scaleY()/256.;
+  const LayoutRect native{int(std::floor(selected.x*sx)),int(std::floor(selected.y*sy)),
+    std::max(1,int(std::ceil((selected.x+selected.width)*sx))-int(std::floor(selected.x*sx))),
+    std::max(1,int(std::ceil((selected.y+selected.height)*sy))-int(std::floor(selected.y*sy)))};
+  const int buttonWidth=layout.selectionButtonWidth(),buttonHeight=layout.selectionButtonHeight();
+  const auto placed=placeSelectionMenu(native,selectionMenuSafeArea(screen_.width,screen_.height),
+    int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+4)+4)*sx)),int(std::ceil((buttonHeight+8)*sy)));
+  const auto &p=placed.bounds;
+  if(!editorSelectionMenu_) {
+    editorSelectionMenu_=box(editorRoot_,0,0,1,1,theme::sidebar);
+    auto menu=editorSelectionMenu_;
+    lv_obj_set_scroll_dir(menu,LV_DIR_HOR);lv_obj_set_scroll_elastic(menu,false);
+    lv_obj_set_style_radius(menu,10,0);
+    lv_obj_set_style_shadow_color(menu,lv_color_hex(theme::scrim),0);
+    lv_obj_set_style_shadow_opa(menu,LV_OPA_40,0);
+    lv_obj_set_style_shadow_width(menu,12,0);lv_obj_set_style_shadow_offset_y(menu,3,0);
+    lv_obj_add_event_cb(menu,[](lv_event_t *event){
+      auto app=static_cast<App *>(lv_event_get_user_data(event));
+      if(app->editorSelectionMenu_==lv_event_get_target_obj(event)){
+        app->editorSelectionMenu_=nullptr;app->editorSelectionActions_.clear();
+      }
+    },LV_EVENT_DELETE,this);
+    const std::vector<std::pair<std::string,std::string>> commands=editorSelectionOnly_?
+      std::vector<std::pair<std::string,std::string>>{{"全选","all"},{"复制","copy"}}:
+      std::vector<std::pair<std::string,std::string>>{{"全选","all"},{"复制","copy"},{"粘贴","paste"},{"剪切","cut"},{"撤销","undo"}};
+    for(size_t i=0;i<commands.size();++i) {
+      const auto command=commands[i].second;
+      editorSelectionActions_[command]=button(menu,commands[i].first,4+int(i)*(buttonWidth+4),4,
+        buttonWidth,buttonHeight,[this,command]{events_.push("editor_action",{{"id",editor_.id},{"action",command}});});
+    }
+  }
+  for(const auto &entry:editorSelectionActions_) {
+    const auto &command=entry.first;
+    const bool disabled=(command=="undo"&&editor_.undo.empty())||
+      ((command=="copy"||command=="cut")&&(!editor_.selected()||(editor_.secret&&!editor_.reveal)))||
+      (command=="all"&&editor_.text.empty())||(command=="paste"&&editorClipboard_.current.empty());
+    if(disabled)lv_obj_add_state(entry.second,LV_STATE_DISABLED);else lv_obj_remove_state(entry.second,LV_STATE_DISABLED);
+  }
+  lv_obj_set_pos(editorSelectionMenu_,int(std::lround(p.x/sx)),int(std::lround(p.y/sy)));
+  lv_obj_set_size(editorSelectionMenu_,std::max(1,int(std::floor(p.width/sx))),std::max(1,int(std::floor(p.height/sy))));
+  lv_obj_set_hidden(editorSelectionMenu_,false);lv_obj_move_foreground(editorSelectionMenu_);
+  lv_obj_update_layout(editorSelectionMenu_);
 }
 void App::editorPolicy(bool active) {
   editorTopBlocked_=false;
@@ -1187,15 +1230,18 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
   if(pressed&&!editorPointer_) {
     editorPointer_=true;editorSlid_=editorTextMoved_=editorCursorDrag_=false;
     editorStartX_=x;editorStartY_=y;editorHeld_=-1;editorRepeats_=0;editorPressTime_=ticks();editorHandle_=-1;
-    const auto selection=layout.selectionPopup(editorMenuAnchor_.x,editorMenuAnchor_.y,editorSelectionOnly_);
-    const bool popupHit=(editorMenu_&&selection.contains(x,y));
+    lv_area_t selection{};
+    if(editorSelectionMenu_)lv_obj_get_coords(editorSelectionMenu_,&selection);
+    const bool popupHit=editorSelectionMenu_&&!lv_obj_is_hidden(editorSelectionMenu_)&&
+      x>=selection.x1&&x<=selection.x2&&y>=selection.y1&&y<=selection.y2;
+    if(!popupHit&&editorMenu_){editorMenu_=false;editorSyncSelectionMenu();}
     bool overlay=editorClipboardOpen_||editorExpanded_||editorLayoutMenu_||editorPunctuation_||popupHit;
     if(!overlay && editor_.selected()) {
       auto r=editor_.range();int distance=100000;
       for(int i=0;i<2;++i) {
         if(!editorHandles_[i]||lv_obj_is_hidden(editorHandles_[i]))continue;
-        lv_area_t a;lv_obj_get_coords(editorHandles_[i],&a);int dx=x-(a.x1+a.x2)/2,dy=y-(a.y1+a.y2)/2;
-        if(x>=a.x1&&x<=a.x2&&y>=a.y1&&y<=a.y2&&(dx*dx+dy*dy<distance||(dx*dx+dy*dy==distance&&i&&dx>=0))) {distance=dx*dx+dy*dy;editorHandle_=i;}
+        lv_area_t a;lv_obj_get_coords(editorHandles_[i],&a);const auto grip=selectionHandleGrip(editorHandles_[i]);int dx=x-grip.x,dy=y-grip.y;
+        if(selectionHandleContains(editorHandles_[i],x,y)&&(dx*dx+dy*dy<distance||(dx*dx+dy*dy==distance&&i&&dx>=0))) {distance=dx*dx+dy*dy;editorHandle_=i;}
       }
       if(editorHandle_>=0)editorDragAnchor_=editorHandle_?r.first:r.second;
     }
@@ -1226,7 +1272,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
     }
     if(!pressed) {
       editorPointer_=editorTextTouch_=false;editorTextGesture_.end();
-      editorMenuAnchor_={x,y};editorMenu_=false;
+      editorMenu_=false;
       if(mode==TextGesture::Held||mode==TextGesture::Range||mode==TextGesture::Handle)editorMenu_=true;
       else if(mode==TextGesture::Pending) {
         auto index=editorPositionAt(x,y);
@@ -1234,7 +1280,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
         else editor_.position(index);
       }
       editorHandle_=-1;editorCursorDrag_=editorRangeDrag_=false;
-      editorTextScroll_=lv_obj_get_scroll_y(editorText_);editorBuild();
+      editorTextScroll_=lv_obj_get_scroll_y(editorText_);editorSyncText();
     }
     return;
   }
@@ -1351,6 +1397,8 @@ Json App::editorDiagnostic() const {
       {"hit_bounds",{k.hit.x,k.hit.y,k.hit.x+k.hit.width,k.hit.y+k.hit.height}}});
   Json actions=Json::object();
   for(const auto &entry:editorLocalActions_){lv_area_t a;lv_obj_get_coords(entry.second,&a);actions[entry.first]={a.x1,a.y1,a.x2,a.y2};}
+  if(editorSelectionMenu_&&!lv_obj_is_hidden(editorSelectionMenu_))
+    for(const auto &entry:editorSelectionActions_){lv_area_t a;lv_obj_get_coords(entry.second,&a);actions[entry.first]={a.x1,a.y1,a.x2,a.y2};}
   if(editor_.active&&!editorSelectionOnly_)for(const auto &a:layout.actions(editorInlineChat_)) {
     if(editorCandidateRow()&&std::string(a.name)!="done")continue;
     actions[a.name]={a.x,a.y,a.x+a.width-1,a.y+43};
@@ -1362,9 +1410,9 @@ Json App::editorDiagnostic() const {
   if(editorMagnifierCaret_){lv_area_t a;lv_obj_get_coords(editorMagnifierCaret_,&a);magnifierCaret={a.x1,a.y1,a.x2,a.y2};}
   if(editorMagnifier_){lv_area_t a;lv_obj_get_coords(editorMagnifier_,&a);magnifierBounds={a.x1,a.y1,a.x2,a.y2};}
   if(editorText_) {lv_area_t a;lv_obj_get_coords(editorText_,&a);textBounds={a.x1,a.y1,a.x2,a.y2};}
-  if(editor_.active&&editorMenu_) {
-    const auto p=layout.selectionPopup(editorMenuAnchor_.x,editorMenuAnchor_.y,editorSelectionOnly_);
-    selectionPopup={p.x,p.y,p.x+p.width-1,p.y+p.height-1};
+  if(editorSelectionMenu_&&!lv_obj_is_hidden(editorSelectionMenu_)) {
+    lv_area_t p;lv_obj_get_coords(editorSelectionMenu_,&p);
+    selectionPopup={p.x1,p.y1,p.x2,p.y2};
   }
   Json controls=Json::array();
   if(editorRoot_) for(uint32_t i=0;i<lv_obj_get_child_count(editorRoot_);++i) {
@@ -1376,7 +1424,8 @@ Json App::editorDiagnostic() const {
   const auto range=editor_.range();
   for(int i=0;i<2;++i)if(editorHandles_[i]&&!lv_obj_is_hidden(editorHandles_[i])) {
     lv_area_t a;lv_obj_get_coords(editorHandles_[i],&a);const auto anchor=editorPoint(i?range.second:range.first,i?1:-1);
-    handles.push_back({{"endpoint",i},{"x",(a.x1+a.x2)/2},{"y",(a.y1+a.y2)/2},{"anchor",{anchor.x,anchor.y}},{"bounds",{a.x1,a.y1,a.x2,a.y2}}});
+    const auto grip=selectionHandleGrip(editorHandles_[i]);
+    handles.push_back({{"grip",{grip.x,grip.y}},{"endpoint",i},{"x",(a.x1+a.x2)/2},{"y",(a.y1+a.y2)/2},{"anchor",{anchor.x,anchor.y}},{"bounds",{a.x1,a.y1,a.x2,a.y2}}});
   }
   Json layoutPopup=Json::array();
   const auto layoutItem=editorLocalActions_.find("layout:0");
@@ -1391,7 +1440,8 @@ Json App::editorDiagnostic() const {
   }
   Json anchor=Json::array();
   if(editorTarget_){lv_area_t a;lv_obj_get_coords(editorTarget_,&a);anchor={a.x1,a.y1,a.x2,a.y2};}
-  return {{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"in_place",editor_.active&&editorInPlace()&&editorTarget_!=nullptr},{"input_anchor",editorTargetKey_},{"docked",layout.docked},{"dismiss_offset",editorDismissOffset_},{"dismiss_threshold",editorDismissThreshold_},{"dismissing",editorDismissing_},{"dismiss_returning",editorDismissReturnAt_!=0},{"inline_chat",editorInlineChat_},{"panel_top",layout.panelTop},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
+  return {{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"selection_bounds",editorSelectionBounds_.width>0?
+    Json::array({editorSelectionBounds_.x,editorSelectionBounds_.y,editorSelectionBounds_.x+editorSelectionBounds_.width-1,editorSelectionBounds_.y+editorSelectionBounds_.height-1}):Json::array()},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"in_place",editor_.active&&editorInPlace()&&editorTarget_!=nullptr},{"input_anchor",editorTargetKey_},{"docked",layout.docked},{"dismiss_offset",editorDismissOffset_},{"dismiss_threshold",editorDismissThreshold_},{"dismissing",editorDismissing_},{"dismiss_returning",editorDismissReturnAt_!=0},{"inline_chat",editorInlineChat_},{"panel_top",layout.panelTop},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
     {"layout",editor_.layout==0?"zh26":editor_.layout==1?"en26":"zh9"},{"preferred_layout",editor_.preferredChinese==2?"zh9":"zh26"},
     {"layout_menu",editorLayoutMenu_},{"layout_popup",layoutPopup},{"layout_hold",editorLayoutHold_},{"expanded",editorExpanded_},{"punctuation_menu",editorPunctuation_},{"exact_count",editorExact_.size()},
     {"parked_count",int(!editor_.parked[0].raw.empty())+int(!editor_.parked[1].raw.empty())},
@@ -1399,7 +1449,7 @@ Json App::editorDiagnostic() const {
     {"length",editLength(editor_.text)},{"painted_length",editorText_?editLength(lv_textarea_get_text(editorText_)):0},{"cursor",editor_.cursor},{"caret_upstream",editorUpstream_==editor_.cursor},
     {"line_height",editorText_?lv_obj_get_style_text_font(lv_textarea_get_label(editorText_),LV_PART_MAIN)->line_height:0},{"preedit_length",editor_.preedit.size()},
     {"selection_start",editor_.range().first},{"selection_end",editor_.range().second},{"selected",editor_.selected()},
-    {"clipboard_count",editorClipboard_.records.size()},{"clipboard_open",editorClipboardOpen_},{"menu",editorMenu_},{"undo_menu",false},{"undo_popup",undoPopup},{"text_bounds",textBounds},
+    {"clipboard_count",editorClipboard_.records.size()},{"clipboard_open",editorClipboardOpen_},{"menu",editorSelectionMenu_&&!lv_obj_is_hidden(editorSelectionMenu_)},{"undo_menu",false},{"undo_popup",undoPopup},{"text_bounds",textBounds},
     {"notice_present",!editor_.notice.empty()},{"ocr_request",editorOcrId_},{"ocr_preparing",editorOcrPreparing_},{"ocr_active",editorOcrActive_},{"ocr_multi",editorOcrMulti_},{"ocr_busy",editorOcrBusy_},{"top_panel_blocked",editorTopBlocked_},
     {"coordinate_space",{{"width",layout.width},{"height",layout.height},{"native_width",layout.nativeWidth},{"native_height",layout.nativeHeight},{"scaled",layout.scaled}}},{"keyboard_split",layout.split},{"keyboard_swapped",layout.swapped},{"keyboard_origin",layout.keyInset},{"query_ms",editorLatency_},{"candidate_count",editorCandidates_.size()},{"corrected_count",std::count_if(editorCandidateDetails_.begin(),editorCandidateDetails_.end(),[](const Json &v){return v.value("corrected",false);})},{"revision",editorRevision_},{"keys",keys}};
 }

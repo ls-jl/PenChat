@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "icons.hpp"
 #include <cmath>
 namespace penchat {
 bool App::navigationRoot() const {
@@ -68,12 +69,15 @@ bool App::backTouch(const Json &m) {
     if(editor_.active&&editor_.selected())for(auto handle:editorHandles_) {
       if(!handle||lv_obj_is_hidden(handle))continue;
       lv_area_t area;lv_obj_get_coords(handle,&area);
-      if(x>=area.x1&&x<=area.x2&&y>=area.y1&&y<=area.y2)editorHandle=true;
+      if(selectionHandleContains(handle,x,y))editorHandle=true;
     }
     const bool editorOwns=editor_.active&&(editorTextArea().contains(x,y)||editorHandle);
     bool readOwns=false;
     if(!editor_.active) {
-      for(auto object:{readMenu_,readHandles_[0],readHandles_[1]})if(object&&!lv_obj_is_hidden(object)){lv_area_t a;lv_obj_get_coords(object,&a);if(x>=a.x1&&x<=a.x2&&y>=a.y1&&y<=a.y2)readOwns=true;}
+      for(auto object:{readMenu_,readHandles_[0],readHandles_[1]})if(object&&!lv_obj_is_hidden(object)){
+        lv_area_t a;lv_obj_get_coords(object,&a);
+        if((x>=a.x1&&x<=a.x2&&y>=a.y1&&y<=a.y2)||(object!=readMenu_&&selectionHandleContains(object,x,y)))readOwns=true;
+      }
       for(const auto &entry:readRegions_) {
         bool available=!modal_;
         if(modal_)for(auto p=entry.second.root;p;p=lv_obj_get_parent(p))if(p==modal_)available=true;

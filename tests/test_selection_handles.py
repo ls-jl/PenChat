@@ -24,7 +24,7 @@ def run(width,height,code=False):
                 assert len(ro(app)['handles'])==2,ro(app)
                 screenshot(app,str(width)+'-code-end-handles')
             else:
-                h=ro(app)['handles'][-1];hx=(h[0]+h[2])//2;hy=(h[1]+h[3])//2
+                hx,hy=ro(app)['handle_grips'][-1]
                 press(app,hx,hy);press(app,b[0]+6,y);time.sleep(.08)
                 assert ro(app)['selected'] and len(ro(app)['handles'])==2,ro(app)
                 press(app,b[0]+6,y,False)
@@ -45,7 +45,7 @@ def run(width,height,code=False):
                 tx,ty=native(b[0]+20,b[1]+17)
                 app.long_press(tx,ty,.52);assert editor(app)['selected']
                 h=editor(app)['selection_handles'][-1]
-                hx,hy=native(h['x'],h['y']);px,py=native(b[0]+6,b[1]+17)
+                hx,hy=native(*h['grip']);px,py=native(b[0]+6,b[1]+17)
                 press(app,hx,hy);press(app,px,py);time.sleep(.08)
                 assert editor(app)['selected'] and len(editor(app)['selection_handles'])==2,editor(app)
                 press(app,px,py,False)

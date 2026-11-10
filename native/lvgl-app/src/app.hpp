@@ -513,9 +513,9 @@ class App {
   bool readSavedAll_=false,readPreview_=false,readHadSelection_=false,readMenuPointer_=false;
   bool readDown_=false,readSuppressed_=false,readMenuWanted_=false,readScrollPassthrough_=false;
   int readHandle_=-1;
-  lv_point_t readMenuAnchor_{};
   lv_obj_t *readOverlay_=nullptr,*readMenu_=nullptr,*readHandles_[2]={nullptr,nullptr};
   std::vector<lv_obj_t *> readMarks_;
+  LayoutRect readSelectionBounds_{};
   int64_t readLinkDue_=0,readScrollAt_=0;
   std::string readLink_;
   uint64_t readBegin(lv_obj_t *,const std::string &key);
@@ -608,7 +608,10 @@ class App {
   lv_obj_t *editorMagnifier_ = nullptr, *editorMagnifierImage_ = nullptr, *editorMagnifierCaret_ = nullptr;
   lv_draw_buf_t *editorMagnifierBuffer_ = nullptr;
   bool editorClipboardOpen_=false, editorClipboardConfirm_=false;
-  lv_point_t editorMenuAnchor_{};
+  lv_obj_t *editorSelectionMenu_=nullptr;
+  LayoutRect editorSelectionBounds_{};
+  std::map<std::string,lv_obj_t *> editorSelectionActions_;
+  void editorSyncSelectionMenu();
   bool editorOcrPreparing_=false;
   uint64_t editorOcrPrepareSent_=0;
   void editorOcrPrepared(const Json &);
