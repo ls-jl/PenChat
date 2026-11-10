@@ -8,7 +8,9 @@
 namespace penchat {
 namespace {
 constexpr uint64_t layoutHoldMs=500;
-constexpr lv_opa_t compactHeaderOpacity=LV_OPA_60;
+constexpr lv_opa_t compactKeyOpacity=LV_OPA_60;
+// Keys are 40% transparent; the header is twice as transparent (80%).
+constexpr lv_opa_t compactHeaderOpacity=LV_OPA_20;
 int keyboardClusterWidth(lv_obj_t *label,size_t first,size_t last) {
   const char *text=lv_label_get_text(label),*begin=text,*end=text;
   for(size_t index=0;*end&&index<last;++index) {
@@ -140,8 +142,8 @@ void App::editorBuild() {
   };
   auto control = [&](const std::string &title,int x,int y,int w,const std::string &a) {
     auto b=button(editorRoot_,title,x,y,w,layout.controlHeight(),[action,a] { action(a); },theme::surface);
-    if(layout.compactFull&&y==0) {
-      lv_obj_set_style_bg_opa(b,compactHeaderOpacity,0);
+    if(layout.compact) {
+      lv_obj_set_style_bg_opa(b,layout.compactFull&&y==0?compactHeaderOpacity:compactKeyOpacity,0);
       lv_obj_set_style_bg_opa(b,LV_OPA_80,LV_STATE_PRESSED);
     }
     editorLocalActions_[a]=b;
@@ -151,6 +153,7 @@ void App::editorBuild() {
   auto key = [&](std::string title,std::string value,int x,int y,int w,int h) {
     x+=layout.keyInset;
     auto b=box(editorRoot_,x,y,w,h,theme::surface); lv_obj_set_scrollable(b,false);
+    if(layout.compact)lv_obj_set_style_bg_opa(b,compactKeyOpacity,0);
     lv_obj_set_style_radius(b,9,0);
     if (value=="shift" && editor_.shift)
       lv_obj_set_style_bg_color(b,lv_color_hex(theme::text),0);
