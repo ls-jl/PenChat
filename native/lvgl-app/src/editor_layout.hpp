@@ -37,7 +37,7 @@ struct EditorLayout {
     if(swapped) {keyInset=w-split;textX=8;}
     if(compactFull) {
       split=keySpan=w;keyInset=0;
-      textX=100;textWidth=std::max(1,w-textX-48);
+      textX=100;textWidth=std::max(1,w-textX-60);
       textY=candidateY=compositionY=actionsY=0;textHeight=44;
       keyTop=48;bottomY=h-48;bottomHeight=44;
       rowHeight=std::max(1,(bottomY-keyTop-18)/3);
@@ -80,9 +80,8 @@ struct EditorLayout {
   int textRight() const { return textX+textWidth; }
   int overlayY() const { return compactFull?keyTop:docked?AppLayout{width,height}.safeTop():textY; }
   int overlayHeight() const { return compactFull?height-keyTop-4:docked?compositionY-overlayY()-10:textHeight; }
-  int compactPreeditWidth() const { return std::min(144,std::max(72,textWidth/3)); }
-  int candidateWidth(bool expanded) const {
-    return compactFull?(expanded?width-8:textWidth-compactPreeditWidth()-4):textWidth;
+  int compactPreeditWidth(int textPixels) const {
+    return std::max(12,std::min(std::min(144,std::max(12,textWidth/3)),textPixels+8));
   }
   int compactTouchWidth() const { return compact&&!compactFull?int(std::ceil(44.*256/scaleX())):44; }
   int controlHeight() const { return compact&&!compactFull?int(std::ceil(44.*256/scaleY())):44; }

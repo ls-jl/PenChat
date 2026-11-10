@@ -55,7 +55,7 @@ for width, height in [(640, 260), (720, 280)]:
             open_editor()
             e = editor()
             assert e['compact_full'] and not e['coordinate_space']['scaled']
-            assert e['text_bounds'][1:] == [0, width - 49, 43]
+            assert e['text_bounds'][1:] == [0, width - 61, 43]
             session, ocr = e['session'], e['ocr_request']
             assert {'cancel', 'tools', 'done', 'compact-view'} <= set(e['actions'])
             assert not {'ocr-mode', 'clipboard', 'official'} & set(e['actions'])
