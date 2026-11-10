@@ -17,12 +17,13 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         arguments={'query':'fixture search'}
         if self.mode=='image': name='web_read_image';arguments={'page_id':1,'link_id':1,'inspect':False}
         else:name='web_search'
-        if number==1 and self.mode!='direct':
+        if number==1 and self.mode not in ('direct','leak'):
             if anthropic: answer={'type':'message','role':'assistant','content':[{'type':'tool_use','id':'call_1','name':name,'input':arguments}],'stop_reason':'tool_use','usage':{'input_tokens':8,'output_tokens':2}}
             elif chat: answer={'choices':[{'index':0,'message':{'role':'assistant','content':None,'tool_calls':[{'id':'call_1','type':'function','function':{'name':name,'arguments':json.dumps(arguments)}}]},'finish_reason':'tool_calls'}],'usage':{'prompt_tokens':8,'completion_tokens':2}}
             else:answer={'status':'completed','output':[{'type':'function_call','id':'fc1','call_id':'call_1','name':name,'arguments':json.dumps(arguments)}],'usage':{'input_tokens':8,'output_tokens':2}}
         else:
             text='![fixture](penchat-image:img_1)' if self.mode=='image' else 'Fixture answer [source](https://example.org/)'
+            if self.mode=='leak':text='Useful preface\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="web_open">\n{"url":"https://example.org/"}'
             if anthropic:answer={'type':'message','role':'assistant','content':[{'type':'text','text':text}],'stop_reason':'end_turn','usage':{'input_tokens':20,'output_tokens':4}}
             elif chat:answer={'choices':[{'index':0,'message':{'role':'assistant','content':text},'finish_reason':'stop'}],'usage':{'prompt_tokens':20,'completion_tokens':4}}
             else:answer={'status':'completed','output':[{'type':'message','status':'completed','role':'assistant','content':[{'type':'output_text','text':text}]}],'usage':{'input_tokens':20,'output_tokens':4}}
@@ -81,8 +82,22 @@ while True:
  data=json.dumps({'request':q['request'],'ok':True,'result':r}).encode();s.sendall(struct.pack('!I',len(data))+data)
 ''');worker.chmod(0o700)
             Fixture.requests=[];Fixture.protocol=protocol;Fixture.mode=mode
-            model={'id':'fixture','name':'fixture','provider_id':'fixture','base_url':f'http://127.0.0.1:{self.server.server_port}', 'api_key':'fake-key','web_enabled':True,'web_binary':str(worker),'web_asset_root':str(path/'assets'), 'provider_metadata':{'api':protocol,'compatibility':{'enabled':True,'streaming':stream}},'capabilities_json':{'vision':False,'reasoning':{'mode':'off','levels':{}}}}
+            model={'id':'fixture','name':'fixture','provider_id':'fixture','base_url':f'http://127.0.0.1:{self.server.server_port}', 'api_key':'fake-key','system_prompt':'Custom session preference: answer in English.','web_enabled':True,'web_binary':str(worker),'web_asset_root':str(path/'assets'), 'provider_metadata':{'api':protocol,'compatibility':{'enabled':True,'streaming':stream}},'capabilities_json':{'vision':False,'reasoning':{'mode':'off','levels':{}}}}
             data=json.loads(subprocess.check_output([str(PROBE)],input=json.dumps({'model':model}).encode()))
+            for request in Fixture.requests:
+                prompt=request['messages'][0]['content'] if protocol=='chat' else request['system' if protocol=='anthropic' else 'instructions']
+                self.assertEqual(prompt.count('PenChat_APPLICATION_RULES_V1'),1)
+                self.assertEqual(prompt.count(model['system_prompt']),1)
+            if mode=='leak':
+                self.assertEqual(len(Fixture.requests),1)
+                self.assertFalse(any(e['type']=='done' for e in data))
+                self.assertEqual(sum(e['type']=='network_error' for e in data),1)
+                state=next(e['data'] for e in data if e['type']=='response_state')
+                self.assertEqual(state['output'],'Useful preface\n')
+                self.assertTrue(state['metadata']['tool_text_rejected'])
+                self.assertNotIn('DSML',json.dumps(data,ensure_ascii=False))
+                self.assertEqual(len(state['metadata']['web_records']),0)
+                return
             self.assertEqual(sum(e['type']=='done' for e in data),1,data)
             self.assertFalse(any(e['type'] in ('network_error','exception') for e in data),data)
             state=next(e['data'] for e in data if e['type']=='response_state')
@@ -106,4 +121,8 @@ while True:
                 with self.subTest(protocol=protocol,stream=stream):self.run_case(protocol,stream)
     def test_direct_no_search(self):self.run_case('chat',mode='direct')
     def test_text_model_inline_image(self):self.run_case('responses',mode='image')
+    def test_raw_tool_text(self):
+        for protocol in ('responses','chat','anthropic'):
+            for stream in (True,False):
+                with self.subTest(protocol=protocol,stream=stream):self.run_case(protocol,stream,mode='leak')
 if __name__=='__main__':unittest.main()

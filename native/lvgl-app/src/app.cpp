@@ -1,5 +1,6 @@
 #include "app.hpp"
 #include "chat_text.hpp"
+#include "chat_instructions.hpp"
 #include "chat_time.hpp"
 #include "context.hpp"
 #include "icons.hpp"
@@ -1520,6 +1521,8 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
       return;
     auto layout = rich_.layout(b, width - 4, size);
     auto holder = box(parent, 0, 0, width, layout.height, theme::background);
+    if (!subdued && view_ == "chat")
+      lv_obj_set_event_bubble(holder, true);
     lv_obj_set_scroll_dir(holder, LV_DIR_HOR);
     if (b.tableId)
       lv_obj_set_scroll_elastic(holder, false);
@@ -1620,8 +1623,9 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
       appendText(b);
   }
 }
-void App::replyContent(lv_obj_t *parent, const std::string &text, int width,
+void App::replyContent(lv_obj_t *parent, const std::string &rawText, int width,
                        const std::string &id, bool live) {
+  const auto text = publicAssistantText(rawText);
   const auto web = webMetadata(id);
   if (!web.value("web_records", Json::array()).empty() ||
       !web.value("web_sources", Json::array()).empty()) {
@@ -1803,6 +1807,7 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
             box(wrap, 0, 0, textWidth, LV_SIZE_CONTENT, theme::background);
         lv_obj_set_flex_flow(contentBox, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_scrollable(contentBox, false);
+        if (!readOnly) messageLongPress(contentBox, id);
         if (live)
           liveContent_ = contentBox;
         replyContent(contentBox, content, textWidth, id, live);
@@ -2010,6 +2015,7 @@ void App::paintVisible() {
         frame->height = bitmap.height;
         frame->pixels = std::move(bitmap.pixels);
         auto object = imageWidget(r.holder);
+        lv_obj_set_event_bubble(object, true);
         lv_obj_set_pos(object, x, y);
         texture(object, frame, true);
         r.tiles[position] = object;

@@ -1,9 +1,26 @@
 #include "network.hpp"
 #include "tool_registry.hpp"
 #include "tools.hpp"
+#include "chat_instructions.hpp"
+#include "context.hpp"
 #include <cassert>
 using namespace penchat;
 int main() {
+  const std::string custom="Answer in English. Preserve my task instructions.";
+  const auto prompt=chatInstructions(custom,true);
+  assert(prompt.find("PenChat_APPLICATION_RULES_V1")==0 && prompt.find(custom)!=std::string::npos);
+  assert(chatInstructions(custom,false).find("Page IDs expire")==std::string::npos);
+  const std::string raw=u8"Useful text\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"web_open\">";
+  for(size_t n=0;n<=raw.size();++n) {
+    const auto visible=checkedToolText(raw.substr(0,n)).text;
+    assert(visible.find("DSML")==std::string::npos);
+    assert(std::string("Useful text\n").compare(0,visible.size(),visible)==0);
+  }
+  assert(checkedToolText(raw,true).rejected);
+  assert(publicAssistantText(raw).find("格式不兼容")!=std::string::npos);
+  for(const auto &normal:{std::string("Example: {\"name\":\"web_search\",\"arguments\":{\"query\":\"x\"}}"),
+                          std::string("```json\n{\"hello\": true}\n```"),std::string("a < b"),std::string("<")})
+    assert(checkedToolText(normal,true).text==normal&&!checkedToolText(normal,true).rejected);
   assert(webEnabled(Json::object(), Json::object()));
   assert(!webEnabled({{"web_enabled", false}}, {{"new_chat_web", "on"}}));
   assert(webEnabled({{"web_enabled", true}}, {{"new_chat_web", "off"}}));
@@ -96,4 +113,13 @@ int main() {
   assert(exported.at("web_images")[0].at("asset") == "a1");
   assert(exported.dump().find("secret") == std::string::npos &&
          exported.dump().find("/private/") == std::string::npos);
+  model["provider_metadata"]["api"]="responses";
+  model["id"]="m";model["provider_id"]="p";model["web_enabled"]=true;
+  Json old={{"seq",1},{"role","assistant"},{"status","complete"},
+            {"output_text",raw},{"provider_id","p"},{"model_config_id","m"},
+            {"metadata_json",{{"replay_identity",replayIdentity(model)},
+                              {"response_output_items",Json::array({{{"type","message"},{"status","completed"},
+                                  {"role","assistant"},{"content",Json::array({{{"type","output_text"},{"text",raw}}})}}})}}}};
+  const auto history=contextInput(Json::array({old}),0,2,model).dump();
+  assert(history.find("DSML")==std::string::npos&&history.find("Useful text")!=std::string::npos);
 }

@@ -1,5 +1,6 @@
 #include "app.hpp"
 #include "reasoning.hpp"
+#include "chat_instructions.hpp"
 #include <unistd.h>
 #include <dirent.h>
 #include <regex>
@@ -35,6 +36,7 @@ void App::messageLongPress(lv_obj_t *object, const std::string &id) {
     auto p=static_cast<Press *>(lv_event_get_user_data(e));
     const auto code=lv_event_get_code(e);
     if(code==LV_EVENT_DELETE) {
+      if(lv_event_get_target_obj(e)!=lv_event_get_current_target_obj(e))return;
       auto &rows=p->app->userBubbles_;auto i=rows.find(p->id);
       if(i!=rows.end()&&i->second==lv_event_get_target_obj(e))rows.erase(i);
       delete p;return;
@@ -50,20 +52,23 @@ void App::messageLongPress(lv_obj_t *object, const std::string &id) {
   },LV_EVENT_ALL,state);
 }
 void App::messageMenu(const std::string &id) {
-  auto rows=db_.query("SELECT output_text FROM chat_messages WHERE session_id=? AND id=? AND role='user'",{session_,id});
+  auto rows=db_.query("SELECT output_text,role FROM chat_messages WHERE session_id=? AND id=? AND role IN ('user','assistant')",{session_,id});
   if(rows.empty())return;
+  const bool assistant=rows[0].value("role",std::string())=="assistant";
+  const auto text=assistant?publicAssistantText(id==assistant_?output_:messageText(rows[0])):messageText(rows[0]);
   closeAttachments();resetPull();input_.cancel();
-  modal("消息","");messageContextId_=id;
+  modal(assistant?"回复":"消息","");messageContextId_=id;messageContextText_=text;
   auto layer=modal_;messageActions_.clear();
-  lv_obj_add_event_cb(layer,[](lv_event_t *e){auto app=static_cast<App *>(lv_event_get_user_data(e));app->messageActions_.clear();app->messageContextId_.clear();},LV_EVENT_DELETE,this);
-  // One action per row. The close control stays visible in the right column.
-  auto list=box(layer,12,42,screen_.width-238,screen_.height-54,theme::surface);
+  lv_obj_add_event_cb(layer,[](lv_event_t *e){auto app=static_cast<App *>(lv_event_get_user_data(e));app->messageActions_.clear();app->messageContextId_.clear();app->messageContextText_.clear();},LV_EVENT_DELETE,this);
+  // Use the shared responsive modal reader. Each operation occupies one row.
+  auto list=modalScroll_;lv_obj_clean(list);lv_obj_update_layout(list);
   lv_obj_set_scroll_dir(list,LV_DIR_VER);
-  const auto text=messageText(rows[0]);
-  const std::vector<std::pair<std::string,std::string>> actions={{"copy","复制"},{"select","选择文本"},{"edit","编辑消息"}};
+  const int width=std::max(44,int(lv_obj_get_content_width(list))-8);
+  std::vector<std::pair<std::string,std::string>> actions={{"copy",assistant?"复制全文":"复制"},{"select","选择文本"}};
+  if(!assistant)actions.push_back({"edit","编辑消息"});
   int y=0;
   for(const auto &a:actions) {
-    auto b=button(list,a.second,0,y,screen_.width-254,48,[this,id,key=a.first]{events_.push("message_action",{{"session",session_},{"id",id},{"action",key}});},theme::background,LV_TEXT_ALIGN_LEFT);
+    auto b=button(list,a.second,4,y,width,48,[this,id,key=a.first]{events_.push("message_action",{{"session",session_},{"id",id},{"action",key}});},theme::background,LV_TEXT_ALIGN_LEFT);
     messageActions_[a.first]=b;y+=54;
     if((a.first!="edit"&&text.empty())||(a.first=="edit"&&(generating_||contextBusy_||saveInFlight_||!messageEdit_.empty())))lv_obj_add_state(b,LV_STATE_DISABLED);
   }
@@ -186,9 +191,9 @@ bool App::messageEvent(const Event &e) {
   if(e.type=="message_action") {
     const auto id=e.data.value("id",std::string());
     if(!modal_||id!=messageContextId_||e.data.value("session",std::string())!=session_)return true;
-    auto rows=db_.query("SELECT output_text FROM chat_messages WHERE session_id=? AND id=? AND role='user'",{session_,id});
+    auto rows=db_.query("SELECT role FROM chat_messages WHERE session_id=? AND id=? AND role IN ('user','assistant')",{session_,id});
     if(rows.empty())return true;
-    const auto text=messageText(rows[0]),action=e.data.value("action",std::string());
+    const auto text=messageContextText_,action=e.data.value("action",std::string());
     input_.cancel();auto layer=modal_;lv_obj_delete(layer);
     if(action=="copy"){if(editorClipboard_.copy(text)) {
       auto toast=box(screenObj_,screen_.width/2-70,screen_.height-116,140,44,theme::surface);
@@ -197,7 +202,7 @@ bool App::messageEvent(const Event &e) {
       lv_obj_delete_delayed(toast,1200);
     }else modal("无法复制","消息过长，请选择需要的部分复制。");}
     else if(action=="select")selectMessageText(text);
-    else if(action=="edit")messageEditWarning(id);
+    else if(action=="edit"&&rows[0].value("role",std::string())=="user")messageEditWarning(id);
     return true;
   }
   if(e.type=="message_begin") {

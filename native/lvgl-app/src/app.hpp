@@ -205,7 +205,7 @@ class App {
   std::string imageDeleteId_;
   Json messageEdit_ = Json::object(), messageEditImages_ = Json::array();
   Json messageEditPreferences_ = Json::object();
-  std::string messageEditToken_, messageContextId_, messageEditMemory_;
+  std::string messageEditToken_, messageContextId_, messageContextText_, messageEditMemory_;
   std::thread messageEditWorker_;
   lv_obj_t *messagePrepareModal_ = nullptr;
   bool messageEditBusy_ = false, messageEditArchive_ = false;
