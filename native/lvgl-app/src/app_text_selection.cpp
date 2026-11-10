@@ -330,6 +330,7 @@ void App::readDraw(bool menu) {
   const auto range = readSelection_.range();
   std::vector<lv_area_t> marks;
   lv_point_t endpoints[2]{};
+  int endpointTops[2]{};
   bool found[2] = {false, false};
   const ReadPart *endpointParts[2] = {nullptr, nullptr};
   for (const auto &part : region->parts) {
@@ -376,6 +377,7 @@ void App::readDraw(bool menu) {
         const int h = lv_obj_get_style_text_font(part.object, LV_PART_MAIN)->line_height;
         const lv_area_t glyph{x - (i ? 1 : 0), y, x + (i ? 0 : 1), y + h - 1};
         found[i] = selectionVisibleAnchor(clip, glyph, i, endpoints[i]);
+        endpointTops[i] = std::max(clip.y1, glyph.y1);
       }
       continue;
     }
@@ -412,6 +414,7 @@ void App::readDraw(bool menu) {
       const lv_area_t glyph{ox + hit->x, oy + hit->y, ox + hit->x + hit->w - 1,
                             oy + hit->y + hit->h - 1};
       found[i] = selectionVisibleAnchor(clip, glyph, i, endpoints[i]);
+      endpointTops[i] = std::max(clip.y1, glyph.y1);
     }
   }
   while (readMarks_.size() < marks.size()) {
@@ -433,11 +436,12 @@ void App::readDraw(bool menu) {
             top = layout().portrait() ? layout().safeTop() : 4, bottom = layout().safeBottom();
   for (int i = 0; i < 2; ++i) {
     lv_obj_set_hidden(readHandles_[i], !found[i] || !readSelection_.selected());
-    if (found[i])
-      lv_obj_set_pos(
-          readHandles_[i],
-          std::max(side, std::min(screen_.width - side - 44, int(endpoints[i].x) - 22)),
-          std::max(top, std::min(screen_.height - bottom - 44, int(endpoints[i].y) - 8)));
+    if (found[i]) {
+      const int y=std::max(top, std::min(screen_.height-bottom-44,int(endpoints[i].y)-8));
+      lv_obj_set_pos(readHandles_[i],
+          std::max(side,std::min(screen_.width-side-44,int(endpoints[i].x)-22)),y);
+      setSelectionHandleTop(readHandles_[i],endpointTops[i]-y);
+    }
     lv_obj_move_foreground(readHandles_[i]);
   }
   lv_obj_set_pos(

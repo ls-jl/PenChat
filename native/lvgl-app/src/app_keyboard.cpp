@@ -1018,6 +1018,7 @@ void App::editorSyncText(bool text) {
     lv_obj_set_hidden(editorHandles_[i],!editor_.selected()||editorClipboardOpen_||editorExpanded_||!lineVisible);
     const auto handle=editorLayout().floatingPopup(int(point.x)-editorLayout().selectionHandleWidth()/2,int(point.y)-editorLayout().selectionHandleHeight()/2,editorLayout().selectionHandleWidth(),editorLayout().selectionHandleHeight());
     lv_obj_set_pos(editorHandles_[i],handle.x,handle.y);
+    setSelectionHandleTop(editorHandles_[i],std::max(area.y,lineBottom-font(20)->line_height)-handle.y);
     lv_obj_move_foreground(editorHandles_[i]);
   }
   editorMagnify(editorPointer_&&(editorCursorDrag_||editorHandle_>=0));

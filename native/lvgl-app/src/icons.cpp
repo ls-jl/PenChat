@@ -7,6 +7,8 @@ namespace {
 struct Icon {
   std::string name;
   uint32_t ink;
+  int stemTop = 0;
+  bool customStem = false;
 };
 // Rasterize the native geometry once, then mirror pixel coverage. Snapping
 // separate line endpoints and a circle to even-sized button centers gives
@@ -158,7 +160,8 @@ void paint(lv_event_t *event) {
   } else if(k=="selection-start"||k=="selection-end") {
     // Outward grips remain distinguishable when screen-safe hit boxes overlap.
     const int side=k=="selection-start"?-1:1;
-    line(0,-10,0,0);line(0,0,side*3,3);circle(side*5,5,4);
+    const float stem=icon->customStem?(bounds.y1+icon->stemTop-cy)/scale:-10.f;
+    line(0,stem,0,0);line(0,0,side*3,3);circle(side*5,5,4);
   } else if(k=="selection-handle") {line(0,-10,0,0);circle(0,4,4);}
   else if(k=="eye"||k=="eye-off") {rect(-10,-6,20,12,LV_RADIUS_CIRCLE);circle(0,0,3);if(k=="eye-off")line(-10,10,10,-10);}
   else if (k == "menu") {
@@ -298,9 +301,29 @@ void paint(lv_event_t *event) {
 void attachIcon(lv_obj_t *object, const std::string &name, uint32_t ink) {
   auto data = new Icon{name, ink};
   lv_obj_add_event_cb(object, paint, LV_EVENT_DRAW_MAIN, data);
+  if (name=="selection-start" || name=="selection-end")
+    lv_obj_add_event_cb(object, [](lv_event_t *event) {
+      const auto icon=static_cast<Icon *>(lv_event_get_user_data(event));
+      auto size=static_cast<int32_t *>(lv_event_get_param(event));
+      if(icon->customStem) *size=std::max(*size,std::max(0,2-icon->stemTop));
+    }, LV_EVENT_REFR_EXT_DRAW_SIZE, data);
   lv_obj_add_event_cb(
       object,
       [](lv_event_t *e) { delete static_cast<Icon *>(lv_event_get_user_data(e)); },
       LV_EVENT_DELETE, data);
+}
+void setSelectionHandleTop(lv_obj_t *object, int top) {
+  for (uint32_t i=0;i<lv_obj_get_event_count(object);++i) {
+    auto event=lv_obj_get_event_dsc(object,i);
+    if (lv_event_dsc_get_cb(event)!=paint) continue;
+    auto icon=static_cast<Icon *>(lv_event_dsc_get_user_data(event));
+    if (icon->name!="selection-start" && icon->name!="selection-end") return;
+    if(icon->customStem && icon->stemTop==top) return;
+    lv_obj_invalidate(object);
+    icon->stemTop=top;icon->customStem=true;
+    lv_obj_refresh_ext_draw_size(object);
+    lv_obj_invalidate(object);
+    return;
+  }
 }
 } // namespace penchat
