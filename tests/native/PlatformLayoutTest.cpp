@@ -26,6 +26,14 @@ int main() {
     assert(full.compactFull&&!full.scaled&&full.keySpan==size.first);
     assert(full.textHeight==44&&full.rowHeight>=44&&full.keyWidth>=44);
     for(auto a:full.actions())assert(a.x>=0&&a.x+a.width<=full.width&&a.y+44<=full.height);
+    const EditorLayout split(size.first,size.second,false,false,false,true);
+    const EditorLayout swap(size.first,size.second,false,false,true,true);
+    assert(swap.compact&&swap.scaled&&swap.swapped&&!swap.compactFull);
+    assert(swap.textX==8&&swap.keyInset==split.width-split.split);
+    assert(swap.textRight()+8==swap.keyInset&&swap.keySpan==split.keySpan);
+    for(auto a:swap.actions())assert(a.x>=swap.textX&&a.x+a.width<=swap.textRight());
+    const EditorLayout restored(size.first,size.second,false,false,true,false);
+    assert(restored.compactFull&&!restored.swapped&&!restored.scaled&&restored.keyInset==0);
   }
   EditorLayout landscape(960,266);assert(!landscape.scaled&&landscape.split==584&&landscape.textX==592);
   EditorLayout portrait(568,1210);assert(!portrait.scaled&&portrait.portrait&&portrait.docked);

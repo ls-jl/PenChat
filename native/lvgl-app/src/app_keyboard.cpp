@@ -1618,7 +1618,7 @@ void App::keyboardSettingsPage() {
   const bool correction=db_.settings().value("pinyin_correction",true);
   settingsRow("pinyin_correction","拼音纠错","为26键拼音补充错键候选",10,92,column,[this,correction]{db_.setting("pinyin_correction",!correction);build();},correction);
   const bool swapSides=wideKeyboardSwap_;
-  settingsRow("wide_keyboard_swap","横屏键盘左右互换","仅长横屏：键盘在右，编辑区在左",26+column,92,column,[this,swapSides]{wideKeyboardSwap_=!swapSides;db_.queueSetting("wide_keyboard_swap",wideKeyboardSwap_);build();},swapSides);
+  settingsRow("wide_keyboard_swap","横屏键盘左右互换","左右分区时：键盘在右，编辑区在左",26+column,92,column,[this,swapSides]{wideKeyboardSwap_=!swapSides;db_.queueSetting("wide_keyboard_swap",wideKeyboardSwap_);build();},swapSides);
   const auto preferred=editor_.preferredChinese==2?std::string("zh9"):std::string("zh26");
   label(pageContent_,std::string("常用中文布局：")+(preferred=="zh9"?"9键拼音":"26键拼音")+"\n实际输入后自动记住；长按地球可直接选择布局。",10,168,width-20,18,theme::muted);
 }

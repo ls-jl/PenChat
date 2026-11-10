@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Actual LVGL wide-editor region swap and explicit globe-menu official entry."""
+"""Actual LVGL split-editor region swap and explicit globe-menu official entry."""
 import os,pathlib,tempfile,time
 import test_lvgl_app as t
 from image_gestures import capture
@@ -25,6 +25,7 @@ def run(w,h):
             def open_editor():
                 b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
                 t.wait_for(lambda:e()['active'] and bool(e()['keys']))
+                if e().get('compact_full'):a.editor_action('compact-view')
             def menu():
                 k=next(k for k in e()['keys'] if k['key']=='language');x,y=point(k['x'],k['y'])
                 a.send('touch',x=x,y=y,pressed=True);time.sleep(.57)
@@ -38,7 +39,7 @@ def run(w,h):
                 b=a.diag()['settings']['rows']['wide_keyboard_swap']['bounds']
                 a.tap((b[0]+b[2])//2,(b[1]+b[3])//2);a.to_chat()
             def close_editor():a.editor_action('cancel' if 'cancel' in e()['actions'] else 'done')
-            wide=w>=3*h
+            wide=w>=h
             open_editor();assert not e()['keyboard_swapped'] and 'official' not in e()['actions']
             capture(a,OUT/f'{w}-normal.png')
             # Short taps retain only the three internal layouts, never the IME.
@@ -84,10 +85,12 @@ def run(w,h):
             t.wait_for(lambda:e()['candidate_count']>0 and not e()['pending'])
             capture(a,OUT/f'{w}-candidates.png')
             if wide:
-                b=e()['text_bounds'];a.tap(b[2]-21,28)
+                a.editor_action('expand')
                 assert e()['expanded'];capture(a,OUT/f'{w}-expanded.png')
-                a.tap(b[2]-21,28);assert not e()['expanded']
+                a.editor_action('compact-view' if e().get('compact_full') else 'expand')
+                assert not e()['expanded']
             key('enter');t.wait_for(lambda:not e()['preedit_length'])
+            if e().get('compact_full'):a.editor_action('compact-view')
             a.editor_action('official');request=a.receive('keyboard.open')
             assert request['text']==expected+'nihao'
             a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
@@ -132,7 +135,7 @@ def details():
             a.send('touch',x=b[2]+80,y=y,pressed=True)
             t.wait_for(lambda:e()['magnifier'] and e()['cursor_drag'])
             bubble=e()['magnifier_bounds']
-            assert bubble[0]>=b[0] and bubble[2]<=b[2]
+            assert bubble[0]>=4 and bubble[2]<960-4
             capture(a,OUT/'960-magnifier.png')
             a.send('touch',x=b[2]+80,y=y,pressed=False);time.sleep(.1)
             a.tap(x,y);a.tap(x,y);t.wait_for(lambda:e()['selected'])

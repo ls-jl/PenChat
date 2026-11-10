@@ -156,6 +156,46 @@ for width, height in [(640, 260), (720, 280)]:
             assert editor()['compact_expanded'] and editor()['secret']
             action('compact-view');action('tools');action('reveal');shot('secret-revealed')
             action('cancel')
+            # Left/right preference applies to the optional split editor too.
+            a.to_chat();a.open_settings();a.setting('keyboard')
+            b=a.diag()['settings']['rows']['wide_keyboard_swap']['bounds']
+            a.tap((b[0]+b[2])//2,(b[1]+b[3])//2);a.to_chat();open_editor()
+            assert editor()['compact_full'] and not editor()['keyboard_swapped']
+            action('compact-view');e=editor()
+            assert e['keyboard_swapped'] and e['text_bounds'][0]==8
+            assert e['text_bounds'][2]<e['keyboard_origin']
+            assert all(b[2]<e['keyboard_origin'] for b in e['actions'].values())
+            layout(1);key('a');key('l');shot('expanded-swapped')
+            # A physical left-edge press belongs to the scaled editor, not Back.
+            e=editor();b=e['text_bounds'];x,y=point(b[0]+2,b[1]+16)
+            a.send('touch',x=x,y=y,pressed=True);time.sleep(.52)
+            a.send('touch',x=width-1,y=y,pressed=True)
+            t.wait_for(lambda:editor()['cursor_drag'] and editor()['magnifier'])
+            assert editor()['active'] and editor()['keyboard_swapped']
+            a.send('touch',x=width-1,y=y,pressed=False,cancelled=True)
+            action('clipboard')
+            assert editor()['actions']['clip-close'][2]<editor()['keyboard_origin']
+            action('clip-close')
+            action('official');request=a.receive('keyboard.open')
+            assert request['field']['x']==8
+            a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
+            t.wait_for(lambda:not a.diag()['keyboard'])
+            assert editor()['keyboard_swapped']
+            action('compact-view')
+            assert editor()['compact_full'] and not editor()['keyboard_swapped']
+            action('compact-view');assert editor()['keyboard_swapped']
+            action('cancel');a.close()
+            # Persist the same existing setting; each new editor still starts full.
+            a=t.Native(t.ROOT/'build/host/penchat-lvgl',pathlib.Path(directory),
+                       seed_model=False,official_adapter=False,
+                       screen={'width':width,'height':height,'direction':0})
+            open_editor();assert editor()['compact_full']
+            action('compact-view');assert editor()['keyboard_swapped']
+            action('cancel');a.open_settings();a.setting('keyboard')
+            b=a.diag()['settings']['rows']['wide_keyboard_swap']['bounds']
+            a.tap((b[0]+b[2])//2,(b[1]+b[3])//2);a.to_chat();open_editor()
+            action('compact-view');assert not editor()['keyboard_swapped']
+            action('cancel')
             assert not a.read_messages(), 'Editor must not send or create chat history'
         finally:
             a.close()

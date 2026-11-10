@@ -18,9 +18,9 @@ struct EditorLayout {
   double keyWidth;
   EditorLayout(int w, int h, bool selectionOnly = false, bool chatComposer = false,
                bool swapWideSides = false, bool compactExpanded = false) : nativeWidth(w),nativeHeight(h),width(w),height(h) {
-    swapped=swapWideSides&&!selectionOnly&&classifyLayout(w,h)==LayoutClass::WideLandscape;
     compact=classifyLayout(w,h)==LayoutClass::CompactLandscape&&!selectionOnly;
     compactFull=compact&&!compactExpanded;
+    swapped=swapWideSides&&!selectionOnly&&h<=w&&!compactFull;
     scaled=classifyLayout(w,h)==LayoutClass::CompactLandscape&&!compactFull;
     if(scaled){w=width=960;h=height=266;}
     split = w - std::max(352, w * 2 / 5 - 8);
