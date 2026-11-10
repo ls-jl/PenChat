@@ -45,7 +45,7 @@ void App::feedbackPage() {
     return b;
   };
   auto description = [this,width](const std::string &text, int y, uint32_t color = theme::muted) {
-    auto object = label(pageContent_, text, 10, y, width, 18, color);
+    auto object = readableLabel(pageContent_, text, 10, y, width, 18, color);
     lv_obj_update_layout(object);
     return int(lv_obj_get_height(object));
   };

@@ -1,5 +1,6 @@
 #pragma once
 #include "input_focus.hpp"
+#include "text_gesture.hpp"
 #include "database.hpp"
 #include "transfer.hpp"
 #include "feedback.hpp"
@@ -487,6 +488,55 @@ class App {
   void replyContent(lv_obj_t *parent, const std::string &text, int width,
                     const std::string &id, bool live);
   void paintVisible();
+  struct ReadPart {
+    lv_obj_t *object=nullptr;
+    std::string text, deferred, target;
+    size_t begin=0, length=0;
+    int width=0, size=21;
+    bool rich=false, slice=false, hasDeferred=false;
+    RichLayout hits;
+    std::vector<Hit> links;
+    std::vector<size_t> scalarBytes;
+  };
+  struct ReadRegion {
+    uint64_t id=0;
+    lv_obj_t *root=nullptr;
+    std::string key, text;
+    size_t length=0;
+    std::vector<ReadPart> parts;
+  };
+  std::map<lv_obj_t *,ReadRegion> readRegions_;
+  uint64_t readSerial_=0, readActive_=0, readLinkRegion_=0;
+  EditorState readSelection_;
+  TextGesture readGesture_;
+  size_t readSavedCursor_=0,readSavedAnchor_=0,readWordStart_=0,readWordEnd_=0;
+  bool readSavedAll_=false,readPreview_=false,readHadSelection_=false,readMenuPointer_=false;
+  bool readDown_=false,readSuppressed_=false,readMenuWanted_=false;
+  int readHandle_=-1;
+  lv_point_t readMenuAnchor_{};
+  lv_obj_t *readOverlay_=nullptr,*readMenu_=nullptr,*readHandles_[2]={nullptr,nullptr};
+  std::vector<lv_obj_t *> readMarks_;
+  int64_t readLinkDue_=0,readScrollAt_=0;
+  std::string readLink_;
+  uint64_t readBegin(lv_obj_t *,const std::string &key);
+  void readRich(lv_obj_t *,lv_obj_t *,const Block &,int,int,const RichLayout &);
+  void readLabel(lv_obj_t *,const std::string &);
+  void readLinkText(lv_obj_t *,const std::string &,const std::string &);
+  void readSlice(lv_obj_t *,const std::string &,size_t);
+  lv_obj_t *readableLabel(lv_obj_t *,const std::string &,int,int,int,int=21,uint32_t=theme::text);
+  ReadRegion *readRegion(uint64_t);
+  lv_area_t readClip(lv_obj_t *) const;
+  size_t readPosition(ReadRegion &,int,int,bool word=false,std::pair<size_t,size_t> *atom=nullptr);
+  void readWord(ReadRegion &,int,int);
+  void readMap(ReadPart &);
+  const Block *readBlock(const ReadPart &) const;
+  void readDraw(bool menu);
+  void readReset();
+  bool readTouch(int,int,bool,bool);
+  void readTick();
+  bool readBusy() const {return readActive_&&(readSelection_.selected()||readGesture_.active()||readLinkDue_||ticks()-readGesture_.tapped<350);}
+  void openTextLink(const std::string &);
+  Json readDiagnostic() const;
   void richScrolled(lv_obj_t *object);
   bool syncingTableScroll_ = false;
   std::map<std::string, int> tableScrolls_;
@@ -540,6 +590,10 @@ class App {
   }
   bool wideKeyboardSwap_=false, editorSwapSides_=false;
   EditorState editor_;
+  TextGesture editorTextGesture_;
+  size_t editorTextSavedCursor_=0,editorTextSavedAnchor_=0,editorWordStart_=0,editorWordEnd_=0;
+  bool editorTextSavedAll_=false,editorWordPreview_=false,editorRangeDrag_=false;
+  void editorWordPreview();
   EditorState officialBackup_;
   bool officialDocked_=false;
   int officialHeight_=0;
@@ -553,7 +607,7 @@ class App {
   lv_obj_t *editorHandles_[2] = {nullptr,nullptr};
   lv_obj_t *editorMagnifier_ = nullptr, *editorMagnifierImage_ = nullptr, *editorMagnifierCaret_ = nullptr;
   lv_draw_buf_t *editorMagnifierBuffer_ = nullptr;
-  bool editorClipboardOpen_=false, editorClipboardConfirm_=false, editorUndoMenu_=false;
+  bool editorClipboardOpen_=false, editorClipboardConfirm_=false;
   lv_point_t editorMenuAnchor_{};
   bool editorOcrPreparing_=false;
   uint64_t editorOcrPrepareSent_=0;

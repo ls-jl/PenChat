@@ -85,8 +85,10 @@ struct EditorLayout {
     return {left, top, right - left, bottom - top};
   }
   Popup floatingPopup(int x,int y,int w,int h) const {
-    return {std::max(4,std::min(width-w-4,x)),
-            std::max(4,std::min(height-h-4,y)),w,h};
+    const AppLayout safe{width,height};const int side=std::max(4,safe.safeSide()),top=std::max(4,safe.safeTop()),bottom=std::max(4,safe.safeBottom());
+    w=std::min(w,width-2*side);h=std::min(h,height-top-bottom);
+    return {std::max(side,std::min(width-w-side,x)),
+            std::max(top,std::min(height-h-bottom,y)),w,h};
   }
   Popup magnifierPopup(int cursorX,int cursorY,int editorLeft=0,int editorRight=0) const {
     const AppLayout safe{width,height};
@@ -95,22 +97,24 @@ struct EditorLayout {
     const int bottom=std::min(std::max(4,safe.safeBottom()),std::max(0,height-top-1));
     // Visibility wins over preferred size, then the familiar position above
     // the caret. These are logical safe bounds, never raw touch coordinates.
-    // Only the floating bubble is constrained by the visible editor sides.
-    // Never feed this clamped position back into text/caret hit testing.
-    const int left=editorRight>editorLeft?std::max(side,std::min(width-side-1,editorLeft)):side;
-    const int right=editorRight>editorLeft?std::max(left+1,std::min(width-side,editorRight)):width-side;
+    // Floating feedback may leave a narrow field; only the screen safe area
+    // constrains it. Never feed its position back into caret hit testing.
+    (void)editorLeft;(void)editorRight;
+    const int left=side,right=width-side;
     const int w=std::min(180,right-left),h=std::min(58,height-top-bottom);
     const int x=std::max(left,std::min(right-w,cursorX-w/2));
     const int y=std::max(top,std::min(height-bottom-h,cursorY-96-(portrait?58:0)));
     return {x,y,w,h};
   }
-  Popup undoPopup(int x,int y,bool canPaste=false) const {
-    const int w=canPaste?188:96;
-    return floatingPopup(x-w/2,y-60-(portrait?52:0),w,52);
-  }
+  int selectionHandleWidth() const {return scaled?int(std::ceil(44.*256/scaleX())):44;}
+  int selectionHandleHeight() const {return scaled?int(std::ceil(44.*256/scaleY())):44;}
+  int selectionButtonWidth() const {return std::max(88,scaled?int(std::ceil(44.*256/scaleX())):44);}
+  int selectionButtonHeight() const {return std::max(44,scaled?int(std::ceil(44.*256/scaleY())):44);}
   Popup selectionPopup(int x,int y,bool readOnly=false) const {
-    const int w=(readOnly?2:4)*92+4;
-    return floatingPopup(x-w/2,y-60-(portrait?52:0),w,52);
+    const int w=(readOnly?2:5)*(selectionButtonWidth()+4)+4,h=selectionButtonHeight()+8;
+    int py=y-h-8-(portrait?52:0);
+    if(readOnly&&py<AppLayout{width,height}.safeTop()+56)py=y+20;
+    return floatingPopup(x-w/2,py,w,h);
   }
   Popup globeKey() const {
     const int commaCenter=8+px(keyWidth+14)+px(keyWidth+10)/2;

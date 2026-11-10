@@ -264,10 +264,10 @@ void App::historyContext(const std::string &id) {
   lv_obj_set_style_radius(panel, 16, 0);
   auto reader=box(panel,16,10,panelWidth-32,panelHeight-94,theme::surface);
   lv_obj_set_scroll_dir(reader,LV_DIR_VER);
-  historyFullTitle_=label(reader,session.value("title",std::string()),0,0,panelWidth-32,21);
+  historyFullTitle_=readableLabel(reader,session.value("title",std::string()),0,0,panelWidth-32,21);
   lv_obj_set_height(historyFullTitle_,LV_SIZE_CONTENT);
   const auto stamp=historyTime(sessionChatTime(session),nowMs(),true);
-  historyFullTime_=label(panel,stamp.empty()?"没有已记录的聊天时间":"最后聊天："+stamp,16,panelHeight-80,panelWidth-32,16,theme::muted);
+  historyFullTime_=readableLabel(panel,stamp.empty()?"没有已记录的聊天时间":"最后聊天："+stamp,16,panelHeight-80,panelWidth-32,16,theme::muted);
   const int actionWidth=std::max(100,(panelWidth-56)/5),actionY=panelHeight-60;
   auto actionRail=box(panel,0,actionY,panelWidth,50,theme::surface);
   lv_obj_set_scroll_dir(actionRail,LV_DIR_HOR);lv_obj_set_scroll_elastic(actionRail,false);

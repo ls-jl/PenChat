@@ -208,19 +208,19 @@ void App::transferPage() {
     return object;
   };
   if (transfer_->busy()) {
-    transferProgress_ = label(pageContent_,
+    transferProgress_ = readableLabel(pageContent_,
                               transferOp_ == "preview" ? "正在验证文件与附件…"
                               : transferOp_ == "import" ? "正在保存导入内容…"
                               : (transferOp_ == "export" || transferOp_ == "export_format") ? "正在导出…"
                                                         : "正在读取…",
                               12, 12, width, 23);
-    label(pageContent_, "正在处理文件，请稍候。", 12, 58, width, 19, theme::muted);
+    readableLabel(pageContent_, "正在处理文件，请稍候。", 12, 58, width, 19, theme::muted);
     action("取消", 10, 114, [this] { transfer_->cancel(); });
     return;
   }
   int top = 0;
   if (!transferError_.empty()) {
-    auto hint = label(pageContent_, transferError_, 12, 4, column, 19, theme::muted);
+    auto hint = readableLabel(pageContent_, transferError_, 12, 4, column, 19, theme::muted);
     lv_obj_set_height(hint, 44);
     lv_label_set_long_mode(hint, LV_LABEL_LONG_MODE_DOTS);
     action("查看原因 / 关闭提示", right, 0, [this] {
@@ -232,7 +232,7 @@ void App::transferPage() {
     top = 60;
   }
   if (transferScreen_ == "home") {
-    label(pageContent_, transfer_->root(), 12, top + 4, width, 18, theme::muted);
+    readableLabel(pageContent_, transfer_->root(), 12, top + 4, width, 18, theme::muted);
     auto choose = [this](const std::string &screen, const std::string &kind,
                          const std::string &op) {
       transferScreen_ = screen;
@@ -253,24 +253,24 @@ void App::transferPage() {
            [choose] { choose("import_presets", "presets", "list"); });
     action("查看格式规范", 10, top + 156, [this] { transferNavigate("format_index"); });
     action("导出格式规范", right, top + 156, [this] { transferExportFormat(); });
-    label(pageContent_, "将文件放入对应的导入目录，刷新后选择。", 12, top + 216, width, 18,
+    readableLabel(pageContent_, "将文件放入对应的导入目录，刷新后选择。", 12, top + 216, width, 18,
           theme::muted);
     return;
   }
   if (transferScreen_ == "format_index") {
-    label(pageContent_, "格式版本" + std::to_string(TransferFormatVersion) + " · 离线说明与虚构示例", 12, top + 4, width, 18, theme::muted);
+    readableLabel(pageContent_, "格式版本" + std::to_string(TransferFormatVersion) + " · 离线说明与虚构示例", 12, top + 4, width, 18, theme::muted);
     action("聊天包", 10, top + 36, [this] { transferNavigate("format_chats"); });
     action("会话预设", right, top + 36, [this] { transferNavigate("format_presets"); });
     action("普通 Markdown", 10, top + 96, [this] { transferNavigate("format_markdown"); });
     action("导出说明与示例 ZIP", right, top + 96, [this] { transferExportFormat(); });
-    label(pageContent_, "外层规范 ZIP 需要先解压，示例聊天包可直接导入。", 12, top + 158, width, 18, theme::muted);
+    readableLabel(pageContent_, "外层规范 ZIP 需要先解压，示例聊天包可直接导入。", 12, top + 158, width, 18, theme::muted);
     return;
   }
   if (transferScreen_.compare(0,7,"format_") == 0) {
     action("规范目录", 10, top + 4, [this] { transferNavigate("format_index"); });
     action("导出格式规范", right, top + 4, [this] { transferExportFormat(); });
     if (!transferData_.contains("text")) {
-      label(pageContent_, "规范未读取，请重试。", 12, top + 70, width, 20, theme::muted);
+      readableLabel(pageContent_, "规范未读取，请重试。", 12, top + 70, width, 20, theme::muted);
       action("重新读取", 10, top + 110, [this] { transferRequest("format", {{"topic", transferScreen_.substr(7)}}); });
       return;
     }
@@ -292,17 +292,17 @@ void App::transferPage() {
     return;
   }
   if (transferScreen_ == "done") {
-    label(pageContent_,
+    readableLabel(pageContent_,
           transferData_.contains("path")
               ? (transferData_.value("format_spec", false) ? "格式规范与示例已保存" : "导出文件已保存")
               : "导入完成：新增 " + std::to_string(transferData_.value("added", 0)) +
                     " 项",
           12, top + 4, width, 24);
-    label(pageContent_,
+    readableLabel(pageContent_,
           transferData_.value("path", std::string("现有会话和全局默认配置已保留。")),
           12, top + 44, width, 19, theme::muted);
     if (transferData_.value("format_spec", false)) {
-      label(pageContent_, db_.settings().value("persistent_export_directory", false) ?
+      readableLabel(pageContent_, db_.settings().value("persistent_export_directory", false) ?
             "解压规范 ZIP 后，按使用说明复制示例。" : "持久化导出目录已关闭：退出会清理此 ZIP，请先复制。",
             12, top + 96, width, 18, theme::muted);
     }
@@ -346,7 +346,7 @@ void App::transferPage() {
         [this] { modal("完整文件名", transferPreview_.value("file", std::string())); },
         theme::background, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_style_text_font(lv_obj_get_child(filename, 0), font(18), 0);
-    label(pageContent_,
+    readableLabel(pageContent_,
           std::to_string(p.at("items").size()) + " 项 / " +
               std::to_string(p.value("pictures", 0)) + " 张图片 / 约 " +
               std::to_string((p.value("bytes", uint64_t(0)) + 1023) / 1024) + " KiB",
@@ -505,7 +505,7 @@ void App::transferPage() {
     y += 56;
   }
   if (rows.empty()) {
-    label(pageContent_, "暂无可选内容", 12, y + 8, width, 22, theme::muted);
+    readableLabel(pageContent_, "暂无可选内容", 12, y + 8, width, 22, theme::muted);
     y += 48;
   }
   for (const auto &row : rows) {

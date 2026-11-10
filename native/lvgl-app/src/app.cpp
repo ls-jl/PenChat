@@ -698,7 +698,7 @@ void App::modelPage() {
     catch (const std::exception &e) { modal("模型设置未保存", e.what()); }
   });
   primary(save);
-  auto name = label(pageContent_, modelForm_.value("name", std::string()), 10, 0, width,
+  auto name = readableLabel(pageContent_, modelForm_.value("name", std::string()), 10, 0, width,
                     19, theme::muted);
   lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(name, 22);
@@ -967,6 +967,8 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  if(readGesture_.active())readSuppressed_=readDown_;
+  readReset();
   onboarding_.reset();modalButtons_.clear();modalScroll_=nullptr;
   updateActions_.clear(); updateProgress_=updateProgressText_=updateTransferText_=nullptr;
   feedbackActions_.clear();
@@ -1210,6 +1212,8 @@ void App::error(const std::string &m) {
     modal("提示", m);
 }
 void App::modal(const std::string &title, const std::string &text) {
+  if(readGesture_.active())readSuppressed_=readDown_;
+  readReset();
   closeAttachments();
   resetPull();
   if (modal_)
@@ -1231,7 +1235,7 @@ void App::modal(const std::string &title, const std::string &text) {
   label(layer, title, 15, 7, layerWidth-30, 23);
   auto scroll = box(layer, 10, 42, layerWidth-20, mh-115, theme::surface);
   modalScroll_=scroll;
-  label(scroll, text, 5, 0, layerWidth-30, 20);
+  readableLabel(scroll, text, 5, 0, layerWidth-30, 20);
   button(layer, "关闭", portraitPhoto?layerWidth-110:screen_.width-205, mh-66, 100, 44,
          [layer] { lv_obj_delete(layer); });
 }
@@ -1343,6 +1347,7 @@ bool App::chatComposerVisible() const {
   return !chatComposerHidden_;
 }
 bool App::readerInteracting() const {
+  if(readBusy())return true;
   if (view_ != "chat" || !body_ || chatLayout_ || keyboard_ || (editor_.active&&!editorLayout().docked) || imageViewer_ ||
       navigationOpen_ || modal_) return false;
   if (editorDismissing_ || editorDismissReturnAt_ || readerPointer_ || lv_obj_is_scrolling(body_)) return true;
@@ -1512,6 +1517,7 @@ void App::newChat(bool inherit) {
 }
 void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
                       bool subdued, const std::string &context) {
+  readBegin(parent,context);
   auto doc = parseMarkdown(text, generating_ && parent == liveContent_);
   const int size = readingFontSize();
   rich_.prepare(doc, width - 4, size);
@@ -1520,8 +1526,7 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
       return;
     auto layout = rich_.layout(b, width - 4, size);
     auto holder = box(parent, 0, 0, width, layout.height, theme::background);
-    if (!subdued && view_ == "chat")
-      lv_obj_set_event_bubble(holder, true);
+    readRich(parent,holder,b,width-4,size,layout);
     lv_obj_set_scroll_dir(holder, LV_DIR_HOR);
     if (b.tableId)
       lv_obj_set_scroll_elastic(holder, false);
@@ -1586,13 +1591,14 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
           image(
               h, path, 0, 0, width, lv_obj_get_height(h),
               [this, path] { requestImageViewer(path); }, false, true);
-          button(
+          auto caption=button(
               parent, r.text.empty() ? "图片来源" : r.text, 0, 0, width, 44,
               [this, asset] {
                 openWebSource({{"url", asset.value("source_url", std::string())},
                                {"title", asset.value("title", std::string("图片来源"))}});
               },
               theme::background, LV_TEXT_ALIGN_LEFT);
+          readLinkText(lv_obj_get_child(caption,0),r.text.empty()?"图片来源":r.text,asset.value("source_url",std::string()));
           const auto key=images_.request(path,width,lv_obj_get_height(h),true);
           auto retry=button(parent,"重试读取图片",0,0,width,44,[this,path]{
             images_.retry(path);if(view_=="chat")renderMessages(false,true);else build();
@@ -1645,10 +1651,12 @@ void App::replyContent(lv_obj_t *parent, const std::string &text, int width,
         [this, id] { events_.push("web_toggle", {{"id", id}}); }, theme::background,
         LV_TEXT_ALIGN_LEFT);
     if (expandedWeb_.count(id)) {
-      for (const auto &source : web.value("web_sources", Json::array()))
-        button(
+      for (const auto &source : web.value("web_sources", Json::array())) {
+        auto sourceButton=button(
             parent, source.value("title", source.value("url", std::string())), 0, 0, width, 44,
             [this, source] { openWebSource(source); }, theme::background, LV_TEXT_ALIGN_LEFT);
+        readLinkText(lv_obj_get_child(sourceButton,0),source.value("title",source.value("url",std::string())),source.value("url",std::string()));
+      }
       button(
           parent, "查看完整检索记录", 0, 0, width, 44, [this, id] { openWebDetails(id); },
           theme::background, LV_TEXT_ALIGN_LEFT);
@@ -1798,14 +1806,15 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
     }
     if (!content.empty() || (live && receivingReply_) ||
         !webMetadata(id).value("web_records", Json::array()).empty()) {
-      if (user)
-        label(wrap, content, 0, 0, textWidth, readingFontSize());
+      if (user) {
+        if(readOnly)readableLabel(wrap,content,0,0,textWidth,readingFontSize());
+        else label(wrap, content, 0, 0, textWidth, readingFontSize());
+      }
       else {
         auto contentBox =
             box(wrap, 0, 0, textWidth, LV_SIZE_CONTENT, theme::background);
         lv_obj_set_flex_flow(contentBox, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_scrollable(contentBox, false);
-        if (!readOnly) messageLongPress(contentBox, id);
         if (live)
           liveContent_ = contentBox;
         replyContent(contentBox, content, textWidth, id, live);
@@ -2013,44 +2022,9 @@ void App::paintVisible() {
         frame->height = bitmap.height;
         frame->pixels = std::move(bitmap.pixels);
         auto object = imageWidget(r.holder);
-        lv_obj_set_event_bubble(object, true);
         lv_obj_set_pos(object, x, y);
         texture(object, frame, true);
         r.tiles[position] = object;
-        auto hits = rich_.layout(r.block, r.width, r.fontSize).links;
-        onClick(object, [this, object, hits, x, y] {
-          lv_point_t point;
-          auto indev = lv_indev_active();
-          if (!indev)
-            return;
-          lv_indev_get_point(indev, &point);
-          lv_area_t area;
-          lv_obj_get_coords(object, &area);
-          for (auto &hit : hits)
-            if (point.x - area.x1 + x >= hit.x &&
-                point.x - area.x1 + x < hit.x + hit.w &&
-                point.y - area.y1 + y >= hit.y &&
-                point.y - area.y1 + y < hit.y + hit.h) {
-              bool found = false;
-              for (const auto &entry : webMessageMetadata_)
-                for (const auto &source : entry.second.value("web_sources", Json::array()))
-                  if (source.value("url", std::string()) == hit.target) {
-                    openWebSource(source);
-                    found = true;
-                    break;
-                  }
-              if (!found)
-                for (const auto &source : reasoningMetadata_.value("web_sources", Json::array()))
-                  if (source.value("url", std::string()) == hit.target) {
-                    openWebSource(source);
-                    found = true;
-                    break;
-                  }
-              if (!found)
-                modal("链接", hit.target);
-              break;
-            }
-        });
       }
   }
 }
@@ -2122,6 +2096,7 @@ void App::pageHeader(const std::string &title, int top) {
   if(layout().portrait())icon(pageHeader_,"back",layout().safeSide(),2,44,44,[this]{if(editor_.active){editorAccept();return;}goBack();});
   const int titleX=layout().portrait()?layout().safeSide()+56:10;
   pageHeading_ = label(pageHeader_, title, titleX, 7, width-titleX-10,26);
+  readLabel(pageHeading_,title);
   lv_label_set_long_mode(pageHeading_, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(pageHeading_,font(26)->line_height);
   pageContent_ = box(body_, 0, top + 48, width, LV_SIZE_CONTENT);
@@ -2514,7 +2489,7 @@ void App::providerPage() {
     });
     extra += 64;
   }
-  status_ = label(pageContent_, notice_, 10, (anthropic ? 356 : 292) + extra, w, 17, theme::muted);
+  status_ = readableLabel(pageContent_, notice_, 10, (anthropic ? 356 : 292) + extra, w, 17, theme::muted);
   int y = (anthropic ? 382 : 318) + extra;
   for (auto &name : modelNames_) {
     auto nameLabel = label(pageContent_, name, 15, y, w, 20);
@@ -3089,6 +3064,8 @@ void App::attach(const Json &image) {
   });
 }
 void App::cancelNativeInteraction() {
+  readReset();
+  readDown_=readSuppressed_=false;
   touchInput_.close(); input_.interrupt();
   systemEdgeDown_=systemEdgeGesture_=false;
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
@@ -3127,6 +3104,8 @@ void App::updateInputFocus() {
   }
 }
 void App::suspend(bool value) {
+  if(value)readReset();
+  if(value)readDown_=readSuppressed_=false;
   pageVisible_=!value;
   if(value)inputFocus_.block();
   diagnosticRecord("lifecycle", value ? "background" : "foreground");
@@ -3243,6 +3222,8 @@ void App::routeTouch(const Json &m) {
     if(!imageTouch(m))input_.touch(m.value("x",0),m.value("y",0),m.value("pressed",false));
     return;
   }
+  if(!editor_.active)readerTouch(m.value("x",0),m.value("y",0),m.value("pressed",false),m.value("cancelled",false));
+  if(readTouch(m.value("x",0),m.value("y",0),m.value("pressed",false),m.value("cancelled",false)))return;
   if (editor_.active) {
     const int x=m.value("x",0),y=m.value("y",0);
     const bool down=m.value("pressed",false),cancelled=m.value("cancelled",false);
@@ -3252,7 +3233,7 @@ void App::routeTouch(const Json &m) {
     }
     const auto inputArea=editorTextArea();
     if(editorLayout().docked&&!editorPointer_&&down&&!inputArea.contains(x,y)&&y<editorLayout().panelTop&&
-       !editorExpanded_&&!editorClipboardOpen_&&!editorMenu_&&!editorUndoMenu_&&!editorLayoutMenu_&&!editorPunctuation_)
+       !editorExpanded_&&!editorClipboardOpen_&&!editorMenu_&&!editorLayoutMenu_&&!editorPunctuation_)
       editorReaderTouch_=true;
     if(editorReaderTouch_) {
       if(!editorDismissTouch(x,y,down,cancelled)) {
@@ -3265,7 +3246,6 @@ void App::routeTouch(const Json &m) {
   }
   const int x = m.value("x", 0), y = m.value("y", 0);
   const bool pressed = m.value("pressed", false);
-  readerTouch(x, y, pressed, m.value("cancelled", false));
   if (navigationOpen_ && !modal_) {
     if (pressed && !navigationPointerDown_) {
       navigationBackdrop_ = x >= screen_.width * 2 / 3;
@@ -3538,6 +3518,7 @@ void App::tick() {
     }
   }
   editorTick();
+  readTick();
   if (afterScanRelease_ && scanner_.released()) {
     auto callback = std::move(afterScanRelease_);
     afterScanRelease_ = {};
@@ -4058,6 +4039,7 @@ Json App::diagnostics() const {
       {"navigation_active_y", navigationActive_ ? (active.y1 + active.y2) / 2 : -1},
       {"navigation_scroll", navigationList_ ? lv_obj_get_scroll_y(navigationList_) : 0},
       {"message_interactions",messageDiagnostic()},
+      {"text_selection",readDiagnostic()},
       {"reply_actions",replyDiagnostic()},
       {"navigation_button", view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back"},
       {"pull_indicator_y", pullIndicator_ ? lv_obj_get_y(pullIndicator_) : -1},

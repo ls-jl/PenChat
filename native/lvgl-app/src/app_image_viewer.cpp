@@ -6,6 +6,8 @@ void App::requestImageViewer(const std::string &path) {
   events_.push("image_view_request",{{"session",view_=="archive_chat"?archiveReaderId_:session_},{"path",path}});
 }
 void App::openImageViewer(const std::string &path, bool scanResult) {
+  readReset();
+  readDown_=readSuppressed_=false;
   if ((!scanResult && path.empty()) || imageViewer_) return;
   viewerScanResult_=scanResult;
   closeAttachments();resetPull();input_.cancel();touchDown_=false;

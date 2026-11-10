@@ -47,24 +47,25 @@ void App::webDetailsPage() {
                  : state == "complete"  ? "已完成"
                  : state == "cancelled" ? "已停止"
                                         : "未能完成");
-    label(pageContent_, text, 10, y, w - 20, 18, theme::muted);
+    readableLabel(pageContent_, text, 10, y, w - 20, 18, theme::muted);
     y += 30;
     if (record.value("status", std::string()) == "error") {
       auto error = record.value("result", Json::object()).value("error", std::string("工具失败"));
-      auto item = label(pageContent_, error, 10, y, w - 20, 17, theme::danger);
+      auto item = readableLabel(pageContent_, error, 10, y, w - 20, 17, theme::danger);
       lv_obj_update_layout(item);
       y += lv_obj_get_height(item) + 12;
     }
   }
   for (const auto &source : webDetails_.value("web_sources", Json::array())) {
     auto title = source.value("title", source.value("url", std::string()));
-    button(
+    auto sourceButton=button(
         pageContent_, title, 10, y, w - 20, 48, [this, source] { openWebSource(source); },
         theme::surface, LV_TEXT_ALIGN_LEFT);
+    readLinkText(lv_obj_get_child(sourceButton,0),title,source.value("url",std::string()));
     y += 56;
   }
   if (!y)
-    label(pageContent_, "还没有可查看的检索记录", 10, 8, w - 20, 20, theme::muted);
+    readableLabel(pageContent_, "还没有可查看的检索记录", 10, 8, w - 20, 20, theme::muted);
 }
 void App::openWebSource(Json source) {
   if (view_ != "web_details" && view_ != "web_source") {
@@ -80,7 +81,7 @@ void App::webSourcePage() {
   const int w = layout().contentWidth();
   int y = 0;
   auto address =
-      label(pageContent_, webSource_.value("url", std::string()), 10, y, w - 20, 16, theme::muted);
+      readableLabel(pageContent_, webSource_.value("url", std::string()), 10, y, w - 20, 16, theme::muted);
   lv_obj_update_layout(address);
   y += lv_obj_get_height(address) + 8;
   const auto stamp = webSource_.value("fetched_at", int64_t(0));
@@ -90,7 +91,7 @@ void App::webSourcePage() {
     char formatted[32]{};
     localtime_r(&seconds, &local);
     strftime(formatted, sizeof(formatted), "%Y-%m-%d %H:%M", &local);
-    label(pageContent_, std::string("获取时间：") + formatted, 10, y, w - 20, 16, theme::muted);
+    readableLabel(pageContent_, std::string("获取时间：") + formatted, 10, y, w - 20, 16, theme::muted);
     y += 28;
   }
   button(pageContent_, "重新获取网页", 10, y, w - 20, 44,
@@ -101,7 +102,7 @@ void App::webSourcePage() {
   lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
   const auto text = webSource_.value("text", std::string());
   if (text.empty())
-    label(content, "暂无正文快照，点击重新获取；网页不执行脚本。", 0, 0, w - 20, 18, theme::muted);
+    readableLabel(content, "暂无正文快照，点击重新获取；网页不执行脚本。", 0, 0, w - 20, 18, theme::muted);
   else {
     auto begin = std::min(webSourceOffset_, text.size());
     while (begin && begin < text.size() && (static_cast<unsigned char>(text[begin]) & 0xc0) == 0x80)
@@ -110,7 +111,7 @@ void App::webSourcePage() {
     while (end < text.size() && (static_cast<unsigned char>(text[end]) & 0xc0) == 0x80)
       --end;
     if (text.size() > 16384) {
-      label(content, "正文分段阅读 · 第 " + std::to_string(begin / 16384 + 1) + " 段", 0, 0, w - 20,
+      readableLabel(content, "正文分段阅读 · 第 " + std::to_string(begin / 16384 + 1) + " 段", 0, 0, w - 20,
             16, theme::muted);
       if (begin)
         button(content, "上一段", 0, 0, w - 20, 44, [this] {
@@ -123,7 +124,8 @@ void App::webSourcePage() {
           build();
         });
     }
-    label(content, text.substr(begin, end - begin), 0, 0, w - 20, readingFontSize());
+    auto body=readableLabel(content, text.substr(begin, end - begin), 0, 0, w - 20, readingFontSize());
+    readSlice(body,text,begin);
   }
   for (const auto &link : webSource_.value("links", Json::array())) {
     const auto url = link.value("url", std::string());
@@ -132,9 +134,10 @@ void App::webSourcePage() {
     auto title = link.value("text", url);
     if (title.empty())
       title = url;
-    button(
+    auto linkButton=button(
         content, title, 0, 0, w - 20, 44, [this, url] { fetchWebSource(url); }, theme::surface,
         LV_TEXT_ALIGN_LEFT);
+    readLinkText(lv_obj_get_child(linkButton,0),title,url);
   }
 }
 void App::fetchWebSource(const std::string &url) {

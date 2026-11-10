@@ -65,7 +65,7 @@ bool App::sessionInfoEvent(const Event &event) {
     return true;
   }
   if (event.type != "session_info_result") return false;
-  if (view_ == "session_info" && touchDown_) {
+  if (view_ == "session_info" && (touchDown_||readBusy())) {
     events_.push(event.type, event.data);
     return true; // Never rebuild the reader underneath an active gesture.
   }
@@ -125,12 +125,12 @@ void App::sessionInfoPage() {
   const int width = layout().contentWidth(), column = (width - 16) / 2;
   const auto data = sessionInfoData_;
   if (data.empty() || data.contains("error")) {
-    label(pageContent_, data.empty() ? "正在读取会话信息…" : data["error"].get<std::string>(),
+    readableLabel(pageContent_, data.empty() ? "正在读取会话信息…" : data["error"].get<std::string>(),
           10, 12, width, 20, theme::muted);
     return;
   }
   auto single = [this](const std::string &text, int x, int y, int width, int size, uint32_t color) {
-    auto object = label(pageContent_, text, x, y, width, size, color);
+    auto object = readableLabel(pageContent_, text, x, y, width, size, color);
     lv_label_set_long_mode(object, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_height(object, font(size)->line_height);
   };
@@ -139,8 +139,8 @@ void App::sessionInfoPage() {
     if(layout().portrait()) {
       auto row=box(pageContent_,x,y,column,52);
       lv_obj_set_scrollable(row,false);
-      auto caption=label(row,name,0,0,column,17,theme::muted);
-      auto valueLabel=label(row,value,0,23,column,21,theme::text);
+      auto caption=readableLabel(row,name,0,0,column,17,theme::muted);
+      auto valueLabel=readableLabel(row,value,0,23,column,21,theme::text);
       for(auto object:{caption,valueLabel}) {
         lv_label_set_long_mode(object,LV_LABEL_LONG_MODE_DOTS);
         lv_obj_set_height(object,object==caption?font(17)->line_height:font(21)->line_height);
@@ -187,7 +187,7 @@ void App::sessionInfoPage() {
     metric("未缓存输入 token", tokenValue(latest, "uncached_input_tokens"), 0, 642);
     metric("输入总计", "未缓存 + 缓存读取 + 缓存写入", 1, 642);
   }
-  label(pageContent_,
+  readableLabel(pageContent_,
         "上下文按当前模型、系统提示词、有效摘要、历史和待发送内容估算；图片单独估算，非精确分词。发送时的自动压缩或重试会改变上下文。\n\n"
         "用量来自接口，不回填旧消息；各指标只累计已返回该字段的回复。缓存命中率＝已缓存输入 token ÷ 对应输入 token，不是请求成功率。\n\n"
         "累计仅统计当前保留回复，不包含被覆盖回复、自动命名和压缩请求；推理 token 已包含在输出中，不再重复相加。这里不是账单或费用统计。",

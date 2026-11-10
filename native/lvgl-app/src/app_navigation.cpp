@@ -65,14 +65,22 @@ bool App::backTouch(const Json &m) {
     // pointer-down immediately: buffering it for Back defeats long-press caret
     // dragging and selection handles. Unoccupied edge space still navigates.
     bool editorHandle=false;
-    const bool swapped=editor_.active&&editorLayout().swapped;
-    if(swapped&&editor_.selected())for(auto handle:editorHandles_) {
+    if(editor_.active&&editor_.selected())for(auto handle:editorHandles_) {
       if(!handle||lv_obj_is_hidden(handle))continue;
       lv_area_t area;lv_obj_get_coords(handle,&area);
       if(x>=area.x1&&x<=area.x2&&y>=area.y1&&y<=area.y2)editorHandle=true;
     }
-    const bool editorOwns=swapped&&(editorTextArea().contains(x,y)||editorHandle);
-    backCandidate_=!cropHandle&&!editorOwns && (!navigationOpen_ || modal_) && x>=0 && x<=edge;
+    const bool editorOwns=editor_.active&&(editorTextArea().contains(x,y)||editorHandle);
+    bool readOwns=false;
+    if(!editor_.active) {
+      for(auto object:{readMenu_,readHandles_[0],readHandles_[1]})if(object&&!lv_obj_is_hidden(object)){lv_area_t a;lv_obj_get_coords(object,&a);if(x>=a.x1&&x<=a.x2&&y>=a.y1&&y<=a.y2)readOwns=true;}
+      for(const auto &entry:readRegions_) {
+        bool available=!modal_;
+        if(modal_)for(auto p=entry.second.root;p;p=lv_obj_get_parent(p))if(p==modal_)available=true;
+        if(available&&!navigationOpen_)for(const auto &part:entry.second.parts){const auto a=readClip(part.object);if(x>=a.x1&&x<=a.x2&&y>=a.y1&&y<=a.y2)readOwns=true;}
+      }
+    }
+    backCandidate_=!cropHandle&&!editorOwns&&!readOwns && (!navigationOpen_ || modal_) && x>=0 && x<=edge;
     if (backCandidate_) { backStart_=m; backX_=x; backY_=y; backContext_=backContext(); }
   }
   if (!backCandidate_) { if(!down)backDown_=false; return false; }

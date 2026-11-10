@@ -69,7 +69,7 @@ void App::anthropicModelPage() {
   });
   primary(save);
   pageAction(modelAdvanced_ ? "档位选择" : "参数映射", 170, 140, [this] { modelAdvanced_ = !modelAdvanced_; build(); });
-  auto title = label(pageContent_, modelForm_.value("name", std::string()), 10, 0, width, 19, theme::muted);
+  auto title = readableLabel(pageContent_, modelForm_.value("name", std::string()), 10, 0, width, 19, theme::muted);
   lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS); lv_obj_set_height(title, 22);
   settingsRow("thinking_mode", "思考模式", mode == "adaptive" ? "自适应强度" : mode == "budget" ? "固定 token 预算" : "不声明 · API 默认",
               10, 30, column, [this, mode] {

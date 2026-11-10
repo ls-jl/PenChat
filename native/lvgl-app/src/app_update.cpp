@@ -98,18 +98,18 @@ void App::updatePage() {
     auto b=button(pageContent_,text,x,y,w,48,std::move(callback));updateActions_[key]=b;return b;
   };
   const auto state=updateState_.value("status",std::string("idle"));const auto release=updateState_.value("release",Json::object());
-  label(pageContent_,std::string("当前版本 ")+PENCHAT_VERSION+(release.empty()?"":" → "+release.value("version",std::string())),10,4,width,20);
-  auto message=label(pageContent_,updateState_.value("message",std::string()),10,36,width,18,theme::muted);lv_obj_update_layout(message);
+  readableLabel(pageContent_,std::string("当前版本 ")+PENCHAT_VERSION+(release.empty()?"":" → "+release.value("version",std::string())),10,4,width,20);
+  auto message=readableLabel(pageContent_,updateState_.value("message",std::string()),10,36,width,18,theme::muted);lv_obj_update_layout(message);
   int y=44+lv_obj_get_height(message);
   if(state=="downloading"||state=="verifying"||state=="ready"||state=="installing") {
     updateProgress_=lv_bar_create(pageContent_);lv_obj_set_pos(updateProgress_,10,y+6);lv_obj_set_size(updateProgress_,width,14);
     lv_obj_set_style_bg_color(updateProgress_,lv_color_hex(theme::accent),LV_PART_INDICATOR);lv_bar_set_range(updateProgress_,0,100);
     const auto p=updateState_.value("progress",Json::object());const auto done=p.value("downloaded",uint64_t(0)),total=p.value("total",uint64_t(0));
     lv_bar_set_value(updateProgress_,total?int(std::min<uint64_t>(100,done*100/total)):0,LV_ANIM_OFF);
-    updateProgressText_=label(pageContent_,std::to_string(total?done*100/total:0)+"% · "+std::to_string(done/1024)+" / "+std::to_string(total/1024)+" KiB",10,y+32,width,20);
-    updateTransferText_=label(pageContent_,std::to_string(p.value("speed",uint64_t(0))/1024)+" KiB/s · "+std::to_string(p.value("lanes",0))+" 路 · "+std::to_string(p.value("nodes",1))+" 个节点",10,y+62,width,18,theme::muted);
+    updateProgressText_=readableLabel(pageContent_,std::to_string(total?done*100/total:0)+"% · "+std::to_string(done/1024)+" / "+std::to_string(total/1024)+" KiB",10,y+32,width,20);
+    updateTransferText_=readableLabel(pageContent_,std::to_string(p.value("speed",uint64_t(0))/1024)+" KiB/s · "+std::to_string(p.value("lanes",0))+" 路 · "+std::to_string(p.value("nodes",1))+" 个节点",10,y+62,width,18,theme::muted);
     if(state=="downloading"||state=="verifying")action("cancel","取消下载",10,y+98,column,[this]{updateBack();});
-    label(pageContent_,"下载与校验成功后将自动安装。取消后，下一个版本再提醒。",10,y+160,width,16,theme::muted);
+    readableLabel(pageContent_,"下载与校验成功后将自动安装。取消后，下一个版本再提醒。",10,y+160,width,16,theme::muted);
     return;
   }
   if(state=="available"||(state=="error"&&!release.empty())) {
@@ -124,7 +124,7 @@ void App::updatePage() {
   }
   const auto notes=updateState_.value("notes",Json::array());const auto index=updateState_.value("note_index",size_t(0)),page=updateState_.value("note_page",size_t(0));
   if(!notes.empty()&&index<notes.size()) {
-    label(pageContent_,notes[index].value("version",std::string())+" 更新说明 · "+std::to_string(index+1)+"/"+std::to_string(notes.size()),10,y,width,20);y+=32;
+    readableLabel(pageContent_,notes[index].value("version",std::string())+" 更新说明 · "+std::to_string(index+1)+"/"+std::to_string(notes.size()),10,y,width,20);y+=32;
     const int cell=(width-24)/4;
     auto prev=action("note_previous","上一版本",10,y,cell,[this,index]{updater_->request("note",{{"index",index-1},{"page",0}});});
     auto next=action("note_next","下一版本",18+cell,y,cell,[this,index]{updater_->request("note",{{"index",index+1},{"page",0}});});

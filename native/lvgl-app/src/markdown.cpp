@@ -359,6 +359,7 @@ struct Piece {
   int style = 0;
   float x = 0, y = 0, width = 0, height = 0, baseline = 0;
   std::shared_ptr<Bitmap> math;
+  size_t begin = 0, end = 0;
 };
 struct RichText::Impl {
   FT_Library library = nullptr;
@@ -489,7 +490,22 @@ void RichText::prepare(Document &document, int width, int size) {
       document.blocks[i++].columnWidths = widths;
   }
 }
-RichLayout RichText::layout(const Block &block, int width, int size) {
+static std::string runPlainText(const Run &run) {
+  if (run.style & Math) return (run.style & DisplayMath ? "$$" : "$") + run.text +
+                               (run.style & DisplayMath ? "$$" : "$");
+  return run.style & Image ? "[图片] " + run.text : run.text;
+}
+std::string blockPlainText(const Block &block) {
+  std::string text = block.marker;
+  if (block.kind == "table") {
+    for (size_t i = 0; i < std::max(block.cells.size(),block.columnWidths.size()); ++i) {
+      if (i) text += '\t';
+      if(i<block.cells.size())for (const auto &run : block.cells[i]) text += runPlainText(run);
+    }
+  } else for (const auto &run : block.runs) text += runPlainText(run);
+  return text;
+}
+RichLayout RichText::layout(const Block &block, int width, int size, bool textHits) {
   p_->pieces.clear();
   if (block.kind == "table") {
     std::vector<Piece> pieces;
@@ -502,6 +518,7 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
         rowHeight = 20;
     const size_t count =
         std::max(block.cells.size(), block.columnWidths.size());
+    size_t textOffset = 0;
     for (size_t column = 0; column < count; ++column) {
       Block cell;
       cell.kind = "code";
@@ -524,8 +541,10 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
       const size_t begin = pieces.size();
       for (auto piece : p_->pieces) {
         piece.x += cellX + offset;
+        piece.begin += textOffset; piece.end += textOffset;
         pieces.push_back(std::move(piece));
       }
+      textOffset += blockPlainText(cell).size() + (column + 1 < count ? 1 : 0);
       spans.push_back({begin, pieces.size(), cellLayout.height});
       rowHeight = std::max(rowHeight, cellLayout.height);
       cellX += cellWidth;
@@ -537,10 +556,14 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
     RichLayout result;
     result.width = std::max(width, cellX);
     result.height = rowHeight;
-    for (const auto &piece : p_->pieces)
+    for (const auto &piece : p_->pieces) {
+      if (textHits && piece.end > piece.begin)
+        result.textHits.push_back({int(piece.x),int(piece.y),std::max(1,int(std::ceil(piece.width))),
+                                  std::max(1,int(std::ceil(piece.height))),piece.begin,piece.end,bool(piece.style & Math)});
       if (!piece.target.empty())
         result.links.push_back({int(piece.x), int(piece.y), int(piece.width),
                                 int(piece.height), piece.target});
+    }
     return result;
   }
   int actualSize =
@@ -562,6 +585,7 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
     lineTop = y;
   };
   (void)lineTop;
+  size_t textOffset = 0;
   auto add = [&](const Run &run, int forceWidth) {
     if ((run.style & DisplayMath) && x > left)
       newline();
@@ -571,6 +595,7 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
         if (!forceWidth && block.kind != "code" && x + bitmap->width > width && x > left)
           newline();
         Piece p;
+        p.begin = textOffset; textOffset += runPlainText(run).size(); p.end = textOffset;
         p.math = bitmap;
         p.x = x;
         p.width = bitmap->width;
@@ -589,8 +614,12 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
       }
     }
     p_->select(c, actualSize, run.style);
+    const size_t formulaBegin=textOffset,formulaEnd=textOffset+runPlainText(run).size();
+    if(run.style&Math)textOffset+=(run.style&DisplayMath)?2:1;
     for (auto &ch :
          characters(run.style & Image ? ("[图片] " + run.text) : run.text)) {
+      const size_t textBegin = textOffset;
+      textOffset += ch.size();
       if (ch == "\n") {
         newline();
         continue;
@@ -614,6 +643,8 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
           x > left)
         newline();
       Piece p;
+      p.begin = textBegin; p.end = textOffset;
+      if(run.style&Math){p.begin=formulaBegin;p.end=formulaEnd;}
       p.text = ch == "\t" ? " " : ch;
       if (ch == "\t")
         advance =
@@ -628,6 +659,7 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
       x += advance;
       maxWidth = std::max(maxWidth, x + 6);
     }
+    if(run.style&Math)textOffset=formulaEnd;
   };
   if (!block.marker.empty())
     add({block.marker, "", 0}, 0);
@@ -680,10 +712,14 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
   RichLayout layout;
   layout.width = std::ceil(maxWidth);
   layout.height = block.kind == "hr" ? 12 : std::max(20, int(std::ceil(y + 4)));
-  for (auto &p : p_->pieces)
+  for (auto &p : p_->pieces) {
+    if (textHits && p.end > p.begin)
+      layout.textHits.push_back({int(p.x),int(p.y),std::max(1,int(std::ceil(p.width))),
+                                std::max(1,int(std::ceil(p.height))),p.begin,p.end,bool(p.style & Math)});
     if (!p.target.empty())
       layout.links.push_back(
           {int(p.x), int(p.y), int(p.width), int(p.height), p.target});
+  }
   cairo_destroy(c);
   cairo_surface_destroy(surf);
   return layout;

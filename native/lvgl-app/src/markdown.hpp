@@ -40,7 +40,10 @@ struct Hit {
 struct RichLayout {
   int width = 0, height = 0;
   std::vector<Hit> links;
+  struct TextHit { int x, y, w, h; size_t begin, end; bool atomic; };
+  std::vector<TextHit> textHits;
 };
+std::string blockPlainText(const Block &block);
 class RichText {
   struct Impl;
   std::unique_ptr<Impl> p_;
@@ -50,7 +53,7 @@ public:
   ~RichText();
   Bitmap formula(const std::string &text, int size);
   void prepare(Document &document, int width, int size = 21);
-  RichLayout layout(const Block &block, int width, int size = 21);
+  RichLayout layout(const Block &block, int width, int size = 21, bool textHits = false);
   Bitmap paint(const Block &block, int width, int top, int height,
                int size = 21, int left = 0, int windowWidth = 0,
                bool subdued = false);

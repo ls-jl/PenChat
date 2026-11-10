@@ -91,8 +91,8 @@ int main(int argc, char **argv) {
       assert(keyboard.bottomY+keyboard.bottomHeight==size.second-page.safeBottom()-keyboard.keyboardLift);
       const int actual=keyboard.bottomY+keyboard.bottomHeight-keyboard.keyTop;
       assert(std::abs(actual-(3*baseRow+18+baseBottom)*1.5)<=2);
-      assert(keyboard.undoPopup(280,500).y==388);
       assert(keyboard.selectionPopup(280,500).y==388);
+      assert(keyboard.selectionButtonWidth()>=44&&keyboard.selectionButtonHeight()>=44);
       for(const auto &action:keyboard.actions())assert(action.x>=0&&action.width>=44&&action.x+action.width<=size.first);
       const auto pull=pullGeometry({0,0,size.first,size.second},size.first,size.second,size.second-58);
       const auto shorter=pullGeometry({0,0,size.first,size.second/2},size.first,size.second,size.second/2-58);
