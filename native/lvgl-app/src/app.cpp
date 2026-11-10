@@ -536,7 +536,7 @@ void App::modelPicker(bool forTitles) {
         auto item = button(
             panel,
             (current.value("id", std::string()) == id ? "● " : "○ ") +
-                model.value("name", std::string()),
+                model.value("display_name",model.value("name",std::string())),
             8, y, panelWidth - 30, 44,
             [this, id, forTitles, held] {
               if (*held) return;
@@ -689,19 +689,12 @@ void App::modelPage() {
   pageHeader("模型设置");
   const int width = layout().contentWidth(), column = (width - 14) / 2;
   const auto id = modelForm_.value("id", std::string());
-  pageAction("参数映射", 170, 140, [this] {
-    modelAdvanced_ = !modelAdvanced_;
-    build();
-  });
   auto save = pageAction("保存", 24, 130, [this, id] {
     try { saveModelForm(); show("provider"); }
     catch (const std::exception &e) { modal("模型设置未保存", e.what()); }
   });
   primary(save);
-  auto name = readableLabel(pageContent_, modelForm_.value("name", std::string()), 10, 0, width,
-                    19, theme::muted);
-  lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(name, 22);
+  const int identityHeight=modelIdentityFields();
   auto &caps = modelForm_["reasoning"];
   auto &levels = caps["levels"];
   int n = 0;
@@ -710,7 +703,7 @@ void App::modelPage() {
       if (levels.contains(key)) {
         auto control = button(
             pageContent_, effortLabel(key) + "：" + levels[key].get<std::string>(), 10,
-            26 + n * 48, width, 44,
+            identityHeight + n * 48, width, 44,
             [this, key] {
               edit(
                   modelForm_["reasoning"]["levels"][key].get<std::string>(),
@@ -730,7 +723,7 @@ void App::modelPage() {
       auto control = button(
           pageContent_,
           std::string(levels.contains(key) ? "● " : "○ ") + effortLabel(key),
-          10 + (n % 2) * (column + 14), 26 + (n / 2) * 48, column, 44,
+          10 + (n % 2) * (column + 14), identityHeight + (n / 2) * 48, column, 44,
           [this, key] {
             auto &levels = modelForm_["reasoning"]["levels"];
             if (levels.contains(key))
@@ -747,14 +740,14 @@ void App::modelPage() {
   if (!modelAdvanced_)
     button(
         pageContent_, caps.value("summary", false) ? "公开总结：开" : "公开总结：关",
-        10, 26 + ((n + 1) / 2) * 48, width, 44,
+        10, identityHeight + ((n + 1) / 2) * 48, width, 44,
         [this] {
           auto &caps = modelForm_["reasoning"];
           caps["summary"] = !caps.value("summary", false);
           build();
         },
         theme::surface, LV_TEXT_ALIGN_LEFT);
-  const int capabilityY = modelAdvanced_ ? 32 + n * 48 : 84 + ((n + 1) / 2) * 48;
+  const int capabilityY = modelAdvanced_ ? identityHeight + 6 + n * 48 : identityHeight + 58 + ((n + 1) / 2) * 48;
   modelCapabilityRows(capabilityY);
 
 }
@@ -1089,6 +1082,8 @@ void App::build() {
     presetEditor();
   else if (view_ == "provider")
     providerPage();
+  else if (view_ == "provider_models")
+    providerModelsPage();
   else if (view_ == "api_compatibility")
     apiCompatibilityPage();
   else if (view_ == "anthropic_connection")
@@ -1127,7 +1122,7 @@ void App::build() {
     });
   }
   if(navigation)lv_obj_move_foreground(navigation);
-  if(layout().portrait())portraitPage();
+  portraitPage();
   refreshImages();
   if (navigationOpen_)
     historyDrawer();
@@ -1185,8 +1180,8 @@ void App::show(const std::string &view) {
   closeNavigation(false);
   closeAttachments();
   resetPull();
-  if ((view_ == "provider" || view_ == "api_compatibility" || view_ == "anthropic_connection") &&
-      view != "provider" && view != "api_compatibility" && view != "anthropic_connection") {
+  if ((view_ == "provider" || view_ == "provider_models" || view_ == "api_compatibility" || view_ == "anthropic_connection") &&
+      view != "provider" && view != "provider_models" && view != "api_compatibility" && view != "anthropic_connection") {
     providerForm_ = Json::object();
     modelNames_.clear();
     ++modelGeneration_;
@@ -2078,6 +2073,7 @@ void App::refreshImages() {
 std::string App::pageKey() const {
   if (view_ == "update") return view_ + ":" + updateState_.value("status",std::string()) + ":" + std::to_string(updateState_.value("note_index",size_t(0))) + ":" + std::to_string(updateState_.value("note_page",size_t(0)));
   if (view_ == "feedback") return view_ + ":" + feedbackView_ + ":" + std::to_string(feedbackPreviewPage_);
+  if (view_ == "provider_models") return view_+":"+providerModelsId_;
   if (view_ == "provider") return view_ + ":" + (providerForm_.empty() ? "list" : providerForm_.value("id",std::string("new")));
   if (view_ == "model") return view_ + ":" + modelForm_.value("id",std::string());
   if (view_ == "preset_edit") return view_ + ":" + presetForm_.value("id",std::string());
@@ -2226,7 +2222,7 @@ void App::settingsPage() {
   bool titleModelMissing = !titleModelId.empty();
   for (const auto &model : db_.models()) {
     if (model["id"] == titleModelId) {
-      titleModelName = model.value("name", std::string());
+      titleModelName = model.value("display_name",model.value("name",std::string()));
       titleModelMissing = false;
     }
   }
@@ -2352,228 +2348,6 @@ void App::reasoningDisplayPicker() {
            });
   }
 }
-void App::providerPage() {
-  int w = layout().contentWidth();
-  pageHeader(providerForm_.empty()          ? "Provider / 模型"
-             : providerForm_.contains("id") ? "编辑 Provider"
-                                            : "添加 Provider", providerForm_.empty() ? 8 : 0);
-  if (providerForm_.empty()) {
-    pageAction("添加 Provider", 17, 195,
-           [this] {
-             providerForm_ = {{"name", "OpenAI"},
-                              {"baseURL", "https://api.openai.com/v1"},
-                              {"apiKey", ""},
-                              {"api", "responses"}};
-             modelNames_.clear();
-             ++modelGeneration_;
-             modelCancel_ = true;
-             build();
-           });
-    int y = 5;
-    auto models = db_.models();
-    auto providers = db_.providers();
-    for (const auto &p : providers) {
-      auto title = label(pageContent_, p.value("name", std::string("Provider")), 10,
-                         y + 5, w - 130, 21);
-      lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
-      lv_obj_set_height(title, font(21)->line_height);
-      auto providerId = p["id"].get<std::string>();
-      button(pageContent_, "编辑", w - 105, y, 95, 44,
-             [this, providerId] { editProvider(providerId); });
-      y += 46;
-      for (const auto &m : models) {
-        if (m["provider_id"] != providerId)
-          continue;
-        std::string title = m.value("is_default", 0) ? "● " : "○ ";
-        title += m["name"].get<std::string>();
-        auto id = m["id"].get<std::string>();
-        button(
-            pageContent_, title, 10, y, w - 125, 44,
-            [this, id] {
-              chooseModel(id);
-              build();
-            },
-            theme::surface, LV_TEXT_ALIGN_LEFT);
-        button(pageContent_, "编辑", w - 105, y, 95, 44, [this, m] {
-          modelForm_ = m;
-          const auto saved = objectField(m, "capabilities_json");
-          // Editing another field must not save a projected/temporarily
-          // unsupported effort list over the user's original configuration.
-          modelForm_["reasoning"] = saved.contains("reasoning") && saved.at("reasoning").is_object()
-                                      ? saved.at("reasoning") : reasoningCapabilities(m);
-          modelAdvanced_ = false;
-          show("model");
-        });
-        y += 53;
-      }
-      y += 10;
-    }
-    if (providers.empty())
-      emptyState("还没有可用模型", "点击右上角“添加 Provider”，连接你的模型服务。");
-    return;
-  }
-  auto save = pageAction("保存", 24, 130, [this] { saveProvider(); });
-  primary(save);
-  auto field = [&](const std::string &key, const std::string &name, int x,
-                   int y, int width, bool secret = false) {
-    std::string value = providerForm_.value(key, std::string());
-    if (secret && !value.empty())
-      value = "••••••••";
-    fieldButton(
-        pageContent_, name, value.empty() ? "点击填写" : value, x, y, width,
-        [this, key, name] {
-          edit(
-              providerForm_.value(key, std::string()), name,
-              [this, key](const std::string &v) {
-                providerForm_[key] = v;
-                build();
-              },
-              4096,
-              key == "name"     ? "ZhCNPreferred"
-              : key == "apiKey" ? "EnUSOnly"
-                                : "EnUSPreferred", {}, false, key == "apiKey");
-        });
-  };
-  const int columnWidth = (w - 30) / 2;
-  const int right = 20 + columnWidth;
-  field("name", "名称", 10, 4, columnWidth);
-  field("baseURL", "Base URL", right, 4, columnWidth);
-  field("apiKey", "API Key", 10, 58, columnWidth, true);
-  const auto api = providerForm_.value("api", std::string("responses"));
-  button(pageContent_, api == "chat" ? "接口：Chat Completions" :
-                       api == "anthropic" ? "接口：Anthropic Messages" : "接口：Responses",
-         right, 58, columnWidth, 48, [this] { protocolPicker(); });
-  field("model", "手动模型（逗号分隔）", 10, 112, w - 20);
-  button(pageContent_, "自动获取模型", 10, 166, columnWidth, 48,
-         [this] { fetchModels(); });
-  button(
-      pageContent_,
-      "默认推理强度：" +
-          effortLabel(providerForm_.value("default_effort", std::string())),
-      right, 166, columnWidth, 48,
-      [this] {
-        std::vector<std::string> values{""};
-        values.insert(values.end(), effortOrder().begin(), effortOrder().end());
-        auto current =
-            std::find(values.begin(), values.end(),
-                      providerForm_.value("default_effort", std::string()));
-        providerForm_["default_effort"] =
-            current == values.end() || ++current == values.end() ? values[0]
-                                                                 : *current;
-        build();
-      },
-      theme::surface, LV_TEXT_ALIGN_LEFT);
-  const bool compatible = objectField(providerForm_, "compatibility").value("enabled", false);
-  settingsRow("api_compatibility", "API 兼容模式", compatible ? "已启用 · 按需调整连接与扩展" : "标准模式 · 不自动重发请求",
-              10, 224, w - 20, [this] {
-                providerScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
-                show("api_compatibility");
-              });
-  const bool anthropic = api == "anthropic";
-  if (anthropic)
-    settingsRow("anthropic_connection", "Anthropic 连接设置", "鉴权、API 版本与自定义请求头", 10, 288, w - 20, [this] {
-      providerScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_))); show("anthropic_connection");
-    });
-  settingsRow("model_adapter", "厂商参数适配", providerForm_.value("model_adapter", std::string("auto")),
-              10, anthropic ? 352 : 288, w - 20, [this] { modelAdapterPicker(); });
-  int extra = 64;
-  if (anthropic) {
-    const auto maximum = providerForm_.value("max_output_tokens", 16384);
-    settingsRow("provider_output", "新模型输出额度", std::to_string(maximum) + " token · Messages必填，不能留空",
-                10, 416, w - 20, [this, maximum] {
-      edit(std::to_string(maximum), "新模型输出额度（必填）", [this](const std::string &value) {
-        try { size_t used; int n = std::stoi(value, &used); if (used != value.size() || n < 1 || n > 1048576) throw std::runtime_error("range");
-          providerForm_["max_output_tokens"] = n; build();
-        } catch (...) { modal("输出额度未修改", "Messages要求填写1～1048576之间的整数，不能留空。"); }
-      }, 7, "EnUSOnly", {}, false);
-    });
-    extra += 64;
-  }
-  status_ = readableLabel(pageContent_, notice_, 10, (anthropic ? 356 : 292) + extra, w, 17, theme::muted);
-  int y = (anthropic ? 382 : 318) + extra;
-  for (auto &name : modelNames_) {
-    auto nameLabel = label(pageContent_, name, 15, y, w, 20);
-    lv_label_set_long_mode(nameLabel, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_height(nameLabel, font(20)->line_height);
-    y += 30;
-  }
-}
-void App::editProvider(const std::string &id) {
-  ++modelGeneration_;
-  modelCancel_ = true;
-  providerForm_ = db_.providerForm(id);
-  modelNames_.clear();
-  notice_.clear();
-  build();
-}
-void App::fetchModels() {
-  if (modelsBusy_.exchange(true))
-    return;
-  if (modelWorker_.joinable())
-    modelWorker_.join();
-  Json model = {{"base_url", providerForm_.value("baseURL", std::string())},
-                {"api_key", providerForm_.value("apiKey", std::string())},
-                {"headers_json", providerForm_.value("headers", Json::object()).dump()},
-                {"provider_metadata", Json({{"api", providerForm_.value("api", std::string("responses"))},
-                                           {"compatibility", objectField(providerForm_, "compatibility")},
-                                           {"anthropic", objectField(providerForm_, "anthropic")}}).dump()}};
-  notice_ = "正在拉取模型…";
-  build();
-  modelCancel_ = false;
-  const int generation = ++modelGeneration_;
-  modelWorker_ = std::thread([this, model, generation] {
-    Json data = {{"generation", generation}};
-    try { data["body"] = fetchModelList(model, modelCancel_); data["status"] = 200; }
-    catch (const std::exception &e) { data["error"] = redactApiError(e.what(), model); data["status"] = 0; }
-    events_.push("models", data);
-    modelsBusy_ = false;
-  });
-}
-void App::saveProvider() {
-  auto name = providerForm_.value("name", std::string()),
-       base = providerForm_.value("baseURL", std::string()),
-       key = providerForm_.value("apiKey", std::string());
-  if (name.empty() || base.empty() || key.empty() ||
-      (base.find("https://") != 0 && base.find("http://") != 0)) {
-    modal("请检查连接配置", "请填写名称、Base URL 和 API Key；地址需以 http:// 或 https:// 开头。");
-    return;
-  }
-  try {
-    Json model = {{"base_url", base}, {"api_key", key}, {"headers_json", providerForm_.value("headers", Json::object())},
-                  {"provider_metadata", {{"api", providerForm_.value("api", std::string("responses"))},
-                                         {"anthropic", objectField(providerForm_, "anthropic")}}}};
-    apiRoot(model); apiHeaders(model);
-  }
-  catch (const std::exception &e) { modal("请检查接口地址", e.what()); return; }
-  auto manual = providerForm_.value("model", std::string());
-  std::vector<std::string> names;
-  std::replace(manual.begin(), manual.end(), '\n', ',');
-  size_t start = 0;
-  while (start < manual.size()) {
-    auto end = manual.find(',', start);
-    auto n = manual.substr(start, end == std::string::npos ? end : end - start);
-    while (!n.empty() && std::isspace(static_cast<unsigned char>(n.front())))
-      n.erase(n.begin());
-    while (!n.empty() && std::isspace(static_cast<unsigned char>(n.back())))
-      n.pop_back();
-    if (!n.empty() && std::find(names.begin(), names.end(), n) == names.end())
-      names.push_back(n);
-    if (end == std::string::npos)
-      break;
-    start = end + 1;
-  }
-  if (names.empty())
-    names = modelNames_;
-  if (names.empty()) {
-    modal("还没有选择模型", "请填写模型名称，或点击“自动获取模型”后再保存。");
-    return;
-  }
-  db_.saveProvider(providerForm_, names);
-  ++modelGeneration_;
-  modelCancel_ = true;
-  providerForm_ = Json::object();
-  show("provider");
-}
 void App::goBack() {
   if (view_ == "web_source") {
     show("web_details");
@@ -2611,7 +2385,11 @@ void App::goBack() {
     show("settings");
   else if (view_ == "model")
     show("provider");
-  else if (view_ == "provider") {
+  else if (view_ == "provider_models") {
+    ++modelGeneration_;modelCancel_=true;
+    providerForm_=Json::object();modelNames_.clear();providerModelSelection_.clear();
+    providerModelsId_.clear();show("provider");
+  } else if (view_ == "provider") {
     if (!providerForm_.empty()) {
       providerForm_ = Json::object();
       modelNames_.clear();
@@ -3768,20 +3546,7 @@ void App::tick() {
           notice_ = e.data.value("error", std::string("网络错误"));
       }
     } else if (e.type == "models") {
-      if (e.data.value("generation", -1) != modelGeneration_)
-        continue;
-      modelNames_.clear();
-      if (e.data.value("status", 0) >= 200 && e.data.value("status", 0) < 300 &&
-          e.data.contains("body") && e.data["body"].is_object() &&
-          e.data["body"].contains("data") && e.data["body"]["data"].is_array()) {
-        for (auto &m : e.data["body"]["data"])
-          if (m.contains("id") && m["id"].is_string())
-            modelNames_.push_back(m["id"]);
-        notice_ = "已获取 " + std::to_string(modelNames_.size()) + " 个模型";
-      } else
-        notice_ = "拉取失败：" + e.data.value("error", std::string());
-      if (view_ == "provider")
-        build();
+      providerModelsResult(e);
     } else if (e.type == "image_ready" || e.type == "image_error") {
       refreshImages(); refreshImageViewer();
     }

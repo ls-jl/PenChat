@@ -11,7 +11,9 @@ void App::arrangeModal() {
   if(modalScroll_)lv_obj_set_height(modalScroll_,std::max(80,screen_.height-76-int(modalButtons_.size())*52));
 }
 void App::portraitPage() {
-  if(!pageContent_||!pageHeader_||!layout().portrait()||view_=="album"||view_=="archives"||view_=="archive_chat"||(view_=="provider"&&providerForm_.empty()))return;
+  const bool compactForm=layout().compact() &&
+      (view_=="provider" || view_=="model" || view_=="api_compatibility" || view_=="anthropic_connection");
+  if(!pageContent_||!pageHeader_||(!layout().portrait()&&!compactForm)||view_=="provider_models"||view_=="album"||view_=="archives"||view_=="archive_chat"||(view_=="provider"&&providerForm_.empty()))return;
   lv_obj_update_layout(pageContent_);
   struct Item {lv_obj_t *o;int x,y;};std::vector<Item> items;
   std::map<lv_obj_t *,lv_obj_t *> anchors;

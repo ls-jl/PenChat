@@ -776,7 +776,9 @@ Json Database::providerForm(const std::string &id) {
           {"default_effort", metadata.value("default_effort", std::string())},
           {"model_adapter", metadata.value("model_adapter", std::string("auto"))},
           {"compatibility", objectField(metadata, "compatibility")},
-          {"anthropic", objectField(metadata, "anthropic")}};
+          {"anthropic", objectField(metadata, "anthropic")},
+          {"max_output_tokens", metadata.value("max_output_tokens", Json(16384))},
+          {"credential_revision", metadata.value("credential_revision",std::string())}};
 }
 Json Database::models() {
   if (!onWorker()) {
@@ -836,11 +838,32 @@ void Database::saveSessionPreferences(const std::string &session,
           {id.empty() ? Json() : Json(id),
            model.empty() ? Json() : model[0]["provider_id"], metadata.dump(), session});
 }
-void Database::saveModelSettings(const std::string &id, Json capabilities) {
-  if (!onWorker()) { perform([=] { saveModelSettings(id, capabilities); return Json(); }); return; }
+void Database::saveModelSettings(const std::string &id, Json capabilities,
+                                 const std::string &name, const std::string &display) {
+  if (!onWorker()) {
+    perform([=] { saveModelSettings(id, capabilities, name, display); return Json(); }); return;
+  }
   if (!capabilities.is_object()) throw std::runtime_error("模型设置无效");
-  if (query("SELECT id FROM model_configs WHERE id=?", {id}).empty()) throw std::runtime_error("模型已删除");
-  execute("UPDATE model_configs SET capabilities_json=?,updated_at=? WHERE id=?", {capabilities.dump(), nowMs(), id});
+  auto rows=query("SELECT provider_id,name,display_name FROM model_configs WHERE id=? AND enabled=1",{id});
+  if(rows.empty())throw std::runtime_error("模型已删除，请重新选择");
+  const auto nextName=name.empty()?rows[0]["name"].get<std::string>():name;
+  const auto nextDisplay=display.empty()?(name.empty()?rows[0]["display_name"].get<std::string>():nextName):display;
+  if(!query("SELECT id FROM model_configs WHERE provider_id=? AND name=? AND id<>?",{rows[0]["provider_id"],nextName,id}).empty())
+    throw std::runtime_error("该服务商下已存在相同的模型 ID");
+  execute("UPDATE model_configs SET name=?,display_name=?,capabilities_json=?,updated_at=? WHERE id=?",
+          {nextName,nextDisplay,capabilities.dump(),nowMs(),id});
+}
+void Database::removeModel(const std::string &id) {
+  if(!onWorker()){perform([=]{removeModel(id);return Json();});return;}
+  execute("BEGIN IMMEDIATE");
+  try {
+    execute("UPDATE model_configs SET enabled=0,is_default=0,updated_at=? WHERE id=?",{nowMs(),id});
+    if(query("SELECT id FROM model_configs WHERE enabled=1 AND is_default=1").empty()) {
+      auto available=models();
+      if(!available.empty())execute("UPDATE model_configs SET is_default=1 WHERE id=?",{available[0]["id"].get<std::string>()});
+    }
+    execute("COMMIT");
+  } catch(...) {execute("ROLLBACK");throw;}
 }
 void Database::saveModelCapabilities(const std::string &id, const Json &reasoning,
                                      int budget, int maxOutput) {
@@ -920,15 +943,11 @@ void Database::recordRequest(const std::string &message, const Json &model,int64
     execute("COMMIT");
   } catch(...) {execute("ROLLBACK");throw;}
 }
-void Database::saveProvider(const Json &f, const std::vector<std::string> &names) {
+std::string Database::saveProvider(const Json &f, const std::vector<std::string> &names, bool replaceModels) {
   if (!onWorker()) {
-    perform([=] {
-      saveProvider(f, names);
-      return Json();
-    });
-    return;
+    return perform([=] { return Json(saveProvider(f,names,replaceModels)); }).get<std::string>();
   }
-  if (names.empty())
+  if (replaceModels && names.empty())
     throw std::runtime_error("At least one model is required");
   if (f.value("api", std::string()) == "anthropic") {
     auto output = f.value("max_output_tokens", Json(16384));
@@ -939,10 +958,12 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
       f.contains("id") && f["id"].is_string() && !f["id"].get<std::string>().empty();
   const auto id = editing ? f["id"].get<std::string>() : uid("provider");
   bool first = models().empty();
+  const bool firstProvider=providers().empty();
+  bool connectionChanged=false;
   execute("BEGIN IMMEDIATE");
   try {
     if (editing) {
-      auto old = query("SELECT metadata_json,headers_json,api_key FROM providers WHERE "
+      auto old = query("SELECT metadata_json,headers_json,api_key,base_url FROM providers WHERE "
                        "id=? AND enabled=1",
                        {id});
       if (old.empty())
@@ -951,11 +972,18 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
           Json::parse(old[0]["metadata_json"].get<std::string>(), nullptr, false);
       if (!metadata.is_object())
         metadata = Json::object();
+      connectionChanged=old[0]["base_url"]!=f.value("baseURL",std::string()) ||
+          old[0]["api_key"]!=f.value("apiKey",std::string()) ||
+          (f.contains("headers")&&objectField(old[0],"headers_json")!=f["headers"]) ||
+          metadata.value("api",std::string("responses"))!=f.value("api",std::string("responses")) ||
+          objectField(metadata,"compatibility")!=objectField(f,"compatibility") ||
+          objectField(metadata,"anthropic")!=objectField(f,"anthropic");
       metadata["api"] = f.value("api", std::string("responses"));
       metadata["default_effort"] = f.value("default_effort", std::string());
       if (f.contains("compatibility")) metadata["compatibility"] = objectField(f, "compatibility");
       if (f.contains("anthropic")) metadata["anthropic"] = objectField(f, "anthropic");
       metadata["model_adapter"] = f.value("model_adapter", std::string("auto"));
+      metadata["max_output_tokens"] = f.value("max_output_tokens", Json(16384));
       if (old[0]["api_key"] != f.value("apiKey", std::string()) ||
           (f.contains("headers") && objectField(old[0], "headers_json") != f["headers"]))
         metadata["credential_revision"] = uid("credentials");
@@ -980,11 +1008,12 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
                      {"compatibility", objectField(f, "compatibility")},
                      {"anthropic", objectField(f, "anthropic")},
                      {"model_adapter", f.value("model_adapter", std::string("auto"))},
-                     {"credential_revision", uid("credentials")}})
+                     {"credential_revision", uid("credentials")},
+                     {"max_output_tokens", f.value("max_output_tokens", Json(16384))}})
                    .dump(),
-               nowMs(), nowMs(), first ? 1 : 0});
+               nowMs(), nowMs(), firstProvider ? 1 : 0});
     }
-    for (const auto &m : query("SELECT id,name FROM model_configs WHERE "
+    if(replaceModels) for (const auto &m : query("SELECT id,name FROM model_configs WHERE "
                                "provider_id=? AND enabled=1",
                                {id}))
       if (std::find(names.begin(), names.end(), m["name"].get<std::string>()) ==
@@ -1022,11 +1051,17 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
       }
     }
     execute("COMMIT");
-    invalidateHttpProvider(id);
+    if(connectionChanged)invalidateHttpProvider(id);
   } catch (...) {
     execute("ROLLBACK");
     throw;
   }
+  return id;
+}
+void Database::addProviderModels(const std::string &id,const std::vector<std::string> &names) {
+  if(!onWorker()){perform([=]{addProviderModels(id,names);return Json();});return;}
+  if(names.empty())throw std::runtime_error("请先选择或填写要添加的模型");
+  saveProvider(providerForm(id),names,false);
 }
 void Database::selectModel(const std::string &id) {
   if (!onWorker()) {

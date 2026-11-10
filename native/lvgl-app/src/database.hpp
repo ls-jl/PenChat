@@ -90,13 +90,17 @@ public:
   Json activeModel();
   Json sessionPreferences(const std::string &session);
   void saveSessionPreferences(const std::string &session, const Json &preferences);
-  void saveModelSettings(const std::string &id, Json capabilities);
+  void saveModelSettings(const std::string &id, Json capabilities,
+                         const std::string &name = "", const std::string &display = "");
+  void removeModel(const std::string &id);
   void saveModelCapabilities(const std::string &id, const Json &reasoning,
                              int budget = 0, int maxOutput = 0);
   void recordRequest(const std::string &message, const Json &model,
                      int64_t sentAt=0,int64_t startedAt=0);
   void recordActivity(const std::string &session,int64_t stamp);
-  void saveProvider(const Json &form, const std::vector<std::string> &names);
+  std::string saveProvider(const Json &form, const std::vector<std::string> &names,
+                           bool replaceModels = true);
+  void addProviderModels(const std::string &id, const std::vector<std::string> &names);
   void selectModel(const std::string &id);
   Json responseInput(const std::string &session, const std::string &beforeMessage,
                      const Json &model = Json::object());
