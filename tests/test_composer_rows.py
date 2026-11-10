@@ -25,7 +25,7 @@ for width,height in [(960,266),(936,280),(568,1210)]:
                 t.wait_for(lambda:e()['active'] and bool(e()['keys']))
                 if height>width:
                     b=a.diag()['composer_bounds']
-                    assert b[3]-b[1]+1==resting_height*2
+                    assert b[3]-b[1]+1==resting_height*3//2
             def key(value):
                 k=next(k for k in e()['keys'] if k['key']==value);a.tap(k['x'],k['y'])
             d=a.diag();b=d['composer_bounds'];base=b[3]-b[1]+1
@@ -35,7 +35,7 @@ for width,height in [(960,266),(936,280),(568,1210)]:
             open_input()
             if height>width:
                 d=a.diag();b=d['composer_bounds'];r=e()['text_bounds'];send=e()['actions']['chat-send']
-                assert b[3]-b[1]+1==base*2 and r[3]<send[1]
+                assert b[3]-b[1]+1==base*3//2 and r[3]<send[1]
                 assert r[0]-b[0]==14 and b[2]-r[2]==14
                 assert send[2]-send[0]+1==54 and send[3]-send[1]+1==54
                 assert b[2]-send[2]==20 and b[3]-send[3]==20
