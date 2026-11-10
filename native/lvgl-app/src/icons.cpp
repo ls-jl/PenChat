@@ -9,7 +9,11 @@ struct Icon {
   uint32_t ink;
   int stemTop = 0;
   int cornerY = 0,cornerX = 0;
+  int diameterX=24,diameterY=24,side=0;
   bool customStem = false;
+  std::vector<uint8_t> gripAlpha;
+  lv_image_dsc_t gripImage{};
+  int maskWidth=0,maskHeight=0,maskSide=0;
 };
 // Rasterize the native geometry once, then mirror pixel coverage. Snapping
 // separate line endpoints and a circle to even-sized button centers gives
@@ -160,17 +164,35 @@ void paint(lv_event_t *event) {
   } else if(k=="clipboard") {
     rect(-8,-8,16,18,2);rect(-4,-11,8,5,2);line(-4,0,4,0);line(-4,5,2,5);
   } else if(k=="selection-start"||k=="selection-end") {
-    // Outward grips remain distinguishable when screen-safe hit boxes overlap.
-    const int side=k=="selection-start"?-1:1;
+    const int side=icon->side?icon->side:(k=="selection-start"?-1:1);
+    const float dx=icon->diameterX,dy=icon->diameterY;
     const float stem=icon->customStem?(bounds.y1+icon->stemTop-cy)/scale:-10.f;
     line(0,stem,0,0);
-    rect(side*4-4,0,8,8,LV_RADIUS_CIRCLE,true);
-    lv_draw_triangle_dsc_t tip;lv_draw_triangle_dsc_init(&tip);
-    tip.color=ink;tip.opa=opacity;
-    tip.p[0]={int32_t(std::lround(cx)),int32_t(std::lround(cy))};
-    tip.p[1]={int32_t(std::lround(cx+side*4*scale)),int32_t(std::lround(cy))};
-    tip.p[2]={int32_t(std::lround(cx)),int32_t(std::lround(cy+4*scale))};
-    lv_draw_triangle(layer,&tip);
+    const int width=icon->diameterX+1,height=icon->diameterY+1;
+    if(icon->maskWidth!=width||icon->maskHeight!=height||icon->maskSide!=side) {
+      // Rasterize the whole silhouette together: antialiased triangle fans leave
+      // seams after the compact editor's unequal axis transform.
+      icon->gripAlpha.resize(width*height);
+      constexpr int samples=4;
+      for(int y=0;y<height;++y)for(int x=0;x<width;++x) {
+        int covered=0;
+        for(int sy=0;sy<samples;++sy)for(int sx=0;sx<samples;++sx) {
+          const double u=(x+(sx+.5)/samples)/width,v=(y+(sy+.5)/samples)/height;
+          const bool corner=(side<0?u>=.5:u<=.5)&&v<=.5;
+          covered+=corner||(2*u-1)*(2*u-1)+(2*v-1)*(2*v-1)<=1.;
+        }
+        icon->gripAlpha[y*width+x]=uint8_t((covered*255+samples*samples/2)/(samples*samples));
+      }
+      auto &image=icon->gripImage;image={};image.header.magic=LV_IMAGE_HEADER_MAGIC;
+      image.header.cf=LV_COLOR_FORMAT_A8;image.header.w=width;image.header.h=height;
+      image.header.stride=width;image.data_size=icon->gripAlpha.size();image.data=icon->gripAlpha.data();
+      icon->maskWidth=width;icon->maskHeight=height;icon->maskSide=side;
+    }
+    lv_draw_image_dsc_t disk;lv_draw_image_dsc_init(&disk);
+    disk.src=&icon->gripImage;disk.recolor=ink;disk.recolor_opa=LV_OPA_COVER;disk.opa=opacity;
+    const lv_area_t area{int32_t(std::lround(cx+(side<0?-dx:0))),int32_t(std::lround(cy)),
+      int32_t(std::lround(cx+(side>0?dx:0))),int32_t(std::lround(cy+dy))};
+    lv_draw_image(layer,&disk,&area);
   } else if(k=="selection-handle") {line(0,-10,0,0);circle(0,4,4);}
   else if(k=="eye"||k=="eye-off") {rect(-10,-6,20,12,LV_RADIUS_CIRCLE);circle(0,0,3);if(k=="eye-off")line(-10,10,10,-10);}
   else if (k == "menu") {
@@ -316,8 +338,9 @@ void attachIcon(lv_obj_t *object, const std::string &name, uint32_t ink) {
       auto size=static_cast<int32_t *>(lv_event_get_param(event));
       if(icon->customStem) {
         auto object=lv_event_get_target_obj(event);
-        *size=std::max(*size,std::max({0,2-icon->stemTop,10-icon->cornerX,
-          icon->cornerX+10-lv_obj_get_width(object),icon->cornerY+10-lv_obj_get_height(object)}));
+        *size=std::max(*size,std::max({0,2-icon->stemTop,icon->diameterX+2-icon->cornerX,
+          icon->cornerX+icon->diameterX+2-lv_obj_get_width(object),
+          icon->cornerY+icon->diameterY+2-lv_obj_get_height(object)}));
       }
     }, LV_EVENT_REFR_EXT_DRAW_SIZE, data);
   lv_obj_add_event_cb(
@@ -325,38 +348,50 @@ void attachIcon(lv_obj_t *object, const std::string &name, uint32_t ink) {
       [](lv_event_t *e) { delete static_cast<Icon *>(lv_event_get_user_data(e)); },
       LV_EVENT_DELETE, data);
 }
-void setSelectionHandleTop(lv_obj_t *object, int top, int corner, int x) {
+void setSelectionHandleTop(lv_obj_t *object, int top, int corner, int x, int diameterX, int diameterY) {
   for (uint32_t i=0;i<lv_obj_get_event_count(object);++i) {
     auto event=lv_obj_get_event_dsc(object,i);
     if (lv_event_dsc_get_cb(event)!=paint) continue;
     auto icon=static_cast<Icon *>(lv_event_dsc_get_user_data(event));
     if (icon->name!="selection-start" && icon->name!="selection-end") return;
-    if(icon->customStem && icon->stemTop==top && icon->cornerY==corner && icon->cornerX==x) return;
+    int side=icon->name=="selection-start"?-1:1;
+    lv_area_t area;lv_obj_get_coords(object,&area);
+    const int anchor=area.x1+x,canvas=lv_obj_get_width(lv_obj_get_parent(object));
+    int available=side<0?anchor:canvas-anchor-1;
+    if(available<12){side=-side;available=side<0?anchor:canvas-anchor-1;}
+    if(available<diameterX) {
+      diameterY=std::max(1,diameterY*std::max(1,available)/std::max(1,diameterX));
+      diameterX=std::max(1,available);
+    }
+    if(icon->customStem && icon->stemTop==top && icon->cornerY==corner && icon->cornerX==x && icon->diameterX==diameterX && icon->diameterY==diameterY && icon->side==side) return;
     lv_obj_invalidate(object);
-    icon->stemTop=top;icon->cornerY=corner;icon->cornerX=x;icon->customStem=true;
+    icon->stemTop=top;icon->cornerY=corner;icon->cornerX=x;icon->diameterX=diameterX;icon->diameterY=diameterY;icon->side=side;icon->customStem=true;
     lv_obj_refresh_ext_draw_size(object);
     lv_obj_invalidate(object);
     return;
   }
 }
-lv_point_t selectionHandleGrip(lv_obj_t *object) {
+lv_area_t selectionHandleShape(lv_obj_t *object) {
   lv_area_t bounds;lv_obj_get_coords(object,&bounds);
-  lv_point_t point{(bounds.x1+bounds.x2)/2,(bounds.y1+bounds.y2)/2};
   for(uint32_t i=0;i<lv_obj_get_event_count(object);++i) {
     auto event=lv_obj_get_event_dsc(object,i);
     if(lv_event_dsc_get_cb(event)!=paint)continue;
     const auto icon=static_cast<Icon *>(lv_event_dsc_get_user_data(event));
-    const float scale=std::min(lv_obj_get_width(object),lv_obj_get_height(object))<=30?.75f:1.f;
-    point.x=int(std::lround((icon->customStem?bounds.x1+icon->cornerX:(bounds.x1+bounds.x2)*.5f)+(icon->name=="selection-start"?-4:4)*scale));
-    point.y=int(std::lround((icon->customStem?bounds.y1+icon->cornerY:(bounds.y1+bounds.y2)*.5f)+4*scale));
-    break;
+    const int side=icon->side?icon->side:(icon->name=="selection-start"?-1:1);
+    const int x=icon->customStem?bounds.x1+icon->cornerX:(bounds.x1+bounds.x2)/2;
+    const int y=icon->customStem?bounds.y1+icon->cornerY:(bounds.y1+bounds.y2)/2;
+    return {x+(side<0?-icon->diameterX:0),y,x+(side>0?icon->diameterX:0),y+icon->diameterY};
   }
-  return point;
+  return bounds;
+}
+lv_point_t selectionHandleGrip(lv_obj_t *object) {
+  const auto shape=selectionHandleShape(object);
+  return {(shape.x1+shape.x2)/2,(shape.y1+shape.y2)/2};
 }
 bool selectionHandleContains(lv_obj_t *object,int x,int y) {
   lv_area_t area;lv_obj_get_coords(object,&area);
-  const auto grip=selectionHandleGrip(object);
+  const auto shape=selectionHandleShape(object);
   return (x>=area.x1&&x<=area.x2&&y>=area.y1&&y<=area.y2)||
-    (std::abs(x-grip.x)<=12&&std::abs(y-grip.y)<=12);
+    (x>=shape.x1-4&&x<=shape.x2+4&&y>=shape.y1-4&&y<=shape.y2+4);
 }
 } // namespace penchat

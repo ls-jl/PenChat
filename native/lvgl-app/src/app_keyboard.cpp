@@ -287,7 +287,7 @@ void App::editorBuild() {
     lv_obj_set_scrollable(editorHandles_[i],false);
     lv_obj_set_style_bg_opa(editorHandles_[i],LV_OPA_TRANSP,0);
     lv_obj_set_clickable(editorHandles_[i],false);
-    attachIcon(editorHandles_[i],i?"selection-end":"selection-start",theme::link);
+    attachIcon(editorHandles_[i],i?"selection-end":"selection-start",theme::accent);
   }
   if(editorClipboardOpen_) {
     // Docked clipboard replaces the keyboard, never the focused page above it.
@@ -994,9 +994,12 @@ void App::editorSyncText(bool text) {
     lv_obj_set_hidden(editorHandles_[i],!editor_.selected()||editorClipboardOpen_||editorExpanded_||!lineVisible);
     const auto handle=editorLayout().floatingPopup(int(point.x)-editorLayout().selectionHandleWidth()/2,int(point.y)-editorLayout().selectionHandleHeight()/2,editorLayout().selectionHandleWidth(),editorLayout().selectionHandleHeight());
     lv_obj_set_pos(editorHandles_[i],handle.x,handle.y);
+    const auto geometry=editorLayout();const double sx=geometry.scaleX()/256.,sy=geometry.scaleY()/256.;
+    const int diameter=std::max(18,std::min(40,int(std::lround(font(20)->line_height*sy))));
+    const int dx=std::max(1,int(std::lround(diameter/sx))),dy=std::max(1,int(std::lround(diameter/sy)));
     setSelectionHandleTop(editorHandles_[i],std::max(area.y,lineBottom-font(20)->line_height)-handle.y,
       std::max(std::max(4,AppLayout{editorLayout().width,editorLayout().height}.safeTop()),
-        std::min({lineBottom,area.y+area.height,editorLayout().height-std::max(4,AppLayout{editorLayout().width,editorLayout().height}.safeBottom())-9}))-handle.y,int(point.x)-handle.x);
+        std::min({lineBottom,area.y+area.height,editorLayout().height-std::max(4,AppLayout{editorLayout().width,editorLayout().height}.safeBottom())-dy-1}))-handle.y,int(point.x)-handle.x,dx,dy);
     lv_obj_move_foreground(editorHandles_[i]);
   }
   editorMagnify(editorPointer_&&(editorCursorDrag_||editorHandle_>=0));
@@ -1028,8 +1031,18 @@ void App::editorSyncSelectionMenu() {
     std::max(1,int(std::ceil((selected.x+selected.width)*sx))-int(std::floor(selected.x*sx))),
     std::max(1,int(std::ceil((selected.y+selected.height)*sy))-int(std::floor(selected.y*sy)))};
   const int buttonWidth=layout.selectionButtonWidth(),buttonHeight=layout.selectionButtonHeight();
-  const auto placed=placeSelectionMenu(native,selectionMenuSafeArea(screen_.width,screen_.height),
+  const auto candidate=placeSelectionMenu(native,selectionMenuSafeArea(screen_.width,screen_.height),
     int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+4)+4)*sx)),int(std::ceil((buttonHeight+8)*sy)));
+  int clearance=0;
+  if(editor_.selected())for(auto handle:editorHandles_)if(handle&&!lv_obj_is_hidden(handle)) {
+    const auto shape=selectionHandleShape(handle);
+    const LayoutRect grip{int(std::floor(shape.x1*sx)),int(std::floor(shape.y1*sy)),
+      int(std::ceil((shape.x2+1)*sx))-int(std::floor(shape.x1*sx)),
+      int(std::ceil((shape.y2+1)*sy))-int(std::floor(shape.y1*sy))};
+    clearance=std::max(clearance,selectionMenuClearance(native,candidate,grip));
+  }
+  const auto placed=placeSelectionMenu(native,selectionMenuSafeArea(screen_.width,screen_.height),
+    int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+4)+4)*sx)),int(std::ceil((buttonHeight+8)*sy)),clearance);
   const auto &p=placed.bounds;
   if(!editorSelectionMenu_) {
     editorSelectionMenu_=box(editorRoot_,0,0,1,1,theme::sidebar);
@@ -1425,7 +1438,8 @@ Json App::editorDiagnostic() const {
   for(int i=0;i<2;++i)if(editorHandles_[i]&&!lv_obj_is_hidden(editorHandles_[i])) {
     lv_area_t a;lv_obj_get_coords(editorHandles_[i],&a);const auto anchor=editorPoint(i?range.second:range.first,i?1:-1);
     const auto grip=selectionHandleGrip(editorHandles_[i]);
-    handles.push_back({{"grip",{grip.x,grip.y}},{"endpoint",i},{"x",(a.x1+a.x2)/2},{"y",(a.y1+a.y2)/2},{"anchor",{anchor.x,anchor.y}},{"bounds",{a.x1,a.y1,a.x2,a.y2}}});
+    const auto shape=selectionHandleShape(editorHandles_[i]);
+    handles.push_back({{"shape",{shape.x1,shape.y1,shape.x2,shape.y2}},{"grip",{grip.x,grip.y}},{"endpoint",i},{"x",(a.x1+a.x2)/2},{"y",(a.y1+a.y2)/2},{"anchor",{anchor.x,anchor.y}},{"bounds",{a.x1,a.y1,a.x2,a.y2}}});
   }
   Json layoutPopup=Json::array();
   const auto layoutItem=editorLocalActions_.find("layout:0");

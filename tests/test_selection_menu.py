@@ -10,17 +10,19 @@ from test_text_selection import BINARY, fixture, ro, editor, press, bounds_tap, 
 ui.port=1
 
 
-def check(bounds,menu,width,height,scaled=False):
+def check(bounds,menu,width,height,scaled=False,shapes=()):
     assert len(bounds)==4 and len(menu)==4,(bounds,menu)
     side=max(24,min(32,width//24)) if height>width else 8
     top=side if height>width else 4
     bottom=height-(side+4 if height>width else 10)
     w=menu[2]-menu[0]+1;h=menu[3]-menu[1]+1
+    centered=max(side,min(width-side-w,bounds[0]+int(((bounds[2]-bounds[0]+1)-w)/2)))
+    clearance=max([0]+[max(0,g[3]-bounds[3]) for g in shapes if g[0]<centered+w and g[2]+1>centered])
     if bounds[1]-8-h>=top:
         kind='above';y=bounds[1]-8-h
         x=max(side,min(width-side-w,bounds[0]+int(((bounds[2]-bounds[0]+1)-w)/2)))
-    elif bounds[3]+1+8+h<=bottom:
-        kind='below';y=bounds[3]+9
+    elif bounds[3]+1+clearance+8+h<=bottom:
+        kind='below';y=bounds[3]+clearance+9
         x=max(side,min(width-side-w,bounds[0]+int(((bounds[2]-bounds[0]+1)-w)/2)))
     else:kind='lower-left';x=side;y=bottom-h
     tolerance=2 if scaled else 0
@@ -55,7 +57,7 @@ def run(width,height,scene,percent=100):
             app.long_press(b[0]+14,b[1]+14,.52);assert ro(app)['menu'],ro(app)
             if scene=='full':
                 m=ro(app)['menu_bounds'];app.tap(m[0]+45,m[1]+25)
-            s=ro(app);kind=check(s['selection_bounds'],s['menu_bounds'],width,height)
+            s=ro(app);kind=check(s['selection_bounds'],s['menu_bounds'],width,height,shapes=s['handle_shapes'])
             if scene!='full':assert kind==scene,(scene,kind,s)
             elif height<width and percent==100:assert kind=='lower-left',(kind,s)
             screenshot(app,str(width)+'-menu-'+scene+('' if percent==100 else '-'+str(percent)))

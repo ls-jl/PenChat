@@ -308,7 +308,7 @@ void App::readDraw(bool menu) {
       lv_obj_set_style_bg_opa(readHandles_[i], LV_OPA_TRANSP, 0);
       lv_obj_set_clickable(readHandles_[i], false);
       lv_obj_set_scrollable(readHandles_[i], false);
-      attachIcon(readHandles_[i], i ? "selection-end" : "selection-start", theme::link);
+      attachIcon(readHandles_[i], i ? "selection-end" : "selection-start", theme::accent);
     }
     readMenu_ = box(readOverlay_, 0, 0, 188, 52, theme::sidebar);
     lv_obj_set_style_radius(readMenu_, 10, 0);
@@ -332,7 +332,7 @@ void App::readDraw(bool menu) {
   std::vector<lv_area_t> marks;
   LayoutRect selectedBounds{};
   lv_point_t endpoints[2]{};
-  int endpointTops[2]{};
+  int endpointTops[2]{},endpointSizes[2]{};
   bool found[2] = {false, false};
   const ReadPart *endpointParts[2] = {nullptr, nullptr};
   for (const auto &part : region->parts) {
@@ -385,6 +385,7 @@ void App::readDraw(bool menu) {
         const lv_area_t glyph{x - (i ? 1 : 0), y, x + (i ? 0 : 1), y + h - 1};
         found[i] = selectionVisibleAnchor(clip, glyph, i, endpoints[i]);
         endpointTops[i] = std::max(clip.y1, glyph.y1);
+        endpointSizes[i]=std::max(18,std::min(40,int(glyph.y2-glyph.y1+1)));
       }
       continue;
     }
@@ -424,6 +425,7 @@ void App::readDraw(bool menu) {
                             oy + hit->y + hit->h - 1};
       found[i] = selectionVisibleAnchor(clip, glyph, i, endpoints[i]);
       endpointTops[i] = std::max(clip.y1, glyph.y1);
+      endpointSizes[i]=std::max(18,std::min(40,int(glyph.y2-glyph.y1+1)));
     }
   }
   while (readMarks_.size() < marks.size()) {
@@ -451,14 +453,21 @@ void App::readDraw(bool menu) {
       lv_obj_set_pos(readHandles_[i], x, y);
       setSelectionHandleTop(
           readHandles_[i], endpointTops[i] - y,
-          std::max(top, std::min(int(endpoints[i].y), screen_.height - bottom - 9)) - y,
-          int(endpoints[i].x) - x);
+          std::max(top, std::min(int(endpoints[i].y), screen_.height - bottom - endpointSizes[i] - 1)) - y,
+          int(endpoints[i].x) - x,endpointSizes[i],endpointSizes[i]);
     }
     lv_obj_move_foreground(readHandles_[i]);
   }
   readSelectionBounds_ = selectedBounds;
-  const auto placement = placeSelectionMenu(
+  const auto candidate = placeSelectionMenu(
       selectedBounds, selectionMenuSafeArea(screen_.width, screen_.height), 188, 52);
+  int clearance=0;
+  for(auto handle:readHandles_)if(!lv_obj_is_hidden(handle)) {
+    const auto shape=selectionHandleShape(handle);
+    clearance=std::max(clearance,selectionMenuClearance(selectedBounds,candidate,
+      {shape.x1,shape.y1,shape.x2-shape.x1+1,shape.y2-shape.y1+1}));
+  }
+  const auto placement=placeSelectionMenu(selectedBounds,selectionMenuSafeArea(screen_.width,screen_.height),188,52,clearance);
   const auto &popup = placement.bounds;
   lv_obj_set_pos(readMenu_, popup.x, popup.y);
   lv_obj_set_size(readMenu_, popup.width, popup.height);
@@ -793,7 +802,7 @@ Json App::readDiagnostic() const {
                        {"parts", parts},
                        {"links", links}});
   }
-  Json handles = Json::array(), grips = Json::array();
+  Json handles = Json::array(), grips = Json::array(),shapes=Json::array();
   for (auto h : readHandles_)
     if (h && !lv_obj_is_hidden(h)) {
       lv_area_t a;
@@ -801,6 +810,7 @@ Json App::readDiagnostic() const {
       handles.push_back({a.x1, a.y1, a.x2, a.y2});
       const auto grip = selectionHandleGrip(h);
       grips.push_back({grip.x, grip.y});
+      const auto shape=selectionHandleShape(h);shapes.push_back({shape.x1,shape.y1,shape.x2,shape.y2});
     }
   Json menu = Json::array();
   if (readMenu_ && !lv_obj_is_hidden(readMenu_)) {
@@ -815,7 +825,7 @@ Json App::readDiagnostic() const {
           {"start", r.first},
           {"end", r.second},
           {"handles", handles},
-          {"handle_grips", grips},
+          {"handle_grips", grips},{"handle_shapes",shapes},
           {"selection_bounds",
            readSelectionBounds_.width > 0
                ? Json::array({readSelectionBounds_.x, readSelectionBounds_.y,

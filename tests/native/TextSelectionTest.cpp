@@ -80,6 +80,14 @@ int main(int argc, char **argv) {
          popup.bounds.y == 298);
   popup = placeSelectionMenu({620, 64, 20, 20}, safe, 188, 52);
   assert(popup.position == SelectionMenu::Above && popup.bounds.y == 4 && popup.bounds.x == 444);
+  const LayoutRect selected{10,4,20,20};
+  popup=placeSelectionMenu(selected,safe,188,52);
+  assert(selectionMenuClearance(selected,popup,{0,24,24,24})==24);
+  assert(selectionMenuClearance(selected,popup,{300,24,24,24})==0);
+  popup=placeSelectionMenu(selected,safe,188,52,24);
+  assert(popup.position==SelectionMenu::Below && popup.bounds.y==56);
+  popup=placeSelectionMenu(selected,{8,4,624,100},188,52,24);
+  assert(popup.position==SelectionMenu::LowerLeft);
   EditorClipboard c;
   assert(c.copy("one"));
   assert(c.copy("secret", true));
