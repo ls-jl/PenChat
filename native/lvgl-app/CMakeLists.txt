@@ -356,6 +356,13 @@ endif()
 add_test(NAME penchat-chat-draft-preview COMMAND penchat-chat-draft-tests)
 
 if(NOT CMAKE_CROSSCOMPILING)
+  add_executable(penchat-composer-shortcut-tests "${ROOT}/tests/native/ComposerShortcutTest.cpp")
+  target_include_directories(penchat-composer-shortcut-tests PRIVATE src)
+  target_compile_options(penchat-composer-shortcut-tests PRIVATE -UNDEBUG -Wall -Wextra)
+  add_test(NAME penchat-composer-shortcut COMMAND penchat-composer-shortcut-tests)
+endif()
+
+if(NOT CMAKE_CROSSCOMPILING)
   add_executable(penchat-drm-surface-tests "${ROOT}/tests/native/DrmSurfaceTest.cpp" "${CAMERA}/src/drm_display.cpp")
   target_include_directories(penchat-drm-surface-tests PRIVATE "${CAMERA}/src")
   target_compile_options(penchat-drm-surface-tests PRIVATE -UNDEBUG)

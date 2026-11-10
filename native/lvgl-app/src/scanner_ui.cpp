@@ -41,7 +41,7 @@ void App::syncScanner() {
   if (scanHint_) {
     auto state = scanner_.state().value("type", std::string());
     const char *text = !eligible          ? ""
-                       : state == "ready" ? "正向扫描\n就绪"
+                       : state == "ready" ? "扫描\n就绪"
                        : (state == "error" || state == "fatal") ? "扫描\n不可用"
                        : eligible ? "扫描\n准备中"
                                   : "";

@@ -44,6 +44,9 @@ struct AppLayout {
   int bodyWidth() const { return width - gutter() - 4; }
   int contentWidth() const { return width - (portrait() ? 32 : 118); }
   int composerX() const { return portrait() ? safeSide() : 106; }
+  LayoutRect composerShortcut() const {
+    return {12, composerY(), std::max(44, composerX() - 24), composerHeight()};
+  }
   int composerWidth() const { return width - composerX() - (portrait() ? safeSide() : 24); }
   int modalX() const { return portrait() ? 12 : 84; }
   int modalWidth() const { return width - (portrait() ? 24 : 92); }

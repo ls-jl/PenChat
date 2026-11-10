@@ -14,7 +14,7 @@ bool App::switchDraft(const std::string &next) {
   auto found=sessionDrafts_.find(next);
   draft_=found==sessionDrafts_.end()?std::string():std::move(found->second);
   if(found!=sessionDrafts_.end())sessionDrafts_.erase(found);
-  chatComposerHidden_=false;
+  composerShortcut_.reset();
   return true;
 }
 void App::replyToast(const std::string &text) {

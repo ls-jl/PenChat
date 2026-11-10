@@ -1,5 +1,6 @@
 #pragma once
 #include "input_focus.hpp"
+#include "composer_shortcut.hpp"
 #include "text_gesture.hpp"
 #include "database.hpp"
 #include "transfer.hpp"
@@ -324,8 +325,12 @@ class App {
   bool chatFollowing_ = true, chatLayout_ = false;
   bool receivingReply_ = false;
   bool readerDown_ = false, readerPointer_ = false, readerVertical_ = false, readerSettle_ = false;
-  int readerStartX_ = 0, readerStartY_ = 0, readerMotionY_ = 0;
-  bool chatComposerHidden_ = false;
+  int readerStartX_ = 0, readerStartY_ = 0;
+  ComposerShortcut composerShortcut_;
+  bool composerShortcutAvailable() const;
+  bool composerShortcutTouch(int x, int y, bool pressed, bool cancelled);
+  void composerShortcutTick();
+  void composerShortcutPicker();
   bool chatRenderPending_ = false, chatRefreshPending_ = false, chatImagesPending_ = false;
   Json chatFinishPending_ = Json::object();
   bool atLatestBottom() const;

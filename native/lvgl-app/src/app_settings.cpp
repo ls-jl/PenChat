@@ -1,5 +1,21 @@
 #include "app.hpp"
 namespace penchat {
+void App::composerShortcutPicker() {
+  modal("横屏输入框快捷唤出", "");
+  lv_label_set_text(lv_obj_get_child(lv_obj_get_child(modal_, -1), 0), "返回");
+  const char *modes[] = {"auto", "manual", "off"};
+  const char *names[] = {"开启，滚动后自动收回", "开启，仅手动收回", "关闭"};
+  lv_obj_update_layout(modal_);
+  const int width = lv_obj_get_width(modalScroll_);
+  for (int i = 0; i < 3; ++i) {
+    const std::string mode = modes[i];
+    auto item = button(modalScroll_, names[i], 4, i * 52, width - 8, 48,
+                       [this, mode] { events_.push("composer_shortcut_apply", {{"mode", mode}}); });
+    if (mode == composerShortcut_.mode()) primary(item);
+  }
+  label(modalScroll_, "双击加号左侧空白唤出，单击收回。自动模式累计滚动超过1.5屏后收回；竖屏不受影响。",
+        4, 164, width - 8, 16, theme::muted);
+}
 void App::pullSensitivityPicker() {
   modal("上滑新建灵敏度", "");
   auto cancel = lv_obj_get_child(modal_, -1);

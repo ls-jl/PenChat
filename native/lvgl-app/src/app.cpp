@@ -72,6 +72,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   transfer_->start("init");
   clearCrop();
   auto config = db_.settings();
+  composerShortcut_.configure(stringValue(config, "landscape_composer_shortcut", "auto"));
   wideKeyboardSwap_=config.value("wide_keyboard_swap",false);
   const auto idleSeconds = config.value("http_idle_seconds", Json());
   setHttpIdleSeconds(idleSeconds.is_number_integer() && idleSeconds.get<double>() >= 15 && idleSeconds.get<double>() <= 600
@@ -960,6 +961,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  composerShortcut_.pause();
   if(readGesture_.active())readSuppressed_=readDown_;
   readReset();
   onboarding_.reset();modalButtons_.clear();modalScroll_=nullptr;
@@ -1149,6 +1151,7 @@ void App::build() {
   if (imageViewer_) lv_obj_move_foreground(imageViewer_);
 }
 void App::show(const std::string &view) {
+  if (view != view_) composerShortcut_.reset();
   if ((view_ == "web_source" || view_ == "web_details") && view != "web_source")
     cancelWebReader();
   if (view_ == "feedback" && view != view_ && feedback_) feedback_->request("keys.cancel");
@@ -1334,12 +1337,30 @@ bool App::atLatestBottom() const {
 }
 bool App::chatComposerVisible() const {
   if(pulling_)return false;
-  const auto category=layout().category();
-  if(category==LayoutClass::Portrait)return true;
-  // Compact landscape keeps the original bottom-only composer. Following a
-  // stream or reversing a finger while reading history cannot reveal it.
-  if(category==LayoutClass::CompactLandscape)return atLatestBottom();
-  return !chatComposerHidden_;
+  return layout().portrait() || atLatestBottom() || composerShortcut_.shown();
+}
+bool App::composerShortcutAvailable() const {
+  return composerShortcut_.enabled() && !layout().portrait() && view_ == "chat" &&
+      visible_ && inputFocused_ && !keyboard_ && !editor_.active && !imageViewer_ &&
+      !navigationOpen_ && !modal_ && !attachments_ && !pulling_;
+}
+bool App::composerShortcutTouch(int x, int y, bool pressed, bool cancelled) {
+  if (!composerShortcutAvailable()) { composerShortcut_.pause(); return false; }
+  if (!composerShortcut_.tracking() && (touchDown_ || readerDown_)) return false;
+  const auto area = layout().composerShortcut();
+  const bool inside = x >= area.x && x < area.x + area.width &&
+                      y >= area.y && y < area.y + area.height;
+  const bool before = composerShortcut_.shown();
+  const bool consumed = composerShortcut_.touch(x, y, pressed, cancelled, inside, ticks(), screen_.height);
+  if (before != composerShortcut_.shown()) updateChatControls(true);
+  return consumed;
+}
+void App::composerShortcutTick() {
+  const bool before = composerShortcut_.shown();
+  if (composerShortcutAvailable()) composerShortcut_.tick(ticks());
+  else composerShortcut_.pause();
+  if (view_ == "chat" && atLatestBottom()) composerShortcut_.reset();
+  if (before != composerShortcut_.shown()) updateChatControls(true);
 }
 bool App::readerInteracting() const {
   if(readBusy())return true;
@@ -1364,17 +1385,13 @@ void App::readerTouch(int x, int y, bool pressed, bool cancelled) {
           readerPointer_ = false;
       }
     }
-    readerStartX_ = x; readerStartY_ = readerMotionY_ = y;
+    readerStartX_ = x; readerStartY_ = y;
     readerSettle_ = readerPointer_;
   }
   if (readerPointer_ && pressed) {
     const int dx = x - readerStartX_, dy = y - readerStartY_;
     if (std::abs(dy) > 12 && std::abs(dy) > std::abs(dx)) {
       readerVertical_ = true;
-      if(layout().category()==LayoutClass::WideLandscape&&std::abs(y-readerMotionY_)>=2) {
-        chatComposerHidden_=y<readerMotionY_;
-        readerMotionY_=y;updateChatControls(true);
-      }
       // Finger moving down reads older content. Detach before the next delta
       // can resize/reanchor the viewport; horizontal table gestures stay separate.
       if (dy > 0 && lv_obj_get_scroll_y(body_) + lv_obj_get_scroll_bottom(body_) > 10)
@@ -1401,7 +1418,14 @@ void App::chatScrolled() {
   if (chatLayout_ || view_ != "chat" || !body_)
     return;
   closeAttachments();
-  chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
+  const int nextScroll = std::max(0, int(lv_obj_get_scroll_y(body_)));
+  // Only a recognized reader gesture and its inertia count. Layout reflows,
+  // programmatic navigation and horizontal rich-text scrolling do not.
+  if (readerVertical_ && composerShortcutAvailable() &&
+      (readerPointer_ || readerSettle_ || lv_obj_is_scrolling(body_)))
+    composerShortcut_.scroll(nextScroll - chatScroll_);
+  chatScroll_ = nextScroll;
+  if (atLatestBottom()) composerShortcut_.reset();
   const bool wasFollowing = chatFollowing_;
   if (!atLatestBottom()) chatFollowing_ = false;
   else if (!readerInteracting() && !readerSettle_) chatFollowing_ = true;
@@ -1455,7 +1479,7 @@ void App::updateChatControls(bool animate) {
   lv_anim_start(&animation);
 }
 void App::jumpToBottom() {
-  chatComposerHidden_=false;
+  composerShortcut_.reset();
   pullNeedsPause_ = true;
   pullLastActivity_ = ticks();
   chatFollowing_ = true;
@@ -2252,20 +2276,24 @@ void App::settingsPage() {
               left, 444, column, [this] { pullSensitivityPicker(); });
   settingsRow("compression_threshold", "自动压缩阈值", std::to_string(compressionPercent(config)) + "% × 模型最大上下文",
               right, 444, column, [this] { compressionSettings(); });
-  label(pageContent_, "数据与应用", left, 516, width, 16, theme::muted);
-  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 540, column,
+  const std::string shortcutMode = composerShortcut_.mode();
+  settingsRow("composer_shortcut", "横屏输入框快捷唤出",
+              shortcutMode == "off" ? "关闭" : shortcutMode == "manual" ? "开启，仅手动收回" : "开启，滚动后自动收回",
+              left, 508, width, [this] { composerShortcutPicker(); });
+  label(pageContent_, "数据与应用", left, 580, width, 16, theme::muted);
+  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 604, column,
               [this] { openTransfer(); });
   const bool persistentExports = config.value("persistent_export_directory", false);
   settingsRow("persistent_exports", "持久化导出目录",
               persistentExports ? "关闭应用后保留导出文件" : "关闭应用时清理导出文件",
-              right, 540, column, [this, persistentExports] {
+              right, 604, column, [this, persistentExports] {
                 db_.setting("persistent_export_directory", !persistentExports);
                 build();
               }, persistentExports);
   const auto idle = httpIdleSeconds();
   const auto idleText = idle < 60 ? std::to_string(idle) + "秒" : std::to_string(idle/60) + "分" + (idle%60 ? std::to_string(idle%60)+"秒" : "");
-  settingsRow("http_idle", "连接保留时间", idleText + " · 全应用", left, 604, column, [this] { show("http_settings"); });
-  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", right, 604, column,
+  settingsRow("http_idle", "连接保留时间", idleText + " · 全应用", left, 668, column, [this] { show("http_settings"); });
+  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", right, 668, column,
               [this] {
                 const auto summary = db_.summary();
                 modal("关于 " PENCHAT_NAME,
@@ -2279,15 +2307,15 @@ void App::settingsPage() {
               });
   const auto pending = feedback_ ? feedback_->state().value("pending", size_t(0)) : 0;
   settingsRow("feedback", "问题反馈", std::to_string(pending) + " 份待处理 · 诊断与机型适配",
-              left, 668, width, [this] { feedbackView_ = "form"; show("feedback"); });
+              left, 732, width, [this] { feedbackView_ = "form"; show("feedback"); });
   const auto webPolicy = config.value("new_chat_web", std::string("on"));
   settingsRow("web_policy", "新聊天联网搜索",
               webPolicy == "off"      ? "默认关闭"
               : webPolicy == "recent" ? "使用最近一次状态"
                                       : "默认开启",
-              right, 796, column, [this] { webPolicyPicker(); });
+              right, 860, column, [this] { webPolicyPicker(); });
   settingsRow("update", "检查更新", std::string("当前 ")+PENCHAT_VERSION+" · 在线安装新版本",
-              left, 732, width, [this] { openUpdate(true); });
+              left, 796, width, [this] { openUpdate(true); });
 }
 void App::updateFontPreview(int percent) {
   readingFontDraft_ = std::max(75, std::min(150, percent));
@@ -2886,6 +2914,7 @@ void App::updateInputFocus() {
   }
 }
 void App::suspend(bool value) {
+  if (value) composerShortcut_.reset();
   if(value)readReset();
   if(value)readDown_=readSuppressed_=false;
   pageVisible_=!value;
@@ -3004,6 +3033,7 @@ void App::routeTouch(const Json &m) {
     if(!imageTouch(m))input_.touch(m.value("x",0),m.value("y",0),m.value("pressed",false));
     return;
   }
+  if (composerShortcutTouch(m.value("x",0),m.value("y",0),m.value("pressed",false),m.value("cancelled",false))) return;
   if(!editor_.active)readerTouch(m.value("x",0),m.value("y",0),m.value("pressed",false),m.value("cancelled",false));
   if(readTouch(m.value("x",0),m.value("y",0),m.value("pressed",false),m.value("cancelled",false)))return;
   if (editor_.active) {
@@ -3499,6 +3529,14 @@ void App::tick() {
         pullSensitivityOffset_ = offset;
         build();
       } catch (...) { modal("未能保存灵敏度", "本次调整未生效，请检查存储空间后重试。"); }
+    } else if (e.type == "composer_shortcut_apply" && view_ == "settings" && visible_) {
+      input_.cancel();
+      const auto mode = e.data.value("mode", std::string("auto"));
+      if (mode == "auto" || mode == "manual" || mode == "off") {
+        db_.setting("landscape_composer_shortcut", mode);
+        composerShortcut_.configure(mode);
+        build();
+      }
     } else if (e.type == "reading_font_apply" && view_ == "font_size") {
       input_.cancel();
       db_.setting("reading_font_percent", readingFontDraft_);
@@ -3615,6 +3653,7 @@ void App::tick() {
   updateTick();
   if(updateExit_)return;
   syncBackPolicy();
+  composerShortcutTick();
   settleReader();
   if(!onboardingActive_&&!replyBusy_&&!contextRegenerating_)tickTitles();
   if (persistDirty_ && !saveInFlight_ && ticks() >= persistDue_)
@@ -3915,7 +3954,13 @@ Json App::diagnostics() const {
       {"back_navigation", {{"root",navigationRoot()},{"sequence",backPolicySequence_},{"policy_ok",backPolicyOk_},{"blocked",backPolicyBlocked_},{"claimed",backClaimed_}}},
       {"scroll_bottom", body_ ? lv_obj_get_scroll_bottom(body_) : 0},
       {"composer_width", composer_ ? lv_obj_get_width(composer_) : 0},
-      {"composer_hidden", layout().compact()?!chatComposerVisible():chatComposerHidden_},
+      {"composer_hidden", !chatComposerVisible()},
+      {"composer_shortcut", {{"mode", composerShortcut_.mode()},
+         {"available", composerShortcutAvailable()}, {"shown", composerShortcut_.shown()},
+         {"distance", composerShortcut_.distance()}, {"limit", composerShortcut_.limit()},
+         {"bounds", {layout().composerShortcut().x, layout().composerShortcut().y,
+                     layout().composerShortcut().x + layout().composerShortcut().width - 1,
+                     layout().composerShortcut().y + layout().composerShortcut().height - 1}}}},
       {"composer_radius",chatControls_?lv_obj_get_style_radius(chatControls_,LV_PART_MAIN):0},
       {"composer_scroll", composer_ ? lv_obj_get_scroll_y(composer_) : 0},
       {"composer_scroll_bottom", composer_ ? lv_obj_get_scroll_bottom(composer_) : 0},

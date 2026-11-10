@@ -30,7 +30,7 @@ for w,h in [(640,260),(960,266),(936,280),(568,1210)]:
             capture(a,OUT/f'{w}-hidden.png')
             swipe(a,w//2,70,70 if h<w else 200)
             d=a.diag()
-            if compact:
+            if h<w:
                 assert d['composer_hidden'] and d['toolbar_y']>=h and not d['at_latest_bottom']
             else:
                 assert not d['composer_hidden'] and d['composer_bounds'][3]<h and not d['following_latest']
@@ -58,11 +58,10 @@ for w,h in [(640,260),(960,266),(936,280),(568,1210)]:
                 a.editor_action('done');d=a.diag()
                 assert d['reader_height']==h and d['scroll_y']+d['scroll_bottom']<=0
             elif compact:
-                # Direction reversal alone cannot reveal a compact composer.
+                # Direction reversal alone cannot reveal any landscape composer.
                 # Jumping to the actual latest bottom must reveal it.
                 a.tap(d['to_bottom_x']+22,d['to_bottom_y']+22)
-                t.wait_for(lambda:a.diag()['at_latest_bottom'] and not a.diag()['composer_hidden'])
-                assert a.diag()['composer_bounds'][3]<h
+                t.wait_for(lambda:a.diag()['at_latest_bottom'] and not a.diag()['composer_hidden'] and a.diag()['composer_bounds'][3]<h)
                 swipe(a,w//2,70,140)
                 assert a.diag()['composer_hidden']
                 a.open_navigation();old=a.diag()['session'];a.tap(80,h-30)
