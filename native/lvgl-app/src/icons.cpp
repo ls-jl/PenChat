@@ -354,15 +354,9 @@ void setSelectionHandleTop(lv_obj_t *object, int top, int corner, int x, int dia
     if (lv_event_dsc_get_cb(event)!=paint) continue;
     auto icon=static_cast<Icon *>(lv_event_dsc_get_user_data(event));
     if (icon->name!="selection-start" && icon->name!="selection-end") return;
-    int side=icon->name=="selection-start"?-1:1;
-    lv_area_t area;lv_obj_get_coords(object,&area);
-    const int anchor=area.x1+x,canvas=lv_obj_get_width(lv_obj_get_parent(object));
-    int available=side<0?anchor:canvas-anchor-1;
-    if(available<12){side=-side;available=side<0?anchor:canvas-anchor-1;}
-    if(available<diameterX) {
-      diameterY=std::max(1,diameterY*std::max(1,available)/std::max(1,diameterX));
-      diameterX=std::max(1,available);
-    }
+    // Keep the reference silhouette at the edge. The screen clips the drawing;
+    // the independent in-screen hit box remains available for dragging.
+    const int side=icon->name=="selection-start"?-1:1;
     if(icon->customStem && icon->stemTop==top && icon->cornerY==corner && icon->cornerX==x && icon->diameterX==diameterX && icon->diameterY==diameterY && icon->side==side) return;
     lv_obj_invalidate(object);
     icon->stemTop=top;icon->cornerY=corner;icon->cornerX=x;icon->diameterX=diameterX;icon->diameterY=diameterY;icon->side=side;icon->customStem=true;

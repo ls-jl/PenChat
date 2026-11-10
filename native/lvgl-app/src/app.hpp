@@ -512,7 +512,7 @@ class App {
   size_t readSavedCursor_=0,readSavedAnchor_=0,readWordStart_=0,readWordEnd_=0;
   bool readSavedAll_=false,readPreview_=false,readHadSelection_=false,readMenuPointer_=false;
   bool readDown_=false,readSuppressed_=false,readMenuWanted_=false,readScrollPassthrough_=false;
-  int readHandle_=-1;
+  int readHandle_=-1,readHandleOffsetY_=0;
   lv_obj_t *readOverlay_=nullptr,*readMenu_=nullptr,*readHandles_[2]={nullptr,nullptr};
   std::vector<lv_obj_t *> readMarks_;
   LayoutRect readSelectionBounds_{};
@@ -666,7 +666,7 @@ class App {
            editorDue_ = 0, editorSent_ = 0, editorShiftTime_ = 0, editorRepeat_ = 0;
   int editorHeld_ = -1, editorRepeats_ = 0;
   bool editorPointer_ = false, editorSlid_ = false, editorExpanded_ = false, editorMenu_ = false;
-  int editorStartX_ = 0, editorStartY_ = 0;
+  int editorStartX_ = 0, editorStartY_ = 0,editorHandleOffsetY_=0;
   void editorBuild();
   bool editorCanExpand() const;
   bool editorCandidateRow() const;

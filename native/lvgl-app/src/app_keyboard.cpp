@@ -999,7 +999,7 @@ void App::editorSyncText(bool text) {
     const int dx=std::max(1,int(std::lround(diameter/sx))),dy=std::max(1,int(std::lround(diameter/sy)));
     setSelectionHandleTop(editorHandles_[i],std::max(area.y,lineBottom-font(20)->line_height)-handle.y,
       std::max(std::max(4,AppLayout{editorLayout().width,editorLayout().height}.safeTop()),
-        std::min({lineBottom,area.y+area.height,editorLayout().height-std::max(4,AppLayout{editorLayout().width,editorLayout().height}.safeBottom())-dy-1}))-handle.y,int(point.x)-handle.x,dx,dy);
+        std::min({lineBottom,area.y+area.height,editorLayout().height-int(std::ceil(8/sy))}))-handle.y,int(point.x)-handle.x,dx,dy);
     lv_obj_move_foreground(editorHandles_[i]);
   }
   editorMagnify(editorPointer_&&(editorCursorDrag_||editorHandle_>=0));
@@ -1256,7 +1256,11 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
         lv_area_t a;lv_obj_get_coords(editorHandles_[i],&a);const auto grip=selectionHandleGrip(editorHandles_[i]);int dx=x-grip.x,dy=y-grip.y;
         if(selectionHandleContains(editorHandles_[i],x,y)&&(dx*dx+dy*dy<distance||(dx*dx+dy*dy==distance&&i&&dx>=0))) {distance=dx*dx+dy*dy;editorHandle_=i;}
       }
-      if(editorHandle_>=0)editorDragAnchor_=editorHandle_?r.first:r.second;
+      if(editorHandle_>=0) {
+        editorDragAnchor_=editorHandle_?r.first:r.second;
+        const auto point=editorPoint(editorHandle_?r.second:r.first,editorHandle_?1:-1);
+        editorHandleOffsetY_=y-int(point.y)+8+font(20)->line_height/2;
+      }
     }
     editorTextTouch_=editorHandle_>=0||(!overlay&&editorTextArea().contains(x,y));
     if(editorTextTouch_) {
@@ -1278,7 +1282,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
     const auto mode=editorTextGesture_.mode;
     if((mode==TextGesture::Held||mode==TextGesture::Caret||mode==TextGesture::Range)&&!editorWordPreview_)editorWordPreview();
     if(pressed) {
-      if(mode==TextGesture::Handle) {editor_.extendSelection(editorDragAnchor_,editorPositionAt(x,y-16));editorSyncText();editorTextMoved_=true;}
+      if(mode==TextGesture::Handle) {editor_.extendSelection(editorDragAnchor_,editorPositionAt(x,y-editorHandleOffsetY_));editorSyncText();editorTextMoved_=true;}
       else if(mode==TextGesture::Caret) {editorCursorDrag_=true;editor_.position(editorPositionAt(x,y));editorSyncText();editorTextMoved_=true;}
       else if(mode==TextGesture::Range) {const auto at=editorPositionAt(x,y);editorRangeDrag_=true;editorDragAnchor_=at<editorWordStart_?editorWordEnd_:editorWordStart_;editor_.extendSelection(editorDragAnchor_,at);editorSyncText();editorTextMoved_=true;}
       else if(mode==TextGesture::Scroll) {editorScroll(editorTextScroll_+editorStartY_-y);editorTextMoved_=true;}
@@ -1362,13 +1366,14 @@ void App::editorTick() {
   if(!editorPointer_&&!editorPinyinPending_.is_null()) {auto pending=std::move(editorPinyinPending_);editorPinyinPending_=Json();editorResult(pending);}
   if(!editorPointer_&&!editorOcrPending_.empty()) {auto pending=std::move(editorOcrPending_);editorOcrPending_.clear();for(const auto &m:pending)editorOcrResult(m);}
   if(editorRebuild_ && !editorPointer_) editorBuild();
-  if(editorTextTouch_&&(editorCursorDrag_||editorHandle_>=0||editorRangeDrag_)&&(editorTouchY_<area.y+14||editorTouchY_>area.y+area.height-14)) {
-    const bool up=editorTouchY_<area.y+14;
+  const int targetY=editorTouchY_-(editorHandle_>=0?editorHandleOffsetY_:0);
+  if(editorTextTouch_&&(editorCursorDrag_||editorHandle_>=0||editorRangeDrag_)&&(targetY<area.y+14||targetY>area.y+area.height-14)) {
+    const bool up=targetY<area.y+14;
     const bool boundary=up?editor_.cursor==0:editor_.cursor==editLength(editor_.text);
     const int before=lv_obj_get_scroll_y(editorText_);
     if(!boundary)editorScroll(before+(up?-scrollStep:scrollStep));
     if(lv_obj_get_scroll_y(editorText_)!=before) {
-      if(editorHandle_>=0||editorRangeDrag_)editor_.extendSelection(editorDragAnchor_,editorPositionAt(editorTouchX_,editorTouchY_-(editorHandle_>=0?16:0)));else editor_.position(editorPositionAt(editorTouchX_,editorTouchY_));
+      if(editorHandle_>=0||editorRangeDrag_)editor_.extendSelection(editorDragAnchor_,editorPositionAt(editorTouchX_,editorTouchY_-(editorHandle_>=0?editorHandleOffsetY_:0)));else editor_.position(editorPositionAt(editorTouchX_,editorTouchY_));
       editorSyncText();
     }
   }

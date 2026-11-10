@@ -453,7 +453,7 @@ void App::readDraw(bool menu) {
       lv_obj_set_pos(readHandles_[i], x, y);
       setSelectionHandleTop(
           readHandles_[i], endpointTops[i] - y,
-          std::max(top, std::min(int(endpoints[i].y), screen_.height - bottom - endpointSizes[i] - 1)) - y,
+          std::max(top, std::min(int(endpoints[i].y), screen_.height - 8)) - y,
           int(endpoints[i].x) - x,endpointSizes[i],endpointSizes[i]);
     }
     lv_obj_move_foreground(readHandles_[i]);
@@ -613,6 +613,8 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
     if (readHandle_ >= 0) {
       auto r = readSelection_.range();
       readWordStart_ = readWordEnd_ = readHandle_ ? r.first : r.second;
+      const auto shape=selectionHandleShape(readHandles_[readHandle_]);
+      readHandleOffsetY_=y-shape.y1+(shape.y2-shape.y1)/2;
     }
     return true;
   }
@@ -671,7 +673,7 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
     readWord(*region, readGesture_.x, readGesture_.y);
   if (readGesture_.mode == TextGesture::Range || readGesture_.mode == TextGesture::Handle) {
     std::pair<size_t, size_t> atom;
-    auto at = readPosition(*region, x, y, false, &atom);
+    auto at = readPosition(*region, x, y-(readGesture_.mode==TextGesture::Handle?readHandleOffsetY_:0), false, &atom);
     const auto anchor = readGesture_.mode == TextGesture::Handle
                             ? readWordStart_
                             : (at < readWordStart_ ? readWordEnd_ : readWordStart_);
@@ -748,14 +750,15 @@ void App::readTick() {
         for (auto p = region->root; p; p = lv_obj_get_parent(p))
           if (lv_obj_is_scrollable(p)) {
             auto clip = readClip(p);
-            int step = readGesture_.lastY < clip.y1 + 14   ? -8
-                       : readGesture_.lastY > clip.y2 - 14 ? 8
+            const int targetY=readGesture_.lastY-(readGesture_.mode==TextGesture::Handle?readHandleOffsetY_:0);
+            int step = targetY < clip.y1 + 14   ? -8
+                       : targetY > clip.y2 - 14 ? 8
                                                            : 0;
             if (step) {
               const int before = lv_obj_get_scroll_y(p);
               lv_obj_scroll_to_y(p, std::max(0, before + step), LV_ANIM_OFF);
               if (before != lv_obj_get_scroll_y(p)) {
-                const auto pos = readPosition(*region, readGesture_.lastX, readGesture_.lastY);
+                const auto pos = readPosition(*region, readGesture_.lastX, readGesture_.lastY-(readGesture_.mode==TextGesture::Handle?readHandleOffsetY_:0));
                 const auto anchor = readGesture_.mode == TextGesture::Handle
                                         ? readWordStart_
                                         : (pos < readWordStart_ ? readWordEnd_ : readWordStart_);
