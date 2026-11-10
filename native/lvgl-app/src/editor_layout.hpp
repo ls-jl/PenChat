@@ -76,6 +76,17 @@ struct EditorLayout {
       return px>=x&&px<x+width&&py>=y&&py<y+height;
     }
   };
+  Popup candidateCover() const {
+    return portrait?Popup{keyInset,keyTop,keySpan,bottomY+bottomHeight-keyTop}:
+      Popup{textX,overlayY(),textWidth,overlayHeight()};
+  }
+  Popup candidateArea(bool expanded) const {
+    if(!expanded)return {textX,candidateY,textWidth-50,44};
+    if(!portrait)return candidateCover();
+    const auto cover=candidateCover();
+    return {textX,cover.y+4,textWidth,cover.height-8};
+  }
+  int candidateToggleY() const {return portrait?candidateY:6;}
   Popup keyTouchBounds(const Popup &cap, bool leftEdge = false,
                        bool rightEdge = false) const {
     const int left = leftEdge ? keyInset : std::max(keyInset, cap.x - 4);

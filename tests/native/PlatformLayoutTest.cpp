@@ -18,6 +18,15 @@ int main() {
   for(auto a:compact.actions())assert(a.x>=compact.textX&&a.x+a.width<=compact.width);
   EditorLayout landscape(960,266);assert(!landscape.scaled&&landscape.split==584&&landscape.textX==592);
   EditorLayout portrait(568,1210);assert(!portrait.scaled&&portrait.portrait&&portrait.docked);
+  for(auto size:{std::make_pair(568,1210),std::make_pair(600,1280)}) {
+    const EditorLayout l(size.first,size.second);
+    const auto normal=l.candidateArea(false),expanded=l.candidateArea(true),cover=l.candidateCover();
+    assert(normal.y==l.candidateToggleY() && normal.height==44);
+    assert(cover.y==l.keyTop && cover.y+cover.height==l.bottomY+l.bottomHeight);
+    assert(expanded.y>=l.keyTop && expanded.y+expanded.height<=l.bottomY+l.bottomHeight);
+    assert(expanded.y>normal.y+normal.height);
+    assert(expanded.x>=0 && expanded.x+expanded.width<=l.width);
+  }
   // Swapping is a translation of regions, not a mirror of keys or content.
   for(auto size:{std::make_pair(960,266),std::make_pair(936,280)}) {
     const EditorLayout normal(size.first,size.second),swap(size.first,size.second,false,false,true);
@@ -38,7 +47,9 @@ int main() {
     const auto hit=swap.keyTouchBounds(cap,true,false);
     assert(hit.x==swap.keyInset&&hit.x+hit.width<=swap.keyInset+swap.keySpan);
     const auto bubble=swap.magnifierPopup(swap.textRight(),120,swap.textX,swap.textRight());
-    assert(bubble.x>=swap.textX&&bubble.x+bubble.width<=swap.textRight());
+    const AppLayout safe{swap.width,swap.height};
+    assert(bubble.x>=std::max(4,safe.safeSide()) &&
+      bubble.x+bubble.width<=swap.width-std::max(4,safe.safeSide()));
     const EditorLayout selection(size.first,size.second,true,false,true);
     assert(!selection.swapped&&selection.keyInset==0);
   }

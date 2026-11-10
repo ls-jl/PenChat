@@ -151,6 +151,7 @@ void App::editorBuild() {
     editorKeys_.push_back({x,y,w,h,value,b,layout.keyTouchBounds({x,y,w,h})});
   };
   if(!editorSelectionOnly_) {
+  if(!layout.portrait||!editorExpanded_) {
   const bool nine=editor_.mode==0&&editor_.layout==2&&!editor_.secret;
   if(nine) {
     const int rail=88, gridX=rail+8;
@@ -196,6 +197,7 @@ void App::editorBuild() {
   bottomKey(editor_.chinese?"拼音":"English","space",spaceWidth);
   bottomKey(keyboardPunctuation(".",editor_.chinese&&!editor_.secret),".",punctuationWidth);
   bottomKey("","enter",enterWidth);
+  }
   }
   if(layout.portrait) {
     const auto globe=layout.globeKey();
@@ -266,14 +268,19 @@ void App::editorBuild() {
   if(layout.portrait&&editorOcrShown_&&editor_.preedit.empty()&&editor_.notice.empty())
     lv_label_set_text(pre,editorOcrBusy_?"正在识别…":"扫描已插入 · 可继续划扫");
   lv_label_set_long_mode(pre,LV_LABEL_LONG_MODE_DOTS); lv_obj_set_height(pre,20);
-  const int candidateY=editorExpanded_?layout.overlayY()+(layout.portrait?44:0):layout.candidateY, candidateH=editorExpanded_?layout.overlayHeight()-(layout.portrait?44:0):44;
-  if (editorExpanded_) { auto cover=box(editorRoot_,layout.textX,layout.overlayY(),layout.textWidth,layout.overlayHeight(),0x111111);lv_obj_set_scrollable(cover,false); label(editorRoot_,"全部候选",layout.textX+4,layout.portrait?layout.overlayY():16,layout.textWidth-60,18,theme::muted); }
-  auto choices=box(editorRoot_,layout.textX,candidateY,editorExpanded_?layout.textWidth:layout.textWidth-50,candidateH,0x111111);
+  const auto candidate=layout.candidateArea(editorExpanded_);
+  if(editorExpanded_) {
+    const auto bounds=layout.candidateCover();
+    auto cover=box(editorRoot_,bounds.x,bounds.y,bounds.width,bounds.height,0x111111);
+    lv_obj_set_scrollable(cover,false);lv_obj_set_clickable(cover,true);
+    label(editorRoot_,"全部候选",layout.textX+4,layout.portrait?layout.candidateY+10:16,layout.textWidth-60,18,theme::muted);
+  }
+  auto choices=box(editorRoot_,candidate.x,candidate.y,candidate.width,candidate.height,0x111111);
   editorChoices_=choices;
   if(layout.portrait&&!editorCandidateRow())lv_obj_set_hidden(choices,true);
   lv_obj_set_scroll_dir(choices,editorExpanded_?LV_DIR_VER:LV_DIR_HOR);
   lv_obj_set_scrollbar_mode(choices,LV_SCROLLBAR_MODE_AUTO);
-  editorExpand_ = control(editorExpanded_?"收起":"展开",layout.textRight()-44,layout.portrait?(editorExpanded_?layout.overlayY():layout.candidateY):6,44,"expand");
+  editorExpand_ = control(editorExpanded_?"收起":"展开",layout.textRight()-44,layout.candidateToggleY(),44,"expand");
   editorChoicesEmpty_=false;editorChoicesDirty_=true;editorRefreshCandidates();
   if(editor_.secret) attachIcon(control("",layout.textRight()-102,layout.portrait?layout.candidateY:6,44,"reveal"),editor_.reveal?"eye-off":"eye",theme::muted);
   if(editorOcrShown_&&!layout.portrait) {
@@ -1248,7 +1255,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
     const bool popupHit=editorSelectionMenu_&&!lv_obj_is_hidden(editorSelectionMenu_)&&
       x>=selection.x1&&x<=selection.x2&&y>=selection.y1&&y<=selection.y2;
     if(!popupHit&&editorMenu_){editorMenu_=false;editorSyncSelectionMenu();}
-    bool overlay=editorClipboardOpen_||editorExpanded_||editorLayoutMenu_||editorPunctuation_||popupHit;
+    bool overlay=editorClipboardOpen_||(editorExpanded_&&(!layout.portrait||layout.candidateCover().contains(x,y)))||editorLayoutMenu_||editorPunctuation_||popupHit;
     if(!overlay && editor_.selected()) {
       auto r=editor_.range();int distance=100000;
       for(int i=0;i<2;++i) {
@@ -1432,6 +1439,10 @@ Json App::editorDiagnostic() const {
     lv_area_t p;lv_obj_get_coords(editorSelectionMenu_,&p);
     selectionPopup={p.x1,p.y1,p.x2,p.y2};
   }
+  Json candidateBounds=Json::array();
+  if(editorChoices_&&!lv_obj_is_hidden(editorChoices_)) {
+    lv_area_t p;lv_obj_get_coords(editorChoices_,&p);candidateBounds={p.x1,p.y1,p.x2,p.y2};
+  }
   Json controls=Json::array();
   if(editorRoot_) for(uint32_t i=0;i<lv_obj_get_child_count(editorRoot_);++i) {
     auto o=lv_obj_get_child(editorRoot_,i); lv_area_t a;lv_obj_get_coords(o,&a);
@@ -1459,7 +1470,7 @@ Json App::editorDiagnostic() const {
   }
   Json anchor=Json::array();
   if(editorTarget_){lv_area_t a;lv_obj_get_coords(editorTarget_,&a);anchor={a.x1,a.y1,a.x2,a.y2};}
-  return {{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"selection_bounds",editorSelectionBounds_.width>0?
+  return {{"candidate_bounds",candidateBounds},{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"selection_bounds",editorSelectionBounds_.width>0?
     Json::array({editorSelectionBounds_.x,editorSelectionBounds_.y,editorSelectionBounds_.x+editorSelectionBounds_.width-1,editorSelectionBounds_.y+editorSelectionBounds_.height-1}):Json::array()},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"in_place",editor_.active&&editorInPlace()&&editorTarget_!=nullptr},{"input_anchor",editorTargetKey_},{"docked",layout.docked},{"dismiss_offset",editorDismissOffset_},{"dismiss_threshold",editorDismissThreshold_},{"dismissing",editorDismissing_},{"dismiss_returning",editorDismissReturnAt_!=0},{"inline_chat",editorInlineChat_},{"panel_top",layout.panelTop},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
     {"layout",editor_.layout==0?"zh26":editor_.layout==1?"en26":"zh9"},{"preferred_layout",editor_.preferredChinese==2?"zh9":"zh26"},
     {"layout_menu",editorLayoutMenu_},{"layout_popup",layoutPopup},{"layout_hold",editorLayoutHold_},{"expanded",editorExpanded_},{"punctuation_menu",editorPunctuation_},{"exact_count",editorExact_.size()},

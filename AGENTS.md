@@ -347,7 +347,7 @@ releasing scanner ownership; new field IDs reject old OCR/pinyin results. Undo a
 secret visibility stay isolated per field. A non-input action must close a retained
 transfer and clear all pointers/actions into the keyboard it deletes. Cancel
 restores the original value; Provider edits still require explicit Save.
-Candidate expansion may cover the reader, never move the keys. Portrait clipboard
+Portrait candidate expansion temporarily replaces the main key area; keep the expand/collapse button at the same candidate-row position and leave the original page visible. Other layouts expand over the reader; never move the keys. Portrait clipboard
 replaces only the keyboard panel; landscape clipboard stays in the right editor. Ordinary
 page scrolling and field focus remain available above the keyboard. Rebind focused
 controls by stable page/field identity after a rebuild; cancel a missing target on
