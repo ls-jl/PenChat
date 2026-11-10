@@ -44,7 +44,7 @@ def run(width, height):
                 assert saved['reasoning']['levels']['minimal']=='minimal'
                 assert 'context_budget' in saved['catalog']['overrides']
                 assert db.execute("select count(*) from model_configs where id='a'").fetchone()[0]==1
-            app.tap(width-90,76); row(app,'model_adapter')
+            app.tap(width-90,76); row(app,'provider_advanced'); row(app,'model_adapter')
             shot(app, f'{width}-catalog-adapters')
             # The list scrolls independently inside the dialog; first choice
             # remains automatic rather than treating a proxy as an official host.

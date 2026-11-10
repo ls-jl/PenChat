@@ -1,5 +1,6 @@
 #include "app.hpp"
 #include "context.hpp"
+#include "chat_text.hpp"
 #include "icons.hpp"
 #include "model_catalog.hpp"
 #include <stdexcept>
@@ -34,7 +35,10 @@ void App::saveModelForm() {
       overrides.push_back(key);
   }
   origin["overrides"] = overrides; caps["catalog"] = origin;
-  db_.saveModelSettings(modelForm_.at("id"), caps);
+  const auto name=modelForm_.value("name",std::string());
+  if(!hasChatText(name) || name.find_first_of("\r\n")!=std::string::npos)
+    throw std::runtime_error("请填写有效的模型 ID，不能包含换行");
+  db_.saveModelSettings(modelForm_.at("id"),caps,name,modelForm_.value("display_name",name));
 }
 void App::modelCapabilityRows(int y) {
   const int width = layout().contentWidth(), col = (width - 36) / 2, right = col + 26;
@@ -68,7 +72,7 @@ void App::modelCapabilityRows(int y) {
     auto object = button(pageContent_, "", x + col - 44, at + 6, 44, 44,
                          [fill, held, key] { if (*held) { *held = false; return; } fill(key); });
     attachIcon(object, "autofill", theme::text);
-    if(layout().portrait()) {
+    if(layout().portrait()||layout().compact()) {
       lv_obj_set_user_data(object,settingsControls_.at("model_"+key).row);
       lv_obj_set_floating(object,true);
     }

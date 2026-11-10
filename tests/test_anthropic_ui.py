@@ -4,6 +4,7 @@ import http.server,json,os,pathlib,signal,sqlite3,tempfile,threading,time
 import test_lvgl_app as t
 from anthropic_fixture import Handler,seed,configure,SIGNATURE,REDACTED
 from test_reply_actions import action as reply_action,confirm as confirm_retry,bottom
+from provider_ui import activate as provider_action
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
 OUT=t.ROOT/'.work/anthropic-ui';OUT.mkdir(parents=True,exist_ok=True)
 def shot(a,name):
@@ -30,7 +31,7 @@ def configuration(w,h):
    a.tap(w-230,128);assert a.diag()['modal'];shot(a,f'{w}-protocols')
    a.tap(400,112);assert a.diag()['provider_protocol']=='chat'
    a.tap(w-230,128);a.tap(400,160);assert a.diag()['provider_protocol']=='anthropic'
-   row(a,'anthropic_connection');assert a.diag()['view']=='anthropic_connection';shot(a,f'{w}-connection-default')
+   row(a,'provider_advanced');row(a,'anthropic_connection');assert a.diag()['view']=='anthropic_connection';shot(a,f'{w}-connection-default')
    row(a,'anthropic_auth');row(a,'anthropic_version');row(a,'anthropic_headers')
    enter(a,json.dumps({'X-Fixture':'yes','anthropic-workspace-id':'workspace-test'}))
    shot(a,f'{w}-connection-bearer')
@@ -45,11 +46,11 @@ def configuration(w,h):
     assert json.loads(headers)['anthropic-workspace-id']=='workspace-test'
     assert db.execute("select count(*) from model_configs where id in ('a','b')").fetchone()[0]==2
    # The first model remains the same row; unknown service capabilities are editable.
-   a.tap(w-90,125);assert a.diag()['view']=='model';shot(a,f'{w}-adaptive-model')
+   provider_action(a,'model-edit:a');assert a.diag()['view']=='model';shot(a,f'{w}-adaptive-model')
    row(a,'max_output');enter(a,'32768');a.page_action('参数映射')
    row(a,'thinking_high');enter(a,'xhigh');shot(a,f'{w}-adaptive-mapping')
    a.page_action('保存');assert a.diag()['view']=='provider'
-   a.tap(w-90,178);assert a.diag()['view']=='model';shot(a,f'{w}-budget-model')
+   provider_action(a,'model-edit:b');assert a.diag()['view']=='model';shot(a,f'{w}-budget-model')
    a.page_action('参数映射');row(a,'thinking_high');enter(a,'20000')
    a.page_action('保存');assert a.diag()['modal'];shot(a,f'{w}-invalid-budget')
    a.tap(w-70,h-44);row(a,'thinking_high');enter(a,'8192');a.page_action('保存')

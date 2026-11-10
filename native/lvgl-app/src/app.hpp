@@ -128,6 +128,17 @@ class App {
   std::string workspace_, dataDir_, view_ = "chat", session_, draft_,
                                     assistant_, output_, reasoning_, notice_;
   Json providerForm_, rows_ = Json::array();
+  bool providerAdvanced_=false;
+  std::string providerModelsId_,providerModelFilter_,providerManualModels_;
+  std::set<std::string> providerModelSelection_;
+  size_t providerModelPage_=0;
+  void providerModelsPage();
+  void openProviderModels(const std::string &id);
+  void addProviderModels();
+  void editModel(const Json &model);
+  void removeModel(const Json &model);
+  int modelIdentityFields();
+  void providerModelsResult(const Event &event);
   Json sessionPreferences_ = Json::object(),
        reasoningMetadata_ = Json::object(), modelForm_ = Json::object();
   std::string effortMemory_, popupKind_;

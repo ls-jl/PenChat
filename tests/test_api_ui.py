@@ -3,6 +3,7 @@
 import json,os,pathlib,signal,sqlite3,tempfile,time
 from test_lvgl_app import Native,ROOT,wait_for
 from test_reasoning_ui import seed
+from provider_ui import field
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ROOT/'build/host/penchat-lvgl'))
 OUT=ROOT/'.work/api-ui';OUT.mkdir(parents=True,exist_ok=True)
 def run(w,h):
@@ -27,10 +28,8 @@ def run(w,h):
   try:
    a.open_settings();a.setting('models');a.page_action('添加 Provider')
    assert a.diag()['view']=='provider'
-   for x,y,text in [(250,120,'fixture-key'),(250,180,'fixture-model')]:
-    a.tap(x,y);request=a.receive('keyboard.open')
-    a.send('keyboard.result',requestId=request['requestId'],confirmed=True,text=text)
-    wait_for(lambda:not a.diag()['editor']['active'])
+   field(a,'apiKey','fixture-key')
+   taprow('provider_advanced')
    taprow('api_compatibility');assert a.diag()['view']=='api_compatibility'
    shot('standard');taprow('enabled');shot('compatible-top')
    for key in ('streaming','usage','summary','replay','http1'):

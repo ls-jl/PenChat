@@ -3,14 +3,15 @@
 namespace penchat {
 void App::protocolPicker() {
   modal("选择接口", "");
+  lv_obj_update_layout(modalScroll_);
   const auto current = providerForm_.value("api", std::string("responses"));
-  int y = 42;
+  int y = 0;
   for (const auto &entry : {std::make_pair("responses", "Responses"),
                             std::make_pair("chat", "Chat Completions"),
                             std::make_pair("anthropic", "Anthropic Messages")}) {
     const std::string key = entry.first, title = entry.second;
-    button(modal_, std::string(current == key ? "● " : "○ ") + title, 15, y,
-           screen_.width - 130, 44, [this, key] {
+    button(modalScroll_, std::string(current == key ? "● " : "○ ") + title, 4, y,
+           lv_obj_get_width(modalScroll_)-8, 44, [this, key] {
       const auto previous = providerForm_.value("api", std::string("responses"));
       const auto address = providerForm_.value("baseURL", std::string());
       if (address.empty() || (previous != "anthropic" && address == "https://api.openai.com/v1") ||
@@ -68,11 +69,9 @@ void App::anthropicModelPage() {
     } catch (const std::exception &e) { modal("模型设置未保存", e.what()); }
   });
   primary(save);
-  pageAction(modelAdvanced_ ? "档位选择" : "参数映射", 170, 140, [this] { modelAdvanced_ = !modelAdvanced_; build(); });
-  auto title = readableLabel(pageContent_, modelForm_.value("name", std::string()), 10, 0, width, 19, theme::muted);
-  lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS); lv_obj_set_height(title, 22);
+  const int identityHeight=modelIdentityFields();
   settingsRow("thinking_mode", "思考模式", mode == "adaptive" ? "自适应强度" : mode == "budget" ? "固定 token 预算" : "不声明 · API 默认",
-              10, 30, column, [this, mode] {
+              10, identityHeight, column, [this, mode] {
     const auto nextMode = mode == "off" ? "adaptive" : mode == "adaptive" ? "budget" : "off";
     Json levels = Json::object();
     if (std::string(nextMode) != "off") levels = {{"medium", std::string(nextMode) == "budget" ? "4096" : "medium"},
@@ -82,7 +81,7 @@ void App::anthropicModelPage() {
   });
   auto maximum = modelForm_.value("max_output_tokens", anthropicMaxOutput(modelForm_));
   settingsRow("max_output", "最大输出 token", std::to_string(maximum) + " · 含思考和正文",
-              26 + column, 30, column, [this, maximum] {
+              26 + column, identityHeight, column, [this, maximum] {
     edit(std::to_string(maximum), "最大输出 token", [this](const std::string &value) {
       try {
         size_t used; const int n = std::stoi(value, &used);
@@ -91,7 +90,7 @@ void App::anthropicModelPage() {
       } catch (const std::exception &e) { modal("最大输出未修改", e.what()); }
     }, 7, "EnUSOnly", {}, false);
   });
-  int y = 102, n = 0;
+  int y = identityHeight+72, n = 0;
   if (mode != "off") {
     auto levels = caps.value("levels", Json::object());
     for (const auto &key : effortOrder()) {

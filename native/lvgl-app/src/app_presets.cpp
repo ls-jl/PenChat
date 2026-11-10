@@ -10,7 +10,7 @@ bool App::emptyForPreset() {
 std::string App::presetSummary(const Json &p) {
   auto id = p.value("model_id", std::string());
   std::string model = id.empty() ? "沿用模型" : "模型不可用";
-  for (const auto &m : db_.models()) if (m["id"] == id) model = m.value("name", std::string());
+  for (const auto &m : db_.models()) if (m["id"] == id) model = m.value("display_name",m.value("name", std::string()));
   auto effort = p.value("effort", std::string());
   auto mode = p.value("prompt_mode", std::string("inherit"));
   return model + " · " + (effort.empty() ? "沿用强度" : effort == "api_default" ? "API 默认" : effortLabel(effort)) +
@@ -112,7 +112,7 @@ void App::presetChoices(const std::string &field) {
       label(panel, provider.value("name", std::string()), 12, y, screen_.width - 160, 17, theme::muted);
       y += 26;
       for (const auto &m : db_.models()) if (m["provider_id"] == provider["id"])
-        option(m["id"], m.value("name", std::string()));
+        option(m["id"], m.value("display_name",m.value("name", std::string())));
     }
   } else {
     option("", "沿用会话");
@@ -177,7 +177,7 @@ void App::presetEditor() {
   auto id = presetForm_.value("model_id", std::string());
   if (!id.empty()) {
     name = "模型不可用";
-    for (const auto &m : db_.models()) if (m["id"] == id) name = m.value("name", std::string());
+    for (const auto &m : db_.models()) if (m["id"] == id) name = m.value("display_name",m.value("name", std::string()));
   }
   action("模型：" + name, 10, 62, [this] { presetChoices("model_id"); });
   auto effort = presetForm_.value("effort", std::string());
@@ -205,7 +205,7 @@ void App::presetEditor() {
       compressionId.empty() ? "跟随聊天模型" : "指定模型不可用";
   for (const auto &m : db_.models())
     if (m["id"] == compressionId)
-      compressionName = m.value("name", std::string());
+      compressionName = m.value("display_name",m.value("name", std::string()));
   const int compressionY = (!id.empty() || !effort.empty()) ? 202 : 120;
   action("上下文压缩模型：" + compressionName, 10, compressionY,
          [this] { presetChoices("compression_model_id"); });
