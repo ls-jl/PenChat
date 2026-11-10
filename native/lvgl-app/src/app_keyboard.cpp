@@ -3,6 +3,7 @@
 #include "text_selection_geometry.hpp"
 #include "editor_layout.hpp"
 #include "chat_text.hpp"
+#include "candidate_rows.hpp"
 #include <cctype>
 namespace penchat {
 namespace {
@@ -602,14 +603,36 @@ void App::editorRefreshCandidates() {
   }
   auto choices=editorChoices_;
   lv_obj_update_layout(choices);
-  const int choicesWidth=layout.compactFull?lv_obj_get_width(choices):layout.textWidth;
+  const int choicesWidth=layout.compactFull?std::max(1,int(lv_obj_get_width(choices))):layout.textWidth;
+  std::vector<CandidateCell> cells;
+  if(layout.compactFull) {
+    std::vector<int> measured;
+    measured.reserve(editorCandidates_.size());
+    for(size_t i=0;i<editorCandidates_.size();++i) {
+      const auto text=editorCandidates_[i].get<std::string>();
+      const bool corrected=i<editorCandidateDetails_.size()&&editorCandidateDetails_[i].value("corrected",false);
+      lv_point_t size{};lv_text_get_size(&size,text.c_str(),font(20),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+      measured.push_back(std::max(52,int(size.x)+(corrected?38:24)));
+    }
+    cells=candidateRows(measured,choicesWidth,editorExpanded_);
+  }
   int cx=0,cy=0;
   for (size_t i=0;i<editorCandidates_.size();++i) {
     const bool corrected=i<editorCandidateDetails_.size()&&editorCandidateDetails_[i].value("corrected",false);
     std::string text=editorCandidates_[i].get<std::string>(); int w=std::max(52,std::min(choicesWidth-8,int(editLength(text))*22+(corrected?34:20)));
-    if (editorExpanded_ && cx+w>choicesWidth) { cx=0; cy+=48; }
+    if(layout.compactFull) {cx=cells[i].x;cy=cells[i].y;w=cells[i].width;}
+    else if (editorExpanded_ && cx+w>choicesWidth) { cx=0; cy+=48; }
     auto held=corrected?std::make_shared<bool>(false):std::shared_ptr<bool>();
     auto b=button(choices,text,cx,cy,w,44,[action,i,revision=editorRevision_,held] { if(!held||!*held)action("choose:"+std::to_string(revision)+":"+std::to_string(i)); },theme::surface);
+    if(layout.compactFull) {
+      lv_obj_set_style_bg_opa(b,LV_OPA_TRANSP,0);
+      lv_obj_set_style_bg_opa(b,LV_OPA_COVER,LV_STATE_PRESSED);
+      lv_obj_set_style_radius(b,6,0);
+      if(cells[i].separator) {
+        auto divider=box(b,w-1,9,1,26,theme::border);
+        lv_obj_set_scrollable(divider,false);lv_obj_set_clickable(divider,false);
+      }
+    }
     lv_obj_set_width(lv_obj_get_child(b,0),w-(corrected?22:8));
     if(corrected) {
       auto mark=box(b,w-13,7,5,5,theme::accent);lv_obj_set_style_radius(mark,LV_RADIUS_CIRCLE,0);lv_obj_set_scrollable(mark,false);lv_obj_set_clickable(mark,false);

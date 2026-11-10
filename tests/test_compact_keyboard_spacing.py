@@ -38,6 +38,12 @@ for width,height in [(640,260),(720,280)]:
             t.wait_for(lambda:e()['candidate_count']>0 and not e()['pending'])
             capture(a,OUT/f'{width}-spacing-nihao.png')
             a.editor_action('compact-view');assert e()['expanded']
+            state=e();bounds=state['compact_candidate_bounds'];rows={}
+            for name,rect in state['actions'].items():
+                if name.startswith('choose:'):rows.setdefault(rect[1],[]).append(rect)
+            for row in rows.values():
+                row.sort();assert row[0][0]==bounds[0] and row[-1][2]==bounds[2]
+                assert all(a[2]+1==b[0] for a,b in zip(row,row[1:])),row
             capture(a,OUT/f'{width}-spacing-expanded.png')
             a.editor_action('compact-view');assert not e()['expanded'] and e()['preedit_length']==5
             key('delete');time.sleep(.06)

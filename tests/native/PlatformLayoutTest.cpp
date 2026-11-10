@@ -1,10 +1,27 @@
 #include "common.hpp"
 #include "editor_layout.hpp"
 #include "native_touch.hpp"
+#include "candidate_rows.hpp"
 #include <cassert>
 #include <iostream>
 using namespace penchat;
 int main() {
+  for(int width:{321,432,632})for(bool expanded:{false,true}) {
+    const std::vector<int> natural={64,64,52,78,300,52,64,52,78,52,52,52,64,52};
+    const auto cells=candidateRows(natural,width,expanded);
+    assert(cells.size()==natural.size());
+    int row=-1,right=0;
+    for(size_t i=0;i<cells.size();++i) {
+      const auto cell=cells[i];const int current=expanded?cell.y/48:cell.x/width;
+      if(current!=row){if(row>=0)assert(right==width);row=current;right=0;}
+      assert((expanded?cell.x:cell.x%width)==right&&cell.width>=44);
+      right+=cell.width;assert(right<=width);
+      if(expanded&&i+1<cells.size()&&cells[i+1].y==cell.y)assert(cell.separator);
+    }
+    assert(right==width);
+  }
+  assert(candidateRows({64,64},0,true).empty());
+  assert(candidateRows({900},300,true)[0].width==300);
   Json config={{"screen",{{"width",260},{"height",640},{"direction",270},{"tp_direction",270},{"tp_xoffset",110},{"tp_yoffset",0}}}};
   auto s=Screen::fromConfig(config,true);assert(s.width==640&&s.height==260&&s.panelWidth==260&&s.panelHeight==640);
   for(auto p:{std::make_pair(0,0),std::make_pair(639,259),std::make_pair(320,130)})
