@@ -106,6 +106,7 @@ void App::editorBuild() {
   const bool followCompactCaret=layout.compactFull&&editorFollowCursor_;
   editorRebuild_=editorRefreshPending_=false;
   editorPreeditLabel_=editorChoices_=editorExpand_=editorExactList_=editorQueryLabel_=editorPreeditViewport_=nullptr;
+  editorCompactBar_=nullptr;
   editorCompactIcon_=-1;
   editorMagnify(false);
   const bool preserveTextScroll=editorText_&&(!editorFollowCursor_||
@@ -247,6 +248,11 @@ void App::editorBuild() {
   else {
   if(layout.compactFull) {
     auto strip=box(editorRoot_,layout.textX,0,layout.textWidth,44,theme::surface);
+    editorCompactBar_=strip;
+    lv_obj_add_event_cb(strip,[](lv_event_t *event) {
+      auto app=static_cast<App *>(lv_event_get_user_data(event));
+      if(app->editorCompactBar_==lv_event_get_target_obj(event))app->editorCompactBar_=nullptr;
+    },LV_EVENT_DELETE,this);
     lv_obj_set_scrollable(strip,false);lv_obj_set_clickable(strip,false);lv_obj_set_style_radius(strip,8,0);
   }
   editorText_=lv_textarea_create(editorRoot_);
@@ -453,6 +459,7 @@ void App::editorRefreshCompactBar() {
   const auto geometry=editorLayout();
   if(!geometry.compactFull||!editorExpand_)return;
   const bool composing=editorCompactComposition();
+  if(editorCompactBar_)lv_obj_set_style_bg_color(editorCompactBar_,lv_color_hex(composing?theme::background:theme::surface),0);
   if(editorText_) {
     lv_obj_set_hidden(editorText_,composing);
     const auto placeholder=!editor_.notice.empty()?editor_.notice:editorOcrBusy_?std::string("正在识别…"):editor_.placeholder;
@@ -795,7 +802,7 @@ void App::editorFinish(bool confirmed) {
   if(!transfer) {
     editorViewport();
     if (editorRoot_) lv_obj_delete(editorRoot_);
-    editorRoot_=editorText_=nullptr; editorHandles_[0]=editorHandles_[1]=nullptr;editorKeys_.clear();
+    editorRoot_=editorText_=editorCompactBar_=nullptr; editorHandles_[0]=editorHandles_[1]=nullptr;editorKeys_.clear();
     editorKeyboardId_.clear();
   }
   auto done=std::move(editCompletion_); auto cancel=std::move(editCancellation_);

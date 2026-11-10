@@ -584,7 +584,7 @@ class App {
   uint64_t editorPaintedKey_=0, editorBuildCount_=0, editorRefreshCount_=0;
   bool editorCompactExpanded_=false, editorToolsOpen_=false, editorRestoreViewScroll_=false;
   int editorCompactScroll_[2]={0,0}, editorCompactIcon_=-1;
-  lv_obj_t *editorPreeditViewport_=nullptr;
+  lv_obj_t *editorPreeditViewport_=nullptr, *editorCompactBar_=nullptr;
   bool editorCompactComposition() const;
   void editorRefreshCompactBar();
   void editorCompactView(bool expanded);
