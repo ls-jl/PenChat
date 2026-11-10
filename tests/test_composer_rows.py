@@ -12,24 +12,34 @@ for width,height in [(960,266),(936,280),(568,1210)]:
         try:
             def e():return a.diag()['editor']
             def open_input():
-                d=a.diag();r=d['composer_text_bounds'];a.tap((r[0]+r[2])//2,(r[1]+r[3])//2)
+                d=a.diag()
+                if d['composer_hidden']:
+                    # Landscape reading now requires an explicit shortcut away
+                    # from latest bottom, including after local draft scrolling.
+                    b=d['composer_shortcut']['bounds'];point=((b[0]+b[2])//2,(b[1]+b[3])//2)
+                    a.tap(*point);a.tap(*point)
+                    t.wait_for(lambda:not a.diag()['composer_hidden'] and a.diag()['composer_bounds'][3]<height)
+                    d=a.diag()
+                r=d['composer_text_bounds'];a.tap((r[0]+r[2])//2,(r[1]+r[3])//2)
                 t.wait_for(lambda:e()['active'] and bool(e()['keys']))
             def key(value):
                 k=next(k for k in e()['keys'] if k['key']==value);a.tap(k['x'],k['y'])
             d=a.diag();b=d['composer_bounds'];base=b[3]-b[1]+1
             assert base==(94 if height>width else 48)
+            assert d['send_diameter']==(54 if height>width else 44)
             assert d['send_center_y2']==d['capsule_center_y2'];capture(a,OUT/f'{width}-empty.png')
             open_input()
             if height>width:
                 d=a.diag();b=d['composer_bounds'];r=e()['text_bounds'];send=e()['actions']['chat-send']
                 assert b[3]-b[1]+1>base and r[3]<send[1]
                 assert r[0]-b[0]==12 and b[2]-r[2]==12
-                assert b[2]-send[2]==12 and b[3]-send[3]==12
+                assert send[2]-send[0]+1==54 and send[3]-send[1]+1==54
+                assert b[2]-send[2]==7 and b[3]-send[3]==7
                 capture(a,OUT/f'{width}-empty-keyboard.png')
                 key('language');key('a');heights=[]
                 for i in range(10):
                     key('enter');key('a');d=a.diag();b=d['composer_bounds'];r=e()['text_bounds'];send=e()['actions']['chat-send']
-                    heights.append(b[3]-b[1]+1);assert r[3]<send[1] and b[2]-send[2]==12 and b[3]-send[3]==12
+                    heights.append(b[3]-b[1]+1);assert r[3]<send[1] and b[2]-send[2]==7 and b[3]-send[3]==7
                 assert heights==sorted(heights) and heights[-1]==3*base and e()['text_scroll']>0
                 capture(a,OUT/f'{width}-long-keyboard.png');a.editor_action('done')
             else:
@@ -37,9 +47,9 @@ for width,height in [(960,266),(936,280),(568,1210)]:
                 a.send('keyboard.result',requestId=req['requestId'],confirmed=True,text='短草稿')
             t.wait_for(lambda:not e()['active']);d=a.diag();b=d['composer_bounds'];r=d['composer_text_bounds']
             if height>width:
-                assert b[3]<height and b[3]-b[1]+1>base and r[3]<d['send_center_y2']//2-21
+                assert b[3]<height and b[3]-b[1]+1>base and r[3]<d['send_center_y2']//2-26
                 assert r[0]-b[0]==12 and b[2]-r[2]==12
-                assert b[3]-d['send_center_y2']//2-22 in (11,12)
+                assert b[3]-d['send_center_y2']//2-27 in (6,7)
             else:
                 assert b[3]-b[1]+1==base and r[0]>b[0]+44
                 assert d['send_center_y2']==d['capsule_center_y2']

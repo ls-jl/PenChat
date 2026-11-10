@@ -110,8 +110,9 @@ void App::layoutChatComposer() {
   for(uint32_t i=0;i<lv_obj_get_child_count(chatControls_);++i) {
     auto child=lv_obj_get_child(chatControls_,i);if(child==composer_)continue;
     const bool send=i+1==lv_obj_get_child_count(chatControls_);
-    const int cx=send?width-pad-44:i==0?pad:width-pad-96;
-    lv_obj_set_align(child,LV_ALIGN_TOP_LEFT);lv_obj_set_pos(child,cx,height-pad-44);
+    const int grow=send?(layout().composerSendDiameter()-44)/2:0;
+    const int cx=send?width-pad-44-grow:i==0?pad:width-pad-96;
+    lv_obj_set_align(child,LV_ALIGN_TOP_LEFT);lv_obj_set_pos(child,cx,height-pad-44-grow);
   }
   auto value=lv_obj_get_child(composer_,0);
   if(value) {

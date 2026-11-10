@@ -1304,8 +1304,9 @@ void App::rebuildChatControls() {
     lv_obj_set_style_text_color(lv_obj_get_child(composer_, 0),
                                 lv_color_hex(theme::muted), 0);
   const bool sendEnabled = contextBusy_ || generating_ || canSend();
+  const int sendDiameter = layout().composerSendDiameter();
   auto send = icon(
-      chatControls_, (generating_ || contextBusy_) ? "stop" : "up", composerWidth - 50, 2, 44, 44,
+      chatControls_, (generating_ || contextBusy_) ? "stop" : "up", composerWidth - 50, 2, sendDiameter, sendDiameter,
       [this] {
         if(editor_.active&&editorInPlace()&&!generating_&&!contextBusy_) {editorAction("chat-send");return;}
         if (contextBusy_) {
@@ -1317,8 +1318,8 @@ void App::rebuildChatControls() {
           sendMessage();
       },
       sendEnabled ? theme::text : theme::border, theme::background);
-  // Portrait leaves 25px around the send circle; landscape keeps its 2px inset.
-  lv_obj_align(send, LV_ALIGN_RIGHT_MID, -layout().composerInset(), 0);
+  // Grow the portrait circle equally around its existing center.
+  lv_obj_align(send, LV_ALIGN_RIGHT_MID, -layout().composerInset() + (sendDiameter - 44) / 2, 0);
   if (!sendEnabled)
     lv_obj_set_clickable(send, false);
   toBottom_ = icon(
@@ -3833,6 +3834,7 @@ Json App::diagnostics() const {
       {"scan_released", scanner_.released()},
       {"send_center_x2", send.x1 + send.x2},
       {"send_center_y2", send.y1 + send.y2},
+      {"send_diameter", send.x2 - send.x1 + 1},
       {"capsule_endcap_x2", 2 * capsule.x2 - (capsule.y2 - capsule.y1)},
       {"capsule_center_y2", capsule.y1 + capsule.y2},
       {"composer_bounds", {capsule.x1,capsule.y1,capsule.x2,capsule.y2}},
