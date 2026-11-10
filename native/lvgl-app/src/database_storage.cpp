@@ -226,7 +226,7 @@ void Database::deferAssetCollection() {
 void Database::collectAssets(bool discover) {
   if (assetLeases_) return;
   // Only immediate, generated children of the private assets directory qualify.
-  const std::regex owned("asset_[0-9]+_[0-9]+\\.[A-Za-z0-9.]+(\\.part)?");
+  const std::regex owned("(asset_[0-9]+_[0-9]+\\.[A-Za-z0-9.]+|web-[a-f0-9]{64}\\.img)(\\.part)?");
   const auto prefix = assetDirectory_ + "/";
   auto safe = [&](const std::string &path) {
     if (path.compare(0, prefix.size(), prefix) != 0)
@@ -263,6 +263,10 @@ void Database::collectAssets(bool discover) {
           break;
         }
         auto path = prefix + entry->d_name;
+        struct stat age{};
+        if (std::string(entry->d_name).compare(0, 4, "web-") == 0 && !lstat(path.c_str(), &age) &&
+            nowMs() / 1000 - age.st_mtime < 600)
+          continue;
         if (std::regex_match(std::string(entry->d_name), owned) && safe(path) &&
             !referenced(path))
           execute("INSERT OR IGNORE INTO asset_gc VALUES(?,?)", {path, nowMs()});
@@ -443,7 +447,7 @@ Json Database::requestModel(const Json &model) {
     result["api_key"] = rows[0]["api_key"];
     result["base_url"] = rows[0]["base_url"];
     result["headers_json"] = rows[0]["headers_json"];
-    if (anthropicProtocol(result)) {
+    {
       auto metadata = objectField(result, "provider_metadata");
       metadata["credential_revision"] = objectField(rows[0], "metadata_json").value("credential_revision", std::string());
       result["provider_metadata"] = metadata;

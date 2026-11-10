@@ -129,3 +129,14 @@ Android Open Source Project PinyinIME as its origin. PenChat converts spelling/w
 read-only runtime format without adding test-specific frequency weights. Source and generated
 resource hashes are in `native/pinyin/dictionary-lock.json`. No Rime engine or system word library
 is loaded; these are data resources used by the source-built native adapter.
+
+## Edge Search and private web transport
+
+The separately built `penchat-web-search` worker includes Edge Search 0.14.0
+(MIT), including the preserved DDGS and webserp notices; libxml2 2.15.4 (MIT);
+and the source-built, privately namespaced curl-impersonate 2.3.2-edge2 transport.
+Its pinned BoringSSL, curl, c-ares, nghttp2/nghttp3/ngtcp2, zlib, Brotli and Zstd
+source/license inventory is in `native/web-search/upstream/tools/impersonate-sources.json`.
+Full notices are shipped in `assets/web-search/licenses/`. Source and integration
+patch locks live under `native/web-search/`; the component does not change the
+license or unresolved authorization status of any scanning material.

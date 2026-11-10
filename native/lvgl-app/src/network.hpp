@@ -40,6 +40,7 @@ HttpResult http(const std::string &url, const std::string &method,
                 const ApiOptions &options = {},
                 std::function<bool()> complete = {},
                 const HttpIdentity &identity = {}, const HttpRoute &route = {});
+void materializeToolImages(Json &input);
 Json requestBody(const Json &model, Json input, bool streaming);
 Json anthropicRequestBody(const Json &model, const Json &input, bool streaming);
 void streamAnthropic(const Json &model, Json input, std::atomic<bool> &cancel,

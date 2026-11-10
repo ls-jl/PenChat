@@ -49,3 +49,6 @@ assets/pinyin/
 
 # Local prototype delivery archives; source and archive index remain tracked.
 /docs/archives/*.zip
+
+# Target-specific generated Edge Search worker runtime and notices
+/assets/web-search/

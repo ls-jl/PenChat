@@ -8,7 +8,8 @@ void App::saveModelForm() {
   auto caps = objectField(modelForm_, "capabilities_json");
   const auto previous = caps;
   caps["reasoning"] = modelForm_.at("reasoning");
-  for (const auto &key : {"context_budget", "input_modalities", "vision", "max_input_tokens"})
+  for (const auto &key : {"context_budget", "input_modalities", "vision", "max_input_tokens",
+                          "tool_support", "tool_conditions"})
     if (modelForm_.contains(key)) caps[key] = modelForm_[key];
   if (!caps.contains("context_budget")) caps["context_budget"] = contextBudget(modelForm_);
   if (anthropicProtocol(modelForm_)) {
@@ -162,6 +163,17 @@ void App::modelCapabilityRows(int y) {
       right, y + 128, [this] { auto &r = modelForm_["reasoning"]; r["summary"] = !r.value("summary", false); build(); });
   row("reasoning.disable", "支持关闭思考", modelForm_["reasoning"].value("disable", false) ? "支持" : "未声明支持",
       10, y + 192, [this] { auto &r = modelForm_["reasoning"]; r["disable"] = !r.value("disable", false); build(); });
+  const auto tools = value("tool_support");
+  settingsRow("model_tools", "工具调用",
+              tools == "supported"     ? "明确支持"
+              : tools == "unsupported" ? "不支持"
+                                       : "自动 · 使用能力匹配",
+              right, y + 192, col, [this, tools] {
+                modelForm_["tool_support"] = tools == "supported"     ? "unsupported"
+                                             : tools == "unsupported" ? "auto"
+                                                                      : "supported";
+                build();
+              });
   auto &reasoning = modelForm_["reasoning"];
   const auto required = reasoning.value("adapter", std::string("standard"));
   if (required != "standard" && modelAdapter(modelForm_) == required && !anthropicProtocol(modelForm_)) {

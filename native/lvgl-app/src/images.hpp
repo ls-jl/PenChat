@@ -39,6 +39,7 @@ public:
                       bool upscale = false);
   std::shared_ptr<ImageFrame> get(const std::string &key);
   bool failed(const std::string &key);
+  void retry(const std::string &path);
 };
 class Camera {
   std::atomic<bool> stop_{false};

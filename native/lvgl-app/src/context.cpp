@@ -2,6 +2,7 @@
 #include "api_config.hpp"
 #include "network.hpp"
 #include "reasoning.hpp"
+#include "tools.hpp"
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -27,26 +28,29 @@ size_t compressionTarget(const Json &model) {
 }
 void checkContextResources(const Json &input) {
   uint64_t bytes = input.dump().size();
-  for (const auto &m : input) {
-    auto parts = m.value("content", Json::array());
-    if (!parts.is_array())
-      continue;
-    for (const auto &part : parts) {
-      if (part.value("type", std::string()) != "input_image")
-        continue;
-      auto path = part.value("image_url", std::string());
-      if (path.compare(0, 11, "data:image/") == 0)
-        continue;
-      if (path.compare(0, 7, "file://") == 0)
-        path.erase(0, 7);
-      struct stat info {};
-      if (stat(path.c_str(), &info) || !S_ISREG(info.st_mode) || info.st_size <= 0)
-        throw std::runtime_error("上下文图片不可用，输入已保留，请检查附件");
-      if (info.st_size > 16 * 1024 * 1024)
-        throw std::runtime_error("单张上下文图片超过 16MiB，本次请求已停止");
-      bytes += (uint64_t(info.st_size) + 2) / 3 * 4;
+  std::function<void(const Json &)> visit = [&](const Json &node) {
+    if (node.is_array())
+      for (const auto &item : node)
+        visit(item);
+    else if (node.is_object()) {
+      if (node.value("type", std::string()) == "input_image") {
+        auto path = node.at("image_url").get<std::string>();
+        if (path.compare(0, 11, "data:image/") != 0) {
+          if (path.compare(0, 7, "file://") == 0)
+            path.erase(0, 7);
+          struct stat info{};
+          if (stat(path.c_str(), &info) || !S_ISREG(info.st_mode) || info.st_size <= 0 ||
+              info.st_size > 16 * 1024 * 1024)
+            throw std::runtime_error("上下文图片不可用或过大，输入已保留");
+          bytes += (uint64_t(info.st_size) + 2) / 3 * 4;
+        }
+      }
+      for (const auto &value : node)
+        if (value.is_array() || value.is_object())
+          visit(value);
     }
-  }
+  };
+  visit(input);
   if (bytes > 64 * 1024 * 1024)
     throw std::runtime_error(
         "上下文请求超过 64MiB 本地内存上限，未截断历史，请分开处理图片或新建会话");
@@ -70,6 +74,21 @@ size_t estimatedContext(const Json &input, const std::string &prompt) {
       total += 1024;
       continue;
     }
+    const auto kind = m.value("type", std::string());
+    if (kind == "function_call")
+      total += estimatedText(m.value("arguments", std::string()));
+    if (kind == "function_call_output") {
+      const auto result = m.value("output", Json());
+      if (result.is_string())
+        total += estimatedText(result.get<std::string>());
+      else if (result.is_array())
+        for (const auto &part : result)
+          total += part.value("type", std::string()) == "input_image"
+                       ? 2048
+                       : estimatedText(part.value("text", std::string()));
+    }
+    if (m.contains("tool_calls"))
+      total += estimatedText(m.at("tool_calls").dump());
     auto content = m.value("content", Json::array());
     if (content.is_string())
       total += estimatedText(content.get<std::string>());
@@ -79,11 +98,27 @@ size_t estimatedContext(const Json &input, const std::string &prompt) {
           total += 2048;
         else if (p.value("type", std::string()) == "thinking" || p.value("type", std::string()) == "redacted_thinking")
           total += 1024 + estimatedText(p.value("thinking", std::string()));
+        else if (p.value("type", std::string()) == "tool_result") {
+          const auto payload = p.value("content", Json::array());
+          if (payload.is_string())
+            total += estimatedText(payload.get<std::string>());
+          else if (payload.is_array())
+            for (const auto &part : payload)
+              total += part.value("type", std::string()) == "input_image"
+                           ? 2048
+                           : estimatedText(part.value("text", std::string()));
+        } else if (p.value("type", std::string()) == "tool_use")
+          total += estimatedText(p.value("input", Json::object()).dump());
         else
           total += estimatedText(p.value("text", std::string()));
       }
   }
   return total;
+}
+size_t modelContextEstimate(const Json &input, const Json &model) {
+  return estimatedContext(input, model.value("system_prompt", std::string())) +
+         (model.value("web_enabled", false) ? estimatedText(wireToolDefinitions(model).dump()) + 128
+                                            : 0);
 }
 static std::string textOf(const Json &m) {
   const auto key = m.contains("output_text") ? "output_text" : "text";
@@ -124,11 +159,20 @@ Json contextInput(const Json &rows, int64_t after, int64_t through, const Json &
       continue;
     const auto wireRole = role == "assistant" ? "assistant" : "user";
     const auto metadata = objectField(m, "metadata_json");
+    const bool toolReplay = !states && role == "assistant" && model.value("web_enabled", false) &&
+                            m.value("status", std::string()) == "complete" &&
+                            apiOptions(model).replay &&
+                            metadata.value("replay_identity", Json()) == replayIdentity(model);
+    const auto exchanges = metadata.value("tool_replay_input", Json::array());
+    if (toolReplay && !exchanges.empty())
+      for (const auto &item : exchanges)
+        input.push_back(item);
     const bool replay = !states && role == "assistant" && !model.empty() &&
-        !chatProtocol(model) && apiOptions(model).replay &&
-        m.value("provider_id", Json()) == model.value("provider_id", Json("")) &&
-        m.value("model_config_id", Json()) == model.value("id", Json("")) &&
-        metadata.value("replay_identity", Json()) == replayIdentity(model);
+                        (exchanges.empty() || toolReplay) && !chatProtocol(model) &&
+                        apiOptions(model).replay &&
+                        m.value("provider_id", Json()) == model.value("provider_id", Json("")) &&
+                        m.value("model_config_id", Json()) == model.value("id", Json("")) &&
+                        metadata.value("replay_identity", Json()) == replayIdentity(model);
     if (replay) {
       if (anthropicProtocol(model)) {
         const auto content = metadata.value("anthropic_content", Json::array());
@@ -164,12 +208,20 @@ Json contextInput(const Json &rows, int64_t after, int64_t through, const Json &
     if (states)
       text = "[历史消息；角色=" + role + "；状态=" + m.value("status", std::string()) +
              "]\n" + text;
+    if (!toolReplay || exchanges.empty()) {
+      for (const auto &source : metadata.value("web_sources", Json::array())) {
+        if (!source.is_object())
+          continue;
+        text += "\n[历史检索参考] " + source.value("title", std::string()) + " " +
+                source.value("url", std::string()) + "\n" + source.value("text", std::string());
+      }
+    }
     Json parts = Json::array();
     if (!text.empty())
       parts.push_back({{"type", role == "assistant" ? "output_text" : "input_text"},
                        {"text", text}});
     for (const auto &p : m.value("parts", Json::array()))
-      if (p.value("type", std::string()) == "image") {
+      if (p.value("type", std::string()) == "image" && role != "assistant") {
         auto path = p.value("path", std::string());
         if (!path.empty())
           parts.push_back({{"type", "input_image"}, {"image_url", path}});
@@ -179,6 +231,18 @@ Json contextInput(const Json &rows, int64_t after, int64_t through, const Json &
                    Json{{"type", "input_text"}, {"text", "请根据这张图片回答。"}});
     if (!parts.empty())
       input.push_back({{"role", wireRole}, {"content", parts}});
+    if (role == "assistant" && !toolReplay &&
+        (states || objectField(model, "capabilities_json").value("vision", Json()) == Json(true))) {
+      Json reference = Json::array(
+          {{{"type", "input_text"}, {"text", "[上一条回复附带的历史图片资料，非新问题]"}}});
+      for (const auto &image : metadata.value("web_images", Json::array())) {
+        const auto path = image.value("path", std::string());
+        if (!path.empty())
+          reference.push_back({{"type", "input_image"}, {"image_url", path}});
+      }
+      if (reference.size() > 1)
+        input.push_back({{"role", "user"}, {"content", reference}});
+    }
   }
   return input;
 }
@@ -264,8 +328,7 @@ Json compressContext(Database &db, const Json &snapshot, Json model,
   if (ends.empty())
     throw std::runtime_error("没有可压缩的完整历史，未调用模型");
   const auto target = compressionTarget(chatModel);
-  const auto fixed =
-      estimatedContext(pending, chatModel.value("system_prompt", std::string()));
+  const auto fixed = modelContextEstimate(pending, chatModel);
   if (fixed >= target)
     throw std::runtime_error(
         "本次输入与系统提示词已超过压缩目标预算，请缩短输入或提高上下文预算");
@@ -288,6 +351,8 @@ Json compressContext(Database &db, const Json &snapshot, Json model,
   model["effort_value"] = "";
   model["effective_effort"] = "api_default";
   model["reasoning_summary"] = false;
+  model.erase("web_enabled");
+  model.erase("web_tools");
   if (!model.contains("api_key"))
     model = db.requestModel(model);
   if (model.empty())
@@ -372,12 +437,12 @@ Json compressContext(Database &db, const Json &snapshot, Json model,
     effective.push_back(m);
   for (const auto &m : pending)
     effective.push_back(m);
-  if (estimatedContext(effective, chatModel.value("system_prompt", std::string())) >
-      target)
+  if (modelContextEstimate(effective, chatModel) > target)
     throw std::runtime_error("压缩后仍超出目标预算，原上下文保持不变");
   validateModelImages(chatModel, effective);
   const auto inputLimit = objectField(chatModel, "capabilities_json").value("max_input_tokens", Json());
-  if (inputLimit.is_number_integer() && estimatedContext(effective, chatModel.value("system_prompt", std::string())) > inputLimit.get<size_t>())
+  if (inputLimit.is_number_integer() &&
+      modelContextEstimate(effective, chatModel) > inputLimit.get<size_t>())
     throw std::runtime_error("压缩后仍超过模型最大输入，原上下文保持不变");
   checkContextResources(effective);
   return {{"version", 1},

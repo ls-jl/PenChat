@@ -23,7 +23,7 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
     assert all(not Path(n).is_absolute() and '..' not in Path(n).parts for n in names)
     assert not any(n.endswith('.rknn') or 'arm64' in n or 'arm32-cv1826-s' not in n and n.startswith('libs/arm') for n in names)
     assert {n for n in names if n.startswith('assets/bin/') and not n.endswith('/')} == {
-        'assets/bin/penchat-lvgl', 'assets/bin/penchat-sensor-guard'} | (set() if ui_only else {'assets/bin/penchat-scanner'})
+        'assets/bin/penchat-lvgl', 'assets/bin/penchat-sensor-guard', 'assets/bin/penchat-web-search'} | (set() if ui_only else {'assets/bin/penchat-scanner'})
     forbidden = set(json.loads((ROOT / 'native/scanner/cvi-media.lock.json').read_text())['libraries'])
     forbidden.update(['libcamera.so', 'libsamplevio.so', 'libcviruntime.so', 'libcvikernel.so'])
     count = 0
@@ -36,7 +36,7 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
             assert data[4:6] == b'\x01\x01' and struct.unpack_from('<H', data, 18)[0] == 40, n
             assert struct.unpack_from('<I', data, 36)[0] & 0x400, 'Not hard-float: ' + n
             count += 1
-    assert count == (4 if ui_only else 8), ('Unexpected native payload count', count)
+    assert count == (6 if ui_only else 10), ('Unexpected native payload count', count)
     if not ui_only:
         model = archive.read('assets/scanner/pintu_rgb32_int8.cvimodel')
         lock = json.loads((ROOT / 'native/scanner/cvi-dependencies.lock.json').read_text())

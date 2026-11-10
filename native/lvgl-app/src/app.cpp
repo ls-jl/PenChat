@@ -4,6 +4,7 @@
 #include "context.hpp"
 #include "icons.hpp"
 #include "src/misc/cache/instance/lv_image_cache.h"
+#include "tools.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -94,6 +95,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
           .empty())
     session_ = uid("session");
   sessionPreferences_ = db_.sessionPreferences(session_);
+  sessionPreferences_["web_enabled"] = webEnabled(sessionPreferences_, config);
   std::string presetWarning;
   if (db_.sessionInfo(session_).empty()) {
     sessionPreferences_ = applyPresetSnapshot(sessionPreferences_, presetList(config)[0],
@@ -107,6 +109,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
     titleJobs_.push_back(job);
 }
 App::~App() {
+  cancelWebReader();
   shutdown();
   clear();
 }
@@ -354,7 +357,10 @@ void App::toggleAttachments() {
     names.push_back("预设");
     icons.push_back("settings");
   }
-  const int infoIndex = int(names.size());
+  ids.push_back("web");
+  names.push_back(webEnabled(sessionPreferences_, db_.settings()) ? "联网搜索 · 已开启"
+                                                                  : "联网搜索 · 已关闭");
+  icons.push_back("globe");
   ids.push_back("session_info");
   names.push_back("会话信息");
   icons.push_back("info");
@@ -371,19 +377,33 @@ void App::toggleAttachments() {
     lv_anim_set_path_cb(&animation,lv_anim_path_ease_out);lv_anim_start(&animation);
   }
   for (int i = 0; i < int(names.size()); ++i) {
-    auto action = [this, i, infoIndex] {
-      if (i == infoIndex) { openSessionInfo(); return; }
-      if (i == 0)
+    const auto actionId = ids[i];
+    auto action = [this, actionId] {
+      if (actionId == "session_info") {
+        openSessionInfo();
+        return;
+      }
+      if (actionId == "web") {
+        const bool enabled = webEnabled(sessionPreferences_, db_.settings());
+        sessionPreferences_["web_enabled"] = !enabled;
+        db_.setting("last_web_enabled", !enabled);
+        savePreferences();
+        closeAttachments();
+        if (generating_)
+          modal("已修改联网搜索", "当前回复继续使用发送时的配置，下一次提问生效。");
+        return;
+      }
+      if (actionId == "camera")
         show("camera");
-      else if (i == 1)
+      else if (actionId == "album")
         show("album");
-      else if (i == 2)
+      else if (actionId == "models")
         modelPicker();
-      else if (i == 4)
+      else if (actionId == "compress")
         startContext(true);
-      else if (i == 5)
+      else if (actionId == "summary")
         contextDetails();
-      else if (i == 6)
+      else if (actionId == "presets")
         presetPicker();
       else {
         bool enabled =
@@ -395,7 +415,7 @@ void App::toggleAttachments() {
         build();
       }
     };
-    if (i == 4) {
+    if (ids[i] == "compress") {
       auto control = button(menu, "", 4, 4 + i * 44, 44, 44, action, theme::surface);
       contextUsageArc_ = lv_arc_create(control);
       lv_obj_remove_style_all(contextUsageArc_);
@@ -415,11 +435,13 @@ void App::toggleAttachments() {
       lv_obj_set_style_arc_width(contextUsageArc_, 2, LV_PART_INDICATOR);
       lv_obj_set_style_arc_rounded(contextUsageArc_, true, LV_PART_INDICATOR);
       lv_obj_set_style_bg_opa(contextUsageArc_, LV_OPA_TRANSP, LV_PART_KNOB);
-    } else icon(menu, icons[i], 4, 4 + i * 44, 44, 44, action, theme::surface);
+    } else
+      icon(menu, icons[i], 4, 4 + i * 44, 44, 44, action, theme::surface);
     auto entry = button(menu, names[i], 48, 4 + i * 44, menuWidth - 52, 44, action, theme::surface,
                         LV_TEXT_ALIGN_LEFT);
     attachmentEntries_[ids[i]] = entry;
-    if (i == 4) contextUsageLabel_ = lv_obj_get_child(entry, 0);
+    if (ids[i] == "compress")
+      contextUsageLabel_ = lv_obj_get_child(entry, 0);
   }
   ++sessionInfoGeneration_;
   sessionInfoSession_ = session_;
@@ -1073,6 +1095,10 @@ void App::build() {
     archivesPage();
   else if (view_ == "archive_chat")
     archiveReaderPage();
+  else if (view_ == "web_details")
+    webDetailsPage();
+  else if (view_ == "web_source")
+    webSourcePage();
   else if (view_ == "session_info")
     sessionInfoPage();
   else if (view_ == "model")
@@ -1126,12 +1152,19 @@ void App::build() {
   if (imageViewer_) lv_obj_move_foreground(imageViewer_);
 }
 void App::show(const std::string &view) {
+  if ((view_ == "web_source" || view_ == "web_details") && view != "web_source")
+    cancelWebReader();
   if (view_ == "feedback" && view != view_ && feedback_) feedback_->request("keys.cancel");
   if (view_ == "session_info" && view != view_) {
     ++sessionInfoGeneration_; sessionInfoPending_ = false;
   }
   closeImageViewer(false);
-  if(view_=="archive_chat"&&view!="archive_chat"){archiveReaderId_.clear();archiveReaderMessages_.clear();archiveReasoningOverrides_.clear();}
+  if (view_ == "archive_chat" && view != "archive_chat" && view != "web_details" &&
+      view != "web_source") {
+    archiveReaderId_.clear();
+    archiveReaderMessages_.clear();
+    archiveReasoningOverrides_.clear();
+  }
   if (view_ == "settings" && body_)
     settingsScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
   if (view == "settings" && view_ == "chat") settingsScroll_ = 0;
@@ -1464,6 +1497,8 @@ void App::newChat(bool inherit) {
   stopNetwork();
   session_ = nextSession;
   sessionPreferences_ = preferences;
+  if (!sessionPreferences_.contains("web_enabled"))
+    sessionPreferences_["web_enabled"] = webEnabled(sessionPreferences_, db_.settings());
   reasoningMetadata_ = Json::object();
   expandedReasoning_.clear();
   reasoningOverrides_.clear();
@@ -1534,8 +1569,50 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
       part.runs.clear();
       part.marker.clear();
       split = true;
-      auto h = box(parent, 0, 0, width, 145, theme::background);
-      image(h, r.link, 0, 0, width, 145);
+      const auto metadata = webMetadata(context);
+      if (r.link.compare(0, 14, "penchat-image:") == 0) {
+        const auto ref = r.link.substr(14);
+        Json asset;
+        for (const auto &entry : metadata.value("web_images", Json::array()))
+          if (entry.value("ref", std::string()) == ref)
+            asset = entry;
+        const auto path = asset.is_object() ? asset.value("path", std::string()) : std::string();
+        if (!path.empty()) {
+          auto h = box(parent, 0, 0, width, std::min(240, std::max(100, screen_.height / 3)),
+                       theme::background);
+          lv_obj_set_scrollable(h, false);
+          image(
+              h, path, 0, 0, width, lv_obj_get_height(h),
+              [this, path] { requestImageViewer(path); }, false, true);
+          button(
+              parent, r.text.empty() ? "图片来源" : r.text, 0, 0, width, 44,
+              [this, asset] {
+                openWebSource({{"url", asset.value("source_url", std::string())},
+                               {"title", asset.value("title", std::string("图片来源"))}});
+              },
+              theme::background, LV_TEXT_ALIGN_LEFT);
+          const auto key=images_.request(path,width,lv_obj_get_height(h),true);
+          auto retry=button(parent,"重试读取图片",0,0,width,44,[this,path]{
+            images_.retry(path);if(view_=="chat")renderMessages(false,true);else build();
+          },theme::background,LV_TEXT_ALIGN_LEFT);
+          webImageRetries_[retry]=key;
+          lv_obj_set_hidden(retry,!images_.failed(key)&&!access(path.c_str(),R_OK));
+          lv_obj_add_event_cb(retry,[](lv_event_t *event){
+            auto app=static_cast<App *>(lv_event_get_user_data(event));
+            app->webImageRetries_.erase(static_cast<lv_obj_t *>(lv_event_get_target(event)));
+          },LV_EVENT_DELETE,this);
+        } else
+          label(parent, (r.text.empty() ? "图片" : r.text) + " · 引用不可用", 0, 0, width, 18,
+                theme::muted);
+      } else if (r.link.find("http://") == 0 || r.link.find("https://") == 0 ||
+                 (!metadata.value("web_records", Json::array()).empty() &&
+                  r.link.find("file://") == 0)) {
+        label(parent, (r.text.empty() ? "图片" : r.text) + " · 请使用检索图片引用", 0, 0, width, 18,
+              theme::muted);
+      } else {
+        auto h = box(parent, 0, 0, width, 145, theme::background);
+        image(h, r.link, 0, 0, width, 145);
+      }
     }
     if (split)
       appendText(part);
@@ -1545,6 +1622,36 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
 }
 void App::replyContent(lv_obj_t *parent, const std::string &text, int width,
                        const std::string &id, bool live) {
+  const auto web = webMetadata(id);
+  if (!web.value("web_records", Json::array()).empty() ||
+      !web.value("web_sources", Json::array()).empty()) {
+    std::string status = "检索记录与来源";
+    for (const auto &record : web.value("web_records", Json::array()))
+      if (record.value("status", std::string()) == "running") {
+        const auto name = record.value("name", std::string());
+        status = name == "web_search"       ? "正在搜索…"
+                 : name == "web_read_image" ? "正在获取图片…"
+                                            : "正在阅读…";
+      }
+    auto row = box(parent, 0, 0, width, 44, theme::background);
+    lv_obj_set_scrollable(row, false);
+    icon(
+        row, expandedWeb_.count(id) ? "chevron-down" : "chevron-right", 0, 0, 44, 44,
+        [this, id] { events_.push("web_toggle", {{"id", id}}); }, theme::background);
+    button(
+        row, status, 44, 0, width - 44, 44,
+        [this, id] { events_.push("web_toggle", {{"id", id}}); }, theme::background,
+        LV_TEXT_ALIGN_LEFT);
+    if (expandedWeb_.count(id)) {
+      for (const auto &source : web.value("web_sources", Json::array()))
+        button(
+            parent, source.value("title", source.value("url", std::string())), 0, 0, width, 44,
+            [this, source] { openWebSource(source); }, theme::background, LV_TEXT_ALIGN_LEFT);
+      button(
+          parent, "查看完整检索记录", 0, 0, width, 44, [this, id] { openWebDetails(id); },
+          theme::background, LV_TEXT_ALIGN_LEFT);
+    }
+  }
   if (!text.empty()) {
     richMessage(parent, text, width, false, id);
   } else if (live && receivingReply_) {
@@ -1559,10 +1666,12 @@ void App::replyContent(lv_obj_t *parent, const std::string &text, int width,
 }
 void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::string &source,
                             int width,bool readOnly,int lastAssistant,int64_t questionSeq) {
+  webMessageMetadata_.clear();
   const auto reasoningMode=reasoningDisplay_;
   lv_obj_t *photoGroup = nullptr;
   for (const auto &m : messages) {
     bool user = m.value("role", std::string()) == "user";
+    webMessageMetadata_[stringValue(m, "id")] = objectField(m, "metadata_json");
     const bool hasImage = !stringValue(m, "stored_path").empty() ||
                           !stringValue(m, "original_path").empty();
     // Consecutive image-only user messages share one wrapping gallery. Keep
@@ -1676,7 +1785,7 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
       path = stringValue(m, "stored_path");
     if (path.empty())
       path = stringValue(m, "original_path");
-    if (!path.empty()) {
+    if (!path.empty() && (user || webMetadata(id).value("web_images", Json::array()).empty())) {
       auto imgBox = box(wrap, 0, 0, textWidth, 140);
       lv_obj_set_scrollable(imgBox, false);
       auto original = stringValue(m, "stored_path");
@@ -1685,7 +1794,8 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
       image(imgBox, path, 0, 0, textWidth, 140,
             [this,original] { requestImageViewer(original); }, user, true);
     }
-    if (!content.empty() || (live && receivingReply_)) {
+    if (!content.empty() || (live && receivingReply_) ||
+        !webMetadata(id).value("web_records", Json::array()).empty()) {
       if (user)
         label(wrap, content, 0, 0, textWidth, readingFontSize());
       else {
@@ -1730,6 +1840,7 @@ void App::renderMessages(bool bottom, bool cached) {
         db_.settings().value("reasoning_display", std::string("collapsed"));
   expandedReasoning_.clear();
   rows_ = messages;
+  webMessageMetadata_.clear();
   if (!cached)
     hasConversationContent_ =
         !db_.query("SELECT id FROM chat_messages WHERE session_id=? AND "
@@ -1916,7 +2027,23 @@ void App::paintVisible() {
                 point.x - area.x1 + x < hit.x + hit.w &&
                 point.y - area.y1 + y >= hit.y &&
                 point.y - area.y1 + y < hit.y + hit.h) {
-              modal("链接", hit.target);
+              bool found = false;
+              for (const auto &entry : webMessageMetadata_)
+                for (const auto &source : entry.second.value("web_sources", Json::array()))
+                  if (source.value("url", std::string()) == hit.target) {
+                    openWebSource(source);
+                    found = true;
+                    break;
+                  }
+              if (!found)
+                for (const auto &source : reasoningMetadata_.value("web_sources", Json::array()))
+                  if (source.value("url", std::string()) == hit.target) {
+                    openWebSource(source);
+                    found = true;
+                    break;
+                  }
+              if (!found)
+                modal("链接", hit.target);
               break;
             }
         });
@@ -1926,6 +2053,10 @@ void App::paintVisible() {
 void App::refreshImages() {
   if (readerInteracting()) { chatImagesPending_ = true; return; }
   bool resized = false;
+  for(const auto &entry:webImageRetries_) {
+    const bool failed=images_.failed(entry.second);
+    if(lv_obj_is_hidden(entry.first)==failed){lv_obj_set_hidden(entry.first,!failed);resized=true;}
+  }
   for (auto &request : imageRequests_) {
     auto frame = images_.get(request.second);
     if (frame) {
@@ -2174,6 +2305,12 @@ void App::settingsPage() {
   const auto pending = feedback_ ? feedback_->state().value("pending", size_t(0)) : 0;
   settingsRow("feedback", "问题反馈", std::to_string(pending) + " 份待处理 · 诊断与机型适配",
               left, 668, width, [this] { feedbackView_ = "form"; show("feedback"); });
+  const auto webPolicy = config.value("new_chat_web", std::string("on"));
+  settingsRow("web_policy", "新聊天联网搜索",
+              webPolicy == "off"      ? "默认关闭"
+              : webPolicy == "recent" ? "使用最近一次状态"
+                                      : "默认开启",
+              right, 796, column, [this] { webPolicyPicker(); });
   settingsRow("update", "检查更新", std::string("当前 ")+PENCHAT_VERSION+" · 在线安装新版本",
               left, 732, width, [this] { openUpdate(true); });
 }
@@ -2459,6 +2596,14 @@ void App::saveProvider() {
   show("provider");
 }
 void App::goBack() {
+  if (view_ == "web_source") {
+    show("web_details");
+    return;
+  }
+  if (view_ == "web_details") {
+    show(webReturnView_);
+    return;
+  }
   if(view_=="onboarding"){if(onboardingReplay_)onboardingAction("finish");else onboardingAction("back");return;}
   if(onboardingConfig_&&view_=="provider"&&providerForm_.empty()){onboardingConfig_=false;show("onboarding");return;}
   if (view_ == "update") { updateBack(); return; }
@@ -2836,6 +2981,10 @@ void App::sendPrepared(Json model, Json input, const std::string &retryId,
     build();
     return;
   }
+  if (!model.contains("web_enabled"))
+    model["web_enabled"] = webEnabled(sessionPreferences_, db_.settings());
+  model["web_binary"] = join(workspace_, "assets/bin/penchat-web-search");
+  model["web_asset_root"] = join(dataDir_, "assets");
   bindPreferences(model);
   sessionPreferences_["has_sent"] = true;
   savePreferences();
@@ -2992,6 +3141,7 @@ void App::suspend(bool value) {
   if (value) {replyCancel_=true;if(contextRegenerating_)cancelContext();editorInterrupt();}
   if (value) {
     visible_ = false;
+    cancelWebReader();
     if(viewerScanResult_)closeImageViewer(false);
     scanner_.eligible(false, session_);
     afterScanRelease_ = {};
@@ -3032,6 +3182,7 @@ void App::shutdown() {
 #endif
   if (shutdownComplete_) return;
   shutdownComplete_ = true;
+  cancelWebReader();
   if(onboarding_)onboarding_->tick(false);
   touchInput_.close();
   input_.cancel();
@@ -3439,6 +3590,22 @@ void App::tick() {
     }
     if (e.type == "pinyin.result") { editorResult(e.data); continue; }
     if (e.type == "pinyin.notice") { notice_ = e.data.value("message",std::string()); if(editor_.active){editor_.notice=notice_;editorBuild();}else error(notice_);continue; }
+    if (e.type == "web_reader") {
+      webEvent(e);
+      continue;
+    }
+    if (e.type == "web_toggle") {
+      const auto id = e.data.value("id", std::string());
+      if (expandedWeb_.count(id))
+        expandedWeb_.erase(id);
+      else
+        expandedWeb_.insert(id);
+      if (view_ == "chat")
+        renderMessages(false, true);
+      else if (view_ == "archive_chat")
+        build();
+      continue;
+    }
     if (e.type == "pinyin_clear_confirm") {if(view_=="keyboard_settings"){input_.cancel();modal("正在清除拼音记忆","请稍候…");pinyin_.clear();}continue;}
     if (e.type == "pinyin.cleared") {if(view_=="keyboard_settings"){build();if(e.data.value("ok",false))modal("拼音记忆","已恢复基础词典排序。");else modal("未能清除拼音记忆","文件未能保存，请检查可用空间后重试。");}continue;}
     if (e.type == "catalog_help") {

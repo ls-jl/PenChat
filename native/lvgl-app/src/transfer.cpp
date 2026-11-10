@@ -1,9 +1,10 @@
 #include "transfer.hpp"
-#include "transfer_format.hpp"
 #include "chat_time.hpp"
 #include "context.hpp"
-#include "usage.hpp"
 #include "presets.hpp"
+#include "tools.hpp"
+#include "transfer_format.hpp"
+#include "usage.hpp"
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
@@ -297,13 +298,14 @@ Json publicMetadata(const Json &o) {
                   "reasoning_timing_source", "imported_reference"});
   const auto usage = normalizedUsage(o.value("usage", Json::object()));
   if (!usage.empty()) out["usage"] = usage;
+  out.update(publicWebMetadata(o));
   auto time=publicTimeline(o.value("timeline",Json::object()));
   if(!time.empty())out["timeline"]=time;
   return out;
 }
 Json preferences(const Json &m) {
-  return kept(m,
-              {"system_prompt", "effort", "gauge", "preset_name", "preset_adjusted"});
+  return kept(
+      m, {"system_prompt", "effort", "gauge", "preset_name", "preset_adjusted", "web_enabled"});
 }
 struct ReadDB {
   sqlite3 *db = nullptr;
@@ -835,8 +837,11 @@ Json Transfer::exportData(const Json &a) {
             if (std::regex_match(ext, std::regex("[A-Za-z0-9]{1,8}")))
               extension = ext;
           }
-          auto file = "assets/" + safeName(assetId) + "-" + digestText(assetId) + "." +
-                      extension;
+          auto file = "assets/" + safeName(assetId) + "-" + digestText(assetId) + "." + extension;
+          const auto hash = objectField(asset, "metadata_json").value("sha256", std::string());
+          if (asset.value("source_type", std::string()) == "web" &&
+              std::regex_match(hash, std::regex("[a-f0-9]{64}")))
+            file = "assets/web-" + hash + ".img";
           if (!assetFile(src, file))
             continue;
           if (seen.insert(assetId).second) {
@@ -894,6 +899,19 @@ Json Transfer::exportData(const Json &a) {
       for (const auto &m : c["messages"]) {
         md += "## " + std::string(m["role"] == "user" ? "用户" : "助手") + "\n\n";
         auto text = m.at("text").get<std::string>();
+        for (const auto &image :
+             m.value("metadata", Json::object()).value("web_images", Json::array())) {
+          auto marker = "penchat-image:" + image.value("ref", std::string());
+          for (const auto &asset : c["assets"])
+            if (asset.at("id") == image.value("asset", Json())) {
+              auto target = "../" + asset.at("file").get<std::string>();
+              size_t at = 0;
+              while ((at = text.find(marker, at)) != std::string::npos) {
+                text.replace(at, marker.size(), target);
+                at += target.size();
+              }
+            }
+        }
         for (const auto &asset : c["assets"]) {
           auto marker = "penchat-asset:" + asset.at("id").get<std::string>(),
                target = "../" + asset.at("file").get<std::string>();
@@ -908,8 +926,10 @@ Json Transfer::exportData(const Json &a) {
           md += "<details>\n<summary>公开思考</summary>\n\n" + reason +
                 "\n\n</details>\n\n";
         md += text + "\n\n";
+        std::set<std::string> inlineWeb;
+        for(const auto &image:m.value("metadata",Json::object()).value("web_images",Json::array()))inlineWeb.insert(image.value("asset",std::string()));
         for (const auto &part : m["parts"])
-          if (part["type"] == "image")
+          if (part["type"] == "image" && !inlineWeb.count(part.value("asset",std::string())))
             for (const auto &asset : c["assets"])
               if (asset["id"] == part["asset"])
                 md += "![图片](../" + asset.at("file").get<std::string>() + ")\n\n";
@@ -1518,6 +1538,12 @@ Json Transfer::importData(const Json &a) {
                                   "updated_at", "text", "reasoning", "parts"});
           message["metadata"] = publicMetadata(m.value("metadata", Json::object()));
           message["metadata"]["transfer_model"] = m.value("model", Json::object());
+          if (message["metadata"].contains("web_images"))
+            for (auto &image : message["metadata"]["web_images"]) {
+              auto found = paths.find(image.value("asset", std::string()));
+              if (found != paths.end())
+                image["path"] = found->second;
+            }
           message["request"] =
               kept(m.value("request", Json::object()),
                    {"model", "effort", "effort_value", "summary", "system_prompt"});

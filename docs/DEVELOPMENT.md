@@ -117,3 +117,12 @@ Y07 通过驱动 LED 类控制白灯，使用厂商模式值1，不套用 ORANGE
 第三方来源、许可原文、源码和再分发义务以[第三方声明](../THIRD_PARTY_NOTICES.md)、[NOTICE](../NOTICE)及各依赖锁为准。
 
 开发整合中的公共组件、三类布局及 Rockchip/S6 后端边界见 [共享平台说明](SHARED-PLATFORMS.md)。S6 的采集反复重开仍为独立待办。
+
+### 联网搜索组件（dev）
+
+公共工具注册、三协议调用续答和网页图片引用的接入说明见
+[WEB_SEARCH.md](WEB_SEARCH.md)，独立构建/更新入口见
+[web-search/README.md](../native/web-search/README.md)。修改搜索组件后分别执行
+`bash scripts/build-web-search.sh rk3562` 与 `bash scripts/build-web-search.sh cv1826-s`，
+主应用仍使用原有构建脚本。不要把另一目标的 `assets/web-search` 放进安装包。
+开发编译不执行搜索、不调用付费模型；`tests/test_web_tools.py` 是单独的模拟请求回归入口。

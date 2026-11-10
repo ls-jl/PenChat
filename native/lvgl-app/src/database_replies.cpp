@@ -65,6 +65,17 @@ void Database::copyConversationRows(const Json &session,const Json &rows,
       part["id"]=uid("part");part["session_id"]=target;part["message_id"]=message;
       copy("message_parts",part);
     }
+    auto copied = query("SELECT metadata_json FROM chat_messages WHERE id=?", {message});
+    if (!copied.empty()) {
+      auto metadata = objectField(copied[0], "metadata_json");
+      if (metadata.contains("web_images"))
+        for (auto &image : metadata["web_images"]) {
+          auto key = image.value("asset_id", std::string());
+          if (assets.count(key))
+            image["asset_id"] = assets.at(key);
+        }
+      execute("UPDATE chat_messages SET metadata_json=? WHERE id=?", {metadata.dump(), message});
+    }
     for(auto event:query("SELECT * FROM stream_events WHERE message_id=? ORDER BY seq",{old})) {
       event["id"]=uid("event");event["session_id"]=target;event["message_id"]=message;copy("stream_events",event);
     }

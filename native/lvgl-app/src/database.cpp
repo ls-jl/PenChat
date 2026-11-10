@@ -1,16 +1,18 @@
 #include "database.hpp"
+#include "api_config.hpp"
 #include "chat_time.hpp"
 #include "context.hpp"
-#include "reasoning.hpp"
-#include "api_config.hpp"
 #include "network.hpp"
+#include "reasoning.hpp"
 #include "schema.hpp"
 #include "titles.hpp"
 #include "util.h"
 #include <algorithm>
 #include <dirent.h>
+#include <limits.h>
 #include <sqlite3.h>
 #include <stdexcept>
+#include <sys/stat.h>
 #include <unistd.h>
 namespace penchat {
 static std::string text(const Json &j) {
@@ -682,6 +684,47 @@ void Database::updateMessage(const std::string &id, const std::string &t,
           if(!completed)completed=nowMs();
           timeline["completed_at"]=completed;merged["timeline"]=timeline;
           recordActivity(rows[0]["session_id"],completed);
+        }
+        if (merged.contains("web_images") && merged["web_images"].is_array()) {
+          if (merged["web_images"].size() > 4)
+            throw std::runtime_error("Too many web images");
+          for (auto &image : merged["web_images"]) {
+            const auto ref = image.value("ref", std::string()),
+                       path = image.value("path", std::string());
+            const auto name = path.substr(path.find_last_of('/') + 1);
+            struct stat info{};
+            char root[PATH_MAX], real[PATH_MAX];
+            if (ref.empty() || name.compare(0, 4, "web-") || name.size() != 72 ||
+                lstat(path.c_str(), &info) || !S_ISREG(info.st_mode) || S_ISLNK(info.st_mode) ||
+                info.st_size > 2 * 1024 * 1024 || !realpath(assetDirectory_.c_str(), root) ||
+                !realpath(path.c_str(), real) || std::string(real) != join(root, name))
+              throw std::runtime_error("Invalid web image asset");
+            auto found = query("SELECT a.id FROM message_parts p JOIN message_assets a ON "
+                               "a.id=p.asset_id WHERE p.message_id=? AND a.stored_path=?",
+                               {id, path});
+            std::string aid;
+            if (found.empty()) {
+              aid = uid("asset");
+              auto assetMetadata = image;
+              assetMetadata.erase("path");
+              assetMetadata.erase("asset_id");
+              execute("INSERT INTO "
+                      "message_assets(id,session_id,message_id,kind,source_type,original_path,"
+                      "stored_path,mime_type,width,height,size_bytes,metadata_json,created_at) "
+                      "VALUES(?,?,?,'image','web',?,?,?,?,?,?,?,?)",
+                      {aid, rows[0]["session_id"], id, path, path, image.value("mime",std::string()), image.value("width", 0),
+                       image.value("height", 0), info.st_size, assetMetadata.dump(), nowMs()});
+              auto n = query(
+                  "SELECT coalesce(max(part_index),-1)+1 n FROM message_parts WHERE message_id=?",
+                  {id})[0]["n"];
+              execute("INSERT INTO "
+                      "message_parts(id,session_id,message_id,part_index,part_type,asset_id) "
+                      "VALUES(?,?,?,?,'image',?)",
+                      {uid("part"), rows[0]["session_id"], id, n, aid});
+            } else
+              aid = found[0]["id"];
+            image["asset_id"] = aid;
+          }
         }
         execute("UPDATE chat_messages SET metadata_json=? WHERE id=?",
                 {merged.dump(), id});

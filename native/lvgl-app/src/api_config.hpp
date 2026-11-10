@@ -31,6 +31,8 @@ inline Json replayIdentity(const Json &model) {
           {"model", model.value("name", std::string())},
           {"endpoint", model.value("base_url", std::string())},
           {"protocol", protocolName(apiProtocol(model))}, {"model_adapter", modelAdapter(model)}};
+  identity["credential_revision"] =
+      objectField(model, "provider_metadata").value("credential_revision", std::string());
   if (anthropicProtocol(model)) {
     identity["endpoint"] = protocolRoot(model);
     identity["version"] = anthropicVersion(model);

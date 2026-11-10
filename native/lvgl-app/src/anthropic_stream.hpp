@@ -9,6 +9,7 @@ namespace penchat {
 class AnthropicStream {
   int64_t requested_, firstBody_ = 0, thinkingStart_ = 0, thinkingMs_ = 0;
   bool observed_ = false, explicitTiming_ = false, finished_ = false;
+  bool tools_ = false;
   bool started_ = false, stopped_ = false, fatal_ = false;
   std::map<int, Json> blocks_;
   std::set<int> open_;
@@ -40,7 +41,15 @@ class AnthropicStream {
       if (text(b, "data").empty()) throw std::runtime_error("Messages 脱敏思考块无效");
       observed_ = true;
       if (streaming) { thinkingStart_ = now; explicitTiming_ = true; }
-    } else if (kind == "tool_use" || kind == "server_tool_use") { error_ = "暂不支持 Messages 工具调用"; fatal_ = true; }
+    } else if (kind == "tool_use" && tools_) {
+      text(b, "id");
+      text(b, "name");
+      if (!b.value("input", Json::object()).is_object())
+        throw std::runtime_error("工具输入无效");
+    } else if (kind == "tool_use" || kind == "server_tool_use") {
+      error_ = "未启用或不支持此工具调用";
+      fatal_ = true;
+    }
     blocks_[i] = std::move(b);
   }
   void usage(const Json &j) {
@@ -51,15 +60,18 @@ class AnthropicStream {
   void stopReason(const Json &j) {
     if (!j.is_object()) throw std::runtime_error("Messages 结束信息无效");
     if (j.contains("stop_reason") && !j["stop_reason"].is_null()) reason_ = text(j, "stop_reason");
-    if (!reason_.empty() && reason_ != "end_turn" && reason_ != "stop_sequence" && reason_ != "refusal") {
-      if (reason_ == "tool_use" || reason_ == "pause_turn") error_ = "暂不支持 Messages 工具调用或工具续接";
+    if (!reason_.empty() && reason_ != "end_turn" && reason_ != "stop_sequence" &&
+        reason_ != "refusal" && !(reason_ == "tool_use" && tools_)) {
+      if ((reason_ == "tool_use" && !tools_) || reason_ == "pause_turn")
+        error_ = "暂不支持 Messages 工具调用或工具续接";
       else if (reason_ == "max_tokens" || reason_ == "model_context_window_exceeded")
         error_ = "回复未完成：" + reason_ + "（请检查最大输出或压缩上下文后手动重试）";
       else { error_ = "Messages 返回了未支持的结束原因"; reason_ = "unknown"; }
     }
   }
 public:
-  explicit AnthropicStream(int64_t requested) : requested_(requested) {}
+  explicit AnthropicStream(int64_t requested, bool tools = false)
+      : requested_(requested), tools_(tools) {}
   void consume(const Json &j, const std::string &event, int64_t now) {
     if (!j.is_object()) throw std::runtime_error("Messages 响应必须为对象");
     const auto kind = j.contains("type") ? text(j, "type") : event;
@@ -106,11 +118,27 @@ public:
       } else if (type == "signature_delta" && blockType == "thinking") {
         const auto value = text(d, "signature"); b["signature"].get_ref<std::string &>() += value;
         if (!value.empty()) observed_ = true;
-      } else if (type == "input_json_delta") { error_ = "暂不支持 Messages 工具调用"; fatal_ = true; }
-      else if (type == "text_delta" || type == "thinking_delta" || type == "signature_delta")
+      } else if (type == "input_json_delta" && blockType == "tool_use" && tools_) {
+        auto partial = b.value("_partial", std::string());
+        partial += text(d, "partial_json");
+        if (partial.size() > 16384)
+          throw std::runtime_error("工具参数过长");
+        b["_partial"] = partial;
+      } else if (type == "input_json_delta") {
+        error_ = "未启用工具调用";
+        fatal_ = true;
+      } else if (type == "text_delta" || type == "thinking_delta" || type == "signature_delta")
         throw std::runtime_error("Messages 增量与内容块类型不一致");
     } else if (kind == "content_block_stop") {
       const int i = index(j);
+      auto &block = blocks_.at(i);
+      if (block.contains("_partial")) {
+        auto parsed = Json::parse(block.at("_partial").get<std::string>(), nullptr, false);
+        if (!parsed.is_object())
+          throw std::runtime_error("工具参数不完整");
+        block["input"] = parsed;
+        block.erase("_partial");
+      }
       if (!open_.erase(i)) throw std::runtime_error("Messages 内容块结束顺序无效");
       if (thinkingStart_) { thinkingMs_ += std::max<int64_t>(0, now - thinkingStart_); thinkingStart_ = 0; }
     } else if (kind == "message_delta") {
@@ -153,7 +181,8 @@ public:
         thinking += value;
         if (b.value("signature", std::string()).empty()) replayable = false;
       }
-      if (type == "text" || type == "thinking" || type == "redacted_thinking") content.push_back(b);
+      if (type == "text" || type == "thinking" || type == "redacted_thinking" || type == "tool_use")
+        content.push_back(b);
     }
     if (output.empty() && reason_ == "refusal") output = "模型拒绝了本次请求。";
     Json metadata = {{"reasoning_observed", observed_}, {"reasoning_complete", finished_ || firstBody_ > 0 || (observed_ && explicitTiming_ && !thinkingStart_)},
@@ -165,6 +194,14 @@ public:
     const auto normalized = normalizedAnthropicUsage(usage_);
     if (!normalized.empty()) metadata["usage"] = normalized;
     if (replay && finished_ && replayable) metadata["anthropic_content"] = content;
+    Json calls = Json::array();
+    if (finished_ && complete() && reason_ == "tool_use")
+      for (const auto &b : content)
+        if (b.value("type", std::string()) == "tool_use")
+          calls.push_back(
+              {{"id", b.at("id")}, {"name", b.at("name")}, {"arguments", b.at("input")}});
+    metadata["tool_calls"] = calls;
+    metadata["tool_wire"] = Json::array({{{"role", "assistant"}, {"content", content}}});
     return {{"output", output}, {"reasoning", thinking}, {"metadata", metadata}};
   }
 };

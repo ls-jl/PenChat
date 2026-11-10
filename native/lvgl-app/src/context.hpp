@@ -8,6 +8,7 @@ size_t compressionTrigger(const Json &model);
 size_t compressionTarget(const Json &model);
 void checkContextResources(const Json &input);
 size_t estimatedText(const std::string &text);
+size_t modelContextEstimate(const Json &input, const Json &model);
 size_t estimatedContext(const Json &input, const std::string &prompt = "");
 std::string contextChecksum(const Json &rows, int64_t through);
 Json contextInput(const Json &rows, int64_t after, int64_t through,

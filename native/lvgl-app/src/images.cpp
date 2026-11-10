@@ -68,6 +68,17 @@ bool Images::failed(const std::string &key) {
   auto it = cache_.find(key);
   return it != cache_.end() && !it->second;
 }
+void Images::retry(const std::string &path) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto prefix = path + ":";
+  for (auto it = cache_.begin(); it != cache_.end();) {
+    if (it->first.compare(0, prefix.size(), prefix) == 0 && !it->second) {
+      order_.erase(std::remove(order_.begin(), order_.end(), it->first), order_.end());
+      it = cache_.erase(it);
+    } else
+      ++it;
+  }
+}
 void Images::work() {
   for (;;) {
     Request r;

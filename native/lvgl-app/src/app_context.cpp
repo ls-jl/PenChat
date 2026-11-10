@@ -2,6 +2,7 @@
 #include "chat_text.hpp"
 #include "context.hpp"
 #include "image_data.h"
+#include "tools.hpp"
 #include <stdexcept>
 namespace penchat {
 void App::cancelContext() {
@@ -25,7 +26,17 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
     return;
   }
   if(!model.contains("system_prompt"))model["system_prompt"] = sessionPreferences_.value("system_prompt", std::string());
+  model["web_enabled"] = webEnabled(sessionPreferences_, db_.settings());
+  if (!manual && model.value("web_enabled", false)) {
+    try {
+      validateToolModel(model);
+    } catch (const std::exception &e) {
+      modal("联网搜索不可用", e.what());
+      return;
+    }
+  }
   auto compressionModel = model;
+  compressionModel.erase("web_enabled");
   auto id = sessionPreferences_.value("compression_model_id", std::string());
   if (!id.empty()) {
     compressionModel = Json::object();
@@ -110,8 +121,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
                                                  "summary", std::string())}}})}});
       for (const auto &m : pending)
         input.push_back(m);
-      const auto estimate =
-          estimatedContext(input, model.value("system_prompt", std::string()));
+      const auto estimate = modelContextEstimate(input, model);
       bool compressed = manual || invalid ||
                         (automatic && estimate >= compressionTrigger(model));
       Json checkpoint;
@@ -138,7 +148,8 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
       }
       validateModelImages(requestModel, input);
       const auto inputLimit = objectField(requestModel, "capabilities_json").value("max_input_tokens", Json());
-      if (inputLimit.is_number_integer() && estimatedContext(input, requestModel.value("system_prompt", std::string())) > inputLimit.get<size_t>())
+      if (inputLimit.is_number_integer() &&
+          modelContextEstimate(input, requestModel) > inputLimit.get<size_t>())
         throw std::runtime_error("上下文超过此模型已设置的最大输入，请压缩或修改设置；没有截断历史");
       checkContextResources(input);
       if(regenerate) {

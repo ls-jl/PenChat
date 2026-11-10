@@ -389,7 +389,17 @@
         "tool_support": "conditional",
         "tool_notes": "Responses 支持工具调用；Chat Completions 不支持工具调用。",
         "lifecycle": "当前",
-        "notes": "不支持 none 或 minimal；Responses 支持工具调用，Chat Completions 不支持工具调用。"
+        "notes": "不支持 none 或 minimal；Responses 支持工具调用，Chat Completions 不支持工具调用。",
+        "tool_conditions": [
+          {
+            "api": "responses",
+            "supported": true
+          },
+          {
+            "api": "chat",
+            "supported": false
+          }
+        ]
       },
       "profiles": {
         "responses": {
@@ -442,7 +452,20 @@
         "reasoning_supported": true,
         "tool_support": "conditional",
         "tool_notes": "Responses 支持内置工具和 function calling；Chat Completions 仅在 reasoning_effort=none 时支持 function calling。",
-        "lifecycle": "当前"
+        "lifecycle": "当前",
+        "tool_conditions": [
+          {
+            "api": "responses",
+            "supported": true
+          },
+          {
+            "api": "chat",
+            "supported": true,
+            "efforts": [
+              "none"
+            ]
+          }
+        ]
       },
       "profiles": {
         "responses": {

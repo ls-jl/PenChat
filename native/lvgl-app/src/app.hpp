@@ -130,6 +130,24 @@ class App {
   Json sessionPreferences_ = Json::object(),
        reasoningMetadata_ = Json::object(), modelForm_ = Json::object();
   std::string effortMemory_, popupKind_;
+  std::map<std::string, Json> webMessageMetadata_;
+  std::set<std::string> expandedWeb_;
+  std::map<lv_obj_t *,std::string> webImageRetries_;
+  Json webDetails_ = Json::object(), webSource_ = Json::object();
+  std::string webReturnView_ = "chat";
+  std::thread webReaderWorker_;
+  std::atomic<bool> webReaderCancel_{false};
+  int webReaderGeneration_ = 0;
+  size_t webSourceOffset_ = 0;
+  void webDetailsPage();
+  void webSourcePage();
+  void openWebDetails(const std::string &id);
+  void openWebSource(Json source);
+  void fetchWebSource(const std::string &url);
+  void cancelWebReader();
+  void webEvent(const Event &event);
+  void webPolicyPicker();
+  Json webMetadata(const std::string &id) const;
   std::set<std::string> expandedReasoning_;
   std::map<std::string, bool> reasoningOverrides_;
   std::set<lv_obj_t *> chatPhotos_;

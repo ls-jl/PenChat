@@ -146,6 +146,12 @@ Json Database::importTransfer(const Json &bundle) {
             auto mf = query(
                 "SELECT provider_id FROM model_configs WHERE id=? AND enabled=1", {mm});
             auto metadata = m.value("metadata", Json::object());
+            if (metadata.contains("web_images"))
+              for (auto &image : metadata["web_images"]) {
+                auto key = image.value("asset", std::string());
+                if (assets.count(key))
+                  image["asset_id"] = assets.at(key);
+              }
             execute(
                 "INSERT INTO "
                 "chat_messages(id,session_id,seq,role,status,message_type,created_at,"

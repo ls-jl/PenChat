@@ -41,6 +41,12 @@ def main():
         if args.ui_only and name == 'penchat-scanner':
             continue
         shutil.copy2(ROOT / 'build' / build / name, bin_dir / name)
+    web_payload = ROOT / 'build/payload-cv1826-s/assets'
+    if not (web_payload/'bin/penchat-web-search').is_file():
+        raise ValueError('Build the cv1826-s web component before packaging')
+    shutil.copy2(web_payload/'bin/penchat-web-search',bin_dir/'penchat-web-search')
+    shutil.rmtree(stage/'assets/web-search',ignore_errors=True)
+    shutil.copytree(web_payload/'web-search',stage/'assets/web-search')
     scanner = stage / 'assets/scanner'
     subprocess.run(['python3', str(ROOT / 'scripts/prepare-scanner-cvi.py'), '--stage', str(scanner)], check=True)
     shutil.copy2(ROOT / 'native/scanner/cvi-media.lock.json', scanner / 'cvi-media.lock.json')
@@ -70,6 +76,7 @@ def main():
     package = stage / amr_name(app, 'cv1826-s')
     (stage / amr_name(app)).replace(package)
     subprocess.run(['python3', str(ROOT / 'tests/check_cv1826_s_amr.py'), str(package)] + (['--ui-only'] if args.ui_only else []), check=True)
+    subprocess.run(['python3',str(ROOT/'tests/check_web_component.py'),str(package),'cv1826-s'],check=True)
     print(package)
 
 

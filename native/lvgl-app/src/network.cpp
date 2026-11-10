@@ -2,9 +2,10 @@
 #include "image_data.h"
 #include "reasoning_stream.hpp"
 #include "titles.hpp"
+#include "tools.hpp"
 #include <cctype>
-#include <stdexcept>
 #include <set>
+#include <stdexcept>
 namespace penchat {
 namespace {
 constexpr size_t EventLimit = 4 * 1024 * 1024;
@@ -150,10 +151,17 @@ HttpResult apiRequest(const Json &model, const std::string &resource,
   for (auto it = headers.begin(); it != headers.end(); ++it)
     if (lower(it.key()) == "accept") hasAccept = true;
   if (chunks && !hasAccept) headers["Accept"] = "text/event-stream, application/json";
-  auto result = http(apiRoot(model) + resource, method, headers, body, cancel,
-                     std::move(chunks), apiOptions(model), std::move(complete),
-                     {model.value("provider_id", std::string()), apiRoot(model),
-                      objectField(model, "provider_metadata").value("credential_revision", std::string()), headerProfile});
+  auto connection = apiOptions(model);
+  if (model.contains("tool_remaining_ms"))
+    connection.timeout = int(std::max<int64_t>(
+        1, std::min<int64_t>(connection.timeout,
+                             (model.at("tool_remaining_ms").get<int64_t>() + 999) / 1000)));
+  auto result =
+      http(apiRoot(model) + resource, method, headers, body, cancel, std::move(chunks), connection,
+           std::move(complete),
+           {model.value("provider_id", std::string()), apiRoot(model),
+            objectField(model, "provider_metadata").value("credential_revision", std::string()),
+            headerProfile});
   if (!cancel && (result.status < 200 || result.status >= 300)) {
     auto parsed = Json::parse(result.body, nullptr, false);
     const auto detail = parsed.is_object() && parsed.contains("error") ? messageError(parsed["error"]) : safeError(result.body.substr(0, 1500));
@@ -166,9 +174,31 @@ HttpResult apiRequest(const Json &model, const std::string &resource,
   result.requestId = redact(result.requestId, model);
   return result;
 }
+void materializeToolImages(Json &input) {
+  if (input.is_array())
+    for (auto &item : input)
+      materializeToolImages(item);
+  else if (input.is_object()) {
+    if (input.value("type", std::string()) == "input_image" && input.contains("image_url")) {
+      auto path = input.at("image_url").get<std::string>();
+      if (path.compare(0, 11, "data:image/") != 0) {
+        if (path.compare(0, 7, "file://") == 0)
+          path.erase(0, 7);
+        std::string encoded, error;
+        if (!camera::imageDataUrl(path, &encoded, &error))
+          throw std::runtime_error("工具图片不可用");
+        input["image_url"] = encoded;
+      }
+    }
+    for (auto it = input.begin(); it != input.end(); ++it)
+      if (it->is_object() || it->is_array())
+        materializeToolImages(it.value());
+  }
+}
 Json requestBody(const Json &m, Json input, bool streaming) {
   validateModelImages(m, input);
   if (anthropicProtocol(m)) return anthropicRequestBody(m, input, streaming);
+  materializeToolImages(input);
   const auto options = apiOptions(m); const bool chat = chatProtocol(m);
   Json body = {{"model", m.value("name", std::string())}, {"stream", streaming}};
   if (chat) {
@@ -182,6 +212,10 @@ Json requestBody(const Json &m, Json input, bool streaming) {
     for (const auto &item : input) {
       if (!item.is_object() || !item.contains("role")) continue;
       auto role = item.at("role").get<std::string>();
+      if (role == "tool" || item.contains("tool_calls")) {
+        messages.push_back(item);
+        continue;
+      }
       if (role == "system") role = instructionRole;
       Json content = Json::array(); std::string text;
       const auto &parts = item.at("content");
@@ -216,22 +250,45 @@ Json requestBody(const Json &m, Json input, bool streaming) {
     else body["reasoning"]["effort"] = effort;
   }
   if (!chat && options.summary && m.value("reasoning_summary", false)) body["reasoning"]["summary"] = "auto";
+  if (m.value("web_tools", false))
+    body["tools"] = wireToolDefinitions(m);
   applyModelParameters(body, m);
   return body;
 }
-void streamChat(const Json &m, Json input, std::atomic<bool> &cancel, Events &events, int generation) {
+void streamChat(const Json &model, Json input, std::atomic<bool> &cancel, Events &events,
+                int generation) {
+  if (model.value("web_enabled", false))
+    streamToolChat(model, std::move(input), cancel, events, generation);
+  else
+    streamModelRound(model, std::move(input), cancel, events, generation);
+}
+void streamModelRound(const Json &m, Json input, std::atomic<bool> &cancel, Events &events,
+                      int generation) {
   if (anthropicProtocol(m)) { streamAnthropic(m, std::move(input), cancel, events, generation); return; }
   const auto options = apiOptions(m); const bool chat = chatProtocol(m);
   Json tag = {{"generation", generation}};
   bool ended = false, doneMarker = false, stateChanged = false;
   std::string protocolError, finishReason;
   Json diagnostic = Json::object();
+  std::map<int, Json> toolCalls;
+  Json toolWire = Json::array();
   ReasoningStream state(ticks()); int64_t lastPublish = 0; size_t publications = 0;
   auto publish = [&] {
     const auto now = ticks();
     auto snapshot = state.snapshot(now);
     snapshot["generation"] = generation;
     snapshot["metadata"]["replay_identity"] = replayIdentity(m);
+    Json calls = Json::array();
+    for (const auto &entry : toolCalls) {
+      auto call = entry.second;
+      auto arguments = Json::parse(call.value("arguments", std::string("{}")), nullptr, false);
+      if (!arguments.is_discarded() && arguments.is_object()) {
+        call["arguments"] = arguments;
+        calls.push_back(call);
+      }
+    }
+    snapshot["metadata"]["tool_calls"] = calls;
+    snapshot["metadata"]["tool_wire"] = toolWire;
     if (!diagnostic.empty()) snapshot["metadata"]["http"] = diagnostic;
     if (!options.replay) { snapshot["metadata"].erase("response_output_items"); snapshot["metadata"].erase("response_reasoning_items"); }
     events.pushLatest("response_state", std::move(snapshot));
@@ -269,8 +326,26 @@ void streamChat(const Json &m, Json input, std::atomic<bool> &cancel, Events &ev
         if (response.is_object() && response.contains("output") && response["output"].is_array()) items = response["output"];
         for (const auto &item : items) {
           const auto kind = item.value("type", std::string());
-          if (kind.size() >= 5 && kind.compare(kind.size() - 5, 5, "_call") == 0)
-            protocolError = "暂不支持工具调用：" + kind;
+          if (kind == "function_call") {
+            if (!m.value("web_tools", false)) {
+              protocolError = "当前未启用工具调用";
+              continue;
+            }
+            const bool final = type == "response.output_item.done" || ended;
+            if (final) {
+              if (item.at("arguments").get_ref<const std::string &>().size() > 16384 ||
+                  toolCalls.size() > 24)
+                throw std::runtime_error("工具调用超过限制");
+              int index = j.value("output_index", int(toolCalls.size()));
+              for (const auto &entry : toolCalls)
+                if (entry.second.value("id", std::string()) == item.value("call_id", std::string()))
+                  index = entry.first;
+              toolCalls[index] = {{"id", item.at("call_id")},
+                                  {"name", item.at("name")},
+                                  {"arguments", item.at("arguments")}};
+            }
+          } else if (kind.size() >= 5 && kind.compare(kind.size() - 5, 5, "_call") == 0)
+            protocolError = "暂不支持此工具类型：" + kind;
         }
       }
       if (chat && j.contains("choices")) {
@@ -278,10 +353,43 @@ void streamChat(const Json &m, Json input, std::atomic<bool> &cancel, Events &ev
         for (const auto &c : j["choices"]) {
           if (!c.is_object()) throw std::runtime_error("Invalid choice");
           if (c.value("index", 0) != 0) continue;
+          const bool full = c.contains("message");
+          const auto delta = c.value(full ? "message" : "delta", Json::object());
+          if (delta.is_object() && delta.contains("tool_calls")) {
+            if (!m.value("web_tools", false) || !delta["tool_calls"].is_array() ||
+                delta["tool_calls"].size() > 24)
+              throw std::runtime_error("无效或未启用的工具调用");
+            int ordinal = 0;
+            for (const auto &part : delta["tool_calls"]) {
+              const int i = part.value("index", ordinal++);
+              if (i < 0 || i >= 24)
+                throw std::runtime_error("工具调用索引无效");
+              auto &call = toolCalls[i];
+              if (!call.is_object())
+                call = {{"id", ""}, {"name", ""}, {"arguments", ""}};
+              if (part.contains("id"))
+                call["id"] = part.at("id");
+              const auto fn = part.value("function", Json::object());
+              for (const auto &key : {"name", "arguments"})
+                if (fn.contains(key)) {
+                  const auto value = fn.at(key).get<std::string>();
+                  if (full)
+                    call[key] = value;
+                  else
+                    call[key].get_ref<std::string &>() += value;
+                  if (call[key].get_ref<const std::string &>().size() > 16384)
+                    throw std::runtime_error("工具参数过长");
+                }
+            }
+          }
           if (c.contains("finish_reason") && !c["finish_reason"].is_null()) {
             finishReason = c.at("finish_reason").get<std::string>();
-            if (finishReason != "stop") protocolError = "回复未完成：" + finishReason +
-                (finishReason == "tool_calls" || finishReason == "function_call" ? "（暂不支持工具调用）" : "");
+            if (finishReason != "stop" &&
+                !(finishReason == "tool_calls" && m.value("web_tools", false)))
+              protocolError = "回复未完成：" + finishReason +
+                              (finishReason == "tool_calls" || finishReason == "function_call"
+                                   ? "（暂不支持工具调用）"
+                                   : "");
           }
         }
       }
@@ -326,11 +434,38 @@ void streamChat(const Json &m, Json input, std::atomic<bool> &cancel, Events &ev
     }
     diagnostic = {{"status", result.status}, {"request_id", result.requestId}, {"elapsed_ms", result.elapsedMs}, {"timings", result.timings},
                   {"outcome", cancel ? "cancelled" : !result.error.empty() ? "transport_or_http_error" : !protocolError.empty() ? "api_error" : "response"}};
-    state.finish(ticks()); publish();
+    state.finish(ticks());
+    if (chat && !toolCalls.empty()) {
+      Json calls = Json::array();
+      for (const auto &entry : toolCalls)
+        calls.push_back(
+            {{"id", entry.second.at("id")},
+             {"type", "function"},
+             {"function",
+              {{"name", entry.second.at("name")}, {"arguments", entry.second.at("arguments")}}}});
+      auto snap = state.snapshot(ticks());
+      toolWire = Json::array(
+          {{{"role", "assistant"}, {"content", snap.at("output")}, {"tool_calls", calls}}});
+      if (!snap.at("reasoning").get<std::string>().empty() &&
+          (options.compatible || modelAdapter(m) == "deepseek"))
+        toolWire[0]["reasoning_content"] = snap.at("reasoning");
+    } else if (!chat)
+      toolWire =
+          state.snapshot(ticks()).at("metadata").value("response_output_items", Json::array());
+    for (const auto &entry : toolCalls) {
+      auto a = Json::parse(entry.second.value("arguments", std::string()), nullptr, false);
+      if (entry.second.value("id", std::string()).empty() ||
+          entry.second.value("name", std::string()).empty() || !a.is_object())
+        protocolError = "工具调用参数不完整";
+    }
+    publish();
     tag["http_status"] = result.status; tag["request_id"] = result.requestId;
     tag["elapsed_ms"] = result.elapsedMs; tag["snapshots"] = publications;
     if (cancel) { events.push("cancelled", tag); return; }
-    const bool complete = chat ? (finishReason == "stop" && (doneMarker || (options.compatible && result.error.empty()))) : ended;
+    const bool complete =
+        chat ? ((finishReason == "stop" || (finishReason == "tool_calls" && !toolCalls.empty())) &&
+                (doneMarker || (options.compatible && result.error.empty())))
+             : ended;
     std::string error = !result.error.empty() ? result.error : !protocolError.empty() ? protocolError : !complete ? "Stream ended before completion" : "";
     if (!error.empty()) { tag["error"] = redact(error, m); events.push("network_error", tag); }
     else events.push("done", tag);
@@ -344,6 +479,8 @@ std::string generateTitle(Json model, const std::string &question,
                           const std::string &answer, int maxCharacters,
                           std::atomic<bool> &cancel) {
   model.erase("system_prompt");
+  model.erase("web_enabled");
+  model.erase("web_tools");
   model["effort_value"] = ""; model["effective_effort"] = "api_default";
   model["reasoning_summary"] = false;
   Json input = Json::array(

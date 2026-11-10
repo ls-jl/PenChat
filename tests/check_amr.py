@@ -42,7 +42,12 @@ with zipfile.ZipFile(path) as archive:
 
     for field in ['author', 'aiContributor', 'homepage']:
         assert APP[field].encode('utf-8') in binary, 'Missing About metadata: ' + field
-    assert sorted(n for n in names if n.startswith('assets/bin/') and not n.endswith('/')) == ['assets/bin/penchat-lvgl','assets/bin/penchat-scanner','assets/bin/penchat-sensor-guard']
+    assert sorted(n for n in names if n.startswith('assets/bin/') and not n.endswith('/')) == ['assets/bin/penchat-lvgl','assets/bin/penchat-scanner','assets/bin/penchat-sensor-guard','assets/bin/penchat-web-search']
+    web = archive.read('assets/bin/penchat-web-search')
+    check_native_payload(web,'penchat-web-search')
+    assert web == (ROOT/'assets/bin/penchat-web-search').read_bytes()
+    assert archive.read('assets/web-search/source-lock.json') == (ROOT/'native/web-search/source-lock.json').read_bytes()
+    assert sorted(n for n in names if n.startswith('assets/web-search/lib/') and not n.endswith('/')) == ['assets/web-search/lib/libedge-curl-impersonate.so.4']
     scanner = archive.read('assets/bin/penchat-scanner')
     assert scanner[:5] == b'\x7fELF\x02' and struct.unpack_from('<H',scanner,18)[0] == 183
     assert scanner == (ROOT/'assets/bin/penchat-scanner').read_bytes()
@@ -62,7 +67,7 @@ with zipfile.ZipFile(path) as archive:
     guard = archive.read('assets/bin/penchat-sensor-guard')
     assert guard[:5] == b'\x7fELF\x02' and struct.unpack_from('<H',guard,18)[0] == 183
     assert b'--test-report' not in guard
-    bridges = [n for n in names if n.endswith('.so') and not n.startswith('assets/scanner/')]
+    bridges = [n for n in names if n.endswith('.so') and not n.startswith(('assets/scanner/','assets/web-search/'))]
     assert len(bridges) == 2 and all('libjsapi_penchat_launcher' in n for n in bridges)
     bridge = (ROOT / 'native/prebuilt/arm64-rk3562/libjsapi_penchat_launcher.so').read_bytes()
     assert all(archive.read(n) == bridge for n in bridges)

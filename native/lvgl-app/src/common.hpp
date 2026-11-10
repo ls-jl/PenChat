@@ -41,11 +41,17 @@ class Events {
   std::mutex mutex_;
   std::deque<Event> queue_;
   bool latestStateOnly_ = false;
+  std::function<void(const Event &)> sink_;
 
 public:
+  explicit Events(std::function<void(const Event &)> sink) : sink_(std::move(sink)) {}
   explicit Events(bool latestStateOnly = false)
       : latestStateOnly_(latestStateOnly) {}
   void push(std::string type, Json data = Json::object()) {
+    if (sink_) {
+      sink_({std::move(type), std::move(data)});
+      return;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     if (latestStateOnly_ && type == "response_state")
       queue_.erase(std::remove_if(queue_.begin(), queue_.end(),
@@ -58,6 +64,10 @@ public:
   // Preview/progress producers keep one pending update per scan. Terminal
   // events use push(), preserving every stop, finish and error notification.
   void pushLatest(std::string type, Json data) {
+    if (sink_) {
+      sink_({std::move(type), std::move(data)});
+      return;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     for (auto &event : queue_)
       if (event.type == type &&

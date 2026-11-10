@@ -1,0 +1,33 @@
+--- a/src/browser.cpp
++++ b/src/browser.cpp
+@@ -887,7 +887,7 @@
+ std::string detail::page_view_json(const detail::PageView& view) {
+     const auto& page = view.page;
+     using detail::json_quote;
+-    std::ostringstream out;
++    std::ostringstream out(std::ios_base::out);
+     out.imbue(std::locale::classic());
+     out << "{\"schema_version\":1,\"page_id\":" << page.id
+         << ",\"status\":" << json_quote(page.status) << ",\"message\":" << json_quote(page.message)
+--- a/src/snapshot.cpp
++++ b/src/snapshot.cpp
+@@ -65,7 +65,7 @@
+         value ^= static_cast<unsigned char>(data[i]);
+         value *= UINT64_C(1099511628211);
+     }
+-    std::ostringstream out;
++    std::ostringstream out(std::ios_base::out);
+     out << std::hex << std::setw(16) << std::setfill('0') << value;
+     return out.str();
+ }
+--- a/src/json.cpp
++++ b/src/json.cpp
+@@ -42,7 +42,7 @@
+ 
+ std::string to_json(const Response& response) {
+     using detail::json_quote;
+-    std::ostringstream out;
++    std::ostringstream out(std::ios_base::out);
+     out.imbue(std::locale::classic());
+     out << "{\"schema_version\":1,\"query\":" << json_quote(response.query)
+         << ",\"status\":" << json_quote(response.status)

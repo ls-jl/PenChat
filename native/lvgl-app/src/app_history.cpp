@@ -1,6 +1,7 @@
 #include "app.hpp"
-#include "titles.hpp"
 #include "chat_time.hpp"
+#include "titles.hpp"
+#include "tools.hpp"
 #include <algorithm>
 namespace penchat {
 int App::titleWidth() const {
@@ -165,6 +166,7 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
           stopNetwork();
           session_ = id;
           sessionPreferences_ = db_.sessionPreferences(id);
+          sessionPreferences_["web_enabled"] = webEnabled(sessionPreferences_, db_.settings());
           expandedReasoning_.clear();
           reasoningOverrides_.clear();
           tableScrolls_.clear();
