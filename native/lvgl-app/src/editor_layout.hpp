@@ -37,7 +37,7 @@ struct EditorLayout {
     if(swapped) {keyInset=w-split;textX=8;}
     if(compactFull) {
       split=keySpan=w;keyInset=0;
-      textX=100;textWidth=std::max(1,w-textX-60);
+      textX=100;textWidth=std::max(1,w-textX-52);
       textY=candidateY=compositionY=actionsY=0;textHeight=44;
       keyTop=48;bottomY=h-48;bottomHeight=44;
       rowHeight=std::max(1,(bottomY-keyTop-18)/3);

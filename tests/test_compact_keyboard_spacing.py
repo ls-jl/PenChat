@@ -17,7 +17,9 @@ for width,height in [(640,260),(720,280)]:
             b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
             t.wait_for(lambda:e()['active'] and bool(e()['keys']))
             a.receive('ocr.start');time.sleep(.1)
-            initial=e();assert initial['actions']['compact-view'][0]-initial['text_bounds'][2]-1==12
+            initial=e();assert initial['actions']['compact-view'][0]-initial['text_bounds'][2]-1==4
+            assert initial['actions']['tools'][0]-initial['actions']['cancel'][2]-1==4
+            assert initial['text_bounds'][0]-initial['actions']['tools'][2]-1==4
             capture(a,OUT/f'{width}-spacing-empty.png')
             builds=e()['build_count'];lengths=[]
             for letter in 'nihao':
@@ -26,7 +28,7 @@ for width,height in [(640,260),(720,280)]:
                 lengths.append(p[2]-p[0]+1)
                 assert c[0]-p[2]-1==8
                 assert c[2]==state['text_bounds'][2]
-                assert state['actions']['compact-view'][0]-c[2]-1==12
+                assert state['actions']['compact-view'][0]-c[2]-1==4
                 assert c[2]-c[0]+1==state['text_bounds'][2]-state['text_bounds'][0]+1-lengths[-1]-8
                 # The first key adopts the newly registered OCR status. Once
                 # that lifecycle paint settles, changing preedit width is local.
@@ -45,4 +47,4 @@ for width,height in [(640,260),(720,280)]:
             a.editor_action('cancel')
             assert not a.read_messages()
         finally:a.close()
-print('COMPACT_PREEDIT_GROWS_SHRINKS_CANDIDATES_FILL_REMAINDER_AND_12PX_CONTROL_GAP_OK')
+print('COMPACT_PREEDIT_GROWS_SHRINKS_CANDIDATES_FILL_REMAINDER_AND_4PX_CONTROL_GAP_OK')

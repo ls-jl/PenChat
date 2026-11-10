@@ -25,7 +25,7 @@ int main() {
     const EditorLayout full(size.first,size.second);
     assert(full.compactFull&&!full.scaled&&full.keySpan==size.first);
     assert(full.textHeight==44&&full.rowHeight>=44&&full.keyWidth>=44);
-    assert(size.first-48-full.textRight()==12);
+    assert(size.first-48-full.textRight()==4);
     assert(full.compactPreeditWidth(10)<full.compactPreeditWidth(40));
     assert(full.compactPreeditWidth(400)<=144);
     for(auto a:full.actions())assert(a.x>=0&&a.x+a.width<=full.width&&a.y+44<=full.height);
