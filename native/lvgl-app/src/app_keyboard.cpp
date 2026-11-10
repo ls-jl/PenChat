@@ -290,6 +290,8 @@ void App::editorBuild() {
   if(!editorSelectionOnly_) {
   if(layout.compactFull) {
     editorPreeditViewport_=box(editorRoot_,layout.textX,0,layout.textWidth,44,theme::background);
+    lv_obj_set_style_radius(editorPreeditViewport_,8,0);
+    lv_obj_set_style_clip_corner(editorPreeditViewport_,true,0);
     lv_obj_set_scroll_dir(editorPreeditViewport_,LV_DIR_HOR);lv_obj_set_scrollbar_mode(editorPreeditViewport_,LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_scroll_elastic(editorPreeditViewport_,false);
     editorPreeditLabel_=label(editorPreeditViewport_,editorCompositionText(),2,11,LV_SIZE_CONTENT,16,theme::muted);
@@ -459,7 +461,7 @@ void App::editorRefreshCompactBar() {
   const auto geometry=editorLayout();
   if(!geometry.compactFull||!editorExpand_)return;
   const bool composing=editorCompactComposition();
-  if(editorCompactBar_)lv_obj_set_style_bg_color(editorCompactBar_,lv_color_hex(composing?theme::background:theme::surface),0);
+  if(editorCompactBar_)lv_obj_set_style_bg_opa(editorCompactBar_,composing?LV_OPA_TRANSP:LV_OPA_COVER,0);
   if(editorText_) {
     lv_obj_set_hidden(editorText_,composing);
     const auto placeholder=!editor_.notice.empty()?editor_.notice:editorOcrBusy_?std::string("正在识别…"):editor_.placeholder;
