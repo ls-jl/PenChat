@@ -269,11 +269,11 @@ void App::readReset() {
     }
   readActive_ = 0;
   readGesture_.cancel();
-  readPreview_ = readMenuPointer_ = readMenuWanted_ = false;
+  readPreview_ = readMenuPointer_ = readMenuWanted_ = readScrollPassthrough_ = false;
   readHandle_ = -1;
   readLinkDue_ = 0;
   readLink_.clear();
-  readLinkRegion_ = 0;
+  readLinkRegion_ = readScrollRegion_ = 0;
   readSelection_ = EditorState{};
   if (readOverlay_)
     lv_obj_delete(readOverlay_);
@@ -453,11 +453,18 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
   if (cancelled) {
     if (!readGesture_.active() && !readMenuPointer_)
       return false;
+    if (auto saved = readRegion(readSavedRegion_)) {
+      if (saved->id != readActive_) {
+        readReset();
+        readActive_ = saved->id;
+        readSelection_.text = saved->text;
+      }
+    }
     readSelection_.cursor = readSavedCursor_;
     readSelection_.anchor = readSavedAnchor_;
     readSelection_.all = readSavedAll_;
     readGesture_.cancel();
-    readMenuPointer_ = false;
+    readMenuPointer_ = readScrollPassthrough_ = false;
     readLinkDue_ = 0;
     input_.cancel();
     if (readSelection_.selected())
@@ -478,6 +485,7 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
     lv_area_t area;
     lv_obj_get_coords(readMenu_, &area);
     if (contains(area, x, y)) {
+      readSavedRegion_ = readActive_;
       readSavedCursor_ = readSelection_.cursor;
       readSavedAnchor_ = readSelection_.anchor;
       readSavedAll_ = readSelection_.all;
@@ -530,8 +538,19 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
             break;
           }
         }
-    if (!hit) {
-      if (readActive_)
+    if (!hit || (hit->id != readActive_ && readSelection_.selected())) {
+      if (readActive_ && readSelection_.selected()) {
+        // Let blank space and business controls keep their normal pointer path.
+        // Defer deselection until this is known to be a tap, rather than a scroll.
+        readSavedRegion_ = readActive_;
+        readScrollRegion_ = hit ? hit->id : 0;
+        readSavedCursor_ = readSelection_.cursor;
+        readSavedAnchor_ = readSelection_.anchor;
+        readSavedAll_ = readSelection_.all;
+        readGesture_.begin(x, y, ticks(), false);
+        readScrollPassthrough_ = true;
+        readDraw(false);
+      } else if (readActive_)
         readReset();
       return false;
     }
@@ -540,6 +559,7 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
       readActive_ = hit->id;
       readSelection_.text = hit->text;
     }
+    readSavedRegion_ = readActive_;
     readSavedCursor_ = readSelection_.cursor;
     readSavedAnchor_ = readSelection_.anchor;
     readSavedAll_ = readSelection_.all;
@@ -560,21 +580,36 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
     readReset();
     return true;
   }
+  if (readScrollPassthrough_) {
+    readGesture_.lastX = x;
+    readGesture_.lastY = y;
+    readGesture_.distance = std::max(readGesture_.distance,
+        std::max(std::abs(x - readGesture_.x), std::abs(y - readGesture_.y)));
+    if (readGesture_.distance > 12) readGesture_.mode = TextGesture::Scroll;
+    if (!down) {
+      const bool scrolled = readGesture_.mode == TextGesture::Scroll;
+      const bool cancelLink = readScrollRegion_ && !scrolled;
+      readGesture_.cancel();
+      readScrollPassthrough_ = false;
+      readScrollRegion_ = 0;
+      if (scrolled) readDraw(false); else readReset();
+      if (cancelLink) { input_.cancel(); return true; }
+    }
+    return false;
+  }
   readGesture_.move(x, y, ticks());
   if (readGesture_.mode == TextGesture::Scroll) {
     if (!readPreview_) {
-      readSelection_.position(readSelection_.cursor);
-      if (readOverlay_) {
-        readDraw(false);
-        lv_obj_set_hidden(readOverlay_, true);
-      }
+      if (readOverlay_) readDraw(false);
       input_.touch(readGesture_.x, readGesture_.y, true);
       if (view_ == "chat")
         chatTouch(readGesture_.x, readGesture_.y, true);
       readPreview_ = true;
     }
-    if (!down)
-      readReset();
+    if (!down) {
+      readGesture_.cancel();
+      if (readSelection_.selected()) readDraw(false); else readReset();
+    }
     return false;
   }
   if ((readGesture_.mode == TextGesture::Held || readGesture_.mode == TextGesture::Range) &&
@@ -639,7 +674,17 @@ void App::readTick() {
     readReset();
     return;
   }
-  if (readGesture_.hold(ticks()) && region)
+  if (readScrollPassthrough_ && readScrollRegion_ && readGesture_.hold(ticks())) {
+    if (auto target = readRegion(readScrollRegion_)) {
+      const auto gesture = readGesture_;
+      readReset();
+      readActive_ = target->id;
+      readSelection_.text = target->text;
+      readGesture_ = gesture;
+      region = target;
+      readWord(*region, gesture.x, gesture.y);
+    }
+  } else if (!readScrollPassthrough_ && readGesture_.hold(ticks()) && region)
     readWord(*region, readGesture_.x, readGesture_.y);
   if (region && readSelection_.selected()) {
     if ((readGesture_.mode == TextGesture::Range || readGesture_.mode == TextGesture::Handle) &&

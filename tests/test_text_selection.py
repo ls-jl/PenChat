@@ -107,6 +107,9 @@ def run(width,height):
             app.long_press(tx,ty,.52)
             assert editor(app)['selected'] and editor(app)['menu'] and not editor(app)['keys'],editor(app)
             screenshot(app,str(width)+'-selection-page')
+            before=(editor(app)['selection_start'],editor(app)['selection_end'])
+            press(app,tx+150,ty);press(app,tx+150,ty+25);press(app,tx+150,ty+25,False)
+            assert (editor(app)['selection_start'],editor(app)['selection_end'])==before,editor(app)
             app.editor_action('cancel');ui.wait_for(lambda:not editor(app)['active'])
             # Editable fields now use the same word gesture with the full menu.
             c=app.diag()['composer_bounds'];bounds_tap(app,c);ui.wait_for(lambda:editor(app)['active'])
@@ -120,6 +123,9 @@ def run(width,height):
             assert editor(app)['selected'] and editor(app)['menu'] and not editor(app)['undo_menu'],editor(app)
             assert all(k in editor(app)['actions'] for k in ['all','copy','paste','cut','undo'])
             screenshot(app,str(width)+'-editable-menu')
+            before=(editor(app)['selection_start'],editor(app)['selection_end'])
+            press(app,tx+150,ty);press(app,tx+150,ty+25);press(app,tx+150,ty+25,False)
+            assert (editor(app)['selection_start'],editor(app)['selection_end'])==before,editor(app)
             # Start away from the selection handles, which intentionally win hit tests.
             app.tap(tx+120,ty);press(app,tx+120,ty);time.sleep(.5);press(app,tx+165,ty);time.sleep(.08)
             assert editor(app)['cursor_drag'] and editor(app)['magnifier'],editor(app)

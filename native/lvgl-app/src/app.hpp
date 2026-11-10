@@ -506,12 +506,12 @@ class App {
     std::vector<ReadPart> parts;
   };
   std::map<lv_obj_t *,ReadRegion> readRegions_;
-  uint64_t readSerial_=0, readActive_=0, readLinkRegion_=0;
+  uint64_t readSerial_=0, readActive_=0, readLinkRegion_=0,readScrollRegion_=0,readSavedRegion_=0;
   EditorState readSelection_;
   TextGesture readGesture_;
   size_t readSavedCursor_=0,readSavedAnchor_=0,readWordStart_=0,readWordEnd_=0;
   bool readSavedAll_=false,readPreview_=false,readHadSelection_=false,readMenuPointer_=false;
-  bool readDown_=false,readSuppressed_=false,readMenuWanted_=false;
+  bool readDown_=false,readSuppressed_=false,readMenuWanted_=false,readScrollPassthrough_=false;
   int readHandle_=-1;
   lv_point_t readMenuAnchor_{};
   lv_obj_t *readOverlay_=nullptr,*readMenu_=nullptr,*readHandles_[2]={nullptr,nullptr};
