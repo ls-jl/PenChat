@@ -21,6 +21,14 @@ for width,height in [(640,260),(720,280)]:
             assert initial['actions']['tools'][0]-initial['actions']['cancel'][2]-1==4
             assert initial['text_bounds'][0]-initial['actions']['tools'][2]-1==4
             capture(a,OUT/f'{width}-spacing-empty.png')
+            key('shift');assert e()['shift']==1
+            capture(a,OUT/f'{width}-shift-active.png')
+            for _ in range(2):
+                if e()['shift']:key('shift')
+            assert e()['shift']==0
+            key('shift');key('shift');assert e()['shift']==2
+            capture(a,OUT/f'{width}-shift-locked.png')
+            key('shift');assert e()['shift']==0
             builds=e()['build_count'];lengths=[]
             for letter in 'nihao':
                 key(letter);time.sleep(.06)

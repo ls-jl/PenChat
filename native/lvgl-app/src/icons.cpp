@@ -315,7 +315,16 @@ void paint(lv_event_t *event) {
     line(10, -6, 2, 2);
     line(2, 2, -2, 3);
     line(5, -7, 8, -4);
-  } else if (k == "shift" || k == "shift-lock") {
+  } else if (k == "shift" || k == "shift-lock" || k == "shift-filled" || k == "shift-lock-filled") {
+    if(k=="shift-filled"||k=="shift-lock-filled") {
+      lv_draw_triangle_dsc_t fill;lv_draw_triangle_dsc_init(&fill);
+      fill.color=ink;fill.opa=opacity;
+      fill.p[0]={int32_t(std::lround(cx-9*scale)),int32_t(std::lround(cy))};
+      fill.p[1]={int32_t(std::lround(cx)),int32_t(std::lround(cy-9*scale))};
+      fill.p[2]={int32_t(std::lround(cx+9*scale)),int32_t(std::lround(cy))};
+      lv_draw_triangle(layer,&fill);
+      rect(-4,-1,8,7,0,true);
+    }
     line(-9, 0, 0, -9);
     line(0, -9, 9, 0);
     line(9, 0, 4, 0);
@@ -323,7 +332,7 @@ void paint(lv_event_t *event) {
     line(4, 6, -4, 6);
     line(-4, 6, -4, 0);
     line(-4, 0, -9, 0);
-    if (k == "shift-lock")
+    if (k == "shift-lock" || k == "shift-lock-filled")
       line(-4, 10, 4, 10);
   } else if (k == "delete") {
     line(-10, 0, -4, -7);

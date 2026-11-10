@@ -11,6 +11,9 @@ constexpr uint64_t layoutHoldMs=500;
 constexpr lv_opa_t compactKeyOpacity=LV_OPA_60;
 // Keys are 40% transparent; the header is twice as transparent (80%).
 constexpr lv_opa_t compactHeaderOpacity=LV_OPA_20;
+uint32_t keyboardKeyBackground(const std::string &key,int shift,bool compact) {
+  return key=="shift"&&shift&&!compact?theme::text:theme::surface;
+}
 int keyboardClusterWidth(lv_obj_t *label,size_t first,size_t last) {
   const char *text=lv_label_get_text(label),*begin=text,*end=text;
   for(size_t index=0;*end&&index<last;++index) {
@@ -152,16 +155,16 @@ void App::editorBuild() {
   };
   auto key = [&](std::string title,std::string value,int x,int y,int w,int h) {
     x+=layout.keyInset;
-    auto b=box(editorRoot_,x,y,w,h,theme::surface); lv_obj_set_scrollable(b,false);
+    auto b=box(editorRoot_,x,y,w,h,keyboardKeyBackground(value,editor_.shift,layout.compact)); lv_obj_set_scrollable(b,false);
     if(layout.compact)lv_obj_set_style_bg_opa(b,compactKeyOpacity,0);
     lv_obj_set_style_radius(b,9,0);
-    if (value=="shift" && editor_.shift)
-      lv_obj_set_style_bg_color(b,lv_color_hex(theme::text),0);
     if (editorPointer_ && editorHeld_>=0 && !editorSlid_ && x==editorPress_.x && y==editorPress_.y && value==editorPress_.value)
       lv_obj_set_style_bg_color(b,lv_color_hex(theme::border),0);
     if (value == "shift" || value == "delete" || value == "enter") {
-      attachIcon(b, value == "shift" && editor_.shift == 2 ? "shift-lock" : value,
-                 value == "shift" && editor_.shift ? theme::background : theme::text);
+      const bool filled=value=="shift"&&editor_.shift&&layout.compact;
+      const std::string symbol=filled?(editor_.shift==2?"shift-lock-filled":"shift-filled"):
+          value=="shift"&&editor_.shift==2?"shift-lock":value;
+      attachIcon(b,symbol,value=="shift"&&editor_.shift&&!filled?theme::background:theme::text);
     } else {
       auto l=label(b,title,0,0,w,23);
       lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0);
@@ -1371,7 +1374,7 @@ void App::editorOcrResult(const Json &m) {
 // each key; release order cannot reorder the sequence of intended key presses.
 void App::editorCancelKeys() {
   for(const auto &c:editorContacts_)
-    lv_obj_set_style_bg_color(c.key.object,lv_color_hex(c.key.value=="shift"&&editor_.shift?theme::text:theme::surface),0);
+    lv_obj_set_style_bg_color(c.key.object,lv_color_hex(keyboardKeyBackground(c.key.value,editor_.shift,editorLayout().compact)),0);
   editorContacts_.clear();
 }
 bool App::editorKeyTouch(const Json &m) {
@@ -1412,7 +1415,7 @@ bool App::editorKeyTouch(const Json &m) {
       if(x<b.x-12||x>=b.x+b.width+12||y<b.y-12||y>=b.y+b.height+12)c.slid=true;
     }
     if(c.slid||c.released)
-      lv_obj_set_style_bg_color(c.key.object,lv_color_hex(c.key.value=="shift"&&editor_.shift?theme::text:theme::surface),0);
+      lv_obj_set_style_bg_color(c.key.object,lv_color_hex(keyboardKeyBackground(c.key.value,editor_.shift,editorLayout().compact)),0);
   }
   for(const auto &p:points) {
     const auto id=p["id"].dump();
@@ -1507,7 +1510,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
     const auto k=editorPress_;
     if(x<k.hit.x-12||x>=k.hit.x+k.hit.width+12||y<k.hit.y-12||y>=k.hit.y+k.hit.height+12){editorSlid_=true;editorRepeat_=0;}
     if(!pressed) {
-      lv_obj_set_style_bg_color(k.object,lv_color_hex(k.value=="shift"&&editor_.shift?theme::text:theme::surface),0);
+      lv_obj_set_style_bg_color(k.object,lv_color_hex(keyboardKeyBackground(k.value,editor_.shift,layout.compact)),0);
       editorPointer_=false;editorHeld_=-1;editorRepeat_=0;
       if(!editorSlid_&&!editorRepeats_)events_.push("editor_action",{{"id",editor_.id},{"action",k.value}});else editorBuild();
     }
