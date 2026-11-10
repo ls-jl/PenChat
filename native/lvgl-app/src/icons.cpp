@@ -155,6 +155,10 @@ void paint(lv_event_t *event) {
     circle(0,0,10);
   } else if(k=="clipboard") {
     rect(-8,-8,16,18,2);rect(-4,-11,8,5,2);line(-4,0,4,0);line(-4,5,2,5);
+  } else if(k=="selection-start"||k=="selection-end") {
+    // Outward grips remain distinguishable when screen-safe hit boxes overlap.
+    const int side=k=="selection-start"?-1:1;
+    line(0,-10,0,0);line(0,0,side*3,3);circle(side*5,5,4);
   } else if(k=="selection-handle") {line(0,-10,0,0);circle(0,4,4);}
   else if(k=="eye"||k=="eye-off") {rect(-10,-6,20,12,LV_RADIUS_CIRCLE);circle(0,0,3);if(k=="eye-off")line(-10,10,10,-10);}
   else if (k == "menu") {

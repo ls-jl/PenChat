@@ -41,6 +41,7 @@ cmake --build build/host --target penchat-lvgl penchat-text-selection-tests -j2
 ctest --test-dir build/host -R '^penchat-text-selection$' --output-on-failure
 python3 tests/test_text_selection.py
 python3 tests/test_selection_scroll.py
+python3 tests/test_selection_handles.py
 ```
 
 实际 LVGL 用例使用隔离数据和本地流式服务，覆盖三类尺寸、双击／长按／拖动／取消、用户原菜单、独立选择页、菜单与复制差异、链接延迟、思考、归档、后台和流式选区快照。`PENCHAT_TEST_BINARY` 可指定其他主机构建。截图输出至 Git 忽略的 `.work/text-selection/`，不进入仓库。
@@ -59,3 +60,10 @@ python3 tests/test_selection_scroll.py
 ### 滚动保持选区补充
 
 滚动开始和松手均不再清除只读选区；在空白或其他阅读区域按下时延后判定点按，滚动保持原范围，明确长按新区域才切换选择。取消触摸恢复原区域及范围。补充的 `test_selection_scroll.py` 验证三类布局中真实滚动、空白边缘滑动、取消与点按；输入框和独立选择页也补充滚动保持范围断言。
+
+
+### 拖动手柄边界补充
+
+拖动端点与固定端点重合时保留一个完整字符／组合字符，继续越过固定端点仍可交换两端，不会因零长度选区而丢失手柄。富文本端点对空行、换行和排版省略的空白采用相邻字形锚点；编辑器与原生标签的选区末端在软换行处使用上一行末尾，不改变输入光标的原有位置规则。端点字形部分可见时手柄停在视口边缘，只有对应字形完全离开视口才隐藏。两端采用向外的握柄，安全区使触摸范围重叠时仍可区分左右；重叠范围按最近端点命中。
+
+本次定向检查：先在未修改的主机构建上复现拖到固定端点导致零长度选区、两个手柄同时消失；修正后通过原生边界用例、三类布局的只读／编辑拖动及代码块尾部空行用例、三类滚动保持用例，并复核一般选择、链接、思考、归档和流式行为。截图在 Git 忽略目录保存。完成两架构开发编译及包检查，不执行发布全套检查。

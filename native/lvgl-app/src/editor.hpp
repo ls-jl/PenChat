@@ -95,6 +95,15 @@ struct EditorState {
   bool selected() const { auto r=range();return r.first!=r.second; }
   void position(size_t index) { cursor=editBoundary(text,index);anchor=cursor;all=false; }
   void select(size_t start,size_t end) { all=false;anchor=editBoundary(text,start);cursor=editBoundary(text,end,true); }
+  void extendSelection(size_t fixed, size_t moving) {
+    const size_t length=editLength(text);
+    fixed=std::min(fixed,length);moving=std::min(moving,length);
+    if(fixed==moving&&length) {
+      if(range().first<fixed||fixed==length)moving=editBoundary(text,fixed-1);
+      else moving=editBoundary(text,fixed+1,true);
+    }
+    select(fixed,moving);
+  }
   std::string selection() const { auto r=range();auto a=editByte(text,r.first);return text.substr(a,editByte(text,r.second)-a); }
   size_t retained() const { auto r=range();return editLength(text)-(r.second-r.first); }
   void remember() { if(undo.size()==20) undo.erase(undo.begin());undo.push_back({text,preedit,fixed,chainWord,chainPinyin,parked,cursor,anchor,all,layout,chainPieces}); }

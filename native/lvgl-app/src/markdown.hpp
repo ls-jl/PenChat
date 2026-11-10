@@ -42,6 +42,16 @@ struct RichLayout {
   std::vector<Hit> links;
   struct TextHit { int x, y, w, h; size_t begin, end; bool atomic; };
   std::vector<TextHit> textHits;
+  const TextHit *selectionEndpoint(size_t byte, bool end) const {
+    if (textHits.empty()) return nullptr;
+    if (end) {
+      for (auto i=textHits.rbegin(); i!=textHits.rend(); ++i)
+        if (i->begin<byte) return &*i;
+      return &textHits.front();
+    }
+    for (const auto &hit:textHits) if (hit.end>byte) return &hit;
+    return &textHits.back();
+  }
 };
 std::string blockPlainText(const Block &block);
 class RichText {

@@ -631,7 +631,7 @@ class App {
   void editorScroll(int y);
   size_t editorPositionAt(int x,int y);
   lv_point_t editorCaretPosition(size_t index) const;
-  lv_point_t editorPoint(size_t index) const;
+  lv_point_t editorPoint(size_t index,int selectionAffinity=0) const;
   void editorBindCaret();
   void editorSyncCaret();
   void editorDrawCaret(lv_event_t *event);

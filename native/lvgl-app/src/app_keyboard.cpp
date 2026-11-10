@@ -1,5 +1,6 @@
 #include "app.hpp"
 #include "icons.hpp"
+#include "text_selection_geometry.hpp"
 #include "editor_layout.hpp"
 #include "chat_text.hpp"
 #include <cctype>
@@ -286,7 +287,7 @@ void App::editorBuild() {
     lv_obj_set_scrollable(editorHandles_[i],false);
     lv_obj_set_style_bg_opa(editorHandles_[i],LV_OPA_TRANSP,0);
     lv_obj_set_clickable(editorHandles_[i],false);
-    attachIcon(editorHandles_[i],"selection-handle",theme::link);
+    attachIcon(editorHandles_[i],i?"selection-end":"selection-start",theme::link);
   }
   if(editorMenu_) {
     const auto popup=layout.selectionPopup(editorMenuAnchor_.x,editorMenuAnchor_.y,editorSelectionOnly_);
@@ -876,13 +877,14 @@ lv_point_t App::editorCaretPosition(size_t index) const {
   point.x+=keyboardClusterWidth(text,previous,index);
   return point;
 }
-lv_point_t App::editorPoint(size_t index) const {
+lv_point_t App::editorPoint(size_t index,int selectionAffinity) const {
   auto point=editorCaretPosition(index);
   if(!editorText_)return point;
   auto text=lv_textarea_get_label(editorText_);lv_area_t area;lv_obj_get_coords(text,&area);
+  if(selectionAffinity)point=selectionLabelBoundary(text,editor_.text,index,selectionAffinity>0);
   point.x+=area.x1;
   point.y+=area.y1+lv_obj_get_style_text_font(text,LV_PART_MAIN)->line_height+8;
-  if(index==editorUpstream_) {
+  if(!selectionAffinity&&index==editorUpstream_) {
     const auto bounds=editorTextArea();
     if(bounds.width)point.x=std::max(bounds.x,std::min(bounds.x+bounds.width-1,int(point.x)));
   }
@@ -1009,7 +1011,7 @@ void App::editorSyncText(bool text) {
   editorSyncCaret();
   if(editorCursorDrag_||editorHandle_>=0)editorScroll(scroll);
   for(int i=0;i<2;++i)if(editorHandles_[i]) {
-    auto point=editorPoint(i?r.second:r.first);
+    auto point=editorPoint(i?r.second:r.first,i?1:-1);
     const int lineBottom=point.y-8;
     const auto area=editorTextArea();
     const bool lineVisible=lineBottom>area.y&&lineBottom-font(20)->line_height<area.y+area.height;
@@ -1192,7 +1194,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
       for(int i=0;i<2;++i) {
         if(!editorHandles_[i]||lv_obj_is_hidden(editorHandles_[i]))continue;
         lv_area_t a;lv_obj_get_coords(editorHandles_[i],&a);int dx=x-(a.x1+a.x2)/2,dy=y-(a.y1+a.y2)/2;
-        if(x>=a.x1&&x<=a.x2&&y>=a.y1&&y<=a.y2&&dx*dx+dy*dy<distance) {distance=dx*dx+dy*dy;editorHandle_=i;}
+        if(x>=a.x1&&x<=a.x2&&y>=a.y1&&y<=a.y2&&(dx*dx+dy*dy<distance||(dx*dx+dy*dy==distance&&i&&dx>=0))) {distance=dx*dx+dy*dy;editorHandle_=i;}
       }
       if(editorHandle_>=0)editorDragAnchor_=editorHandle_?r.first:r.second;
     }
@@ -1216,9 +1218,9 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
     const auto mode=editorTextGesture_.mode;
     if((mode==TextGesture::Held||mode==TextGesture::Caret||mode==TextGesture::Range)&&!editorWordPreview_)editorWordPreview();
     if(pressed) {
-      if(mode==TextGesture::Handle) {editor_.select(editorDragAnchor_,editorPositionAt(x,y-16));editorSyncText();editorTextMoved_=true;}
+      if(mode==TextGesture::Handle) {editor_.extendSelection(editorDragAnchor_,editorPositionAt(x,y-16));editorSyncText();editorTextMoved_=true;}
       else if(mode==TextGesture::Caret) {editorCursorDrag_=true;editor_.position(editorPositionAt(x,y));editorSyncText();editorTextMoved_=true;}
-      else if(mode==TextGesture::Range) {const auto at=editorPositionAt(x,y);editorRangeDrag_=true;editorDragAnchor_=at<editorWordStart_?editorWordEnd_:editorWordStart_;editor_.select(editorDragAnchor_,at);editorSyncText();editorTextMoved_=true;}
+      else if(mode==TextGesture::Range) {const auto at=editorPositionAt(x,y);editorRangeDrag_=true;editorDragAnchor_=at<editorWordStart_?editorWordEnd_:editorWordStart_;editor_.extendSelection(editorDragAnchor_,at);editorSyncText();editorTextMoved_=true;}
       else if(mode==TextGesture::Scroll) {editorScroll(editorTextScroll_+editorStartY_-y);editorTextMoved_=true;}
     }
     if(!pressed) {
@@ -1306,7 +1308,7 @@ void App::editorTick() {
     const int before=lv_obj_get_scroll_y(editorText_);
     if(!boundary)editorScroll(before+(up?-scrollStep:scrollStep));
     if(lv_obj_get_scroll_y(editorText_)!=before) {
-      if(editorHandle_>=0||editorRangeDrag_)editor_.select(editorDragAnchor_,editorPositionAt(editorTouchX_,editorTouchY_-(editorHandle_>=0?16:0)));else editor_.position(editorPositionAt(editorTouchX_,editorTouchY_));
+      if(editorHandle_>=0||editorRangeDrag_)editor_.extendSelection(editorDragAnchor_,editorPositionAt(editorTouchX_,editorTouchY_-(editorHandle_>=0?16:0)));else editor_.position(editorPositionAt(editorTouchX_,editorTouchY_));
       editorSyncText();
     }
   }
@@ -1372,7 +1374,7 @@ Json App::editorDiagnostic() const {
   Json handles=Json::array();
   const auto range=editor_.range();
   for(int i=0;i<2;++i)if(editorHandles_[i]&&!lv_obj_is_hidden(editorHandles_[i])) {
-    lv_area_t a;lv_obj_get_coords(editorHandles_[i],&a);const auto anchor=editorPoint(i?range.second:range.first);
+    lv_area_t a;lv_obj_get_coords(editorHandles_[i],&a);const auto anchor=editorPoint(i?range.second:range.first,i?1:-1);
     handles.push_back({{"endpoint",i},{"x",(a.x1+a.x2)/2},{"y",(a.y1+a.y2)/2},{"anchor",{anchor.x,anchor.y}},{"bounds",{a.x1,a.y1,a.x2,a.y2}}});
   }
   Json layoutPopup=Json::array();

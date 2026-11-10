@@ -55,6 +55,20 @@ int main(int argc, char **argv) {
     const auto bubble = l.magnifierPopup(20, 100, 10, 34);
     assert(bubble.width == 180 && bubble.x >= 0 && bubble.x + bubble.width <= l.width);
   }
+  e.text = "abc";
+  e.select(0, 3);
+  e.extendSelection(0, 0);
+  assert(e.selection() == "a");
+  e.extendSelection(3, 3);
+  assert(e.selection() == "c");
+  e.extendSelection(2, 0);
+  assert(e.selection() == "ab");
+  e.extendSelection(2, 3);
+  assert(e.selection() == "c");
+  e.text = u8"👩‍💻B";
+  e.select(0, 3);
+  e.extendSelection(0, 0);
+  assert(e.selection() == u8"👩‍💻");
   EditorClipboard c;
   assert(c.copy("one"));
   assert(c.copy("secret", true));
@@ -84,5 +98,13 @@ int main(int argc, char **argv) {
     }
   }
   assert(atomic && table);
+  const auto code = parseMarkdown("```text\nAlpha\nbeta\n\n```");
+  const auto layout = rich.layout(code.blocks.front(), 100, 21, true);
+  const auto text = blockPlainText(code.blocks.front());
+  assert(text.back() == '\n');
+  assert(layout.selectionEndpoint(text.size(), true));
+  assert(layout.selectionEndpoint(text.size(), true)->end < text.size());
+  assert(layout.selectionEndpoint(6, false)->begin == 6);
+
   std::cout << "Text gestures, grapheme selection, clipboard and rich-text mapping passed\n";
 }

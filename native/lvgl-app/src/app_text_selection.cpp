@@ -1,5 +1,6 @@
 #include "app.hpp"
 #include "icons.hpp"
+#include "text_selection_geometry.hpp"
 #include <algorithm>
 #include <limits>
 namespace penchat {
@@ -306,7 +307,7 @@ void App::readDraw(bool menu) {
       lv_obj_set_style_bg_opa(readHandles_[i], LV_OPA_TRANSP, 0);
       lv_obj_set_clickable(readHandles_[i], false);
       lv_obj_set_scrollable(readHandles_[i], false);
-      attachIcon(readHandles_[i], "selection-handle", theme::link);
+      attachIcon(readHandles_[i], i ? "selection-end" : "selection-start", theme::link);
     }
     readMenu_ = box(readOverlay_, 0, 0, 188, 52, theme::sidebar);
     lv_obj_set_style_radius(readMenu_, 10, 0);
@@ -330,6 +331,16 @@ void App::readDraw(bool menu) {
   std::vector<lv_area_t> marks;
   lv_point_t endpoints[2]{};
   bool found[2] = {false, false};
+  const ReadPart *endpointParts[2] = {nullptr, nullptr};
+  for (const auto &part : region->parts) {
+    const auto length = part.rich ? part.length : editLength(part.text);
+    if (!length)
+      continue;
+    if (!endpointParts[0] && range.first < part.begin + length)
+      endpointParts[0] = &part;
+    if (range.second > part.begin)
+      endpointParts[1] = &part;
+  }
   for (auto &part : region->parts) {
     const auto length = part.rich ? part.length : editLength(part.text),
                finish = part.begin + length;
@@ -356,17 +367,15 @@ void App::readDraw(bool menu) {
                                                        ? std::min(range.second, finish) - part.begin
                                                        : LV_LABEL_TEXT_SELECTION_OFF);
       for (int i = 0; i < 2; ++i) {
-        const auto at = i ? range.second : range.first;
-        if (at < part.begin || at > finish)
+        if (endpointParts[i] != &part)
           continue;
-        lv_point_t p;
-        lv_label_get_letter_pos(part.object, at - part.begin, &p);
-        p.x += area.x1;
-        p.y += area.y1 + lv_obj_get_style_text_font(part.object, LV_PART_MAIN)->line_height;
-        if (contains(clip, p.x, p.y - 1)) {
-          endpoints[i] = p;
-          found[i] = true;
-        }
+        const auto at = i ? range.second : range.first;
+        const auto local = at <= part.begin ? 0 : std::min(at - part.begin, length);
+        const auto relative = selectionLabelBoundary(part.object, part.text, local, i);
+        const int x = area.x1 + relative.x, y = area.y1 + relative.y;
+        const int h = lv_obj_get_style_text_font(part.object, LV_PART_MAIN)->line_height;
+        const lv_area_t glyph{x - (i ? 1 : 0), y, x + (i ? 0 : 1), y + h - 1};
+        found[i] = selectionVisibleAnchor(clip, glyph, i, endpoints[i]);
       }
       continue;
     }
@@ -390,16 +399,19 @@ void App::readDraw(bool menu) {
             marks.push_back(rect);
         }
       }
-      for (int i = 0; i < 2; ++i) {
-        const auto at = i ? range.second : range.first;
-        if ((!i && at >= begin && at < end) || (i && at > begin && at <= end)) {
-          lv_point_t p{ox + hit.x + (i ? hit.w : 0), oy + hit.y + hit.h};
-          if (contains(clip, p.x, p.y - 1) && (i || !found[i])) {
-            endpoints[i] = p;
-            found[i] = true;
-          }
-        }
-      }
+    }
+    for (int i = 0; i < 2; ++i) {
+      if (endpointParts[i] != &part || part.scalarBytes.empty())
+        continue;
+      const auto at = i ? range.second : range.first;
+      const auto local =
+          at <= part.begin ? 0 : std::min(at - part.begin, part.scalarBytes.size() - 1);
+      const auto hit = part.hits.selectionEndpoint(part.scalarBytes[local], i);
+      if (!hit)
+        continue;
+      const lv_area_t glyph{ox + hit->x, oy + hit->y, ox + hit->x + hit->w - 1,
+                            oy + hit->y + hit->h - 1};
+      found[i] = selectionVisibleAnchor(clip, glyph, i, endpoints[i]);
     }
   }
   while (readMarks_.size() < marks.size()) {
@@ -527,15 +539,19 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
           hit = &region;
     }
     readHandle_ = -1;
+    int handleDistance = std::numeric_limits<int>::max();
     if (readActive_ && readSelection_.selected())
       for (int i = 0; i < 2; ++i)
         if (readHandles_[i] && !lv_obj_is_hidden(readHandles_[i])) {
           lv_area_t a;
           lv_obj_get_coords(readHandles_[i], &a);
-          if (contains(a, x, y)) {
+          const int dx = x - (a.x1 + a.x2) / 2, dy = y - (a.y1 + a.y2) / 2;
+          const int distance = dx * dx + dy * dy;
+          if (contains(a, x, y) &&
+              (distance < handleDistance || (distance == handleDistance && i && dx >= 0))) {
+            handleDistance = distance;
             readHandle_ = i;
             hit = readRegion(readActive_);
-            break;
           }
         }
     if (!hit || (hit->id != readActive_ && readSelection_.selected())) {
@@ -583,24 +599,32 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
   if (readScrollPassthrough_) {
     readGesture_.lastX = x;
     readGesture_.lastY = y;
-    readGesture_.distance = std::max(readGesture_.distance,
-        std::max(std::abs(x - readGesture_.x), std::abs(y - readGesture_.y)));
-    if (readGesture_.distance > 12) readGesture_.mode = TextGesture::Scroll;
+    readGesture_.distance = std::max(readGesture_.distance, std::max(std::abs(x - readGesture_.x),
+                                                                     std::abs(y - readGesture_.y)));
+    if (readGesture_.distance > 12)
+      readGesture_.mode = TextGesture::Scroll;
     if (!down) {
       const bool scrolled = readGesture_.mode == TextGesture::Scroll;
       const bool cancelLink = readScrollRegion_ && !scrolled;
       readGesture_.cancel();
       readScrollPassthrough_ = false;
       readScrollRegion_ = 0;
-      if (scrolled) readDraw(false); else readReset();
-      if (cancelLink) { input_.cancel(); return true; }
+      if (scrolled)
+        readDraw(false);
+      else
+        readReset();
+      if (cancelLink) {
+        input_.cancel();
+        return true;
+      }
     }
     return false;
   }
   readGesture_.move(x, y, ticks());
   if (readGesture_.mode == TextGesture::Scroll) {
     if (!readPreview_) {
-      if (readOverlay_) readDraw(false);
+      if (readOverlay_)
+        readDraw(false);
       input_.touch(readGesture_.x, readGesture_.y, true);
       if (view_ == "chat")
         chatTouch(readGesture_.x, readGesture_.y, true);
@@ -608,7 +632,10 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
     }
     if (!down) {
       readGesture_.cancel();
-      if (readSelection_.selected()) readDraw(false); else readReset();
+      if (readSelection_.selected())
+        readDraw(false);
+      else
+        readReset();
     }
     return false;
   }
@@ -623,7 +650,7 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
                             : (at < readWordStart_ ? readWordEnd_ : readWordStart_);
     if (atom.second > atom.first)
       at = at < anchor ? atom.first : atom.second;
-    readSelection_.select(anchor, at);
+    readSelection_.extendSelection(anchor, at);
     readDraw(false);
   }
   if (!down) {
@@ -706,7 +733,7 @@ void App::readTick() {
                 const auto anchor = readGesture_.mode == TextGesture::Handle
                                         ? readWordStart_
                                         : (pos < readWordStart_ ? readWordEnd_ : readWordStart_);
-                readSelection_.select(anchor, pos);
+                readSelection_.extendSelection(anchor, pos);
               }
             }
             break;
