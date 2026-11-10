@@ -49,9 +49,13 @@
     "tools/prepare_impersonate_source.py": "a030adc14717e42483e62773b6fb9c16cfab3ddc12d0317f591a57242272a3fd"
   },
   "integration_sha256": {
-    "worker.cpp": "0eae7b2fb5d1c034faf245105b8e2647627e17f0ec13ffc82e0879f7e1ae9878",
+    "worker.cpp": "2ef492471f9858b856d391c07dea250f9452449369f72e93e9b8574c6d9b93e9",
     "sdk_runtime.cpp": "7ba9ad1a607f97612c778bfbb1cbd0d3db3cd11bec5f9727d5363ab841a1e765",
     "patches/0001-cancellation.patch": "89fb66e8f8330d9b741d85744d8ba8e5164439ee9bc06a12b6972bf4d3aab33c",
-    "patches/0002-sdk-runtime.patch": "ce4e028125c0692dd952fd1772789fc54c865c695a0f215f4b2c7efed526d3bf"
+    "patches/0002-sdk-runtime.patch": "ce4e028125c0692dd952fd1772789fc54c865c695a0f215f4b2c7efed526d3bf",
+    "trust.hpp": "fa4cfc80a0c6a3a8863876f3d018b3ded19da48c01b8d5c00099306da6e661e1",
+    "trust/cacert.pem": "427c064216761a1e72a8b30f0d954d08cb6e4435a82091fb865afd20c8497285",
+    "trust/source.json": "940610c0403208afc7ab9c45162336fd155a308c8e2bf4b1852da6fce5b9ad1f",
+    "trust/MPL-2.0.txt": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85"
   }
 }

@@ -21,6 +21,13 @@ with zipfile.ZipFile(a.package) as z,tempfile.TemporaryDirectory() as tmp:
         symbols=subprocess.check_output(['readelf','-Ws',str(binary)],text=True)
         assert not re.search(r'\bUND\b[^\n]*\b(system|popen|popen64|execvp|execlp|wordexp)\b',symbols),name
     assert z.read('assets/web-search/source-lock.json')==(ROOT/'native/web-search/source-lock.json').read_bytes()
+    trust=ROOT/'native/web-search/trust'
+    ca=z.read('assets/web-search/cacert.pem');provenance=json.loads((trust/'source.json').read_text())
+    assert ca==(trust/'cacert.pem').read_bytes() and len(ca)==provenance['bytes']
+    assert hashlib.sha256(ca).hexdigest()==provenance['sha256']
+    assert ca.count(b'-----BEGIN CERTIFICATE-----')==provenance['certificates']
+    assert z.read('assets/web-search/ca-source.json')==(trust/'source.json').read_bytes()
+    assert z.read('assets/web-search/licenses/Mozilla-CA-MPL-2.0.txt')==(trust/'MPL-2.0.txt').read_bytes()
     for notice in ['Edge-Search-MIT.txt','DDGS-MIT.txt','webserp-MIT.txt','libxml2.txt','LICENSE_BORINGSSL','LICENSE_CURL','LICENSE_CARES','LICENSE_NGHTTP2','LICENSE_NGHTTP3','LICENSE_NGTCP2','LICENSE_ZLIB','LICENSE_ZSTD','LICENSE_BROTLI']:
         assert z.read('assets/web-search/licenses/'+notice),notice
-print('Web component: target architecture, exact payload, source lock, private loader path, SDK symbol baseline and notices checked.')
+print('Web component: target architecture, exact payload, source lock, bundled CA roots, private loader path, SDK symbol baseline and notices checked.')

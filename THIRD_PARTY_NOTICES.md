@@ -140,3 +140,10 @@ source/license inventory is in `native/web-search/upstream/tools/impersonate-sou
 Full notices are shipped in `assets/web-search/licenses/`. Source and integration
 patch locks live under `native/web-search/`; the component does not change the
 license or unresolved authorization status of any scanning material.
+
+The search worker explicitly uses a bundled Mozilla public root certificate store,
+converted to PEM by curl (MPL-2.0), rather than a build-host or firmware default.
+The unchanged source bundle, dated URL, SHA-256 and source attribution are in
+`native/web-search/trust/`; the full MPL-2.0 text and provenance ship alongside it
+in `assets/web-search/`. Source: https://curl.se/docs/caextract.html.
+This data license does not change the license of PenChat's application code.

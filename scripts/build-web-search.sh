@@ -75,6 +75,9 @@ cp -a "$SOURCE/licenses/". "$STAGE/web-search/licenses/"
 cp -a "$ROOT/native/web-search/upstream/licenses/". "$STAGE/web-search/licenses/"
 cp "$ROOT/.deps/web-libxml2/Copyright" "$STAGE/web-search/licenses/libxml2.txt"
 cp "$ROOT/native/web-search/source-lock.json" "$STAGE/web-search/"
+cp "$ROOT/native/web-search/trust/cacert.pem" "$STAGE/web-search/"
+cp "$ROOT/native/web-search/trust/source.json" "$STAGE/web-search/ca-source.json"
+cp "$ROOT/native/web-search/trust/MPL-2.0.txt" "$STAGE/web-search/licenses/Mozilla-CA-MPL-2.0.txt"
 if [ "$TARGET" != host ]; then
   "$PENCHAT_BUILD_STRIP" --strip-unneeded "$STAGE/bin/penchat-web-search"
   for file in "$STAGE/web-search/lib/"*; do "$PENCHAT_BUILD_STRIP" --strip-unneeded "$file"; done

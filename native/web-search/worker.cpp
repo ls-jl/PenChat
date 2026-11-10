@@ -9,6 +9,7 @@
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include "trust.hpp"
 using Json = nlohmann::json;
 namespace {
 volatile sig_atomic_t interrupted = 0;
@@ -163,6 +164,12 @@ int main(int argc, char **argv) {
     options.network.max_body_bytes = 2 * 1024 * 1024;
     options.network.timeout_ms = 15000;
     options.network.cancelled = [] { return interrupted != 0; };
+    std::string trustError;
+    try {
+      options.network.ca_bundle = penchat::bundledWebTrust();
+    } catch (const std::exception &e) {
+      trustError = e.what();
+    }
     Worker worker(options);
     bool reader = false;
     for (;;) {
@@ -179,9 +186,15 @@ int main(int argc, char **argv) {
         if (request.value("name", std::string()) == "hello")
           result = {{"component", "0.14.0"}, {"protocol", 1}};
         else {
+          if (!trustError.empty())
+            throw std::runtime_error(trustError);
           if (request.value("name", std::string()) == "read_source" && !reader) {
             options.cache_bytes = 2 * 1024 * 1024;
             options.max_pages = 4;
+            // Leave room for links, indexes and page metadata in the reader's
+            // independent 2MiB retained cache (upstream defaults need >4MiB).
+            options.max_text_bytes = 1024 * 1024;
+            options.max_link_bytes = 256 * 1024;
             worker = Worker(options);
             reader = true;
           }

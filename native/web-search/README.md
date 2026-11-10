@@ -32,6 +32,22 @@ The worker lives at `assets/bin/penchat-web-search`, and its sole private TLS
 library at `assets/web-search/lib/libedge-curl-impersonate.so.4`. No component OTA
 is implemented. Replacing a component requires a reviewed application package.
 
+### HTTPS trust store
+
+The worker explicitly loads `assets/web-search/cacert.pem` relative to its own
+executable, including search, source reading and image downloads. This is the
+unchanged Mozilla public CA bundle converted by curl, dated 2026-11-05 (118 roots,
+200,116 bytes). `trust/source.json` pins its official download, SHA-256, date and
+MPL-2.0 attribution; `source-lock.json` verifies these resources before building.
+The PEM, provenance and full MPL-2.0 license ship with both target payloads.
+No build-host/private roots or certificate-verification bypass are included.
+Missing/invalid resources produce a tool error while leaving the app running.
+Update the dated upstream bundle and reviewed hashes together, then rebuild;
+no runtime root download or automatic trust-store replacement is performed.
+
+Focused resource checks: `python3 tests/test_web_trust.py`. The package component
+check also verifies the exact bundled CA resource and notices.
+
 ## IPC and ownership
 
 Protocol **1** uses a length-prefixed UTF-8 JSON frame on an inherited Unix
