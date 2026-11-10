@@ -204,10 +204,12 @@ void App::editorBuild() {
     key("","language",globe.x,globe.y,globe.width,globe.height);
     auto &language=editorKeys_.back();
     lv_obj_set_style_bg_opa(language.object,LV_OPA_TRANSP,0);
-    // Its invisible hit area must not steal the bottom punctuation row.
-    const int end=language.hit.y+language.hit.height;
-    language.hit.y=std::max(language.hit.y,layout.bottomY+layout.bottomHeight+3);
-    language.hit.height=end-language.hit.y;
+    // Grow the invisible target around the glyph, but never into the bottom
+    // key row. Both ordinary and rollover touches share this exact rectangle.
+    const int left=std::max(4,globe.x-24),right=std::min(layout.width-4,globe.x+globe.width+24);
+    const int top=std::max(layout.bottomY+layout.bottomHeight+3,globe.y-24);
+    const int bottom=std::min(layout.height-4,globe.y+globe.height+24);
+    language.hit={left,top,right-left,bottom-top};
     attachIcon(language.object,"globe-large",theme::text);
   }
   auto editorPanel=box(editorRoot_,layout.editorPanelX(),layout.panelTop,layout.editorPanelWidth(),layout.portrait?layout.keyTop-6-layout.panelTop:layout.height,0x111111); lv_obj_set_scrollable(editorPanel,false);
