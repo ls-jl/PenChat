@@ -8,6 +8,7 @@
 namespace penchat {
 namespace {
 constexpr uint64_t layoutHoldMs=500;
+constexpr lv_opa_t compactHeaderOpacity=LV_OPA_60;
 int keyboardClusterWidth(lv_obj_t *label,size_t first,size_t last) {
   const char *text=lv_label_get_text(label),*begin=text,*end=text;
   for(size_t index=0;*end&&index<last;++index) {
@@ -139,6 +140,10 @@ void App::editorBuild() {
   };
   auto control = [&](const std::string &title,int x,int y,int w,const std::string &a) {
     auto b=button(editorRoot_,title,x,y,w,layout.controlHeight(),[action,a] { action(a); },theme::surface);
+    if(layout.compactFull&&y==0) {
+      lv_obj_set_style_bg_opa(b,compactHeaderOpacity,0);
+      lv_obj_set_style_bg_opa(b,LV_OPA_80,LV_STATE_PRESSED);
+    }
     editorLocalActions_[a]=b;
     auto l=lv_obj_get_child(b,0); lv_obj_set_width(l,w-4); lv_obj_set_style_text_font(l,font(layout.compact&&!layout.compactFull?22:17),0);
     return b;
@@ -272,6 +277,9 @@ void App::editorBuild() {
     // Clip exactly one visual line. Padding inside a 44px textarea would expose
     // fragments of the preceding/following lines while the caret scrolls.
     lv_obj_set_style_pad_top(editorText_,0,0);lv_obj_set_style_pad_bottom(editorText_,0,0);
+    // The full-height strip supplies one translucent background. Painting the
+    // shorter textarea too would produce a darker/lighter band behind the text.
+    lv_obj_set_style_bg_opa(editorText_,LV_OPA_TRANSP,0);
   }
   lv_obj_set_style_bg_color(editorText_,lv_color_hex(theme::border),LV_PART_SELECTED);
   lv_textarea_set_max_length(editorText_,editor_.limit);
@@ -291,6 +299,7 @@ void App::editorBuild() {
   if(!editorSelectionOnly_) {
   if(layout.compactFull) {
     editorPreeditViewport_=box(editorRoot_,layout.textX,0,layout.textWidth,44,theme::background);
+    lv_obj_set_style_bg_opa(editorPreeditViewport_,compactHeaderOpacity,0);
     lv_obj_set_style_radius(editorPreeditViewport_,8,0);
     lv_obj_set_style_clip_corner(editorPreeditViewport_,true,0);
     lv_obj_set_scroll_dir(editorPreeditViewport_,LV_DIR_HOR);lv_obj_set_scrollbar_mode(editorPreeditViewport_,LV_SCROLLBAR_MODE_OFF);
@@ -469,7 +478,7 @@ void App::editorRefreshCompactBar() {
   const auto geometry=editorLayout();
   if(!geometry.compactFull||!editorExpand_)return;
   const bool composing=editorCompactComposition();
-  if(editorCompactBar_)lv_obj_set_style_bg_opa(editorCompactBar_,composing?LV_OPA_TRANSP:LV_OPA_COVER,0);
+  if(editorCompactBar_)lv_obj_set_style_bg_opa(editorCompactBar_,composing?LV_OPA_TRANSP:compactHeaderOpacity,0);
   if(editorText_) {
     lv_obj_set_hidden(editorText_,composing);
     const auto placeholder=!editor_.notice.empty()?editor_.notice:editorOcrBusy_?std::string("正在识别…"):editor_.placeholder;
