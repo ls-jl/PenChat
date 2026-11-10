@@ -1,5 +1,4 @@
 #include "tools.hpp"
-#include "chat_instructions.hpp"
 #include "context.hpp"
 #include "image_data.h"
 #include "network.hpp"
@@ -461,8 +460,6 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
       }
       metadata["usage"] = totals;
       metadata["tool_rounds"] = round + 1;
-      if (checkedToolText(final.value("output", std::string()), true).rejected)
-        throw std::runtime_error(toolTextError());
       if (terminalType != "done") {
         publish();
         events.push(terminalType.empty() ? "network_error" : terminalType,

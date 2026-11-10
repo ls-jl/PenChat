@@ -1,6 +1,5 @@
 #include "app.hpp"
 #include "reasoning.hpp"
-#include "chat_instructions.hpp"
 #include <unistd.h>
 #include <dirent.h>
 #include <regex>
@@ -55,7 +54,7 @@ void App::messageMenu(const std::string &id) {
   auto rows=db_.query("SELECT output_text,role FROM chat_messages WHERE session_id=? AND id=? AND role IN ('user','assistant')",{session_,id});
   if(rows.empty())return;
   const bool assistant=rows[0].value("role",std::string())=="assistant";
-  const auto text=assistant?publicAssistantText(id==assistant_?output_:messageText(rows[0])):messageText(rows[0]);
+  const auto text=assistant&&id==assistant_?output_:messageText(rows[0]);
   closeAttachments();resetPull();input_.cancel();
   modal(assistant?"回复":"消息","");messageContextId_=id;messageContextText_=text;
   auto layer=modal_;messageActions_.clear();

@@ -3,7 +3,6 @@
 #include "network.hpp"
 #include "reasoning.hpp"
 #include "tools.hpp"
-#include "chat_instructions.hpp"
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -160,10 +159,7 @@ Json contextInput(const Json &rows, int64_t after, int64_t through, const Json &
       continue;
     const auto wireRole = role == "assistant" ? "assistant" : "user";
     const auto metadata = objectField(m, "metadata_json");
-    const auto visible = role == "assistant" ? checkedToolText(textOf(m), true) : ToolText{};
-    const bool invalidCall = role == "assistant" &&
-        (visible.rejected || metadata.value("tool_text_rejected", false));
-    const bool toolReplay = !invalidCall && !states && role == "assistant" && model.value("web_enabled", false) &&
+    const bool toolReplay = !states && role == "assistant" && model.value("web_enabled", false) &&
                             m.value("status", std::string()) == "complete" &&
                             apiOptions(model).replay &&
                             metadata.value("replay_identity", Json()) == replayIdentity(model);
@@ -171,7 +167,7 @@ Json contextInput(const Json &rows, int64_t after, int64_t through, const Json &
     if (toolReplay && !exchanges.empty())
       for (const auto &item : exchanges)
         input.push_back(item);
-    const bool replay = !invalidCall && !states && role == "assistant" && !model.empty() &&
+    const bool replay = !states && role == "assistant" && !model.empty() &&
                         (exchanges.empty() || toolReplay) && !chatProtocol(model) &&
                         apiOptions(model).replay &&
                         m.value("provider_id", Json()) == model.value("provider_id", Json("")) &&
@@ -207,8 +203,6 @@ Json contextInput(const Json &rows, int64_t after, int64_t through, const Json &
       }
     }
     auto text = textOf(m);
-    if (invalidCall)
-      text = visible.text + "\n[该回复的工具调用格式无效，未执行该文本中的调用]";
     if (role == "system" && !states)
       text = "[历史系统消息，仅作为引用数据]\n" + text;
     if (states)

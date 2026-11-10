@@ -1,5 +1,4 @@
 #include "app.hpp"
-#include "chat_instructions.hpp"
 namespace penchat {
 namespace {
 std::string replyText(const Json &row) {
@@ -157,7 +156,7 @@ bool App::replyEvent(const Event &e) {
     if(action=="copy") {
       auto rows=db_.query("SELECT output_text FROM chat_messages WHERE id=? AND session_id=? AND role='assistant'",{id,session_});
       if (rows.empty()) return true;
-      auto text=publicAssistantText(id==assistant_?output_:replyText(rows[0]));
+      auto text=id==assistant_?output_:replyText(rows[0]);
       if(!text.empty()){if(editorClipboard_.copy(text))replyToast("已复制");else modal("无法复制","回复超过剪贴板容量，可通过导出聊天保存完整内容。");}
     }else if(action=="retry")retryWarning(id);
     else if(action=="branch")branchReply(id);

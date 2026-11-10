@@ -1,6 +1,5 @@
 #include "app.hpp"
 #include "chat_text.hpp"
-#include "chat_instructions.hpp"
 #include "chat_time.hpp"
 #include "context.hpp"
 #include "icons.hpp"
@@ -1623,9 +1622,8 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
       appendText(b);
   }
 }
-void App::replyContent(lv_obj_t *parent, const std::string &rawText, int width,
+void App::replyContent(lv_obj_t *parent, const std::string &text, int width,
                        const std::string &id, bool live) {
-  const auto text = publicAssistantText(rawText);
   const auto web = webMetadata(id);
   if (!web.value("web_records", Json::array()).empty() ||
       !web.value("web_sources", Json::array()).empty()) {

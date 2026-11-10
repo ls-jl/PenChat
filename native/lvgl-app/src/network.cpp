@@ -261,44 +261,10 @@ void streamChat(const Json &model, Json input, std::atomic<bool> &cancel, Events
   Json requestModel = model;
   requestModel["system_prompt"] = chatInstructions(
       model.value("system_prompt", std::string()), model.value("web_enabled", false));
-  Json deferredTail;
-  bool rejected = false;
-  auto publish = [&](Json data, bool final) {
-    const auto &raw = data.at("output").get_ref<const std::string &>();
-    auto checked = checkedToolText(raw, final);
-    // Keep a state only while a trailing introducer is ambiguous. Ordinary
-    // streaming must not retain extra copies of full text/opaque snapshots.
-    if (!final && !checked.rejected && checked.text.size() != raw.size())
-      deferredTail = data;
-    else deferredTail = Json();
-    rejected = rejected || checked.rejected;
-    data["output"] = std::move(checked.text);
-    if (rejected) {
-      auto &metadata = data["metadata"];
-      metadata["tool_text_rejected"] = true;
-      // Do not replay an invalid assistant envelope through protocol snapshots
-      // after its visible text was rejected. Public search records stay intact.
-      for (const auto key : {"response_output_items", "response_reasoning_items",
-                             "anthropic_content", "tool_replay_input", "tool_wire",
-                             "tool_calls", "replay_identity"})
-        metadata.erase(key);
-    }
-    events.pushLatest("response_state", std::move(data));
-  };
-  Events safe([&](const Event &event) {
-    if (event.type == "response_state") {
-      publish(event.data, false);
-    } else if (event.type == "done" || event.type == "network_error" || event.type == "cancelled") {
-      if (deferredTail.is_object()) publish(std::move(deferredTail), true);
-      if (rejected && event.type != "cancelled")
-        events.push("network_error", {{"generation", generation}, {"error", toolTextError()}});
-      else events.push(event.type, event.data);
-    } else events.push(event.type, event.data);
-  });
   if (requestModel.value("web_enabled", false))
-    streamToolChat(requestModel, std::move(input), cancel, safe, generation);
+    streamToolChat(requestModel, std::move(input), cancel, events, generation);
   else
-    streamModelRound(requestModel, std::move(input), cancel, safe, generation);
+    streamModelRound(requestModel, std::move(input), cancel, events, generation);
 }
 void streamModelRound(const Json &m, Json input, std::atomic<bool> &cancel, Events &events,
                       int generation) {
