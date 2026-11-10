@@ -142,7 +142,7 @@ void App::editorBuild() {
   };
   auto control = [&](const std::string &title,int x,int y,int w,const std::string &a) {
     auto b=button(editorRoot_,title,x,y,w,layout.controlHeight(),[action,a] { action(a); },theme::surface);
-    if(layout.compact) {
+    if(layout.compact&&a!="done") {
       lv_obj_set_style_bg_opa(b,layout.compactFull&&y==0?compactHeaderOpacity:compactKeyOpacity,0);
       lv_obj_set_style_bg_opa(b,LV_OPA_80,LV_STATE_PRESSED);
     }
