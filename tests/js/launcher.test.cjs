@@ -437,3 +437,19 @@ test('focus combines system panel visibility with composited display lease and f
   f.options.onHide.call(f.page);assert.equal(latest().displayActive,false)
   f.page.dispose()
 })
+
+test('portrait official display follows its owned IME without granting input focus',async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ let top='fixture-ime-owner'
+ f.context.am.getTopApp=()=>top;f.native.focused=false
+ f.native.officialKeyboard=()=>({supported:true,visible:true,height:590,foreground:false})
+ f.page.openKeyboard({requestId:'owned-ime',text:''})
+ const layout=()=>{f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard();return f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.layout').at(-1)[1]}
+ assert(layout().foreground)
+ assert(!f.calls.filter(c=>c[0]==='send'&&c[1].type==='input.focus').at(-1)[1].active)
+ top='another-app';assert(!layout().foreground)
+ top='fixture-ime-owner';f.native.panelVisible=true;assert(!layout().foreground)
+ f.native.panelVisible=false;assert(layout().foreground)
+ f.options.onHide.call(f.page);assert(!layout().foreground)
+ f.page.dispose()
+})

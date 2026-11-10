@@ -2856,8 +2856,12 @@ void App::cancelNativeInteraction() {
   if (editor_.active) editorInterrupt(!inputFocused_);
 }
 void App::updateInputFocus() {
-  const auto permission=inputFocus_.permissions(ticks(),pageVisible_,windowFocused_,keyboard_,
-      keyboard_&&display_.topHeight()>0&&display_.supportsTopRegion(),display_.systemOverlaySafe(),!display_.presented());
+  const auto now=ticks();
+  const bool partialOfficial=keyboard_&&officialDocked_&&officialForeground_&&
+      now>=officialLayoutAt_&&now-officialLayoutAt_<750&&display_.topHeight()>0&&
+      display_.supportsTopRegion()&&!systemOverlayStatus_.value("panel_visible",false);
+  const auto permission=inputFocus_.permissions(now,pageVisible_,windowFocused_,keyboard_,
+      partialOfficial,display_.systemOverlaySafe(),!display_.presented());
   const bool media=permission.media,shown=permission.display;
   if (display_.visible() != shown) display_.visible(shown);
   if(inputFocused_!=media) {
@@ -3193,10 +3197,10 @@ void App::handle(const Json &m) {
       const int height=m.value("height",0);
       if(height<=0||height>=screen_.height-100)return;
       const bool resized=height!=officialHeight_;officialHeight_=height;
+      officialForeground_=m.value("foreground",false);officialLayoutAt_=ticks();
       if(resized){editorViewport();editorSyncText(true);}
       display_.topHeight(screen_.height-height);
-      const bool foreground=m.value("foreground",false);
-      if(display_.visible()!=foreground||resized)display_.visible(foreground);
+      updateInputFocus();
     }
     const auto area=editorTextArea();
     bridge_.send("keyboard.field",{{"requestId",keyboardId_},{"x",area.x},{"y",area.y},
@@ -3206,8 +3210,10 @@ void App::handle(const Json &m) {
     if (!keyboard_ || m.value("requestId", std::string()) != keyboardId_)
       return;
     if(officialDocked_&&!m.value("confirmed",false))editor_=std::move(officialBackup_);
-    officialBackup_=EditorState{};officialDocked_=false;officialHeight_=0;
-    keyboard_ = false;display_.topHeight(0);
+    officialBackup_=EditorState{};officialDocked_=false;officialHeight_=0;officialForeground_=false;officialLayoutAt_=0;
+    // Withdraw the partial plane before restoring full geometry, so the old
+    // frame cannot flash over a system IME that is still finishing teardown.
+    display_.visible(false);keyboard_ = false;display_.topHeight(0);
     if (editor_.active) {
       if (m.value("confirmed", false)) {
         auto text = m.value("text", std::string());

@@ -606,7 +606,8 @@ class App {
   bool editorTextSavedAll_=false,editorWordPreview_=false,editorRangeDrag_=false;
   void editorWordPreview();
   EditorState officialBackup_;
-  bool officialDocked_=false;
+  bool officialDocked_=false,officialForeground_=false;
+  int64_t officialLayoutAt_=0;
   int officialHeight_=0;
   Json editorLearning_ = Json::array(), editorExact_ = Json::array(), editorPinyinPending_;
   bool editorLayoutMenu_ = false, editorLayoutHold_ = false, editorPunctuation_ = false;

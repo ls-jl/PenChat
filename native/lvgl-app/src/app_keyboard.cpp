@@ -719,7 +719,7 @@ void App::editorOfficial() {
   std::string text=editor_.text; text.insert(editByte(text,editor_.cursor),editor_.preedit);
   if (editLength(text)>editor_.limit) { editor_.notice="已达到长度上限"; editorBuild(); return; }
   const auto officialField=editorTextArea();
-  editorInterrupt();officialDocked_=editorLayout().docked&&display_.supportsTopRegion();officialHeight_=0;
+  editorInterrupt();officialDocked_=editorLayout().docked&&display_.supportsTopRegion();officialHeight_=0;officialForeground_=false;officialLayoutAt_=0;
   if(officialDocked_)officialBackup_=editor_;
   keyboard_=true;keyboardId_=uid("official");
   if(officialDocked_&&editorRoot_)lv_obj_set_hidden(editorRoot_,true);
@@ -730,7 +730,7 @@ void App::editorOfficial() {
     {"inputType",editor_.chinese?"ZhCNPreferred":"EnUSOnly"},
     {"field",{{"x",officialField.x},{"y",officialField.y},{"width",officialField.width},{"height",officialField.height}}}});
   if (!sent) {
-    keyboard_ = false;officialDocked_=false;officialHeight_=0;officialBackup_=EditorState{};
+    keyboard_ = false;officialDocked_=false;officialHeight_=0;officialForeground_=false;officialLayoutAt_=0;officialBackup_=EditorState{};
     keyboardId_.clear();display_.topHeight(0);
     display_.visible(visible_);
     editorPolicy(true);

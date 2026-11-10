@@ -26,6 +26,10 @@ int main() {
   assert(!composite.input&&!composite.media&&composite.display);
   auto official=device.permissions(1001,true,true,true,true,false,false);
   assert(!official.input&&!official.media&&official.display);
+  official=device.permissions(1001,true,false,true,true,false,false);
+  assert(!official.input&&!official.media&&official.display);
+  official=device.permissions(1001,true,false,true,false,false,false);
+  assert(!official.input&&!official.media&&!official.display);
   auto hidden=device.permissions(1001,false,true,false,false,true,false);
   assert(!hidden.input&&!hidden.media&&!hidden.display);
   std::cout<<"INPUT_FOCUS_LEASE_EXPIRES_REJECTS_STALE_AND_FAILS_CLOSED_OK\n";

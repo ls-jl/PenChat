@@ -283,7 +283,7 @@ export default {
     closeKeyboardState(closePanel = true) {
       clearTimeout(this._keyboardTimer); this._keyboardTimer = null
       clearInterval(this._keyboardMonitor); this._keyboardMonitor = null
-      this.officialInline = false; this.officialText = ''
+      this.officialInline = false; this.officialText = ''; this._officialOwner = ''
       this.keyboardOpen = false
       this._keyboardUuid = ''; this._keyboardRequest = ''; this._keyboardWatchAt = 0; this._keyboardCompleting = false; this._officialOpenConfig = null
       try { if (closePanel && typeof launcher.closeOfficialKeyboard === 'function') launcher.closeOfficialKeyboard() } catch (_) {}
@@ -295,6 +295,22 @@ export default {
       this.closeKeyboardState()
       try { if (this._global && uuid && this._global.closeTextEdit) this._global.closeTextEdit(uuid) } catch (_) {}
       this.send('keyboard.result', { requestId, confirmed: false, text: '', error })
+    },
+    inlineOfficialForeground(state) {
+      if (!this.visible || this._disposed) return false
+      try {
+        const overlay = typeof launcher.systemOverlay === 'function' ? launcher.systemOverlay() : null
+        if (overlay && overlay.supported && overlay.visible) return false
+        if (!overlay || !overlay.supported || !am || typeof am.getTopApp !== 'function')
+          return state.foreground === true && this._windowFocused !== false
+        const top = am.getTopApp()
+        if (typeof top !== 'string' || !top) return false
+        // A system IME may own the top window while our page remains shown.
+        // Remember only the first IME owner during this request's opening window.
+        if (top !== appConfig.appid && !this._officialOwner && Date.now() <= this._officialDeadline)
+          this._officialOwner = top
+        return top === appConfig.appid || top === this._officialOwner
+      } catch (_) { return false }
     },
     checkOfficialKeyboard() {
       if (!this.keyboardOpen || this._keyboardCompleting || !this._keyboardWatchAt || Date.now() < this._keyboardWatchAt) return
@@ -309,7 +325,7 @@ export default {
               if (typeof uuid !== 'string' || !uuid) throw new Error('official request rejected')
               this._keyboardUuid = uuid
             }
-            this.send('keyboard.layout', { requestId: this._keyboardRequest, height: state.height, foreground: state.foreground === true })
+            this.send('keyboard.layout', { requestId: this._keyboardRequest, height: state.height, foreground: this.inlineOfficialForeground(state) })
             const input = this.$refs && this.$refs.officialInput
             const requestId = this._keyboardRequest, generation = this._generation
             if (input && input.getCursorPosition && !this._officialCursorPending) {
@@ -350,7 +366,7 @@ export default {
         const input = this.$refs && this.$refs.officialInput
         if (input && input.setCursorPosition) input.setCursorPosition(event.cursorIndex || 0)
       })
-      this._officialSeen = false; this._officialCursorPending = false
+      this._officialSeen = false; this._officialCursorPending = false; this._officialOwner = ''
       this._officialDeadline = Date.now() + 3000
       this._keyboardWatchAt = Date.now() + 100
       this._keyboardMonitor = setInterval(() => this.checkOfficialKeyboard(), 200)

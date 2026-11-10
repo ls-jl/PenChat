@@ -22,9 +22,10 @@ public:
   struct Permissions { bool input,media,display; };
   Permissions permissions(std::int64_t now,bool page,bool window,bool official,
                           bool partialOfficial,bool retainUnderOverlay,bool firstFrame) const {
+    // partialOfficial is an independently validated, expiring display-only IME lease.
     const bool media=page&&window&&!official&&mediaAllowed(now);
     return {media&&allowed(now),media,
-      page&&((!official&&(media||retainUnderOverlay||firstFrame)) || (partialOfficial&&window))};
+      page&&((!official&&(media||retainUnderOverlay||firstFrame)) || (partialOfficial))};
   }
   // Do not tear down/rearm media for a single slow native draw. Input still
   // expires at 300ms; explicit focus loss revokes both immediately.
