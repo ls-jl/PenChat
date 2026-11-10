@@ -58,6 +58,7 @@ void App::edit(const std::string &text, const std::string &placeholder,
   const int oldLayout=editor_.layout,oldMode=editor_.mode,oldShift=editor_.shift;
   closeNavigation(false); closeAttachments(); resetPull();
   editorSelectionOnly_=selectionOnly;editorInlineChat_=inlineChat&&this->layout().portrait();editorReaderTouch_=false;
+  editorComposerOpenHeight_=0;
   if(this->layout().portrait()&&!selectionOnly) {
     editorTarget_=inputSource_?inputSource_:(view_=="chat"?composer_:nullptr);
     auto target=inputTargets_.find(editorTarget_);
@@ -68,6 +69,9 @@ void App::edit(const std::string &text, const std::string &placeholder,
     editorPlaceCursor_=inputSource_!=nullptr;editorInitialPoint_=inputSourcePoint_;
     editorSendAssets_=false;
     if(editorInlineChat_) {
+      // Freeze the measured resting capsule once, before activating editing.
+      // Rebuilds and incoming candidate results must never multiply it again.
+      editorComposerOpenHeight_=lv_obj_get_height(chatControls_)*2;
       if(!messageEdit_.empty())editorSendAssets_=!messageEditImages_.empty();
       else {
         const auto latest=db_.messages(session_,0,1);
@@ -690,6 +694,7 @@ void App::editorFinish(bool confirmed) {
     editorChoosing_=editorSelectPending_=false;editorDeferred_.clear();++editorRevision_;
   } else editorInterrupt();
   editorDetachTarget();editor_.active=false; keyboard_=false;editorReaderTouch_=false;
+  editorComposerOpenHeight_=0;
   if(!transfer) {
     editorViewport();
     if (editorRoot_) lv_obj_delete(editorRoot_);

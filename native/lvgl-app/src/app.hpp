@@ -563,7 +563,7 @@ class App {
   lv_obj_t *inputSource_=nullptr, *editorTarget_=nullptr;
   std::string editorTargetKey_,editorTargetView_;
   uint64_t inputTargetSerial_=0;
-  int inputOrdinal_=0,editorTargetHeight_=0;
+  int inputOrdinal_=0,editorTargetHeight_=0,editorComposerOpenHeight_=0;
   bool editorFocusSwitch_=false,editorPendingBuild_=false,editorPlaceCursor_=false;
   bool editorTransfer_=false,editorEnglishOnly_=false;
   std::string editorKeyboardId_;
