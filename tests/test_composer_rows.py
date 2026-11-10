@@ -36,8 +36,8 @@ for width,height in [(960,266),(936,280),(568,1210)]:
             if height>width:
                 d=a.diag();b=d['composer_bounds'];r=e()['text_bounds'];send=e()['actions']['chat-send']
                 assert b[3]-b[1]+1==(base*7+2)//4 and r[3]<send[1]
-                assert r[1]-b[1]==20
-                assert r[0]-b[0]==14 and b[2]-r[2]==14
+                assert r[1]-b[1]==32
+                assert r[0]-b[0]==26 and b[2]-r[2]==14
                 assert send[2]-send[0]+1==54 and send[3]-send[1]+1==54
                 assert b[2]-send[2]==20 and b[3]-send[3]==20
                 assert d['composer_radius']==47
@@ -58,9 +58,9 @@ for width,height in [(960,266),(936,280),(568,1210)]:
             t.wait_for(lambda:not e()['active']);d=a.diag();b=d['composer_bounds'];r=d['composer_text_bounds']
             if height>width:
                 assert b[3]<height and b[3]-b[1]+1>base and r[3]<d['send_center_y2']//2-26
-                assert r[0]-b[0]==14 and b[2]-r[2]==14
+                assert r[0]-b[0]==26 and b[2]-r[2]==14
                 assert b[3]-d['send_center_y2']//2-27 in (19,20)
-                assert r[1]-b[1]==20
+                assert r[1]-b[1]==32
             else:
                 assert b[3]-b[1]+1==base and r[0]>b[0]+44
                 assert d['send_center_y2']==d['capsule_center_y2']

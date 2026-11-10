@@ -75,10 +75,9 @@ int App::chatComposerHeight() const {
     return std::min(base*2,std::max(base,int(size.y)+2*inset+4));
   }
   // Text has its own inset; the tool row keeps the resting pill's arc center.
-  const int pad=14; // Keeps text/caret inside the fixed 47px corner.
-  const int topPad=20;
+  const int leftPad=26,rightPad=14,topPad=32;
   const int toolsTop=layout().composerHeight()/2+layout().composerSendDiameter()/2;
-  const int width=std::max(44,layout().composerWidth()-2*pad);
+  const int width=std::max(44,layout().composerWidth()-leftPad-rightPad);
   lv_point_t size{};lv_text_get_size(&size,text.c_str(),font(20),0,0,width,LV_TEXT_FLAG_NONE);
   const int minimum=std::max(topPad+font(20)->line_height+8+toolsTop,
                              editing?editorComposerOpenHeight_:0);
@@ -105,9 +104,9 @@ void App::layoutChatComposer() {
   lv_obj_set_style_radius(chatControls_,layout().composerHeight()/2,0);
   if(toBottom_)lv_obj_set_y(toBottom_,chatComposerY()-56);
   const bool gauge=sessionPreferences_.value("gauge",!effortMemory_.empty());
-  const int x=expanded?pad:layout().composerEntryLeft();
-  const int y=expanded?20:pad;
-  const int w=expanded?width-2*pad:width-x-layout().composerEntryRight(gauge);
+  const int x=expanded?pad+12:layout().composerEntryLeft();
+  const int y=expanded?32:pad;
+  const int w=expanded?width-x-pad:width-x-layout().composerEntryRight(gauge);
   const int toolsTop=layout().composerHeight()/2+layout().composerSendDiameter()/2;
   const int h=expanded?height-y-8-toolsTop:height-2*pad;
   lv_obj_set_pos(composer_,x,y);lv_obj_set_size(composer_,w,h);
