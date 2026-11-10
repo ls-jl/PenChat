@@ -298,11 +298,18 @@ void App::editorBuild() {
     const int cx=editorExpanded_?4:layout.textX;
     const int cy=editorExpanded_?layout.overlayY():0;
     editorChoices_=box(editorRoot_,cx,cy,editorExpanded_?layout.width-8:layout.textWidth,editorExpanded_?layout.overlayHeight():44,theme::background);
+    lv_obj_set_style_bg_opa(editorChoices_,LV_OPA_TRANSP,0);
+    lv_obj_set_style_radius(editorChoices_,8,0);
+    lv_obj_set_style_clip_corner(editorChoices_,true,0);
     lv_obj_set_scroll_dir(editorChoices_,editorExpanded_?LV_DIR_VER:LV_DIR_HOR);
     lv_obj_set_scroll_elastic(editorChoices_,false);
     editorExpand_=control("",layout.width-48,0,44,"compact-view");
     editorChoicesEmpty_=false;editorChoicesDirty_=true;editorRefreshCandidates();editorRefreshCompactBar();
-    if(editorExpanded_)for(auto &key:editorKeys_)lv_obj_set_hidden(key.object,true);
+    if(editorExpanded_) {
+      for(auto &key:editorKeys_)lv_obj_set_hidden(key.object,true);
+      const auto done=editorLocalActions_.find("done");
+      if(done!=editorLocalActions_.end())lv_obj_set_hidden(done->second,true);
+    }
   } else {
   auto pre=label(editorRoot_,editorCompositionText(),layout.textX,layout.compositionY,layout.textWidth,16,theme::muted);
   editorPreeditLabel_=pre;
@@ -480,8 +487,8 @@ void App::editorRefreshCompactBar() {
       lv_obj_set_width(editorPreeditViewport_,preeditWidth);
       lv_obj_update_layout(editorPreeditViewport_);
       if(editorChoices_&&!editorExpanded_) {
-        lv_obj_set_x(editorChoices_,geometry.textX+preeditWidth+8);
-        lv_obj_set_width(editorChoices_,geometry.textWidth-preeditWidth-8);
+        lv_obj_set_x(editorChoices_,geometry.textX+preeditWidth+4);
+        lv_obj_set_width(editorChoices_,geometry.textWidth-preeditWidth-4);
       }
       // Follow newly typed letters, but retain a user's horizontal inspection
       // when only the asynchronous candidate results change.

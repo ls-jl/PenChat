@@ -26,10 +26,10 @@ for width,height in [(640,260),(720,280)]:
                 key(letter);time.sleep(.06)
                 state=e();p=state['compact_preedit_bounds'];c=state['compact_candidate_bounds']
                 lengths.append(p[2]-p[0]+1)
-                assert c[0]-p[2]-1==8
+                assert c[0]-p[2]-1==4
                 assert c[2]==state['text_bounds'][2]
                 assert state['actions']['compact-view'][0]-c[2]-1==4
-                assert c[2]-c[0]+1==state['text_bounds'][2]-state['text_bounds'][0]+1-lengths[-1]-8
+                assert c[2]-c[0]+1==state['text_bounds'][2]-state['text_bounds'][0]+1-lengths[-1]-4
                 # The first key adopts the newly registered OCR status. Once
                 # that lifecycle paint settles, changing preedit width is local.
                 if len(lengths)==1:builds=state['build_count']
@@ -37,12 +37,15 @@ for width,height in [(640,260),(720,280)]:
             assert all(x<y for x,y in zip(lengths,lengths[1:])),lengths
             t.wait_for(lambda:e()['candidate_count']>0 and not e()['pending'])
             capture(a,OUT/f'{width}-spacing-nihao.png')
+            a.editor_action('compact-view');assert e()['expanded']
+            capture(a,OUT/f'{width}-spacing-expanded.png')
+            a.editor_action('compact-view');assert not e()['expanded'] and e()['preedit_length']==5
             key('delete');time.sleep(.06)
             assert e()['compact_preedit_bounds'][2]-e()['compact_preedit_bounds'][0]+1<lengths[-1]
             for letter in 'zhongguorenminzhongguorenmin':key(letter)
             state=e();p=state['compact_preedit_bounds']
             assert p[2]-p[0]+1<=144
-            assert state['compact_candidate_bounds'][2]-state['compact_candidate_bounds'][0]+1>=state['text_bounds'][2]-state['text_bounds'][0]+1-152
+            assert state['compact_candidate_bounds'][2]-state['compact_candidate_bounds'][0]+1>=state['text_bounds'][2]-state['text_bounds'][0]+1-148
             capture(a,OUT/f'{width}-spacing-long.png')
             a.editor_action('cancel')
             assert not a.read_messages()
