@@ -29,7 +29,6 @@ for width, height in [(640, 260), (720, 280)]:
                 t.wait_for(lambda: editor()['layout_menu'])
                 action('layout:' + str(index))
             def official(text=None):
-                action('tools')
                 action('official')
                 request = a.receive('keyboard.open')
                 a.send('keyboard.result', requestId=request['requestId'],

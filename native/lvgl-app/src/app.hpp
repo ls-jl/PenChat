@@ -591,7 +591,7 @@ class App {
   void editorCompactEnsureCaret();
 
   EditorLayout editorLayout() const {
-    EditorLayout result(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,editorSwapSides_,editorCompactExpanded_);
+    EditorLayout result(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,editorSwapSides_,editorCompactExpanded_,editor_.secret&&!editorMultiLineSupported_);
     if(officialDocked_&&keyboard_&&officialHeight_>0)result.panelTop=screen_.height-officialHeight_;
     return result;
   }
@@ -622,6 +622,7 @@ class App {
   bool editorOcrPreparing_=false;
   uint64_t editorOcrPrepareSent_=0;
   void editorOcrPrepared(const Json &);
+  bool editorMultiLineSupported_=true;
   bool editorOcrMulti_=false, editorOcrActive_=false, editorOcrBusy_=false, editorOcrShown_=false;
   bool editorTopBlocked_=false;
   std::string editorOcrId_, editorOcrStopId_;

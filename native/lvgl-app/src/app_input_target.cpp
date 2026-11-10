@@ -54,7 +54,7 @@ void App::editorDiscardTransfer() {
 EditorLayout::Popup App::editorTextArea() const {
   if(!editorText_||lv_obj_is_hidden(editorText_))return {0,0,0,0};
   const auto geometry=editorLayout();
-  if(geometry.compactFull)return {geometry.textX,0,geometry.textWidth,44};
+  if(geometry.compactFull)return {geometry.textX,0,geometry.textAreaWidth,44};
   lv_area_t a;lv_obj_get_coords(editorText_,&a);
   bool inBody=false;for(auto p=editorTarget_;p;p=lv_obj_get_parent(p))if(p==body_){inBody=true;break;}
   if(editorInPlace()&&inBody&&body_&&!modal_) {

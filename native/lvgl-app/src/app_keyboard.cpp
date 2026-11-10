@@ -82,7 +82,7 @@ void App::edit(const std::string &text, const std::string &placeholder,
   editorLearning_=editorExact_=Json::array();editorPinyinPending_=Json();
   editorLayoutMenu_=editorPunctuation_=false;
   editorClipboardOpen_=editorClipboardConfirm_=false;
-  if(!reuse)editorOcrMulti_=false;
+  if(!reuse||!editorMultiLineSupported_)editorOcrMulti_=false;
   editorOcrActive_=editorOcrBusy_=editorOcrShown_=false; editorOcrCapture_=editorOcrInserted_=0;
   editorTextTouch_=editorCursorDrag_=false; editorHandle_=-1; editorLastTap_=0;editorTextScroll_=0;editorFollowCursor_=true;
   editorPolicy(!editorSelectionOnly_);
@@ -233,21 +233,21 @@ void App::editorBuild() {
   auto editorPanel=box(editorRoot_,layout.editorPanelX(),layout.panelTop,layout.editorPanelWidth(),layout.portrait?layout.keyTop-6-layout.panelTop:layout.height,0x111111); lv_obj_set_scrollable(editorPanel,false);
   // Composition/candidates never resize the keys; actions share a bottom baseline.
   if(!layout.docked)lv_obj_move_background(editorPanel);
-  for(const auto &a:layout.actions(editorInlineChat_)) {
+  for(const auto &a:layout.actions(editorInlineChat_,!editorMultiLineSupported_)) {
     const std::string actionName=a.name;
     if(editorCandidateRow()&&actionName!="done")continue;
     const std::string title=actionName=="cancel"?"取消":
       actionName=="done"?(layout.portrait?"":editorInlineChat_?"收起":"完成"):actionName=="ocr-mode"?
       (!editorOcrActive_&&!editorOcrId_.empty()?"重试":editorOcrMulti_?(layout.portrait?"多行扫描":"多行"):(layout.portrait?"单行扫描":"单行")):"";
     auto b=control(title,a.x,a.y,a.width,actionName);
-    if(layout.compactFull&&(actionName=="cancel"||actionName=="tools")) {
-      lv_label_set_text(lv_obj_get_child(b,0),"");attachIcon(b,actionName=="cancel"?"close":"more-horizontal",theme::text);
+    if(layout.compactFull&&(actionName=="cancel"||actionName=="tools"||actionName=="clipboard")) {
+      lv_label_set_text(lv_obj_get_child(b,0),"");attachIcon(b,actionName=="cancel"?"close":actionName=="clipboard"?"clipboard":"more-horizontal",theme::text);
     } else if(actionName=="done"&&layout.portrait) {
       lv_obj_set_style_bg_opa(b,LV_OPA_TRANSP,0);attachIcon(b,"keyboard-done",theme::text);
       // Grow only the invisible target; leave space below the Enter key.
       lv_obj_set_ext_click_area(b,8);
     } else if(actionName=="done"&&!editorInlineChat_)primary(b);
-    if(actionName=="clipboard")attachIcon(b,"clipboard",theme::text);
+    if(actionName=="clipboard"&&!layout.compactFull)attachIcon(b,"clipboard",theme::text);
   }
   } else {
     const int inset=layout.portrait?layout.keyInset:0;
@@ -320,6 +320,11 @@ void App::editorBuild() {
     lv_obj_set_scroll_dir(editorChoices_,editorExpanded_?LV_DIR_VER:LV_DIR_HOR);
     lv_obj_set_scroll_elastic(editorChoices_,false);
     editorExpand_=control("",layout.width-48,0,44,"compact-view");
+    if(editor_.secret&&!editorMultiLineSupported_) {
+      auto reveal=control("",layout.textX+layout.textAreaWidth+4,0,44,"reveal");
+      lv_obj_set_style_bg_opa(reveal,LV_OPA_TRANSP,0);
+      attachIcon(reveal,editor_.reveal?"eye-off":"eye",theme::muted);
+    }
     editorChoicesEmpty_=false;editorChoicesDirty_=true;editorRefreshCandidates();editorRefreshCompactBar();
     if(editorExpanded_) {
       for(auto &key:editorKeys_)lv_obj_set_hidden(key.object,true);
@@ -430,15 +435,15 @@ void App::editorBuild() {
       }
     }
   }
-  if(editorToolsOpen_) {
+  if(editorToolsOpen_&&editorMultiLineSupported_) {
     auto backdrop=box(editorRoot_,0,0,layout.width,layout.height,theme::background);
     lv_obj_set_style_bg_opa(backdrop,LV_OPA_TRANSP,0);lv_obj_set_scrollable(backdrop,false);
     lv_obj_set_clickable(backdrop,true);
     lv_obj_add_event_cb(backdrop,[](lv_event_t *event){auto app=static_cast<App *>(lv_event_get_user_data(event));app->events_.push("editor_action",{{"id",app->editor_.id},{"action","tools"}});},LV_EVENT_CLICKED,this);
-    const std::vector<std::pair<std::string,std::string>> items={
-      {"clipboard","剪贴板"},{"ocr-mode",!editorOcrActive_&&!editorOcrId_.empty()?"重试文字扫描":editorOcrMulti_?"扫描模式：多行":"扫描模式：单行"},
-      {"official","有道输入法"},{"reveal",editor_.reveal?"隐藏密钥":"显示密钥"}};
-    const size_t count=editor_.secret?4u:3u;
+    std::vector<std::pair<std::string,std::string>> items={
+      {"clipboard","剪贴板"},{"ocr-mode",!editorOcrActive_&&!editorOcrId_.empty()?"重试文字扫描":editorOcrMulti_?"扫描模式：多行":"扫描模式：单行"}};
+    if(editor_.secret)items.push_back({"reveal",editor_.reveal?"隐藏密钥":"显示密钥"});
+    const size_t count=items.size();
     int menuWidth=52;
     for(size_t i=0;i<count;++i) {
       lv_point_t size{};lv_text_get_size(&size,items[i].second.c_str(),font(20),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
@@ -946,7 +951,10 @@ void App::editorAction(const std::string &a) {
     }
     return;
   }
-  if(a=="tools") {editorToolsOpen_=!editorToolsOpen_;editorExpanded_=false;editorMenu_=false;editorBuild();return;}
+  if(a=="tools") {
+    if(!editorMultiLineSupported_)return;
+    editorToolsOpen_=!editorToolsOpen_;editorExpanded_=false;editorMenu_=false;editorBuild();return;
+  }
   if(a=="compact-view"||a.find("compact-view:")==0) {
     const auto expected="compact-view:"+std::to_string(editorRevision_)+":"+
       std::to_string(editorCompactExpanded_)+":"+std::to_string(editorCompactComposition());
@@ -955,9 +963,10 @@ void App::editorAction(const std::string &a) {
     if(editorCompactComposition()) {if(editorCanExpand()){editorExpanded_=!editorExpanded_;editorBuild();}return;}
     editorCompactView(true);return;
   }
-  const bool fromTools=editorToolsOpen_;editorToolsOpen_=false;
+  editorToolsOpen_=false;
   const auto beforeText=editor_.text,beforePreedit=editor_.preedit;
   if(a=="ocr-mode") {
+    if(!editorMultiLineSupported_)return;
     if(editorOcrActive_){editorOcrMulti_=!editorOcrMulti_;editorOcrInserted_=0;}
     // Replace a continuous registration without an unregister/re-register gap.
     if(layout().portrait()) {editorOcrActive_=false;editorOcrCapture_=0;editorOcrPending_.clear();}
@@ -978,7 +987,7 @@ void App::editorAction(const std::string &a) {
   if(a=="dismiss") {editorAccept();return;}
   if(a=="cancel") { editorFinish(false); return; }
   if (a=="official") {
-    if(editorLayoutMenu_||fromTools) {editorLayoutMenu_=false;editorOfficial();}
+    if(editorLayoutMenu_) {editorLayoutMenu_=false;editorOfficial();}
     return;
   }
   if(a=="copy"||a=="cut") {
@@ -1305,6 +1314,7 @@ void App::editorOcrFlushStop() {
   editorOcrStopRetry_=ticks()+250; // Idempotent cleanup; remain blocked until acknowledged.
 }
 void App::editorOcrStart() {
+  if(!editorMultiLineSupported_)editorOcrMulti_=false;
   if(editorSelectionOnly_||!editor_.active||keyboard_||!visible_||!inputFocused_||editorOcrActive_||!editorOcrStopId_.empty())return;
   const auto session=editor_.id;
   if(scanner_.nativeOcrKeys()) {
@@ -1630,7 +1640,7 @@ Json App::editorDiagnostic() const {
   for(const auto &entry:editorLocalActions_){lv_area_t a;lv_obj_get_coords(entry.second,&a);actions[entry.first]={a.x1,a.y1,a.x2,a.y2};}
   if(editorSelectionMenu_&&!lv_obj_is_hidden(editorSelectionMenu_))
     for(const auto &entry:editorSelectionActions_){lv_area_t a;lv_obj_get_coords(entry.second,&a);actions[entry.first]={a.x1,a.y1,a.x2,a.y2};}
-  if(editor_.active&&!editorSelectionOnly_)for(const auto &a:layout.actions(editorInlineChat_)) {
+  if(editor_.active&&!editorSelectionOnly_)for(const auto &a:layout.actions(editorInlineChat_,!editorMultiLineSupported_)) {
     if(editorCandidateRow()&&std::string(a.name)!="done")continue;
     actions[a.name]={a.x,a.y,a.x+a.width-1,a.y+layout.controlHeight()-1};
   }
@@ -1640,7 +1650,7 @@ Json App::editorDiagnostic() const {
   Json undoPopup=Json::array(),selectionPopup=Json::array(),magnifierBounds=Json::array(),magnifierCaret=Json::array(),textBounds=Json::array();
   if(editorMagnifierCaret_){lv_area_t a;lv_obj_get_coords(editorMagnifierCaret_,&a);magnifierCaret={a.x1,a.y1,a.x2,a.y2};}
   if(editorMagnifier_){lv_area_t a;lv_obj_get_coords(editorMagnifier_,&a);magnifierBounds={a.x1,a.y1,a.x2,a.y2};}
-  if(editorText_) {lv_area_t a;lv_obj_get_coords(editorText_,&a);textBounds=layout.compactFull?Json::array({layout.textX,0,layout.textRight()-1,43}):Json::array({a.x1,a.y1,a.x2,a.y2});}
+  if(editorText_) {lv_area_t a;lv_obj_get_coords(editorText_,&a);textBounds=layout.compactFull?Json::array({layout.textX,0,layout.textX+layout.textAreaWidth-1,43}):Json::array({a.x1,a.y1,a.x2,a.y2});}
   if(editorSelectionMenu_&&!lv_obj_is_hidden(editorSelectionMenu_)) {
     lv_area_t p;lv_obj_get_coords(editorSelectionMenu_,&p);
     selectionPopup={p.x1,p.y1,p.x2,p.y2};
@@ -1683,7 +1693,7 @@ Json App::editorDiagnostic() const {
     {"selection_start",editor_.range().first},{"selection_end",editor_.range().second},{"selected",editor_.selected()},
     {"clipboard_count",editorClipboard_.records.size()},{"clipboard_open",editorClipboardOpen_},{"menu",editorSelectionMenu_&&!lv_obj_is_hidden(editorSelectionMenu_)},{"undo_menu",false},{"undo_popup",undoPopup},{"text_bounds",textBounds},
     {"compact_preedit_bounds",preeditBounds},{"compact_candidate_bounds",candidateBounds},
-    {"notice_present",!editor_.notice.empty()},{"ocr_request",editorOcrId_},{"ocr_preparing",editorOcrPreparing_},{"ocr_active",editorOcrActive_},{"ocr_multi",editorOcrMulti_},{"ocr_busy",editorOcrBusy_},{"top_panel_blocked",editorTopBlocked_},
+    {"notice_present",!editor_.notice.empty()},{"ocr_multiline_supported",editorMultiLineSupported_},{"ocr_request",editorOcrId_},{"ocr_preparing",editorOcrPreparing_},{"ocr_active",editorOcrActive_},{"ocr_multi",editorOcrMulti_},{"ocr_busy",editorOcrBusy_},{"top_panel_blocked",editorTopBlocked_},
     {"coordinate_space",{{"width",layout.width},{"height",layout.height},{"native_width",layout.nativeWidth},{"native_height",layout.nativeHeight},{"scaled",layout.scaled}}},{"keyboard_split",layout.split},{"keyboard_swapped",layout.swapped},{"keyboard_origin",layout.keyInset},{"query_ms",editorLatency_},{"candidate_count",editorCandidates_.size()},{"corrected_count",std::count_if(editorCandidateDetails_.begin(),editorCandidateDetails_.end(),[](const Json &v){return v.value("corrected",false);})},{"revision",editorRevision_},{"keys",keys}};
 }
 } // namespace penchat

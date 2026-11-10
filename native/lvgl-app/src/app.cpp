@@ -3,11 +3,13 @@
 #include "chat_time.hpp"
 #include "context.hpp"
 #include "icons.hpp"
+#include "device_profile.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "tools.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <dirent.h>
 #include <iostream>
 #include <sys/stat.h>
@@ -64,6 +66,10 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
       rich_(fontPath, resources,
             join(workspace, "assets/fonts/DejaVuSans.ttf")),
       workspace_(std::move(workspace)), dataDir_(std::move(dataDir)) {
+  editorMultiLineSupported_=camera::deviceCapabilities().multiLineOcr;
+#ifndef PENCHAT_NATIVE_DEVICE
+  if(const char *test=std::getenv("PENCHAT_TEST_SINGLE_LINE_OCR"))editorMultiLineSupported_=std::string(test)!="1";
+#endif
   inputFocus_ = InputFocus(nativeTouch);
   inputFocused_ = touchLeaseActive_ = !nativeTouch;
   initializeMessageEdits();

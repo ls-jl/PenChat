@@ -40,6 +40,11 @@ int main() {
   for(auto a:compact.actions())assert(a.x>=0&&a.x+a.width<=compact.width&&a.width>=44);
   for(auto size:{std::make_pair(640,260),std::make_pair(720,280)}) {
     const EditorLayout full(size.first,size.second);
+    const auto singleLine=full.actions(false,true);
+    assert(std::string(singleLine[1].name)=="clipboard");
+    for(const auto &a:singleLine)assert(std::string(a.name)!="tools"&&std::string(a.name)!="ocr-mode");
+    const EditorLayout secret(size.first,size.second,false,false,false,false,true);
+    assert(secret.textAreaWidth+48==secret.textWidth);
     assert(full.compactFull&&!full.scaled&&full.keySpan==size.first);
     assert(full.textHeight==44&&full.rowHeight>=44&&full.keyWidth>=44);
     assert(size.first-48-full.textRight()==4);
@@ -47,6 +52,7 @@ int main() {
     assert(full.compactPreeditWidth(400)<=144);
     for(auto a:full.actions())assert(a.x>=0&&a.x+a.width<=full.width&&a.y+44<=full.height);
     const EditorLayout split(size.first,size.second,false,false,false,true);
+    for(const auto &a:split.actions(false,true))assert(std::string(a.name)!="ocr-mode");
     const EditorLayout swap(size.first,size.second,false,false,true,true);
     assert(swap.compact&&swap.scaled&&swap.swapped&&!swap.compactFull);
     assert(swap.textX==8&&swap.keyInset==split.width-split.split);

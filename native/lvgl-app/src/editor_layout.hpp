@@ -17,7 +17,8 @@ struct EditorLayout {
   int keyInset=0, keySpan=0;
   double keyWidth;
   EditorLayout(int w, int h, bool selectionOnly = false, bool chatComposer = false,
-               bool swapWideSides = false, bool compactExpanded = false) : nativeWidth(w),nativeHeight(h),width(w),height(h) {
+               bool swapWideSides = false, bool compactExpanded = false,
+               bool inlineReveal = false) : nativeWidth(w),nativeHeight(h),width(w),height(h) {
     compact=classifyLayout(w,h)==LayoutClass::CompactLandscape&&!selectionOnly;
     compactFull=compact&&!compactExpanded;
     swapped=swapWideSides&&!selectionOnly&&h<=w&&!compactFull;
@@ -69,6 +70,7 @@ struct EditorLayout {
     }
     if (selectionOnly) { split=86;textX=96;textWidth=w-106;textY=56;textHeight=h-66;if(portrait){const AppLayout safe{w,h};split=w;textX=safe.safeSide();textWidth=w-2*textX;textY=56+safe.safeTop();textHeight=h-textY-safe.safeBottom();} }
     textAreaWidth=textWidth;
+    if(compactFull&&inlineReveal)textAreaWidth=std::max(1,textWidth-48);
     (void)chatComposer;
   }
   int fromNativeX(int x) const {return scaled?int(std::lround(double(x)*width/nativeWidth)):x;}
@@ -131,10 +133,12 @@ struct EditorLayout {
     return {commaCenter-14-24,centerY-3-24,48,48};
   }
   struct Action { const char *name; int x, width, y; };
-  std::vector<Action> actions(bool chat=false) const {
-    if(compactFull)return {{"cancel",4,44,0},{"tools",52,44,0},{"done",width-68,64,bottomY}};
+  std::vector<Action> actions(bool chat=false, bool singleLineOcr=false) const {
+    if(compactFull)return {{"cancel",4,44,0},{singleLineOcr?"clipboard":"tools",52,44,0},{"done",width-68,64,bottomY}};
     if(compact) {
       const int small=compactTouchWidth();
+      if(singleLineOcr)return {{"cancel",textX,textWidth-small-112,actionsY},
+        {"done",textRight()-small-108,104,actionsY},{"clipboard",textRight()-small,small,actionsY}};
       return {{"cancel",textX,textWidth-2*small-116,actionsY},
         {"ocr-mode",textRight()-104-2*small-8,small,actionsY},
         {"done",textRight()-small-108,104,actionsY},{"clipboard",textRight()-small,small,actionsY}};
@@ -142,10 +146,10 @@ struct EditorLayout {
     if(portrait) {
       std::vector<Action> a;
       if(!chat)a.push_back({"cancel",0,84,actionsY});
-      a.push_back({"ocr-mode",0,112,actionsY});
+      if(!singleLineOcr)a.push_back({"ocr-mode",0,112,actionsY});
       a.push_back({"clipboard",0,48,actionsY});
       int total=0;for(const auto &v:a)total+=v.width;
-      const int gap=(textWidth-total)/int(a.size()-1);int x=textX;
+      const int gap=a.size()>1?(textWidth-total)/int(a.size()-1):0;int x=textX;
       for(auto &v:a){v.x=x;x+=v.width+gap;}
       const auto globe=globeKey();
       // Mirror pixel centres, including even-sized hit areas, around the
@@ -155,6 +159,8 @@ struct EditorLayout {
       return a;
     }
     const int cancelWidth=textWidth-48-104-44-12;
+    if(singleLineOcr)return {{"cancel",textX,textWidth-104-44-8,actionsY},
+      {"done",textRight()-152,104,actionsY},{"clipboard",textRight()-44,44,actionsY}};
     return {{"cancel",textX,cancelWidth,actionsY},
             {"ocr-mode",textRight()-204,48,actionsY},
             {"done",textRight()-152,104,actionsY},
