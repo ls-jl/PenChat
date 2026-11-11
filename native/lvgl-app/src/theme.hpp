@@ -4,6 +4,7 @@ namespace penchat {
 namespace theme {
 constexpr uint32_t scrim = 0x000000;
 constexpr uint32_t background = 0x212121;
+constexpr uint32_t keyboardBackground = 0x111111;
 constexpr uint32_t sidebar = 0x171717;
 constexpr uint32_t surface = 0x303030;
 constexpr uint32_t text = 0xececec;

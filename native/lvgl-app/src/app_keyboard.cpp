@@ -119,7 +119,7 @@ void App::editorBuild() {
   auto previousRoot = editorRoot_;
   editorSelectionMenu_=nullptr;editorSelectionActions_.clear();
   editorKeys_.clear(); editorLocalActions_.clear(); if(!editorInPlace())editorText_ = nullptr;
-  editorRoot_ = box(lv_screen_active(),0,0,editorLayout().width,editorLayout().height,theme::background);
+  editorRoot_ = box(lv_screen_active(),0,0,editorLayout().width,editorLayout().height,theme::keyboardBackground);
   lv_obj_set_scrollable(editorRoot_,false);
   if(layout.scaled) {
     lv_obj_set_style_transform_pivot_x(editorRoot_,0,0);
@@ -130,7 +130,7 @@ void App::editorBuild() {
   if(layout.docked) {
     lv_obj_set_style_bg_opa(editorRoot_,LV_OPA_TRANSP,0);
     lv_obj_set_clickable(editorRoot_,false);
-    auto panel=box(editorRoot_,0,layout.panelTop,editorLayout().width,editorLayout().height-layout.panelTop,theme::background);
+    auto panel=box(editorRoot_,0,layout.panelTop,editorLayout().width,editorLayout().height-layout.panelTop,theme::keyboardBackground);
     lv_obj_set_scrollable(panel,false);lv_obj_set_clickable(panel,true);
   }
   auto action = [this](const std::string &s) {
@@ -180,7 +180,7 @@ void App::editorBuild() {
     const char *groups[]={"1 标点","2 ABC","3 DEF","4 GHI","5 JKL","6 MNO","7 PQRS","8 TUV","9 WXYZ"};
     for(int n=0;n<9;++n)
       key(groups[n],n?"t9:"+std::to_string(n+1):"punctuation",layout.px(gridX+n%3*(cell+layout.keyGap)),layout.keyTop+n/3*(layout.rowHeight+layout.rowGap),layout.px(cell),layout.rowHeight);
-    auto filter=box(editorRoot_,layout.keyInset+layout.keyMargin,layout.keyTop,rail,3*layout.rowHeight+2*layout.rowGap,theme::background);
+    auto filter=box(editorRoot_,layout.keyInset+layout.keyMargin,layout.keyTop,rail,3*layout.rowHeight+2*layout.rowGap,theme::keyboardBackground);
     lv_obj_set_scroll_dir(filter,LV_DIR_VER);lv_obj_set_scroll_elastic(filter,false);
     editorExactList_=filter;
     int x=layout.keyMargin;
@@ -233,7 +233,7 @@ void App::editorBuild() {
     language.hit.height=end-language.hit.y;
     attachIcon(language.object,"globe-large",theme::text);
   }
-  auto editorPanel=box(editorRoot_,layout.editorPanelX(),layout.panelTop,layout.editorPanelWidth(),layout.portrait?layout.keyTop-6-layout.panelTop:layout.height,theme::background); lv_obj_set_scrollable(editorPanel,false);
+  auto editorPanel=box(editorRoot_,layout.editorPanelX(),layout.panelTop,layout.editorPanelWidth(),layout.portrait?layout.keyTop-6-layout.panelTop:layout.height,theme::keyboardBackground); lv_obj_set_scrollable(editorPanel,false);
   // Composition/candidates never resize the keys; actions share a bottom baseline.
   if(!layout.docked)lv_obj_move_background(editorPanel);
   for(const auto &a:layout.actions(editorInlineChat_,!editorMultiLineSupported_)) {
@@ -308,7 +308,7 @@ void App::editorBuild() {
   const auto row=layout.compositionRow();
   if(editorExpanded_&&!layout.compactFull) {
     const auto area=layout.compositionCandidates(true,0);
-    auto cover=box(editorRoot_,area.x,area.y,area.width,area.height,theme::background);
+    auto cover=box(editorRoot_,area.x,area.y,area.width,area.height,theme::keyboardBackground);
     lv_obj_set_scrollable(cover,false);
   }
   editorPreeditViewport_=box(editorRoot_,row.x,row.y,row.width,44,theme::background);
@@ -357,16 +357,16 @@ void App::editorBuild() {
     const int width=layout.compactFull?layout.width-8:layout.portrait?screen_.width-2*x:layout.textWidth;
     const int top=layout.compactFull?layout.keyTop:layout.portrait?layout.panelTop:0;
     if(layout.portrait||layout.compactFull) {
-      auto cover=box(editorRoot_,0,top,screen_.width,screen_.height-top,theme::background);
+      auto cover=box(editorRoot_,0,top,screen_.width,screen_.height-top,theme::keyboardBackground);
       lv_obj_set_scrollable(cover,false);lv_obj_set_clickable(cover,true);
     }
-    auto head=box(editorRoot_,x,top,width,74,theme::background);lv_obj_set_scrollable(head,false);
+    auto head=box(editorRoot_,x,top,width,74,theme::keyboardBackground);lv_obj_set_scrollable(head,false);
     label(head,"剪贴板 · "+std::to_string(editorClipboard_.records.size()),4,12,width-188,19);
     editorLocalActions_["clip-clear"]=button(head,editorClipboardConfirm_?"确认清空":"清空",width-182,6,98,44,[action]{action("clip-clear");});
     editorLocalActions_["clip-close"]=button(head,"关闭",width-78,6,74,44,[action]{action("clip-close");});
     const int listTop=layout.portrait||layout.compactFull?top+56:layout.overlayY();
     const int listHeight=layout.compactFull?layout.height-4-listTop:layout.portrait?screen_.height-this->layout().safeBottom()-listTop:layout.overlayHeight();
-    auto list=box(editorRoot_,x,listTop,width,listHeight,theme::background);lv_obj_set_scroll_dir(list,LV_DIR_VER);
+    auto list=box(editorRoot_,x,listTop,width,listHeight,theme::keyboardBackground);lv_obj_set_scroll_dir(list,LV_DIR_VER);
     int cy=0;
     // A sensitive explicit copy may be pasted once from the current slot but is never a history row.
     if(editorClipboard_.sensitiveCurrent) {
