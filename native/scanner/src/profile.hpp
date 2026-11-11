@@ -11,7 +11,8 @@ enum class PlatformKind { Rockchip, Cvi };
 enum class StartupPolicy { DoubleQuick, SingleQuickStable, StandardFirst, CviPipeline };
 enum class ScanBoundary { HardwareGate, TimestampWindow };
 enum class NodePolicy { Fixed, RkIspPaths };
-enum class ScanLight { Gpio43, LedClass, ConfiguredGpio };
+enum class ScanLight { Gpio, LedClass, ConfiguredGpio };
+enum class CaptureFormat { Nv12, CviGray8 };
 enum class GpioOwnership { Retain, RestoreExisting, TrackExport };
 enum class KeyDiscovery { Fixed, NameAndCode };
 enum class OpticalRotation { None, CounterClockwise90 };
@@ -23,6 +24,8 @@ struct CapturePolicy {
   StartupPolicy startup = StartupPolicy::DoubleQuick;
   ScanBoundary boundary = ScanBoundary::HardwareGate;
   NodePolicy nodes = NodePolicy::Fixed;
+  std::vector<std::pair<std::string,std::string>> candidates;
+  CaptureFormat format = CaptureFormat::Nv12;
 };
 struct OpticalSpec {
   OpticalRotation rotation = OpticalRotation::CounterClockwise90;
@@ -62,9 +65,9 @@ struct CaptureProfile {
   std::string videoNode = "/dev/video23", sensorNode = "/dev/v4l-subdev2";
   std::string keyNode = "/dev/input/by-path/led_control";
   unsigned keyCode = 134;
-  ScanLight light = ScanLight::Gpio43;
-  std::string ledBrightness, ledOnValue;
-  unsigned gpio = 0;
+  ScanLight light = ScanLight::Gpio;
+  std::string ledBrightness, ledOnValue="1", ledOffValue="0";
+  unsigned gpio = 43;
   std::string homeName;
   unsigned homeCode = 0;
   bool supported() const { return !id.empty(); }
@@ -87,8 +90,10 @@ inline void validateProfile(const CaptureProfile &p) {
   const bool cvi=p.platform==PlatformKind::Cvi;
   if (cvi != (p.capture.startup==StartupPolicy::CviPipeline) ||
       cvi != (p.inference.runtime==RuntimeKind::Cvi) ||
+      cvi != (p.capture.format==CaptureFormat::CviGray8) ||
       (cvi && (p.width!=320 || p.height!=240 || p.gatesExposure())) ||
       (!cvi && (p.videoNode.empty() || p.sensorNode.empty())) ||
+      (p.capture.nodes==NodePolicy::RkIspPaths && p.capture.candidates.empty()) ||
       (p.gatesExposure() && p.capture.startup!=StartupPolicy::DoubleQuick) ||
       (p.inference.runtime==RuntimeKind::PrivateRknn && p.inference.privateLibrary.empty()) ||
       (p.light==ScanLight::LedClass && (p.ledBrightness.empty() || p.ledOnValue.empty())) ||
@@ -136,6 +141,7 @@ inline const std::array<ProfileRegistration,5> &scanProfiles() {
     CaptureProfile melon{"melon-ov7251","ov7251",640,480};
     melon.videoNode="/dev/video12";
     melon.capture={StartupPolicy::StandardFirst,ScanBoundary::TimestampWindow,NodePolicy::RkIspPaths};
+    melon.capture.candidates={{"/dev/video12","rkisp_selfpath"},{"/dev/video11","rkisp_mainpath"}};
     melon.light=ScanLight::ConfiguredGpio;
     melon.boardIo={"RK3562_Melon_V0","ir_gpio_number","white_gpio_number",
       {"led_control","platform-led_control-event"},{"adc-keys","platform-adc-keys-event"},
@@ -145,6 +151,7 @@ inline const std::array<ProfileRegistration,5> &scanProfiles() {
     CaptureProfile s6{"s6-pag7920","pag7920",320,240};
     s6.platform=PlatformKind::Cvi;
     s6.capture={StartupPolicy::CviPipeline,ScanBoundary::TimestampWindow,NodePolicy::Fixed};
+    s6.capture.format=CaptureFormat::CviGray8;
     s6.opticalRegion={112,8,160,192};
     s6.videoNode.clear(); s6.sensorNode.clear(); s6.light=ScanLight::ConfiguredGpio;
     s6.boardIo={"Plum_V0","white_gpio_number","ir_gpio_number",

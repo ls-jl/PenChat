@@ -23,8 +23,8 @@ void pollCaptureBatch(Keys keys, Read read, Consume consume, Continue keepReadin
   for (int n = 0; n < 16; ++n) {
     keys();
     if (!keepReading()) break;
-    if (!read([&](const std::uint8_t* pixels, int stride, std::uint64_t sequence, std::int64_t timestamp) {
-          keys(); consume(pixels, stride, sequence, timestamp);
+    if (!read([&](const auto &...frame) {
+          keys(); consume(frame...);
         })) break;
   }
 }

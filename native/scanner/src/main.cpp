@@ -60,11 +60,12 @@ class Light {
   uint64_t requested_ = 0, done_ = 0;
   std::string error_;
   bool mock_;
+  std::function<void(bool)> switch_;
   std::thread thread_;
 
 public:
-  explicit Light(bool mock)
-      : mock_(mock), thread_([this] {
+  explicit Light(bool mock, std::function<void(bool)> change)
+      : mock_(mock), switch_(std::move(change)), thread_([this] {
           for (;;) {
             bool on;
             uint64_t ticket;
@@ -79,7 +80,7 @@ public:
             std::string error;
             try {
               if (!mock_)
-                setScanLight(on);
+                switch_(on);
             } catch (const std::exception &e) {
               error = e.what();
             }
@@ -92,7 +93,7 @@ public:
           }
           try {
             if (!mock_ && desired_)
-              setScanLight(false);
+              switch_(false);
           } catch (...) {
           }
         }) {}
@@ -235,7 +236,7 @@ class Worker {
   Json lease_, exported_, memoryAtStop_ = Json::object();
   std::mutex eventMutex_;
   std::deque<Event> events_;
-  Hardware hardware_;
+  std::unique_ptr<ScanPlatform> hardware_=makeScanPlatform();
   bool engineSealed_ = false, reclaimed_ = false;
   uint64_t discardedBacklog_ = 0;
   Light light_;
@@ -367,7 +368,7 @@ class Worker {
       while (engine_->modelPreparation().state == ModelState::Preparing)
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    hardware_.close();
+    hardware_->close();
     lease_ = Json();
   }
   void begin(int64_t pressedUs = 0) {
@@ -443,7 +444,7 @@ class Worker {
     release();
     requireRelease_ = false;
     if (!mock_)
-      hardware_.exposure(true);
+      hardware_->exposure(true);
     begin(pressedUs);
     return true;
   }
@@ -483,7 +484,7 @@ class Worker {
       seal();
       return;
     }
-    hardware_.exposure(false);
+    hardware_->exposure(false);
     draining_ = true;
     afterStop_ = 16;
     drainDeadline_ = clockUs() + 50000;
@@ -622,10 +623,10 @@ public:
   Worker(int fd, PreviewSlot *slot, std::string resources,
          std::string directory, bool mock, const CaptureProfile &profile)
       : fd_(fd), slot_(slot), resources_(std::move(resources)),
-        directory_(std::move(directory)), mock_(mock), profile_(profile), light_(mock) {
+        directory_(std::move(directory)), mock_(mock), profile_(profile), light_(mock,[this](bool on){hardware_->light(on);}) {
     if (!profile_.supported())
       throw std::runtime_error("unsupported scan board or pen sensor");
-    if(profile_.handoff.mediaHandoff)hardware_.beforeRestore([this]{yieldMedia();});
+    if(profile_.handoff.mediaHandoff)hardware_->beforeRestore([this]{yieldMedia();});
     std::unique_ptr<Inference> backend;
 #ifdef SCANNER_TEST_SOURCE
     if (mock_)
@@ -674,7 +675,7 @@ public:
       throw std::runtime_error("key-only OCR is not supported on this profile");
     if (type == "ocr_keys" && generation > generation_ && armed_) {
       light_.off();
-      if (!mock_) hardware_.cameraToOcr();
+      if (!mock_) hardware_->cameraToOcr();
       armed_ = false; keyDown_ = false;
       { DrainDeadline deadline; release(true); }
       lease_ = Json(); generation_ = generation;
@@ -712,9 +713,9 @@ public:
     if (type == "lease_ack" && state_ == "preparing") {
       // Reserve the key and pause the stock capture owner before model work,
       // but do not start our sensor. The parent already retained the lease.
-      hardware_.reserve(lease_);
+      hardware_->reserve(lease_);
       if (ocrKeys_) {
-        hardware_.cameraToOcr(); lease_ = Json();
+        hardware_->cameraToOcr(); lease_ = Json();
         state_ = "ocr_keys"; emit("released", {{"ocr_keys", true}}); return;
       }
       if (engine_->prepareModel() != Code::Ok)
@@ -740,7 +741,7 @@ public:
       release();
       requireRelease_ = keyDown_;
       if (!mock_ && armed_)
-        hardware_.exposure(true);
+        hardware_->exposure(true);
       state_ = "ready";
       emit("ready");
     }
@@ -758,14 +759,16 @@ public:
         for (int x = 20; x < profile_.width - 20; ++x)
           if ((x + y) % 11 < 3)
             pixels[size_t(y) * profile_.width + x] = 30;
-      frame(pixels.data(), profile_.width,
+      frame({pixels.data(),pixels.size(),profile_.width,profile_.height,profile_.width,
             j.value("rawSequence", haveSequence_ ? lastSequence_ + 1 : uint64_t(0)),
-            j.value("rawTimestamp", clockUs()));
+            j.value("rawTimestamp", clockUs())});
     }
 #endif
   }
-  void frame(const uint8_t *pixels, int stride, uint64_t sequence,
-             int64_t timestamp) {
+  void frame(const FrameView &source) {
+    validateFrame(source);
+    const auto sequence=source.sequence;
+    const auto timestamp=source.timestamp;
     lastFrame_ = clockUs();
     if (!capturing_)
       return;
@@ -810,11 +813,10 @@ public:
     lastRawTimestamp_ = timestamp;
     framesSinceGap_ = std::min(16u, framesSinceGap_ + 1);
     const bool wasDraining = draining_;
-    const auto region=sensorRegion(profile_);
-    const auto *paper=pixels+std::size_t(region.top)*stride+region.left;
-    const auto pushed = engine_->pushFrame(scan_, paper, config_.width, config_.height, stride, sequence, timestamp);
+    const auto paper=paperFrame(source,profile_);
+    const auto pushed=engine_->pushFrame(scan_,paper.y,paper.width,paper.height,paper.stride,sequence,timestamp);
 #ifdef SCANNER_DIAGNOSTIC_TRACE
-    if(pushed.accepted)trace_.append(pixels,stride,sequence,timestamp);
+    if(pushed.accepted)trace_.append(source.y,source.stride,sequence,timestamp);
 #endif
     if (!pushed.accepted || pushed.code == Code::StopCapture) {
       captureFailure_ = *pushed.reason ? pushed.reason : "memory_allocation_failed";
@@ -849,7 +851,7 @@ public:
           state_ = "ready";
           emit("ready", {{"model_prepared_us", model.elapsedUs}});
         } else {
-          hardware_.start();
+          hardware_->start();
           armed_ = true;
           requireRelease_ = false;
           state_ = "ready";
@@ -866,6 +868,8 @@ public:
     if (state_ == "waiting_owner" && clockUs() >= nextOwner_) {
       try {
         lease_ = scanLeaseSnapshot();
+        if (lease_.value("profile",std::string())!=profile_.id)
+          throw std::runtime_error("scan identity changed during worker lifetime");
         state_ = "preparing";
         emit("lease", {{"lease", lease_}});
       } catch (const std::exception &e) {
@@ -877,7 +881,7 @@ public:
     }
     if (state_ == "ocr_keys" && !mock_) {
       bool down = false;
-      while (hardware_.keyEvent(down)) {
+      while (hardware_->keyEvent(down)) {
         if (down) ++ocrSequence_;
         emit("ocr_key", {{"down", down}, {"sequence", ocrSequence_}});
       }
@@ -885,15 +889,15 @@ public:
     if (armed_ && !mock_) {
       auto keys = [this] {
         bool down = false; int64_t eventUs = 0;
-        while (hardware_.keyEvent(down, &eventUs)) keyEvent(down, eventUs);
+        while (hardware_->keyEvent(down, &eventUs)) keyEvent(down, eventUs);
       };
       // Keep standby draining, but never let a blocking 16-frame batch defer
       // the release event. The callback checks again after each CVI read.
       bool readAny = false;
       pollCaptureBatch(keys,
-          [this](const auto& consume) { return hardware_.readFrame(consume); },
-          [this, &readAny](const uint8_t* y, int stride, uint64_t seq, int64_t ts) {
-            readAny = true; frame(y, stride, seq, ts);
+          [this](const auto& consume) { return hardware_->readFrame(consume); },
+          [this, &readAny](const FrameView &source) {
+            readAny = true; frame(source);
           },
           [this, &readAny] {
             // After S6 seals, return promptly to endScan/control processing;
@@ -976,7 +980,7 @@ public:
       captureFailure_ = why;
       engineSealed_ = true;
       light_.off();
-      hardware_.close();
+      hardware_->close();
       armed_ = false;
       capturing_ = false;
       draining_ = false;
@@ -985,7 +989,7 @@ public:
       emit("stopped", {{"reason", why}});
     } else {
       light_.off();
-      hardware_.close();
+      hardware_->close();
       armed_ = false;
       state_ = "error";
       emit("error", {{"error", why}});

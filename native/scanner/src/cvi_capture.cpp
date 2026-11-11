@@ -187,7 +187,8 @@ public:
       unsigned frames=0;std::uint32_t previous=0;std::int64_t previousTime=0;
       const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
       while(frames<3&&std::chrono::steady_clock::now()<deadline)
-        read([&](const std::uint8_t *,int,std::uint64_t sequence,std::int64_t timestamp){
+        read([&](const FrameView &frame){
+          const auto sequence=frame.sequence;const auto timestamp=frame.timestamp;
           frames=frames&&std::uint32_t(sequence)==previous+1&&timestamp>previousTime?frames+1:1;
           previous=std::uint32_t(sequence);previousTime=timestamp;
         });
@@ -196,7 +197,7 @@ public:
     }catch(...){close();throw;}
   }
   ~CviCapture()override{close();}
-  bool read(const std::function<void(const std::uint8_t *,int,std::uint64_t,std::int64_t)> &consume)override {
+  bool read(const FrameConsumer &consume)override {
     FrameInfo info{};if(get_(0,0,&info,20))return false;
     void *mapped=nullptr;
     try {
@@ -205,7 +206,9 @@ public:
          f.length[0]<std::uint64_t(f.stride[0])*f.h||f.length[0]>8*1024*1024||!f.physical[0])
         throw std::runtime_error("CVI full-field scan frame mismatch");
       mapped=map_(f.physical[0],f.length[0]);if(!mapped||mapped==MAP_FAILED)throw std::runtime_error("CVI scan frame mapping failed");
-      consume(static_cast<const std::uint8_t *>(mapped),int(f.stride[0]),f.time,std::int64_t(f.pts));
+      const FrameView frame{static_cast<const std::uint8_t *>(mapped),f.length[0],
+        int(f.w),int(f.h),int(f.stride[0]),f.time,std::int64_t(f.pts)};
+      validateFrame(frame);consume(frame);
       unmap_(mapped,f.length[0]);mapped=nullptr;
     }catch(...){if(mapped&&mapped!=MAP_FAILED)unmap_(mapped,info.frame.length[0]);release_(0,0,&info);throw;}
     const int released=release_(0,0,&info);

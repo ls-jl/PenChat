@@ -7,6 +7,7 @@
 #include "board_config.hpp"
 #include "start_policy.hpp"
 #include "file_read.hpp"
+#include "hardware_ops.hpp"
 #include "app_identity.hpp"
 #include <algorithm>
 #include <chrono>
@@ -24,45 +25,8 @@
 #include <sys/wait.h>
 #include <thread>
 namespace penchat_scan {
+using namespace hardware_detail;
 namespace {
-// Published before light requests, changed only after their owner joins/off().
-std::string gpioExportMarker;
-CaptureProfile lightProfile;
-std::string read(const std::string &p) {
-  return readOptionalFile(p);
-}
-std::string startTime(int pid) {
-  auto s = read("/proc/" + std::to_string(pid) + "/stat");
-  auto end = s.rfind(')');
-  if (end == std::string::npos)
-    return {};
-  std::istringstream in(s.substr(end + 2));
-  std::string v;
-  for (int i = 3; i <= 22; ++i)
-    if (!(in >> v))
-      return {};
-  return v;
-}
-bool same(const Json &p) {
-  return !p.value("start", std::string()).empty() &&
-         startTime(p.at("pid").get<int>()) == p.at("start").get<std::string>();
-}
-bool match(int pid, const std::string &comm, const std::string &needle) {
-  return read("/proc/" + std::to_string(pid) + "/comm") == comm + "\n" &&
-         read("/proc/" + std::to_string(pid) + "/cmdline").find(needle) !=
-             std::string::npos;
-}
-int io(int fd, unsigned long request, void *p) {
-  int rc;
-  do {
-    rc = ioctl(fd, request, p);
-  } while (rc < 0 && errno == EINTR);
-  return rc;
-}
-void require(bool b, const char *s) {
-  if (!b)
-    throw std::runtime_error(s);
-}
 CaptureProfile configured(CaptureProfile p) {
   if (!p.boardIo.section.empty())
     return boardConfig(p,Json::parse(read("/usr/configs/hal_key_config.json")),
@@ -127,6 +91,29 @@ CaptureProfile detectedScanProfile() {
   return scanProfile(read("/proc/device-tree/model"),
                      read("/sys/class/video4linux/v4l-subdev2/name")+read("/usr/configs/sensor_cfg.ini"));
 }
+std::unique_ptr<const ResolvedDeviceProfile> resolveScanProfile(const Json &lease) {
+  auto profile=configured(detectedScanProfile());
+  validateProfile(profile);
+  require(lease.value("profile",std::string())==profile.id,"scan lease profile mismatch");
+  if (profile.light==ScanLight::ConfiguredGpio)
+    require(profile.gpio==lease.at("gpio_number").get<unsigned>(),"scan light configuration changed");
+  if (profile.boardIo.keyDiscovery==KeyDiscovery::NameAndCode)
+    profile.keyNode=discoveredKey(profile.keyCode);
+  std::vector<std::string> nodes;
+  if (profile.platform==PlatformKind::Rockchip) {
+    if (profile.capture.nodes==NodePolicy::RkIspPaths) {
+      for (const auto &entry:lease.at("video_formats")) {
+        const auto node=entry.at("node").get<std::string>();
+        require(std::any_of(profile.capture.candidates.begin(),profile.capture.candidates.end(),
+          [&](const std::pair<std::string,std::string> &candidate){return node==candidate.first;}),
+          "unexpected scan ISP node");
+        nodes.push_back(node);
+      }
+    } else nodes.push_back(profile.videoNode);
+    require(!nodes.empty(),"scan capture nodes missing");
+  }
+  return std::unique_ptr<const ResolvedDeviceProfile>(new ResolvedDeviceProfile(std::move(profile),std::move(nodes)));
+}
 Json scanLeaseSnapshot() {
   const auto profile = configured(detectedScanProfile());
   require(profile.supported(), "unsupported scan board or pen sensor");
@@ -158,7 +145,7 @@ Json scanLeaseSnapshot() {
   // runCapFrame may still be starting CaptureFrame after our previous release.
   // Taking an empty snapshot would leave that late child outside the lease.
   require(!j["captures"].empty(), "system capture preparing");
-  if(profile.platform==PlatformKind::Cvi) {
+  if(profile.boardIo.gpioOwnership==GpioOwnership::RestoreExisting) {
     j["gpio_existed"]=true;
     j["gpio_number"]=profile.gpio;
     const auto base="/sys/class/gpio/gpio"+std::to_string(profile.gpio);
@@ -167,8 +154,8 @@ Json scanLeaseSnapshot() {
     require(j["gpio_value"]=="0\n" || j["gpio_value"]=="1\n","S6 scan light state unavailable");
   } else if(profile.capture.nodes==NodePolicy::RkIspPaths) {
     j["video_formats"]=Json::array();
-    for(const auto &v: {std::make_pair("/dev/video12","rkisp_selfpath"),std::make_pair("/dev/video11","rkisp_mainpath")}) {
-      auto saved=savedVideo(v.first,v.second);if(!saved.is_null())j["video_formats"].push_back(saved);
+    for(const auto &v:profile.capture.candidates) {
+      auto saved=savedVideo(v.first,v.second.c_str());if(!saved.is_null())j["video_formats"].push_back(saved);
     }
     require(!j["video_formats"].empty(),"MELON ISP capture unavailable");
     const auto gpio="/sys/class/gpio/gpio"+std::to_string(profile.gpio);
@@ -187,10 +174,9 @@ Json scanLeaseSnapshot() {
   if(profile.light==ScanLight::LedClass)j["led_brightness"]=read(profile.ledBrightness);
   return j;
 }
-void setScanLight(bool on) {
+void setScanLight(const CaptureProfile &profile, const std::string &gpioExportMarker, bool on) {
   // GPIO ownership differs by board. Never export Y07 driver-owned pins.
   // Configure while arming, then toggle directly without fork/shell latency.
-  const auto profile=lightProfile.supported()?lightProfile:configured(detectedScanProfile());
   require(profile.supported(), "unsupported scan light board");
   auto write = [](const char *path, const char *value) {
     int fd = ::open(path, O_WRONLY | O_CLOEXEC);
@@ -203,15 +189,15 @@ void setScanLight(bool on) {
   };
   if(profile.light==ScanLight::LedClass) {
     require(!profile.ledOnValue.empty() &&
-                write(profile.ledBrightness.c_str(),on?profile.ledOnValue.c_str():"0"),
+                write(profile.ledBrightness.c_str(),on?profile.ledOnValue.c_str():profile.ledOffValue.c_str()),
             "cannot switch Y07 scan LED");return;
   }
-  const auto number=std::to_string(profile.light==ScanLight::ConfiguredGpio?profile.gpio:43);
+  const auto number=std::to_string(profile.gpio);
   const auto base="/sys/class/gpio/gpio"+number;
   const auto valuePath=base+"/value";const char *value=valuePath.c_str();
   if (access(value, F_OK) != 0) {
     require(write("/sys/class/gpio/export", number.c_str()), "cannot export scan light");
-    if(profile.capture.nodes==NodePolicy::RkIspPaths) {
+    if(profile.boardIo.gpioOwnership==GpioOwnership::TrackExport) {
       // Only an export that actually succeeded belongs to this lease. In
       // particular EBUSY must never cause us to unexport a driver's GPIO.
       int marker=::open(gpioExportMarker.c_str(),O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
@@ -222,7 +208,7 @@ void setScanLight(bool on) {
     require(write((base+"/direction").c_str(), "out"),
             "cannot configure scan light");
   }
-  require(write(value, on ? "1" : "0"), "cannot switch scan light");
+  require(write(value,on?profile.ledOnValue.c_str():profile.ledOffValue.c_str()), "cannot switch scan light");
 }
 void restoreScanLease(const Json &j) noexcept {
   bool held = false;
@@ -244,13 +230,20 @@ void restoreScanLease(const Json &j) noexcept {
   // disturb the replacement CaptureFrame or a newly started system OCR scan.
   if (!held)
     return;
+  CaptureProfile profile;
+  try {profile=scanProfileById(j.value("profile",std::string()));} catch (...) {return;}
+  if (!profile.supported()) return;
+  if (profile.light==ScanLight::ConfiguredGpio) {
+    try {profile.gpio=j.at("gpio_number").get<unsigned>();} catch (...) {return;}
+  }
   try {
-    if(j.value("profile",std::string())!="melon-ov7251")setScanLight(false);
+    if(profile.boardIo.gpioOwnership!=GpioOwnership::TrackExport)
+      setScanLight(profile,j.value("gpio_export_marker",std::string()),false);
   } catch (...) {
   }
   try {
-    if (detectedScanProfile().sensor == "sc2356") {
-      int fd = ::open("/dev/v4l-subdev2", O_RDWR | O_CLOEXEC);
+    if (profile.capture.startup == StartupPolicy::DoubleQuick) {
+      int fd = ::open(profile.sensorNode.c_str(), O_RDWR | O_CLOEXEC);
       if (fd >= 0) {
         int zero = 0;
         io(fd, 0x400456ca, &zero);
@@ -261,7 +254,6 @@ void restoreScanLease(const Json &j) noexcept {
   } catch (...) {
   }
   try {
-    const auto profile=detectedScanProfile();
     if(profile.light==ScanLight::LedClass&&j.value("profile",std::string())==profile.id&&j.contains("led_brightness")&&j["led_brightness"].is_string()) {
       const auto value=j["led_brightness"].get<std::string>();int fd=::open(profile.ledBrightness.c_str(),O_WRONLY|O_CLOEXEC);
       if(fd>=0){::write(fd,value.data(),value.size());::close(fd);}
@@ -279,13 +271,13 @@ void restoreScanLease(const Json &j) noexcept {
       f.field = saved.at("field"); f.colorspace = saved.at("colorspace");
       f.quantization = saved.at("quantization"); f.ycbcr_enc = saved.at("ycbcr_enc");
       f.xfer_func = saved.at("xfer_func");
-      int video = ::open(saved.value("node",detectedScanProfile().videoNode).c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
+      int video = ::open(saved.value("node",profile.videoNode).c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
       if (video >= 0) { io(video, VIDIOC_S_FMT, &format); ::close(video); }
     }
   } catch (...) {
   }
   try {
-    if((j.value("profile",std::string())=="melon-ov7251" || j.value("profile",std::string())=="s6-pag7920") && j.contains("gpio_number")) {
+    if(profile.boardIo.gpioOwnership!=GpioOwnership::Retain && j.contains("gpio_number")) {
       const auto number=std::to_string(j.at("gpio_number").get<unsigned>());
       const auto marker=j.value("gpio_export_marker",std::string());
       const bool owned=!marker.empty() && read(marker)==number;
@@ -316,312 +308,5 @@ bool scanLeaseRestored(const Json &snapshot) noexcept {
     }
     return true;
   }catch(...){return false;}
-}
-void Hardware::open(const Json &lease) {
-  reserve(lease);
-  start();
-}
-void Hardware::reserve(const Json &lease) {
-  close();
-  lease_ = lease;
-  try {
-    profile_ = configured(detectedScanProfile());
-    require(profile_.supported() && lease_.value("profile", profile_.id) == profile_.id,
-            "scan lease profile mismatch");
-    if(profile_.capture.startup==StartupPolicy::StandardFirst || profile_.platform==PlatformKind::Cvi)
-      require(profile_.gpio==lease_.at("gpio_number").get<unsigned>(),"scan light configuration changed");
-#ifdef PENCHAT_CVI_CAPTURE
-    if(profile_.platform==PlatformKind::Cvi)verifyCviCaptureRuntime();
-#endif
-    lightProfile=profile_;
-    for (auto &p : lease_.at("guardians"))
-      if (!p["paused"].get<bool>() && same(p) &&
-          match(p["pid"], "guardian_run", "/usr/bin/runCapFrame"))
-        require(kill(p["pid"].get<int>(), SIGSTOP) == 0,
-                "cannot acquire scan owner");
-    for (auto &p : lease_.at("captures"))
-      if (same(p) && match(p["pid"], "CaptureFrame", "CaptureFrame"))
-        kill(p["pid"].get<int>(), SIGTERM);
-    std::this_thread::sleep_for(std::chrono::milliseconds(250));
-    for (auto &p : lease_.at("captures"))
-      if (same(p) && match(p["pid"], "CaptureFrame", "CaptureFrame"))
-        kill(p["pid"].get<int>(), SIGKILL);
-    // SIGKILL is asynchronous. Do not request our V4L2 buffers while the old
-    // owner is still closing the same video node in the kernel.
-    const auto stopped = std::chrono::steady_clock::now() +
-                         std::chrono::seconds(2);
-    for (;;) {
-      bool alive = false;
-      for (auto &p : lease_.at("captures"))
-        alive = alive ||
-                (same(p) && match(p["pid"], "CaptureFrame", "CaptureFrame"));
-      if (!alive)
-        break;
-      require(std::chrono::steady_clock::now() < stopped,
-              "system capture did not release video node");
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-    gpioExportMarker=lease_.value("gpio_export_marker",std::string());
-    setScanLight(false);
-    if(profile_.boardIo.keyDiscovery==KeyDiscovery::NameAndCode)profile_.keyNode=discoveredKey(profile_.keyCode);
-    key_ = ::open(profile_.keyNode.c_str(),
-                  O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-    require(key_ >= 0, "scan key unavailable");
-    int keyClock = CLOCK_MONOTONIC;
-    keyMonotonic_ = io(key_, EVIOCSCLOCKID, &keyClock) == 0;
-    char name[128]{};
-    require(io(key_, EVIOCGNAME(sizeof(name)), name) >= 0 &&
-                std::string(name) == "led_control",
-            "wrong scan key");
-    int one = 1;
-    require(io(key_, EVIOCGRAB, &one) == 0, "scan key busy");
-    resetKey();
-  } catch (...) {
-    close();
-    throw;
-  }
-}
-void Hardware::resetKey() {
-  input_event event{};
-  while (::read(key_, &event, sizeof(event)) == sizeof(event)) {}
-  require(errno == EAGAIN || errno == EWOULDBLOCK, "cannot drain scan key");
-  unsigned long keys[(KEY_MAX + 8 * sizeof(long)) / (8 * sizeof(long))]{};
-  require(io(key_, EVIOCGKEY(sizeof(keys)), keys) >= 0, "cannot read scan key");
-  pressed_ = false;
-  const unsigned code = profile_.keyCode;
-  waitRelease_ = (keys[code / (8 * sizeof(long))] &
-                  (1UL << (code % (8 * sizeof(long))))) != 0;
-}
-void Hardware::start() {
-  try {
-    require(key_ >= 0 && video_ < 0 && !lease_.empty(), "scan hardware not reserved");
-    openCamera();
-    // Presses made while preparing cannot become a delayed, empty scan.
-    resetKey();
-  } catch (...) {
-    close();
-    throw;
-  }
-}
-void Hardware::openCamera() {
-  if(profile_.platform==PlatformKind::Cvi) {
-#ifdef PENCHAT_CVI_CAPTURE
-    cvi_=openCviCapture();return;
-#else
-    throw std::runtime_error("CVI capture is unavailable in this executable");
-#endif
-  }
-  // Revalidate identity before changing the capture format or sensor controls.
-  auto sensorName = read("/sys/class/video4linux/v4l-subdev2/name");
-  require(sensorName.find(profile_.sensor) != std::string::npos,
-          "unsupported pen sensor");
-  v4l2_format f{};
-  auto candidates=profile_.capture.startup==StartupPolicy::StandardFirst?lease_.at("video_formats"):Json::array({{{"node",profile_.videoNode}}});
-  for(const auto &candidate:candidates) {
-    const auto path=candidate.at("node").get<std::string>();
-    video_=::open(path.c_str(),O_RDWR|O_NONBLOCK|O_CLOEXEC);if(video_<0)continue;
-    f={};f.type=V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-    f.fmt.pix_mp.width=profile_.width;f.fmt.pix_mp.height=profile_.height;
-    f.fmt.pix_mp.pixelformat=V4L2_PIX_FMT_NV12;f.fmt.pix_mp.num_planes=1;
-    if(io(video_,VIDIOC_S_FMT,&f)==0 && f.fmt.pix_mp.width==unsigned(profile_.width) &&
-       f.fmt.pix_mp.height==unsigned(profile_.height) && f.fmt.pix_mp.num_planes==1 &&
-       f.fmt.pix_mp.pixelformat==V4L2_PIX_FMT_NV12) {profile_.videoNode=path;break;}
-    ::close(video_);video_=-1;
-  }
-  require(video_>=0,"unsupported pen NV12 profile");
-  stride_ = f.fmt.pix_mp.plane_fmt[0].bytesperline;
-  require(stride_ >= profile_.width, "invalid pen stride");
-  v4l2_requestbuffers r{};
-  // Absorb short scheduler stalls without dropping real sensor frames.
-  r.count = 12;
-  r.type = f.type;
-  r.memory = V4L2_MEMORY_MMAP;
-  require(io(video_, VIDIOC_REQBUFS, &r) == 0 && r.count >= 2 && r.count <= 16,
-          "pen buffers unavailable");
-  buffers_.resize(r.count);
-  for (unsigned n = 0; n < r.count; ++n) {
-    v4l2_buffer b{};
-    v4l2_plane p[VIDEO_MAX_PLANES]{};
-    b.type = f.type;
-    b.memory = V4L2_MEMORY_MMAP;
-    b.index = n;
-    b.length = VIDEO_MAX_PLANES;
-    b.m.planes = p;
-    require(io(video_, VIDIOC_QUERYBUF, &b) == 0, "pen QUERYBUF failed");
-    buffers_[n].size = p[0].length;
-    auto ptr = mmap(nullptr, p[0].length, PROT_READ | PROT_WRITE, MAP_SHARED,
-                    video_, p[0].m.mem_offset);
-    require(ptr != MAP_FAILED, "pen mmap failed");
-    buffers_[n].bytes = ptr;
-    require(io(video_, VIDIOC_QBUF, &b) == 0, "pen QBUF failed");
-  }
-  sensor_ = ::open(profile_.sensorNode.c_str(), O_RDWR | O_CLOEXEC);
-  require(sensor_ >= 0, "pen sensor unavailable");
-  int one = 1;
-  // Both deployed kernels expose the quick-only flag. Y02's stock capture also
-  // leaves it set, so STREAMON alone is not proof that pixels are arriving.
-  if(profile_.capture.startup!=StartupPolicy::StandardFirst)require(io(sensor_, 0x400456ea, &one) == 0, "pen quick-only failed");
-  int type = f.type;
-  require(io(video_, VIDIOC_STREAMON, &type) == 0, "pen STREAMON failed");
-  stream_ = true;
-  if(profile_.capture.startup==StartupPolicy::StandardFirst) {
-    startOv7251([this](unsigned ms) {
-      bool any=false;unsigned consecutive=0;uint32_t previous=0;
-      const auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(ms);
-      while(consecutive<16 && std::chrono::steady_clock::now()<deadline) {
-        if(!readFrame([&](const uint8_t *,int,uint64_t seq,int64_t) {
-          const auto current=uint32_t(seq);consecutive=any&&current==previous+1?consecutive+1:1;
-          any=true;previous=current;
-        }))std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
-      return consecutive>=16?StartupFrames::Stable:any?StartupFrames::Unstable:StartupFrames::None;
-    },[&] {require(io(sensor_,0x400456ca,&one)==0,"OV7251 quick stream failed");});
-  } else if (profile_.capture.startup == StartupPolicy::DoubleQuick) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    require(io(sensor_, 0x400456ca, &one) == 0, "pen quick stream failed");
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    require(io(sensor_, 0x400456ca, &one) == 0, "pen quick stream retry failed");
-  } else {
-    // The deployed Y02 driver leaves SC035GS gated after pipeline STREAMON.
-    // Start it once after the receiver is ready; never replay the SC2356 retry.
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    require(io(sensor_, 0x400456ca, &one) == 0, "pen quick stream failed");
-    // Verify the actual source before advertising ready. Drain startup buffers
-    // here, outside any pen capture window, until the sequence is stable.
-    unsigned consecutive = 0;
-    uint32_t previous = 0;
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::seconds(2);
-    while (consecutive < 16) {
-      require(std::chrono::steady_clock::now() < deadline,
-              "pen sensor did not deliver sustained frames");
-      if (!readFrame([&](const uint8_t *, int, uint64_t sequence, int64_t) {
-            const auto current = uint32_t(sequence);
-            consecutive = consecutive && current == previous + 1
-                              ? consecutive + 1 : 1;
-            previous = current;
-          }))
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-  }
-}
-bool Hardware::keyEvent(bool &down, int64_t *timestamp) {
-  input_event e{};
-  while (::read(key_, &e, sizeof(e)) == sizeof(e)) {
-    if (e.type == EV_SYN && e.code == SYN_DROPPED)
-      throw std::runtime_error("scan key events lost");
-    if (e.type != EV_KEY || e.code != profile_.keyCode || (e.value != 0 && e.value != 1))
-      continue;
-    if (waitRelease_) {
-      if (e.value == 0)
-        waitRelease_ = false;
-      continue;
-    }
-    bool next = e.value == 1;
-    if (next == pressed_)
-      continue;
-    pressed_ = next;
-    down = next;
-    if (timestamp) {
-      timespec mono{}, real{};
-      require(clock_gettime(CLOCK_MONOTONIC, &mono) == 0 && clock_gettime(CLOCK_REALTIME, &real) == 0,
-              "cannot timestamp scan key");
-      *timestamp = scanKeyTimestamp(e.time.tv_sec, e.time.tv_usec, keyMonotonic_,
-          int64_t(mono.tv_sec)*1000000 + mono.tv_nsec/1000,
-          int64_t(real.tv_sec)*1000000 + real.tv_nsec/1000);
-    }
-    return true;
-  }
-  if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
-    throw std::runtime_error("scan key disconnected");
-  return false;
-}
-void Hardware::exposure(bool enabled) {
-  // Keep SC035GS/OV7251 running after startup. Toggling quick-stream at
-  // pen release truncates CSI packets; the worker bounds the scan by timestamps.
-  if (!profile_.gatesExposure()) return;
-  int value = enabled ? 1 : 0;
-  require(sensor_ >= 0 && io(sensor_, 0x400456ca, &value) == 0,
-          "cannot change pen exposure");
-}
-bool Hardware::readFrame(
-    const std::function<void(const uint8_t *, int, uint64_t, int64_t)>
-        &consume) {
-  if(cvi_)return cvi_->read(consume);
-  v4l2_buffer b{};
-  v4l2_plane p[VIDEO_MAX_PLANES]{};
-  b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-  b.memory = V4L2_MEMORY_MMAP;
-  b.length = VIDEO_MAX_PLANES;
-  b.m.planes = p;
-  if (io(video_, VIDIOC_DQBUF, &b) < 0) {
-    if (errno == EAGAIN || errno == EINTR)
-      return false;
-    throw std::runtime_error("pen DQBUF failed");
-  }
-  try {
-    require(b.index < buffers_.size(), "invalid pen buffer index");
-    auto &v = buffers_[b.index];
-    size_t used = p[0].bytesused, off = p[0].data_offset;
-    require(off <= used && used <= v.size &&
-                used - off >= size_t(stride_) * profile_.height * 3 / 2,
-            "invalid pen NV12 payload");
-    require(!(b.flags & V4L2_BUF_FLAG_ERROR), "pen frame error");
-    consume(static_cast<const uint8_t *>(v.bytes) + off, stride_, b.sequence,
-            int64_t(b.timestamp.tv_sec) * 1000000 + b.timestamp.tv_usec);
-  } catch (...) {
-    io(video_, VIDIOC_QBUF, &b);
-    throw;
-  }
-  require(io(video_, VIDIOC_QBUF, &b) == 0, "pen requeue failed");
-  return true;
-}
-void Hardware::cameraToOcr() {
-  require(key_ >= 0, "OCR key lease unavailable");
-  resetKey();
-  const int key = key_; const bool waitRelease = waitRelease_;
-  key_ = -1;
-  close(); // Restore camera/guardian while retaining the same evdev grab.
-  key_ = key; waitRelease_ = waitRelease;
-  // The launcher has already masked only its own host head-key clients. Let
-  // CaptureFrame receive the physical edge too: it owns lamp/start/stop, while
-  // this nonexclusive reader forwards the same edge to OCR without home UI.
-  require(io(key_, EVIOCGRAB, nullptr)==0,"cannot release OCR capture key grab");
-}
-void Hardware::close() noexcept {
-  bool safeRestore=true;
-  if(!lease_.empty()&&profile_.handoff.mediaHandoff&&beforeRestore_)try{beforeRestore_();}catch(...){safeRestore=false;}
-  cvi_.reset();
-  if (sensor_ >= 0 && profile_.capture.startup == StartupPolicy::DoubleQuick) {
-    int zero = 0;
-    io(sensor_, 0x400456ca, &zero);
-    io(sensor_, 0x400456ea, &zero);
-  }
-  if (video_ >= 0 && stream_) {
-    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-    io(video_, VIDIOC_STREAMOFF, &type);
-  }
-  stream_ = false;
-  for (auto &b : buffers_)
-    if (b.bytes)
-      munmap(b.bytes, b.size);
-  buffers_.clear();
-  if (video_ >= 0)
-    ::close(video_);
-  if (sensor_ >= 0)
-    ::close(sensor_);
-  if (key_ >= 0) {
-    io(key_, EVIOCGRAB, nullptr);
-    ::close(key_);
-  }
-  video_ = sensor_ = key_ = -1;
-  if (!lease_.empty()) {
-    // Parent retained the lease and will restore after its display is quiescent
-    // if the child no longer has a working control channel.
-    if(safeRestore)restoreScanLease(lease_);
-  }
-  lease_ = Json();
-  lightProfile={};gpioExportMarker.clear();
-  pressed_ = waitRelease_ = keyMonotonic_ = false;
 }
 } // namespace penchat_scan

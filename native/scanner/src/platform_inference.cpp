@@ -10,6 +10,7 @@ class CompatibleRknn final : public pen::stream::Inference {
 public:
   CompatibleRknn(std::unique_ptr<pen::stream::Inference> backend, bool sliced)
       : backend_(std::move(backend)), sliced_(sliced) {}
+  ~CompatibleRknn() override { close(); }
   void open() override { RuntimeIoScope scope(sliced_); backend_->open(); }
   void infer(const pen::stream::NetworkBatch &batch, pen::stream::Heads &heads) override {
     RuntimeIoScope scope(sliced_); backend_->infer(batch,heads);

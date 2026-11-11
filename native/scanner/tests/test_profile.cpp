@@ -25,7 +25,7 @@ int main() {
   assert(y07.ledOnValue=="1"); // Vendor white-light mode, never LED_FULL (255).
   assert(y07.inference.privateLibrary=="librknnrt-y07.so");
   assert(y02.inference.privateLibrary.empty()&&orange.inference.privateLibrary.empty());
-  assert(y02.light==ScanLight::Gpio43&&!y02.gatesExposure());
+  assert(y02.light==ScanLight::Gpio&&!y02.gatesExposure());
   assert(orange.gatesExposure()&&y07.gatesExposure());
   assert(scanProfile("ORANGE", "sc2356").supported());
   assert(!scanProfile("Rockchip RK3562 Y02 LP4 V10 Board", "sc2356").supported());
