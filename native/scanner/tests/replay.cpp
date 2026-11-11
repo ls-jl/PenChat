@@ -3,6 +3,10 @@
 // stderr. Cached-head mode is HOST ORACLE ONLY, never a production backend.
 #include "geometry_decoder.hpp"
 #include "pen_stream/stream.hpp"
+#include "platform_inference.hpp"
+#include "file_read.hpp"
+#include "hardware.hpp"
+#include <cmath>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -80,6 +84,8 @@ class Metered final : public Inference {
     void infer(const NetworkBatch &b, Heads &h) override {
         auto t = std::chrono::steady_clock::now();
         backend->infer(b, h);
+        for (const auto &head:h) for (float value:head)
+            if (!std::isfinite(value)) throw std::runtime_error("nonfinite_inference_output");
         std::fprintf(stderr, "INFER_MS %.3f\n",
                      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t)
                          .count());
@@ -94,6 +100,7 @@ static void write(const void *p, std::size_t n) {
         throw std::runtime_error("output_failure");
 }
 int main(int argc, char **argv) {
+    struct ProcessLease {int fd=-1;~ProcessLease(){if(fd>=0)::close(fd);}} processLease;
     try {
         if (argc >= 6 && std::string(argv[argc - 2]) == "--tcp") {
             unsigned port = 0;
@@ -129,13 +136,40 @@ int main(int argc, char **argv) {
             throw std::runtime_error(
                 "Usage: stream32_replay cvi|rknn MODEL [RUNTIME] | cached NN_ORACLE_DIRECTORY");
         std::unique_ptr<Inference> backend;
-        if (std::string(argv[1]) == "cached")
+        if (std::string(argv[1]) == "profile") {
+            processLease.fd=penchat_scan::acquireScanProcessLock(2000);
+            if (argc!=5) throw std::runtime_error("Usage: scanner-replay profile ID RESOURCES current|system|private");
+            auto p=penchat_scan::scanProfileById(argv[2]);
+            const auto actual=penchat_scan::scanProfile(penchat_scan::readOptionalFile("/proc/device-tree/model"),
+                penchat_scan::readOptionalFile("/sys/class/video4linux/v4l-subdev2/name")+
+                penchat_scan::readOptionalFile("/usr/configs/sensor_cfg.ini"));
+            if (!p.supported() || actual.id!=p.id) throw std::runtime_error("replay_device_profile_mismatch");
+            if (std::string(argv[4])=="private" && p.platform==penchat_scan::PlatformKind::Rockchip) {
+                p.inference.runtime=penchat_scan::RuntimeKind::PrivateRknn;
+                p.inference.privateLibrary="librknnrt-rk3562.so";
+            } else if (std::string(argv[4])=="system" && p.platform==penchat_scan::PlatformKind::Rockchip &&
+                       p.id!="y07-sc2356") p.inference.runtime=penchat_scan::RuntimeKind::SystemRknn;
+            else if (std::string(argv[4])!="current") throw std::runtime_error("invalid_replay_runtime_policy");
+            backend=penchat_scan::makePlatformInference(p,argv[3]);
+        } else if (std::string(argv[1]) == "cached")
             backend = std::make_unique<Cached>(argv[2]);
         else if (std::string(argv[1]) == "cvi")
             backend = makeCvi32(argv[2], argc > 3 ? argv[3] : "/oem/YoudaoDictPen/output/libs/libcviruntime.so");
 #ifndef PENCHAT_REPLAY_CVI_ONLY
-        else if (std::string(argv[1]) == "rknn")
-            backend = makeRknn32(argv[2], argc > 3 ? argv[3] : "librknnrt.so");
+        else if (std::string(argv[1]) == "rknn") {
+            auto p=penchat_scan::scanProfile(penchat_scan::readOptionalFile("/proc/device-tree/model"),
+                penchat_scan::readOptionalFile("/sys/class/video4linux/v4l-subdev2/name"));
+            std::string model=argv[2];const auto slash=model.rfind('/');
+            if (slash==std::string::npos) throw std::runtime_error("absolute_replay_model_required");
+            p.inference.model=model.substr(slash+1);
+            const std::string runtime=argc>3?argv[3]:"librknnrt.so";
+            if (runtime=="librknnrt.so") p.inference.runtime=penchat_scan::RuntimeKind::SystemRknn;
+            else if (runtime=="librknnrt-rk3562.so") {
+                p.inference.runtime=penchat_scan::RuntimeKind::PrivateRknn;
+                p.inference.privateLibrary=runtime;
+            } else throw std::runtime_error("unapproved_replay_runtime");
+            backend=penchat_scan::makePlatformInference(p,model.substr(0,slash));
+        }
 #endif
         else
             throw std::runtime_error("unsupported_replay_backend");
@@ -143,6 +177,16 @@ int main(int argc, char **argv) {
         std::array<std::atomic<bool>, 4> firstPreview{};
         std::mutex diagnosticMutex;
         Engine engine(std::make_unique<Metered>(std::move(backend)));
+        if (std::string(argv[1])=="profile") {
+            if (engine.prepareModel()!=Code::Ok) throw std::runtime_error("replay_prepare_failed");
+            const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(60);
+            while (engine.modelPreparation().state==ModelState::Preparing &&
+                   std::chrono::steady_clock::now()<deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            const auto prepared=engine.modelPreparation();
+            if (prepared.state!=ModelState::Ready) throw std::runtime_error("replay_warmup_failed_"+prepared.error);
+            std::fprintf(stderr,"REPLAY_WARMUP_US %lld\n",(long long)prepared.elapsedUs);
+        }
         // Header: magic PS32, version=1, session count. Each scan: w,h,rotation,
         // frame count, replay interval usec, flags (1=accept all diagnostic).
         char magic[4];

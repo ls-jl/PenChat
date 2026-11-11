@@ -55,6 +55,8 @@ for name, entry in lock['resources'].items():
     assert hashlib.sha256(source.read_bytes()).hexdigest() == entry['sha256'], name
     if a.stage: shutil.copy2(source, target/name)
 if a.stage:
+    # Retire the old target-specific name when rebuilding a generated stage.
+    (target/'lib/librknnrt-y07.so').unlink(missing_ok=True)
     shutil.copy2(ROOT/'native/scanner/NOTICE', target/'NOTICE')
     shutil.copy2(ROOT/'native/scanner/dependencies.lock.json', target/'dependencies.lock.json')
     (target/'lib').mkdir(exist_ok=True)

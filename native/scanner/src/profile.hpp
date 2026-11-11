@@ -125,18 +125,22 @@ struct ProfileRegistration {
 inline const std::array<ProfileRegistration,5> &scanProfiles() {
   static const auto profiles=[] {
     CaptureProfile orange{"orange-sc2356","sc2356",496,360};
+    orange.inference.runtime=RuntimeKind::PrivateRknn;
+    orange.inference.privateLibrary="librknnrt-rk3562.so";
     CaptureProfile y02{"y02-sc035gs","sc035gs",640,480};
     y02.capture.startup=StartupPolicy::SingleQuickStable;
     y02.capture.boundary=ScanBoundary::TimestampWindow;
     y02.optics={OpticalRotation::CounterClockwise90,CalibrationKind::Neutral,"","","y02-sc035gs-native-neutral-v1"};
     y02.inference.compatibility=RuntimeCompatibility::Y02Dma091;
+    y02.inference.runtime=RuntimeKind::PrivateRknn;
+    y02.inference.privateLibrary="librknnrt-rk3562.so";
     CaptureProfile y07{"y07-sc2356","sc2356",752,440};
     y07.light=ScanLight::LedClass;
     y07.ledBrightness="/sys/class/leds/flash-led-gpio/brightness";
     y07.ledOnValue="1"; // Vendor mode: white=1, IR=127, off=0.
     y07.optics={OpticalRotation::CounterClockwise90,CalibrationKind::ConstantFile,"y07-sc2356.json","",""};
     y07.inference.runtime=RuntimeKind::PrivateRknn;
-    y07.inference.privateLibrary="librknnrt-y07.so";
+    y07.inference.privateLibrary="librknnrt-rk3562.so";
     y07.handoff.nativeOcrKeys=true;
     CaptureProfile melon{"melon-ov7251","ov7251",640,480};
     melon.videoNode="/dev/video12";

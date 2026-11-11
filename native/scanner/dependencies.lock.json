@@ -15,7 +15,7 @@
     "engine/tests/fake_runtime.cpp": "2d7f7780a3faa239bb39c7e152a06a218554559a1f3b5f540602314a666a2da8",
     "engine/tests/test_adapter.cpp": "90d08f0fad9d704c7664f7c6c017638b7c9f24bc28fdff18bd3086de41e84cc0",
     "engine/tests/test_stream.cpp": "248e5990d942ca45f92d2adbb26e62ded2c8305356288785372b2fda7c62bbab",
-    "tests/replay.cpp": "546dc6a7b0800f18f61f0e6d12c1e6e92b7442db22ffa41158f58337ac74ee0c",
+    "tests/replay.cpp": "64bf9a8a5f051fcdda11f6760607e5caacc7e3af6ed0ffb3c9645d18d8ce043e",
     "tests/test_memory.cpp": "ec8a65107315dcdb57ab6b24426f7fa310720b1f23b1b7f8cf8ec445cea82cf8",
     "tests/selection_golden.cpp": "ae11c32603f89a5a6236d374208c03a544729fba0b295731cd24f6dc43f6a5c3",
     "tests/selection-golden.txt": "0d5ae0d70cf984cf8e2ace5f689fd64ac38999d9cb264bc6cbaef8b19fb72758",
@@ -30,7 +30,7 @@
     "src/hardware.hpp": "f488d75be41d2459423e75532ea78a41399858e6f9e3a2305dbcb3b12b40c026",
     "engine/src/geometry_quality.cpp": "d513e838a60c818614d77b72322161e1e4b9d919a294c76ca5c45d4faa531a41",
     "tests/test_geometry_quality.cpp": "b66e7c45a3d0832c64ab3d8114147c6d395d192c6de0af23aaaf6855e2ab7086",
-    "src/profile.hpp": "0ca70227c7f03505c0b434cf963171217d4e67415add9b9d08cf91ca851dff18",
+    "src/profile.hpp": "189385f379b4b843609d10b5292a8fb859456d7d4cba8ad5ec861275f8aedcad",
     "src/sequence_gap.hpp": "31845a54cf97b3093835573e75234083f6b80f6422510b973c7b92c9135dc7f3",
     "src/start_policy.hpp": "98a42fcb32676857e4232ac7d26c4e188ed5382b7dab5cd2ce61e96dc8495d03",
     "engine/include/cvi/runtime_abi.hpp": "97d39be74967f3c2f6ca12ad91220a211ffc5ecd3eff5fa8caafdf05c66da121",
@@ -48,7 +48,7 @@
     "src/board_config.hpp": "6089b06c69068ebfd8a7c4cd295b3861c97d1a82cbb34241f5c0faa26c0689cf",
     "src/optical_config.hpp": "db4205e4c4419c56d4614764112a96394f718f7ba59edd5397ec15a5c2feb19d",
     "src/platform_inference.hpp": "723911d10f3ea0304bec2471ce9d2e14c01fe5e27ba00d1b3b765df62c584ec0",
-    "src/platform_inference.cpp": "61b3d159fd5629fdb5ee0373b869be53748e2a1f5311beda952e73c23783cc4a",
+    "src/platform_inference.cpp": "130a8c74554b870110eb47372aabe609c8d383cee990f43d3318be08a7553f3c",
     "src/scan_platform.hpp": "d4d2151f636feddfd0a9aa9e93fc535a598f10c41bb552487060e1c8dcfd73a4",
     "src/scan_platform.cpp": "9470fc2faf1af40473f18844eb659df8c96afde3c66c2f5fe207e3b475e26d27",
     "src/hardware_ops.hpp": "024744deae0cbf33839f2c1dcf2188e120c52fc4b64e76d56aa70fff4772bb0c",
@@ -99,7 +99,7 @@
       "source": "libstdc++.so.6.0.29",
       "sha256": "77280d912c04c9ee9eaea6f38442a223a348886e5ff06dddd3914b5fcb881036"
     },
-    "librknnrt-y07.so": {
+    "librknnrt-rk3562.so": {
       "root": "download",
       "source": "v1.6.0/librknnrt.so",
       "commit": "b25dadacc24b88eb7dfcaa47c9c525ecca89b319",

@@ -23,8 +23,9 @@ int main() {
   assert(y07.id=="y07-sc2356"&&y07.width==752&&y07.height==440);
   assert(y07.light==ScanLight::LedClass&&!y07.ledBrightness.empty());
   assert(y07.ledOnValue=="1"); // Vendor white-light mode, never LED_FULL (255).
-  assert(y07.inference.privateLibrary=="librknnrt-y07.so");
-  assert(y02.inference.privateLibrary.empty()&&orange.inference.privateLibrary.empty());
+  assert(y07.inference.privateLibrary=="librknnrt-rk3562.so");
+  assert(y02.inference.privateLibrary==y07.inference.privateLibrary &&
+         orange.inference.privateLibrary==y07.inference.privateLibrary);
   assert(y02.light==ScanLight::Gpio&&!y02.gatesExposure());
   assert(orange.gatesExposure()&&y07.gatesExposure());
   assert(scanProfile("ORANGE", "sc2356").supported());
@@ -50,7 +51,7 @@ int main() {
   custom.inference.compatibility=RuntimeCompatibility::None;
   custom.optics.version="test-neutral";
   validateProfile(custom);
-  assert(sensorRegion(custom).width==672 && requiredScanResources(custom).size()==1);
+  assert(sensorRegion(custom).width==672 && requiredScanResources(custom).size()==2);
   for (int fault=0;fault<4;++fault) {
     auto invalid=custom;
     if (fault==0) invalid.inference.runtime=RuntimeKind::Cvi;

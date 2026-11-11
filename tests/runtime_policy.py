@@ -37,8 +37,8 @@ def check_native_payload(data, name):
                 defined.add(symbol)
     assert symbols, (name, 'missing symbol table')
     forbidden = symbols & FORBIDDEN
-    if name == 'assets/scanner/lib/librknnrt-y07.so':
-        # Only this exact vendor artifact may import system. Its Y07 worker
+    if name == 'assets/scanner/lib/librknnrt-rk3562.so':
+        # Only this exact vendor artifact may import system. The scanner worker
         # exports the tested no-execution stub before loading this library.
         assert hashlib.sha256(data).hexdigest() == '9c5e43179e83f82b3ec1f2c2f9b520559af23ab76327aca63500db30d63d6910'
         forbidden -= {'system'}

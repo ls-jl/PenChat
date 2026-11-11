@@ -26,6 +26,7 @@ assert launches == {
     'native/camera/src/accelerometer.cpp': ['posix_spawn'],
     'native/launcher/src/Launcher.cpp': ['execl', 'fork'],
     'native/lvgl-app/src/scanner.cpp': ['execve', 'fork'],
+    'native/lvgl-app/src/tools.cpp': ['execl', 'fork'],  # Existing isolated web-search executable; fixed path, no shell.
     'tests/native/FeedbackKeysTest.cpp': ['fork'],  # Kill an isolated capture child to verify kernel release; no exec.
     'tests/native/StorageTest.cpp': ['fork', 'fork'],  # Startup-failure and crash-recovery children; no exec.
 }, launches
@@ -39,4 +40,4 @@ for name in ('penchat-lvgl', 'penchat-sensor-guard'):
     check_native_payload((ROOT/'build/host'/name).read_bytes(), name)
 check_native_payload((ROOT/'build/scanner-host/penchat-scanner').read_bytes(), 'scanner')
 check_native_payload((ROOT/'build/host/libjsapi_penchat_launcher.so').read_bytes(), 'launcher')
-print('Runtime command policy: no shell evaluation; only three reviewed native child launch sites.')
+print('Runtime command policy: no shell evaluation; four reviewed application child launch sites.')

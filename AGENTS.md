@@ -366,8 +366,10 @@ quality acceptance. The Y07 GC08A8 main path captures 3264x2448, separately from
 frame; never silently save preview pixels. Camera generation IDs reject late results.
 Do not treat Falcon video_direction as optical camera mounting calibration.
 
-Y07's system RKNN 1.4.0 aborts on the model MaxPool dilations; use only its locked
-private 1.6.0 runtime. Other boards keep system RKNN. Keep the scanner's exported
+Y07's system RKNN 1.4.0 aborts on the model MaxPool dilations. ORANGE, Y02 and Y07
+use the same hash-locked private RKNN 1.6.0 runtime, librknnrt-rk3562.so, after
+their fixed-input and capture/handoff checks. MELON retains system RKNN pending
+authorized device validation; CVI retains its own device runtime. Keep the scanner's exported
 no-execution system blocker and dynamic-binding test: the vendor import must never
 reach libc's command launcher. Do not remove the blocker or broaden package policy
 beyond the exact runtime hash and the scanner-defined stub. Do not claim seccomp:
