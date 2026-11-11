@@ -21,28 +21,41 @@ def official(a,confirmed=False,text=''):
 def export_text(a):return official(a)['text']
 def hold(a,x,y,duration=.52):a.send('touch',x=x,y=y,pressed=True);time.sleep(duration);a.send('touch',x=x,y=y,pressed=False);time.sleep(.12)
 def double(a,x,y):a.tap(x,y);a.tap(x,y)
+def open_input(a):
+ d=a.diag()
+ if d['composer_hidden']:
+  b=d['composer_shortcut']['bounds'];point=((b[0]+b[2])//2,(b[1]+b[3])//2)
+  a.tap(*point);a.tap(*point);t.wait_for(lambda:not a.diag()['composer_hidden'])
+ def settled():
+  d=a.diag();b=d['composer_bounds']
+  return d['toolbar_y']==d['height']-(b[3]-b[1]+1)-d.get('safe_insets',[0,0,0,10])[3]
+ t.wait_for(settled)
+ b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+ t.wait_for(lambda:state(a)['active'] and bool(state(a)['keys']))
 def seed(a,text):
- official(a,True,text);a.tap(500,232)
+ official(a,True,text);open_input(a)
  layout(a,'en26')
 def scan(a,r,capture,text,**extra):
  a.send('ocr.result',requestId=r['requestId'],session=r['session'],mode=r['mode'],capture=capture,confirmed=True,text=text,**extra);time.sleep(.1)
 with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
  a=t.Native(pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl')),temp,official_adapter=False)
  try:
-  a.tap(500,232);assert state(a)['active'] and state(a)['multiline']
+  open_input(a);assert state(a)['active'] and state(a)['multiline']
   policy=a.receive('editor.state');a.send('editor.policy',session=policy['session'],sequence=policy['sequence'],ok=True,blocked=True)
   t.wait_for(lambda:state(a)['top_panel_blocked']);assert a.receive('ocr.start')['mode']=='single'
   key(a,'n');key(a,'i');key(a,'enter')
   assert state(a)['length']==2 and state(a)['preedit_length']==0
   time.sleep(.15);assert state(a)['candidate_count']==0
   assert export_text(a)=='ni'
-  a.tap(630,236);a.tap(500,232)
+  a.tap(630,236);open_input(a)
   for c in 'nihao':key(a,c)
   t.wait_for(lambda:state(a)['candidate_count']>0 and not state(a)['pending']);shot(a,'composition')
-  a.tap(930,28);shot(a,'candidates');a.tap(640,100)
+  a.editor_action('expand');shot(a,'candidates')
+  first=next(name for name in state(a)['actions'] if name.startswith('choose:') and name.endswith(':0'))
+  a.editor_action(first)
   t.wait_for(lambda:state(a)['preedit_length']==0 and state(a)['length']==2)
   a.tap(880,236);assert not state(a)['active'] and a.diag()['draft_length']==2
-  a.tap(500,232);key(a,'language');assert not state(a)['chinese'];shot(a,'english')
+  open_input(a);key(a,'language');assert not state(a)['chinese'];shot(a,'english')
   key(a,'shift');key(a,'A');assert state(a)['shift']==0
   key(a,'shift');key(a,'shift');assert state(a)['shift']==2
   key(a,'B');assert state(a)['shift']==2;key(a,'shift');key(a,'c')
@@ -84,7 +97,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   assert current['magnifier_bounds'][2]<a.diag()['width']
   assert abs((current['magnifier_caret'][0]+current['magnifier_caret'][2]+1)//2-(current['magnifier_bounds'][0]+current['magnifier_bounds'][2]+1)//2)<=1
   shot(a,'caret-magnifier-right');a.send('touch',x=x+16,y=y,pressed=False);time.sleep(.1)
-  seed(a,'alpha\nbeta\ngamma\ndelta\nepsilon')
+  seed(a,'alpha\nbeta\ngamma\ndelta\nepsilon\nzeta\neta')
   current=state(a);double(a,current['text_bounds'][0]+20,min(current['text_bounds'][3]-6,current['caret'][1]-16))
   current=state(a);assert current['selected']
   handles=current['selection_handles'];assert any(h['bounds'][3]>current['text_bounds'][3] for h in handles)
@@ -133,7 +146,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   long='中文😀 English\n'+('长文本保持可滚动。\n'*18);r=official(a,True,long)
   assert not state(a)['active'] and a.diag()['draft_length']==len(long)
   a.send('keyboard.result',requestId=r['requestId'],confirmed=True,text='duplicate');assert a.diag()['draft_length']==len(long)
-  a.tap(500,232);shot(a,'long-text')
+  open_input(a);shot(a,'long-text')
   a.send('touch',x=640,y=96,pressed=True);time.sleep(.5);a.send('touch',x=700,y=0,pressed=True)
   t.wait_for(lambda:state(a)['magnifier'] and state(a)['text_scroll']==0)
   a.send('touch',x=300,y=265,pressed=True)
@@ -152,7 +165,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   a.send('touch',x=k['x'],y=k['y'],pressed=True);time.sleep(.7);a.send('visibility',visible=False);time.sleep(.1)
   n=state(a)['length'];time.sleep(.3);assert state(a)['length']==n and not state(a)['ocr_active']
   a.send('visibility',visible=True);time.sleep(.1);a.tap(630,236);assert a.diag()['draft_length']==len(long)
-  a.open_settings();a.setting("models");a.tap(790,30);a.tap(250,120)
+  a.open_settings();a.setting("models");a.page_action("添加 Provider");a.page_action("field:apiKey")
   assert state(a)['secret'] and not state(a)['chinese'] and not state(a)['multiline'];key(a,'a');shot(a,'secret')
   r=official(a);assert r['text']=='a' and r['inputType']=='EnUSOnly' and not r['multiline'];a.tap(630,236)
  finally:a.close()

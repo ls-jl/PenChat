@@ -148,7 +148,7 @@ for width, height in [(640, 260), (720, 280)]:
             shot('no-match');action('compact-view')
             assert editor()['compact_full'] and not editor()['expanded'] and not editor()['compact_expanded']
             action('cancel')
-            a.open_settings();a.setting('models');a.page_action('添加 Provider');a.tap(200,130)
+            a.open_settings();a.setting('models');a.page_action('添加 Provider');a.page_action('field:apiKey')
             t.wait_for(lambda:editor()['active'])
             assert editor()['secret'] and not editor()['chinese'] and not editor()['multiline']
             key('a');shot('secret');action('compact-view')

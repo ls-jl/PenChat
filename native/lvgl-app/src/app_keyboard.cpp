@@ -62,8 +62,9 @@ void App::editorBuildKey(const KeyPlacement &placement) {
   std::string value=spec.action,title=spec.caption,icon=spec.icon;
   if(!editor_.mode&&value.size()==1&&std::isalpha(static_cast<unsigned char>(value[0]))&&editor_.shift)
     value[0]=std::toupper(static_cast<unsigned char>(value[0]));
-  if(value.size()==1)title=keyboardPunctuation(value,editor_.chinese&&!editor_.secret,editor_.mode);
-  if(value=="space")title=editor_.chinese?"拼音":"English";
+  if(value.size()==1&&spec.caption==spec.action)
+    title=keyboardPunctuation(value,editor_.chinese&&!editor_.secret,editor_.mode);
+  if(value=="space"&&title.empty())title=editor_.chinese?"拼音":"English";
   if(value=="shift"&&editor_.shift)icon=editor_.shift==2?"shift-lock-filled":"shift-filled";
   const bool selected=value=="shift"&&editor_.shift;
   const auto style=keyboardDesign().resolve(spec.role,spec.variant,{false,false,selected});

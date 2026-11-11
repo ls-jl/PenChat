@@ -46,7 +46,7 @@ try:
                 a.editor_action('compact-view')
                 assert e()['compact_expanded'] and not {'tools','ocr-mode'} & set(e()['actions'])
                 a.editor_action('compact-view');a.editor_action('cancel')
-                a.open_settings();a.setting('models');a.page_action('添加 Provider');a.tap(200,130)
+                a.open_settings();a.setting('models');a.page_action('添加 Provider');a.page_action('field:apiKey')
                 t.wait_for(lambda:e()['active'] and e()['secret'])
                 state=e();assert not {'tools','ocr-mode'} & set(state['actions'])
                 assert state['text_bounds'][2]<state['actions']['reveal'][0]

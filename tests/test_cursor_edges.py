@@ -35,6 +35,19 @@ for width,height in [(960,266),(568,1210)]:
         try:
             def e():return a.diag()['editor']
             def open_input():
+                # Previous text drags can leave the landscape composer hidden.
+                # Use its public shortcut before measuring the input target.
+                d=a.diag()
+                if d['composer_hidden'] and width>height:
+                    b=d['composer_shortcut']['bounds'];point=((b[0]+b[2])//2,(b[1]+b[3])//2)
+                    a.tap(*point);a.tap(*point)
+                    t.wait_for(lambda:not a.diag()['composer_hidden'])
+                # Confirming official input may resize/animate the existing composer.
+                # Wait for its resting position before sampling the touch target.
+                def settled():
+                    d=a.diag();b=d['composer_bounds']
+                    return d['input_focused'] and d['toolbar_y']==height-(b[3]-b[1]+1)-d.get('safe_insets',[0,0,0,10])[3]
+                t.wait_for(settled)
                 b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
                 t.wait_for(lambda:e()['active'] and bool(e()['keys']))
             open_input()
