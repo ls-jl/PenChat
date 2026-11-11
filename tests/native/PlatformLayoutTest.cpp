@@ -48,8 +48,8 @@ int main() {
     assert(full.compactFull&&!full.scaled&&full.keySpan==size.first);
     assert(full.textHeight==44&&full.rowHeight>=44&&full.keyWidth>=44);
     assert(size.first-48-full.textRight()==4);
-    assert(full.compactPreeditWidth(10)<full.compactPreeditWidth(40));
-    assert(full.compactPreeditWidth(400)<=144);
+    assert(full.compositionPreeditWidth(10)<full.compositionPreeditWidth(40));
+    assert(full.compositionPreeditWidth(400)<=144);
     for(auto a:full.actions())assert(a.x>=0&&a.x+a.width<=full.width&&a.y+44<=full.height);
     const EditorLayout split(size.first,size.second,false,false,false,true);
     for(const auto &a:split.actions(false,true))assert(std::string(a.name)!="ocr-mode");
@@ -63,6 +63,26 @@ int main() {
   }
   EditorLayout landscape(960,266);assert(!landscape.scaled&&landscape.split==584&&landscape.textX==592);
   EditorLayout portrait(568,1210);assert(!portrait.scaled&&portrait.portrait&&portrait.docked);
+  for(const auto &layout:{compact,expanded,landscape,portrait}) {
+    assert(std::abs(layout.keyGap*layout.scaleX()/256.-4.)<.6);
+    assert(std::abs(layout.rowGap*layout.scaleY()/256.-6.)<.6);
+    assert(layout.deleteX()>layout.thirdRowX()+7*layout.keyWidth+6*layout.keyGap);
+    const auto row=layout.compositionRow(),expand=layout.compositionExpand();
+    assert(row.height==44&&expand.height==44&&expand.width>=44);
+    assert(row.x+row.width+4==expand.x&&expand.x+expand.width<=layout.width);
+    assert(layout.compositionPreeditWidth(10)<layout.compositionPreeditWidth(40));
+    assert(layout.compositionPreeditWidth(1000)<=144);
+    assert(layout.compositionPreeditWidth(1000)<=row.width/3);
+    const int preedit=layout.compositionPreeditWidth(60);
+    const auto candidates=layout.compositionCandidates(false,preedit);
+    assert(candidates.x==row.x+preedit+4&&candidates.y==row.y);
+    assert(candidates.x+candidates.width==row.x+row.width);
+    const auto panel=layout.compositionCandidates(true,preedit);
+    assert(panel.width>0&&panel.height>=44&&panel.y+panel.height<=layout.height);
+    if(layout.portrait||layout.compactFull)assert(panel.y==layout.keyTop);
+    else assert(panel.y==layout.textY&&layout.textY==row.y+row.height+6);
+  }
+  assert(portrait.candidateY==portrait.compositionY&&portrait.panelTop==portrait.candidateY-4);
   // Swapping is a translation of regions, not a mirror of keys or content.
   for(auto size:{std::make_pair(960,266),std::make_pair(936,280)}) {
     const EditorLayout normal(size.first,size.second),swap(size.first,size.second,false,false,true);

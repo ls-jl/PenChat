@@ -10,11 +10,12 @@ namespace penchat {
 struct EditorLayout {
   int nativeWidth, nativeHeight;
   bool scaled=false, swapped=false;
-  int width, height, split, textX, textWidth, textY = 78, textHeight;
-  int actionsY, bottomY, rowHeight, keyTop=6, bottomHeight=44, candidateY=6, compositionY=54;
+  int width, height, split, textX, textWidth, textY = 56, textHeight;
+  int actionsY, bottomY, rowHeight, keyTop=6, bottomHeight=44, candidateY=6, compositionY=6;
   bool portrait=false, docked=false, compact=false, compactFull=false;
   int panelTop=0, textAreaWidth=0, keyboardLift=0;
   int keyInset=0, keySpan=0;
+  int keyGap=4, rowGap=6, keyMargin=4;
   double keyWidth;
   EditorLayout(int w, int h, bool selectionOnly = false, bool chatComposer = false,
                bool swapWideSides = false, bool compactExpanded = false,
@@ -23,15 +24,19 @@ struct EditorLayout {
     compactFull=compact&&!compactExpanded;
     swapped=swapWideSides&&!selectionOnly&&h<=w&&!compactFull;
     scaled=classifyLayout(w,h)==LayoutClass::CompactLandscape&&!compactFull;
-    if(scaled){w=width=960;h=height=266;}
+    if(scaled) {
+      w=width=960;h=height=266;
+      keyGap=keyMargin=std::max(1,int(std::lround(4.*width/nativeWidth)));
+      rowGap=std::max(1,int(std::lround(6.*height/nativeHeight)));
+    }
     split = w - std::max(352, w * 2 / 5 - 8);
     textX = split + 8;
     textWidth = w - textX - 8;
     actionsY = h - 52;
     textHeight = actionsY - 6 - textY;
     bottomY = h - 50;
-    rowHeight = (bottomY - 24) / 3;
-    keyWidth = (split - 44) / 10.0;
+    rowHeight = (bottomY-keyTop-3*rowGap)/3;
+    keyWidth = (split-2*keyMargin-9*keyGap)/10.0;
     portrait=h>w;keySpan=split;
     // Translate whole regions without reflecting their local coordinates. Key
     // order, text direction and hit bounds remain identical on either side.
@@ -41,8 +46,8 @@ struct EditorLayout {
       textX=100;textWidth=std::max(1,w-textX-52);
       textY=candidateY=compositionY=actionsY=0;textHeight=44;
       keyTop=48;bottomY=h-48;bottomHeight=44;
-      rowHeight=std::max(1,(bottomY-keyTop-18)/3);
-      keyWidth=(keySpan-44)/10.;
+      rowHeight=std::max(1,(bottomY-keyTop-3*rowGap)/3);
+      keyWidth=(keySpan-2*keyMargin-9*keyGap)/10.;
     }
     if(portrait) {
       const AppLayout safe{w,h};
@@ -53,13 +58,13 @@ struct EditorLayout {
       // Lift by one former bottom row (rounded to 10px), then grow the entire
       // four-row key region by 50% upwards. Gaps stay 6px; glyphs do not stretch.
       keyboardLift=int(std::lround(baseBottom/10.))*10;
-      const int keyHeight=int(std::lround((3*baseRow+18+baseBottom)*1.5));
+      const int keyHeight=int(std::lround((3*baseRow+3*rowGap+baseBottom)*1.5));
       bottomHeight=int(std::lround(baseBottom*1.5));
-      rowHeight=int(std::lround((keyHeight-bottomHeight-18)/3.));
+      rowHeight=int(std::lround((keyHeight-bottomHeight-3*rowGap)/3.));
       bottomY=h-safe.safeBottom()-keyboardLift-bottomHeight;
-      keyTop=bottomY-3*(rowHeight+6);
-      actionsY=keyTop-52;candidateY=actionsY;compositionY=candidateY-26;
-      textHeight=compositionY-textY-10;keyWidth=(keySpan-44)/10.;
+      keyTop=bottomY-3*(rowHeight+rowGap);
+      actionsY=keyTop-52;candidateY=compositionY=actionsY;
+      textHeight=compositionY-textY-10;keyWidth=(keySpan-2*keyMargin-9*keyGap)/10.;
     }
     docked=portrait&&!selectionOnly;
     if(docked) {
@@ -80,11 +85,12 @@ struct EditorLayout {
   int editorPanelX() const { return portrait||compactFull?0:swapped?0:split; }
   int editorPanelWidth() const { return portrait||compactFull?width:width-split; }
   int textRight() const { return textX+textWidth; }
+  int shiftWidth() const { return px(keyWidth+keyGap/2.); }
+  double thirdRowX() const { return keyMargin+shiftWidth()+keyGap; }
+  int deleteX() const { return px(thirdRowX()+7*(keyWidth+keyGap)); }
+  int keysRight() const { return compactFull?width-68-keyGap:keySpan-keyMargin; }
   int overlayY() const { return compactFull?keyTop:docked?AppLayout{width,height}.safeTop():textY; }
   int overlayHeight() const { return compactFull?height-keyTop-4:docked?compositionY-overlayY()-10:textHeight; }
-  int compactPreeditWidth(int textPixels) const {
-    return std::max(12,std::min(std::min(144,std::max(12,textWidth/3)),textPixels+8));
-  }
   int compactTouchWidth() const { return compact&&!compactFull?int(std::ceil(44.*256/scaleX())):44; }
   int controlHeight() const { return compact&&!compactFull?int(std::ceil(44.*256/scaleY())):44; }
   struct Popup {
@@ -93,6 +99,25 @@ struct EditorLayout {
       return px>=x&&px<x+width&&py>=y&&py<y+height;
     }
   };
+  Popup compositionRow() const {
+    return {textX,candidateY,compactFull?textWidth:
+        std::max(1,textWidth-(compact?2*compactTouchWidth()+8:compactTouchWidth()+4)),44};
+  }
+  Popup compositionExpand() const {
+    const auto row=compositionRow();
+    return {row.x+row.width+4,row.y,compactTouchWidth(),44};
+  }
+  int compositionPreeditWidth(int textPixels) const {
+    const int available=compositionRow().width;
+    return std::max(12,std::min(std::min(144,std::max(12,available/3)),textPixels+8));
+  }
+  Popup compositionCandidates(bool expanded,int preeditWidth) const {
+    const auto row=compositionRow();
+    if(!expanded)return {row.x+preeditWidth+4,row.y,std::max(1,row.width-preeditWidth-4),44};
+    if(compactFull)return {4,keyTop,width-8,height-keyTop-4};
+    if(portrait)return {textX,keyTop,textWidth,bottomY+bottomHeight-keyTop};
+    return {textX,textY,textWidth,textHeight};
+  }
   Popup keyTouchBounds(const Popup &cap, bool leftEdge = false,
                        bool rightEdge = false) const {
     const int left = leftEdge ? keyInset : std::max(keyInset, cap.x - 4);

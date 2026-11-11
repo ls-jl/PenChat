@@ -586,12 +586,13 @@ class App {
   int editorCompactScroll_[2]={0,0}, editorCompactIcon_=-1;
   lv_obj_t *editorPreeditViewport_=nullptr, *editorCompactBar_=nullptr;
   bool editorCompactComposition() const;
-  void editorRefreshCompactBar();
+  void editorRefreshCompositionRow();
+  bool editorHasComposition() const;
   void editorCompactView(bool expanded);
   void editorCompactEnsureCaret();
 
   EditorLayout editorLayout() const {
-    EditorLayout result(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,editorSwapSides_,editorCompactExpanded_,editor_.secret&&!editorMultiLineSupported_);
+    EditorLayout result(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,editorSwapSides_,editorCompactExpanded_,editor_.secret);
     if(officialDocked_&&keyboard_&&officialHeight_>0)result.panelTop=screen_.height-officialHeight_;
     return result;
   }
