@@ -25,8 +25,8 @@ int keyboardClusterWidth(lv_obj_t *label,size_t first,size_t last) {
       lv_obj_get_style_text_letter_space(label,LV_PART_MAIN),0,LV_COORD_MAX,LV_TEXT_FLAG_EXPAND);
   return size.x;
 }
-std::string keyboardPunctuation(const std::string &key,bool chinese) {
-  if(!chinese)return key;
+std::string keyboardPunctuation(const std::string &key,bool chinese,int mode) {
+  if(!chinese||(mode!=0&&(key==","||key==".")))return key;
   static const std::map<std::string,std::string> punctuation={
     {",","，"},{".","。"},{"?","？"},{"!","！"},{":","："},{";","；"},
     {"(","（"},{")","）"},{"[","【"},{"]","】"}
@@ -207,7 +207,7 @@ void App::editorBuild() {
     for (size_t i=0;i<rows[r].size();++i) {
       std::string v(1,rows[r][i]);
       if (!editor_.mode && editor_.shift) v[0]=std::toupper(v[0]);
-      key(keyboardPunctuation(v,editor_.chinese&&!editor_.secret),v,layout.px(start+i*(layout.keyWidth+4)),layout.keyTop+r*(layout.rowHeight+6),layout.px(layout.keyWidth),layout.rowHeight);
+      key(keyboardPunctuation(v,editor_.chinese&&!editor_.secret,editor_.mode),v,layout.px(start+i*(layout.keyWidth+4)),layout.keyTop+r*(layout.rowHeight+6),layout.px(layout.keyWidth),layout.rowHeight);
       if (!editor_.mode && r == 1) {
         auto &k = editorKeys_.back();
         k.hit = layout.keyTouchBounds({k.x,k.y,k.w,k.h}, i == 0, i + 1 == rows[r].size());
@@ -223,10 +223,10 @@ void App::editorBuild() {
     key(title,value,bottomX,layout.bottomY,width,layout.bottomHeight); bottomX+=width+4;
   };
   bottomKey(editor_.mode==0?"123":"ABC","mode",modeWidth);
-  bottomKey(keyboardPunctuation(",",editor_.chinese&&!editor_.secret),",",punctuationWidth);
+  bottomKey(keyboardPunctuation(",",editor_.chinese&&!editor_.secret,editor_.mode),",",punctuationWidth);
   if(!layout.portrait){bottomKey("","language",punctuationWidth);attachIcon(editorKeys_.back().object,"globe",theme::text);}
   bottomKey(editor_.chinese?"拼音":"English","space",spaceWidth);
-  bottomKey(keyboardPunctuation(".",editor_.chinese&&!editor_.secret),".",punctuationWidth);
+  bottomKey(keyboardPunctuation(".",editor_.chinese&&!editor_.secret,editor_.mode),".",punctuationWidth);
   bottomKey("","enter",enterWidth);
   }
   if(layout.portrait) {
@@ -1056,7 +1056,7 @@ void App::editorAction(const std::string &a) {
   else if (a=="undo") { editor_.revert(); editorChanged(); editorMenu_=false; }
   else if (a=="all") { if(editor_.raw()) { editor_.all=true; editorMenu_=false; editorChanged(); } }
   else if (a.size()==1) {
-    std::string letter=keyboardPunctuation(a,editor_.chinese&&!editor_.secret);
+    std::string letter=keyboardPunctuation(a,editor_.chinese&&!editor_.secret,editor_.mode);
     if(editor_.mode==0 && std::isalpha(static_cast<unsigned char>(letter[0])))
       letter[0]=editor_.shift?std::toupper(letter[0]):std::tolower(letter[0]);
     if(editor_.chinese && editor_.mode==0 && letter[0]>='a' && letter[0]<='z' && !editor_.secret) {
