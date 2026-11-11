@@ -96,7 +96,7 @@ export default {
         await launcher.start({ workspace, dataDir: String(globalThis.$dataDir || '') })
         if (this._disposed) { await launcher.stop(); return }
         this.running = true
-        this.send('init', {})
+        this.send('init', { ocrCapabilities: this.ocrCapabilities() })
         this.send('visibility', { visible: this.visible })
         this.syncInputFocus(true)
         // Arm before polling: Falcon may deliver an already queued ready event
@@ -245,6 +245,12 @@ export default {
       const ok = this.setNativeEditorPolicy(active)
       this.send('editor.policy', { session: event.session, sequence: event.sequence, ok, blocked: ok && active })
     },
+    ocrCapabilities() {
+      try {
+        if (!this._global) this._global = new globalModule.Global()
+        return OcrSession.capabilities(this._global)
+      } catch (_) { return { single: false, multi: false } }
+    },
     startOcr(event, prepareOnly = false) {
       const failed = error => this.send(prepareOnly ? 'ocr.prepared' : 'ocr.result', {
         requestId: event.requestId, session: event.session, mode: event.mode,
@@ -253,6 +259,16 @@ export default {
       if (!this.visible || this._windowFocused === false || this.keyboardOpen) { failed('当前无法启动扫描，请返回输入框重试。'); return }
       try {
       if (!this._global) this._global = new globalModule.Global()
+      const capabilities = OcrSession.capabilities(this._global)
+      this.send('ocr.capabilities', Object.assign({ requestId: event.requestId, session: event.session }, capabilities))
+      if (event.mode === 'multi' && !capabilities.multi) {
+        // A portrait replacement can still hold the previous registration.
+        // Bind cleanup retries to this request before reporting its rejection.
+        this._ocrRequest = event.requestId
+        const released = this.stopOcr()
+        failed(released ? '当前固件未提供多行扫描接口，请使用单行扫描。' : '系统扫描资源尚未释放，请重试。')
+        return
+      }
       if (this._ocr && this._ocr.pendingCleanup && this.stopOcr() === false) {
         failed('系统扫描资源尚未释放，请重试。')
         return

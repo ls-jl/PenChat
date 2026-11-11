@@ -555,7 +555,7 @@ uint64_t App::editorPaintKey() const {
   uint64_t key=uint64_t(editor_.layout+editor_.mode*4+editor_.shift*16);
   const bool flags[]={editorSelectionOnly_,editor_.secret,editor_.reveal,editorExpanded_,editorClipboardOpen_,
     editorLayoutMenu_,editorPunctuation_,editorCompactExpanded_,editorToolsOpen_,
-    editorOcrShown_,editorOcrBusy_,editorOcrActive_,!editor_.notice.empty()};
+    editorOcrShown_,editorOcrBusy_,editorOcrActive_,!editor_.notice.empty(),editorMultiLineSupported_};
   for(size_t i=0;i<sizeof(flags)/sizeof(flags[0]);++i)if(flags[i])key|=uint64_t(1)<<(8+i);
   return key;
 }
@@ -1304,6 +1304,22 @@ void App::editorSyncSelectionMenu() {
 void App::editorPolicy(bool active) {
   editorTopBlocked_=false;
   bridge_.send("editor.state",{{"session",editor_.id},{"sequence",++editorPolicySequence_},{"active",active}});
+}
+void App::editorOcrCapabilities(const Json &capabilities) {
+  const bool supported=editorMultiLineAllowed_&&capabilities.is_object()&&
+    capabilities.value("single",Json())==true&&capabilities.value("multi",Json())==true;
+  if(editorMultiLineSupported_==supported)return;
+  editorMultiLineSupported_=supported;
+  if(!supported) {
+    editorToolsOpen_=false;
+    if(editorOcrMulti_) {
+      editorOcrMulti_=false;editorOcrInserted_=0;
+      editorOcrStop(); // Rearm single-line only after the matching cleanup ACK.
+    }
+  }
+  // Initial portrait construction still waits for the OCR handoff. Existing
+  // keyboards use their touch guard to defer structural changes until release.
+  if(editor_.active&&editorRoot_)editorBuild();
 }
 void App::editorOcrStop() {
   if(!editorOcrId_.empty()){editorOcrStopId_=editorOcrId_;editorOcrStopRetry_=0;editorOcrFlushStop();}

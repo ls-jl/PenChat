@@ -12,6 +12,39 @@ function fixture(stroke,route) {
   const session = new context.module.exports(manager,'test-app',(type,data) => events.push({type,...data}), stroke, route)
   return { session, manager, timers, calls, events, flush: (delay) => { for (const [id,f] of [...timers.entries()]) { if((delay===undefined||f.delay===delay)&&timers.delete(id)) f() } } }
 }
+test('capability detection is read-only and requires the continuous OCR bridge', () => {
+  const f=fixture(), probe=()=>f.session.constructor.capabilities(f.manager)
+  assert.equal(probe().single,true);assert.equal(probe().multi,false)
+  f.manager.startAlmondMultiScan=()=>{throw new Error('probe must not invoke setters')}
+  assert.equal(probe().multi,true)
+  assert.equal(f.calls.length,0);assert.equal(f.timers.size,0)
+  assert.equal(f.manager.ocrStartChanged.callbacks.size,0)
+  for(const name of ['addUseOcrAppId','deleteUseOcrAppId','ocrStartChanged']) {
+    const value=f.manager[name];delete f.manager[name]
+    assert.equal(probe().single,false);assert.equal(probe().multi,false)
+    f.manager[name]=value
+  }
+  for(const name of ['scanWordResultChanged','ocrCompleteChanged','ocrStopChanged'])delete f.manager[name]
+  assert.equal(probe().single,false);assert.equal(probe().multi,false)
+})
+test('capability detection accepts legacy registration and both signal APIs', () => {
+  const f=fixture(), probe=()=>f.session.constructor.capabilities(f.manager)
+  delete f.manager.setIsOpenScan;delete f.manager.startScan
+  assert.equal(probe().single,true)
+  f.manager.ocrStartChanged={connect(){},disconnect(){}}
+  assert.equal(probe().single,true)
+  delete f.manager.ocrStartChanged.disconnect
+  assert.equal(probe().single,false)
+  assert.equal(f.calls.length,0)
+})
+test('absent or inaccessible OCR exports never advertise multiline', () => {
+  const f=fixture(), probe=value=>f.session.constructor.capabilities(value)
+  assert.equal(probe(null).multi,false)
+  assert.equal(probe({}).single,false)
+  Object.defineProperty(f.manager,'startAlmondMultiScan',{get(){throw new Error('unavailable')}})
+  assert.equal(probe(f.manager).single,true);assert.equal(probe(f.manager).multi,false)
+  assert.equal(f.calls.length,0)
+})
 test('single-line system OCR preserves case and cleans up before delivering text', () => {
   const f=fixture();f.session.start('one')
   const config=JSON.parse(f.calls.find(c => c[0]==='addUseOcrAppId')[1]);assert.equal(config.scanMethod,0)

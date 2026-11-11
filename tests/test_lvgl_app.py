@@ -48,7 +48,7 @@ def wait_for(callback, timeout=10):
     raise AssertionError('Timed out waiting for native state')
 
 class Native:
-    def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True, screen=None, bridge_send_buffer=None, onboarding=False, ocr_prepare_adapter=True):
+    def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True, screen=None, bridge_send_buffer=None, onboarding=False, ocr_prepare_adapter=True, ocr_capabilities=None):
         self.pending=[]
         self.ocr_prepare_adapter=ocr_prepare_adapter
         self.official_adapter=official_adapter
@@ -75,7 +75,8 @@ class Native:
         child_env['PENCHAT_TEST_NATIVE_OCR_KEYS']='1' if display['height']>display['width'] else '0'
         self.process=subprocess.Popen([str(binary),'--headless','--screen-config',str(config),'--bridge-fd',str(child.fileno()),'--data-dir',str(self.directory),'--workspace',str(ROOT),'--font',str(ROOT/'.deps/chinese.ttf'),'--tex-resources',str(ROOT/'.deps/microtex/res')],env=child_env,pass_fds=[child.fileno()],stdout=self.log,stderr=self.log)
         child.close();self.generation=17
-        self.send('init')
+        # Model the launcher's read-only probe; {} exercises an unknown bridge.
+        self.send('init',ocrCapabilities={'single':True,'multi':True} if ocr_capabilities is None else ocr_capabilities)
         try:self.receive('ready')
         except BaseException:
             self.parent.close()

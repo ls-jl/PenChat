@@ -23,6 +23,7 @@ Keyboard IDs are opaque strings; ordinary messages use monotonically increasing 
 | shell → native | `keyboard.result` | matching request ID, confirmed/cancelled, text |
 | native → shell | `ocr.start` / `ocr.cancel` | scoped pen-tip OCR registration / release |
 | shell → native | `ocr.status` / `ocr.result` | matching request ID, completion or generic error; no logging |
+| shell → native | `ocr.capabilities` | read-only interface detection, scoped to the current OCR request and edit session |
 | either | `exit` / `finish` | close native process / request Falcon page finish |
 | native → shell | `booted`, `ready`, `fatal` | startup progress and actionable failure |
 | native → shell | `navigation.state` | ordered sequence, native root and image-workspace state |
@@ -39,11 +40,33 @@ once. Falcon page touch callbacks are not registered. System IME hides the nativ
 plane and releases touch; confirm/cancel restores the view and scroll position.
 SQLite is exclusively written by the native process. The shell does not read external Storage. No API key is included in diagnostic output.
 
-`src/launcher/ocr.js` adapts the system Global OCR signals, registers single-line
-scanMethod=0, and unregisters on completion, cancellation, timeout or page exit.
-It forwards text only into the native editor for review. The standalone native
+`src/launcher/ocr.js` adapts the system Global OCR signals and registers
+scanMethod=0 (single) or 1 (multi). Continuous editor sessions stay registered
+between strokes; cancellation and page exit unregister them. It forwards text
+only into the native editor for review. The standalone native
 pinyin engine owns composition and learning; the official editor is a manual fallback. No image stitching code, OCR models, or extra OCR network service
 are bundled. The Provider database remains native-owned and changes only on Save.
+
+The launcher supplies `init.ocrCapabilities` before the first keyboard opens,
+then rechecks and sends `ocr.capabilities` before each OCR prepare/start. Detection
+only inspects methods and subscribable signals; it never registers or enables a
+scan. Single-line availability requires registration/unregistration, either scan
+open or current-app control, a start signal and a result/completion signal.
+Multiline switching additionally requires `startAlmondMultiScan` and the native
+platform's `multiLineOcr` allowance. S6 remains single-line even if a generic
+bridge happens to expose that method. Missing, malformed or unknown capabilities
+default to a hidden multiline switch in wide, compact/split and portrait layouts.
+On compact full-width keyboards this keeps the existing direct clipboard button.
+
+This is conservative interface detection, not proof that a firmware's OCR engine
+implements multiline recognition: registration-only multiline firmware without
+that setter stays single-line in the UI until an explicit capability is verified.
+Runtime registration/recognition errors do not change the capability decision.
+Late reports must match bridge generation, OCR request and edit session. Withdrawing
+multiline while it is active cancels that registration and waits for its cleanup
+ACK before rearming single-line; editor contents are retained and held key objects
+are not rebuilt. Host coverage: `node --test tests/js/ocr.test.cjs tests/js/launcher.test.cjs`
+and `python3 tests/test_ocr_capabilities.py`.
 
 All foreground pages use one read-only, nonexclusive evdev reader. It discovers a
 DIRECT type-B device, reconstructs slots at SYN_REPORT and preserves release

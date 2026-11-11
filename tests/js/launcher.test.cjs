@@ -225,6 +225,7 @@ test('cached native restart closes only the obsolete official editor and ignores
 
 test('portrait OCR preparation rejects constructor failure without stopping the page', async () => {
   const f=fixture();await f.page.boot()
+  f.page._global=null
   f.context.globalModule.Global=function(){throw new Error('fixture constructor')}
   f.native.poll=()=>[{type:'ocr.prepare',requestId:'prepare-1',session:'editor-1',mode:'single',continuous:true}]
   f.page.poll()
@@ -232,6 +233,54 @@ test('portrait OCR preparation rejects constructor failure without stopping the 
   const response=f.calls.find(c=>c[0]==='send'&&c[1].type==='ocr.prepared')[1]
   assert.equal(response.requestId,'prepare-1');assert.equal(response.ok,false)
   assert(!f.calls.some(c=>c[0]==='stop'));f.page.dispose()
+})
+
+test('startup forwards read-only OCR capabilities and constructor failure stays local', async () => {
+  const f=fixture()
+  for(const name of ['addUseOcrAppId','deleteUseOcrAppId','setCurrentAppId','startAlmondMultiScan'])
+    f.keyboard[name]=()=>{throw new Error('capability probe changed scan state')}
+  for(const name of ['ocrStartChanged','ocrStopChanged'])f.keyboard[name]={on(){},off(){}}
+  await f.page.boot()
+  const init=f.calls.find(c=>c[0]==='send'&&c[1].type==='init')[1]
+  assert.equal(init.ocrCapabilities.single,true);assert.equal(init.ocrCapabilities.multi,true)
+  assert.equal(f.page._ocr,null);f.page.dispose()
+  const g=fixture();g.context.globalModule.Global=function(){throw new Error('missing module')}
+  await g.page.boot()
+  const unknown=g.calls.find(c=>c[0]==='send'&&c[1].type==='init')[1]
+  assert.equal(unknown.ocrCapabilities.multi,false);assert.equal(g.page.running,true);g.page.dispose()
+})
+test('OCR start reports scoped capabilities and rejects an unavailable multi request', async () => {
+  const f=fixture();await f.page.boot()
+  for(const name of ['addUseOcrAppId','deleteUseOcrAppId','setCurrentAppId'])
+    f.keyboard[name]=()=>{throw new Error('unsupported multi must not register')}
+  for(const name of ['ocrStartChanged','ocrStopChanged'])f.keyboard[name]={on(){},off(){}}
+  f.page.startOcr({requestId:'ocr-1',session:'field-1',mode:'multi',continuous:true},true)
+  const capability=f.calls.find(c=>c[0]==='send'&&c[1].type==='ocr.capabilities')[1]
+  assert.equal(capability.requestId,'ocr-1');assert.equal(capability.session,'field-1')
+  assert.equal(capability.single,true);assert.equal(capability.multi,false)
+  const result=f.calls.find(c=>c[0]==='send'&&c[1].type==='ocr.prepared')[1]
+  assert.equal(result.ok,false);assert.equal(f.page._ocr,null)
+  assert.equal(f.page.running,true);f.page.dispose()
+})
+test('rejected multi replacement releases the old registration and retries cleanup under the new ID', async () => {
+  const f=fixture();await f.page.boot()
+  const signal=()=>({on(){},off(){}})
+  for(const name of ['ocrStartChanged','ocrStopChanged'])f.keyboard[name]=signal()
+  f.keyboard.addUseOcrAppId=()=>true;f.keyboard.setCurrentAppId=()=>{}
+  let released=false, attempts=0
+  f.keyboard.deleteUseOcrAppId=()=>{++attempts;return released}
+  f.page.startOcr({requestId:'old',session:'field',mode:'single',continuous:true})
+  assert(f.page._ocr.active)
+  f.page.startOcr({requestId:'new',session:'field',mode:'multi',continuous:true},true)
+  assert.equal(f.page._ocr.active,null);assert(f.page._ocr.pendingCleanup)
+  assert.equal(attempts,1)
+  f.page.stopOcr('new',true)
+  let ack=f.calls.filter(c=>c[0]==='send'&&c[1].type==='ocr.stopped').at(-1)[1]
+  assert.equal(ack.requestId,'new');assert.equal(ack.ok,false)
+  released=true;f.page.stopOcr('new',true)
+  ack=f.calls.filter(c=>c[0]==='send'&&c[1].type==='ocr.stopped').at(-1)[1]
+  assert.equal(ack.ok,true);assert.equal(f.page._ocr,null);assert.equal(attempts,3)
+  f.page.dispose()
 })
 
 test('global window focus yields native overlay/input without a fake page hide', async () => {

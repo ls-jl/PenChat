@@ -12,10 +12,13 @@ def ready(a):
 def run():
     t.port=1
     with tempfile.TemporaryDirectory(prefix='penchat-ocr-handoff-') as directory:
-        a=t.Native(BINARY,pathlib.Path(directory),screen={'width':568,'height':1210},official_adapter=False,ocr_prepare_adapter=False)
+        a=t.Native(BINARY,pathlib.Path(directory),screen={'width':568,'height':1210},official_adapter=False,ocr_prepare_adapter=False,ocr_capabilities={})
         try:
             a.tap(280,1140);request=a.receive('ocr.prepare');assert request['nativePen'] is True
             e=a.diag()['editor'];assert e['active'] and e['ocr_preparing'] and not e['keys']
+            assert not e['ocr_multiline_supported']
+            a.send('ocr.capabilities',requestId=request['requestId'],session=request['session'],single=True,multi=True)
+            e=a.diag()['editor'];assert e['ocr_multiline_supported'] and e['ocr_preparing'] and not e['keys']
             assert not any(m.get('type')=='ocr.start' for m in a.pending)
             a.send('ocr.prepared',requestId='obsolete',session=request['session'],mode='single',ok=True)
             assert a.diag()['editor']['ocr_preparing']

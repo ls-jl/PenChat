@@ -640,7 +640,8 @@ class App {
   bool editorOcrPreparing_=false;
   uint64_t editorOcrPrepareSent_=0;
   void editorOcrPrepared(const Json &);
-  bool editorMultiLineSupported_=true;
+  void editorOcrCapabilities(const Json &);
+  bool editorMultiLineAllowed_=true, editorMultiLineSupported_=false;
   bool editorOcrMulti_=false, editorOcrActive_=false, editorOcrBusy_=false, editorOcrShown_=false;
   bool editorTopBlocked_=false;
   std::string editorOcrId_, editorOcrStopId_;

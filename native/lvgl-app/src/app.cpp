@@ -66,9 +66,9 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
       rich_(fontPath, resources,
             join(workspace, "assets/fonts/DejaVuSans.ttf")),
       workspace_(std::move(workspace)), dataDir_(std::move(dataDir)) {
-  editorMultiLineSupported_=camera::deviceCapabilities().multiLineOcr;
+  editorMultiLineAllowed_=camera::deviceCapabilities().multiLineOcr;
 #ifndef PENCHAT_NATIVE_DEVICE
-  if(const char *test=std::getenv("PENCHAT_TEST_SINGLE_LINE_OCR"))editorMultiLineSupported_=std::string(test)!="1";
+  if(const char *test=std::getenv("PENCHAT_TEST_SINGLE_LINE_OCR"))editorMultiLineAllowed_=std::string(test)!="1";
 #endif
   inputFocus_ = InputFocus(nativeTouch);
   inputFocused_ = touchLeaseActive_ = !nativeTouch;
@@ -3156,6 +3156,7 @@ void App::handle(const Json &m) {
 #endif
   if (type == "init") {
     bridge_.generation(m.value("generation", 0));
+    editorOcrCapabilities(m.value("ocrCapabilities",Json::object()));
     startupReadyPending_ = true;
     syncBackPolicy();
     syncScanner();
@@ -3269,6 +3270,10 @@ void App::handle(const Json &m) {
       editorTopBlocked_=m.value("blocked",false);
       if(!m.value("ok",false)){editor_.notice="当前固件无法禁用下拉面板";editorBuild();}
     }
+  } else if(type=="ocr.capabilities") {
+    if(editor_.active&&m.value("session",std::string())==editor_.id&&
+       !editorOcrId_.empty()&&m.value("requestId",std::string())==editorOcrId_)
+      editorOcrCapabilities(m);
   } else if(type=="ocr.prepared") {
     editorOcrPrepared(m);
   } else if(type=="ocr.stopped") {

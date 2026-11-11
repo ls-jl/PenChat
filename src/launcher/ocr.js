@@ -30,6 +30,26 @@ function scanText(value, depth = 0) {
   return ''
 }
 export class OcrSession {
+  static capabilities(manager) {
+    // Read-only interface detection: never register, switch modes or start a
+    // capture to probe support. A missing multi setter is unverified, so the
+    // UI conservatively offers single-line only; platform limits still apply.
+    const result = { single: false, multi: false }
+    try {
+      if (!manager) return result
+      const method = name => typeof manager[name] === 'function'
+      const signal = name => {
+        const value = manager[name]
+        return !!value && ((typeof value.on === 'function' && typeof value.off === 'function') ||
+          (typeof value.connect === 'function' && typeof value.disconnect === 'function'))
+      }
+      result.single = method('addUseOcrAppId') && method('deleteUseOcrAppId') &&
+        (method('setIsOpenScan') || method('setCurrentAppId')) && signal('ocrStartChanged') &&
+        ['scanWordResultChanged', 'apolloScanWordResultChanged', 'ocrCompleteChanged', 'ocrStopChanged'].some(signal)
+      result.multi = result.single && method('startAlmondMultiScan')
+    } catch (_) { /* Inaccessible optional exports cannot establish support. */ }
+    return result
+  }
   constructor(manager, appid, emit, stroke = null, route = null) {
     this.route = route; this.nativeRouting = false
     this.stroke = stroke
