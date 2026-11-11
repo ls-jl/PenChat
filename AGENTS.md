@@ -116,14 +116,16 @@ checks relevant to the change; do not run the full regression/sanitizer suite or
 production packaging for every request. Run `npm run check`, full release checks
 and `npm run build:prod` when the user explicitly requests a new release.
 `check` currently reports optional cnpm. For runtime/camera/display changes,
-use targeted ORANGE verification when necessary; do not automatically test and
-install on every device for each change.
+use targeted ORANGE verification when necessary; do not automatically run device
+test flows for each change. Automatic development installation follows the policy below.
 Device test helpers use real touchscreen events. Authorized targets are ORANGE
 MEB0400008900794, Y02 MEA2300009007113, Y07 7G12000010905426 and S6
 JDA0700006552216. Do not target unlisted devices.
-The user has temporarily forbidden all Y02/113 device operations; do not access
-MEA2300009007113 until the user explicitly resumes it. This restriction overrides
-the allowlist.
+The user has resumed Y02/113 access. After application changes, build the relevant
+development payloads and automatically install to online Y02 MEA2300009007113,
+Y07 7G12000010905426 and S6 JDA0700006552216 without asking again. Preserve user
+data and pending input where possible; report offline targets as not installed.
+This installation policy does not authorize automatic full tests or releases.
 Do not restart the system MiniApp host or overwrite user data to bypass failures.
 Device chat acceptance snapshots/restores the DB and uses only fake local keys.
 
@@ -387,7 +389,7 @@ system pinyin borrowing or copy its dictionary.
 S6 adaptation is integrated on dev. S6
 JDA0700006552216 is an explicit CV1826/ARMv7 target; reuse the accepted CVI INT8
 bundle and public runtime in place, never load RKNN or copy device libraries into
-the system. Follow docs/S6-ARMV7-DEV.md. Keep the independent s6-armv7 worktree unchanged. Y02/113 remains forbidden.
+the system. Follow docs/S6-ARMV7-DEV.md. Keep the independent s6-armv7 worktree unchanged.
 
 S6 uses the same LVGL pages and keyboard state machine. CompactLandscape defaults
 to a full-width keyboard in Falcon logical coordinates with a 44px input/candidate
