@@ -347,7 +347,7 @@ releasing scanner ownership; new field IDs reject old OCR/pinyin results. Undo a
 secret visibility stay isolated per field. A non-input action must close a retained
 transfer and clear all pointers/actions into the keyboard it deletes. Cancel
 restores the original value; Provider edits still require explicit Save.
-Portrait preedit is a content-sized floating strip shown only when needed. Keep the gap above the candidate/function row in the chat background color, with no permanent composition bar. Use native down/up chevrons at one fixed target for candidate expand/collapse. Portrait candidate expansion temporarily replaces the main key area; keep the expand/collapse button at the same candidate-row position and leave the original page visible. Other layouts expand over the reader; never move the keys. Portrait clipboard
+All native keyboards share a content-sized preedit strip in the candidate row, not a separate floating composition row. Keep a 4px gap and give candidates the remaining row width; no composition means hide the strip and restore portrait function controls. Use native down/up chevrons at one fixed target for candidate expand/collapse. Portrait candidate expansion temporarily replaces the main key area; keep the expand/collapse button at the same candidate-row position and leave the original page visible. Wide landscape expands over its editor; compact full-width expands over keys. Never move the key geometry. Portrait clipboard
 replaces only the keyboard panel; landscape clipboard stays in the right editor. Ordinary
 page scrolling and field focus remain available above the keyboard. Rebind focused
 controls by stable page/field identity after a rebuild; cancel a missing target on
@@ -389,8 +389,10 @@ JDA0700006552216 is an explicit CV1826/ARMv7 target; reuse the accepted CVI INT8
 bundle and public runtime in place, never load RKNN or copy device libraries into
 the system. Follow docs/S6-ARMV7-DEV.md. Keep the independent s6-armv7 worktree unchanged. Y02/113 remains forbidden.
 
-S6 uses the same LVGL pages and keyboard state machine, scaled as a whole on its
-narrow landscape screen. Physical panel dimensions and rotation come from Falcon;
+S6 uses the same LVGL pages and keyboard state machine. CompactLandscape defaults
+to a full-width keyboard in Falcon logical coordinates with a 44px input/candidate
+strip; only its optional split editor retains the old local design scaling.
+Keep input, undo, selection, pinyin and OCR in the same session across view changes. Physical panel dimensions and rotation come from Falcon;
 S6 uses native/compositor shared-memory output through Falcon's verified original
 post_fb. Never initialize the old CVI VO display backend or fall back to it on
 an unknown firmware. Rotation occurs once in Falcon; never use touch offsets to

@@ -203,6 +203,18 @@ void paint(lv_event_t *event) {
     line(-6, 6, 6, -6);
   } else if (k == "minus") {
     line(-8, 0, 8, 0);
+  } else if (k == "editor-expand" || k == "editor-collapse") {
+    if(k=="editor-expand") {
+      line(-3,-9,-9,-9);line(-9,-9,-9,-3);line(3,9,9,9);line(9,9,9,3);
+      line(-8,-8,-2,-2);line(8,8,2,2);
+    } else {
+      line(-9,-3,-3,-3);line(-3,-3,-3,-9);line(9,3,3,3);line(3,3,3,9);
+      line(-9,-9,-3,-3);line(9,9,3,3);
+    }
+  } else if (k == "more-horizontal") {
+    circle(-7,0,1);circle(0,0,1);circle(7,0,1);
+  } else if (k == "chevron-up") {
+    line(-5,2,0,-3);line(0,-3,5,2);
   } else if (k == "plus") {
     line(-8, 0, 8, 0);
     line(0, -8, 0, 8);
@@ -307,7 +319,16 @@ void paint(lv_event_t *event) {
     line(10, -6, 2, 2);
     line(2, 2, -2, 3);
     line(5, -7, 8, -4);
-  } else if (k == "shift" || k == "shift-lock") {
+  } else if (k == "shift" || k == "shift-lock" || k == "shift-filled" || k == "shift-lock-filled") {
+    if(k=="shift-filled"||k=="shift-lock-filled") {
+      lv_draw_triangle_dsc_t fill;lv_draw_triangle_dsc_init(&fill);
+      fill.color=ink;fill.opa=opacity;
+      fill.p[0]={int32_t(std::lround(cx-9*scale)),int32_t(std::lround(cy))};
+      fill.p[1]={int32_t(std::lround(cx)),int32_t(std::lround(cy-9*scale))};
+      fill.p[2]={int32_t(std::lround(cx+9*scale)),int32_t(std::lround(cy))};
+      lv_draw_triangle(layer,&fill);
+      rect(-4,-1,8,7,0,true);
+    }
     line(-9, 0, 0, -9);
     line(0, -9, 9, 0);
     line(9, 0, 4, 0);
@@ -315,7 +336,7 @@ void paint(lv_event_t *event) {
     line(4, 6, -4, 6);
     line(-4, 6, -4, 0);
     line(-4, 0, -9, 0);
-    if (k == "shift-lock")
+    if (k == "shift-lock" || k == "shift-lock-filled")
       line(-4, 10, 4, 10);
   } else if (k == "delete") {
     line(-10, 0, -4, -7);
@@ -351,6 +372,18 @@ void attachIcon(lv_obj_t *object, const std::string &name, uint32_t ink) {
       object,
       [](lv_event_t *e) { delete static_cast<Icon *>(lv_event_get_user_data(e)); },
       LV_EVENT_DELETE, data);
+}
+void setIcon(lv_obj_t *object, const std::string &name, uint32_t ink) {
+  for(uint32_t i=0;i<lv_obj_get_event_count(object);++i) {
+    auto event=lv_obj_get_event_dsc(object,i);
+    if(lv_event_dsc_get_cb(event)!=paint)continue;
+    auto data=static_cast<Icon *>(lv_event_dsc_get_user_data(event));
+    if(data->name!=name||data->ink!=ink) {
+      data->name=name;data->ink=ink;lv_obj_invalidate(object);
+    }
+    return;
+  }
+  attachIcon(object,name,ink);lv_obj_invalidate(object);
 }
 void setSelectionHandleTop(lv_obj_t *object, int top, int corner, int x, int diameterX, int diameterY) {
   for (uint32_t i=0;i<lv_obj_get_event_count(object);++i) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Portrait preedit is a content-sized floating label, never a permanent strip."""
+"""Portrait preedit shares its row with candidates; obsolete floating layout stays removed."""
 import pathlib,tempfile
 import test_lvgl_app as ui
 from test_pinyin_ui import BINARY,open_editor,editor,key,layout,ready,selected
@@ -12,15 +12,15 @@ def run(w,h):
         app=ui.Native(BINARY,pathlib.Path(tmp),official_adapter=False,screen={'width':w,'height':h})
         try:
             open_editor(app);e=editor(app);baseline=e['text_bounds'];panel=e['panel_top']
-            assert e['composition_floating'] and not e['composition_bounds']
+            assert not e['composition_floating'] and not e['composition_visible'] and not e['composition_bounds']
             capture(app,OUT/f'{w}-idle.png')
             for c in 'nihao':key(app,c)
             ready(app);e=editor(app);b=e['composition_bounds'];toggle=e['actions']['expand']
-            assert e['composition_floating'] and len(b)==4
-            assert b[2]-b[0]<w//2 and b[3]+1==e['candidate_y'],(b,toggle)
+            assert not e['composition_floating'] and e['composition_visible'] and len(b)==4
+            assert b[2]-b[0]<w//2 and b[1]==e['candidate_y'],(b,toggle)
             assert e['text_bounds']==baseline and e['panel_top']==panel
-            assert app.diag()['composer_bounds'][3]+1==b[1],(app.diag()['composer_bounds'],b)
-            assert e['candidate_bounds'][0]==0
+            assert app.diag()['composer_bounds'][3]<b[1],(app.diag()['composer_bounds'],b)
+            assert e['candidate_bounds'][0]==b[2]+5
             assert toggle[2]-toggle[0]+1==64 and toggle[3]-toggle[1]+1==48
             capture(app,OUT/f'{w}-composing.png')
             app.tap(toggle[2]-2,(toggle[1]+toggle[3])//2)
@@ -40,7 +40,7 @@ def run(w,h):
             for _ in range(5):key(app,'delete')
             ui.wait_for(lambda:not editor(app)['pending'])
             assert not editor(app)['composition_bounds']
-            print('Floating pinyin: idle/compose/expand/commit/English/nine-key and stable geometry:',w,h,'passed',flush=True)
+            print('Shared pinyin row: idle/compose/expand/commit/English/nine-key and stable geometry:',w,h,'passed',flush=True)
         finally:app.close()
 
 if __name__=='__main__':

@@ -598,9 +598,17 @@ class App {
   bool editorRefreshPending_=false, editorChoicesDirty_=false, editorChoicesEmpty_=false, editorSelectPending_=false;
   std::string editorChosenWord_;
   uint64_t editorPaintedKey_=0, editorBuildCount_=0, editorRefreshCount_=0;
+  bool editorCompactExpanded_=false, editorToolsOpen_=false, editorRestoreViewScroll_=false;
+  int editorCompactScroll_[2]={0,0}, editorCompactIcon_=-1;
+  lv_obj_t *editorPreeditViewport_=nullptr, *editorCompactBar_=nullptr;
+  bool editorCompactComposition() const;
+  void editorRefreshCompositionRow();
+  bool editorHasComposition() const;
+  void editorCompactView(bool expanded);
+  void editorCompactEnsureCaret();
 
   EditorLayout editorLayout() const {
-    EditorLayout result(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,editorSwapSides_);
+    EditorLayout result(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,editorSwapSides_,editorCompactExpanded_,editor_.secret);
     if(officialDocked_&&keyboard_&&officialHeight_>0)result.panelTop=screen_.height-officialHeight_;
     return result;
   }
@@ -632,6 +640,7 @@ class App {
   bool editorOcrPreparing_=false;
   uint64_t editorOcrPrepareSent_=0;
   void editorOcrPrepared(const Json &);
+  bool editorMultiLineSupported_=true;
   bool editorOcrMulti_=false, editorOcrActive_=false, editorOcrBusy_=false, editorOcrShown_=false;
   bool editorTopBlocked_=false;
   std::string editorOcrId_, editorOcrStopId_;

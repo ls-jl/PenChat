@@ -53,8 +53,10 @@ bool App::backTouch(const Json &m) {
   }
   if (down && !backDown_) {
     backDown_=true;
+    const auto editorGeometry=editorLayout();
+    const int editorX=editorGeometry.fromNativeX(x),editorY=editorGeometry.fromNativeY(y);
     backEditorKey_ = editor_.active && std::any_of(editorKeys_.begin(), editorKeys_.end(),
-        [x,y](const EditorKey &key) { return key.hit.contains(x,y); });
+        [editorX,editorY](const EditorKey &key) { return key.hit.contains(editorX,editorY); });
     // Reserve only the logical left edge. Drawer dismissal stays tap-only;
     // image panning, text selection and horizontal content keep their gestures.
     bool cropHandle=false;
@@ -69,9 +71,9 @@ bool App::backTouch(const Json &m) {
     if(editor_.active&&editor_.selected())for(auto handle:editorHandles_) {
       if(!handle||lv_obj_is_hidden(handle))continue;
       lv_area_t area;lv_obj_get_coords(handle,&area);
-      if(selectionHandleContains(handle,x,y))editorHandle=true;
+      if(selectionHandleContains(handle,editorX,editorY))editorHandle=true;
     }
-    const bool editorOwns=editor_.active&&(editorTextArea().contains(x,y)||editorHandle);
+    const bool editorOwns=editor_.active&&(editorTextArea().contains(editorX,editorY)||editorHandle);
     bool readOwns=false;
     if(!editor_.active) {
       for(auto object:{readMenu_,readHandles_[0],readHandles_[1]})if(object&&!lv_obj_is_hidden(object)){

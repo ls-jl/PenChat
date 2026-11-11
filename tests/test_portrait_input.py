@@ -75,7 +75,7 @@ def run():
                 assert state['toolbar_y']==1088
                 shot(a,'chat-safe')
                 a.tap(280,1158);t.wait_for(lambda:a.diag()['editor']['active'])
-                state=a.diag();e=state['editor'];assert e['docked'] and e['inline_chat'] and e['panel_top']==623
+                state=a.diag();e=state['editor'];assert e['docked'] and e['inline_chat'] and e['panel_top']==e['candidate_y']-4
                 assert e['in_place'] and e['text_in_target'] and e['input_anchor']=='chat-composer'
                 assert e['target_bounds'][0]<=e['text_bounds'][0]<e['text_bounds'][2]<=e['target_bounds'][2]
                 assert e['target_bounds'][1]<=e['text_bounds'][1]<e['text_bounds'][3]<=e['target_bounds'][3]
@@ -179,7 +179,7 @@ def run():
                 t.wait_for(lambda:a.diag()['editor']['candidate_count']>0)
                 e=a.diag()['editor'];assert e['shared_candidate_row'] and e['candidate_y']==e['function_y']
                 assert 'official' not in e['actions'] and 'ocr-mode' not in e['actions'] and 'clipboard' not in e['actions']
-                assert e['panel_top']==623
+                assert e['panel_top']==e['candidate_y']-4
                 shot(a,'shared-candidates')
                 a.editor_action('expand');shot(a,'expanded-candidates')
                 a.editor_action('expand');key(a,'space');t.wait_for(lambda:a.diag()['editor']['length']>0)

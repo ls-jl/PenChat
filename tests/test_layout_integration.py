@@ -23,7 +23,7 @@ for w,h in [(568,1210),(960,266),(936,280),(640,260)]:
                 b=e()['actions'][name];a.tap(*point((b[0]+b[2])//2,(b[1]+b[3])//2))
             def key(name):
                 k=next(k for k in e()['keys'] if k['key']==name);a.tap(*point(k['x'],k['y']))
-            space=e()['coordinate_space'];assert space['scaled']==(w==640)
+            space=e()['coordinate_space'];assert not space['scaled'];assert e()['compact_full']==(w==640)
             capture(a,OUT/f'{w}-keyboard.png')
             k=next(k for k in e()['keys'] if k['key']=='language');x,y=point(k['x'],k['y'])
             a.send('touch',x=x,y=y,pressed=True);time.sleep(.54)
