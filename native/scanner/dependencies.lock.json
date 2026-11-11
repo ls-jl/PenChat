@@ -39,7 +39,7 @@
     "engine/tests/test_cvi_adapter.cpp": "c3b0dec66cdd413db803e17db6ecc5e0aa67ac33c9075a438140ed7942a10887",
     "tests/cvi_replay.cpp": "9f86b4f4334a48037c1c9ba9cff5026c0f7ea635468d4f78a928ba78a0364575",
     "engine/src/bounded.hpp": "357f1c76489ea0fc2356306e7ec2d9d762dbd135193651acdc9f9a656e3b939a",
-    "src/cvi_capture.cpp": "ba42f6767351ebdd493977acfc52bb41f5de9c616df1862202cf156facd49d6b",
+    "src/cvi_capture.cpp": "27b694826ba2afdb144932ecc071baf9abb9288917d300b8bf205cf927f3dd92",
     "src/cvi_capture.hpp": "1c5de5736713b6ddabe02956c0267388fe36f50b29c437aa2bad4c3697897405",
     "src/cvi_media_link.c": "7ca99e7bf029ea714df8ad19d63ab835821dc53f19bd04efef973068e9544e85",
     "cvi-runtime-symbols.list": "468ac2df68529c88b94b55f67f7a85903817762e166439add84df2a8044ea0c3",
@@ -52,7 +52,9 @@
     "src/scan_platform.hpp": "d4d2151f636feddfd0a9aa9e93fc535a598f10c41bb552487060e1c8dcfd73a4",
     "src/scan_platform.cpp": "9470fc2faf1af40473f18844eb659df8c96afde3c66c2f5fe207e3b475e26d27",
     "src/hardware_ops.hpp": "024744deae0cbf33839f2c1dcf2188e120c52fc4b64e76d56aa70fff4772bb0c",
-    "src/rk_capture.cpp": "d0dab4d88649b20a3e0699bcadceabfe57e96d06f08c1c0845af2be8cb194c89"
+    "src/rk_capture.cpp": "d0dab4d88649b20a3e0699bcadceabfe57e96d06f08c1c0845af2be8cb194c89",
+    "CMakeLists.txt": "8f5eb18f010304ad58fa00e8b7e062d16c0d97111124acd92693eb022f43cd75",
+    "src/cvi_startup.hpp": "d318117bde0cb6f0dad41348d2b227b014eb7be3d393274131f6f455a4b58409"
   },
   "resources": {
     "pintu_32.rknn": {

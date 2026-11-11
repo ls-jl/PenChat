@@ -182,6 +182,18 @@ try:
         action('done');wait(lambda:not state()['editor']['active'],30)
         assert ready()['scanner']['worker_pid']==worker
         result['ocr_cycles'].append({'cycle':cycle+1,'request_id':first})
+    if s6:
+        # Cancel a warm rearm while CVI may be performing its zero-frame
+        # recovery. A late ready must not steal the new editor's OCR lease.
+        touch(40,32);wait(lambda:state()['navigation_open']);released()
+        touch(W-30,80)
+        touch(W//2,H-34)
+        wait(lambda:(e:=state()['editor'])['active'] and e['ocr_active'] and not e['ocr_preparing'],40)
+        released()
+        assert str(worker) in sh('pidof penchat-scanner').split()
+        action('done');wait(lambda:not state()['editor']['active'],30)
+        assert ready()['scanner']['worker_pid']==worker
+        result['preparation_cancel_restore']=True
     sh('miniapp_cli start 8080222437664451');wait(lambda:not state()['visible']);released()
     assert str(worker) in sh('pidof penchat-scanner').split()
     sh('miniapp_cli start '+APP['appid']);wait(lambda:state()['visible']);ready()
@@ -212,7 +224,7 @@ finally:
             subprocess.run(['adb','-s',args.serial,'pull',DATA+'/penchat.db',str(snapshot)],check=True,capture_output=True)
             with sqlite3.connect('file:'+str(snapshot)+'?mode=ro',uri=True) as db:
                 assert db.execute('select count(*) from chat_sessions').fetchone()[0]==0
-                assert db.execute('select count(*) from messages').fetchone()[0]==0
+                assert db.execute('select count(*) from chat_messages').fetchone()[0]==0
             result['no_saved_conversation']=True
         except Exception as error:
             result['passed']=False;result['error']=str(error)

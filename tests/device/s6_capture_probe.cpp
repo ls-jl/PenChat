@@ -1,5 +1,6 @@
 #include "hardware.hpp"
 #include "cvi_capture.hpp"
+#include "platform_inference.hpp"
 #include "pen_stream/stream.hpp"
 #include <array>
 #include <dirent.h>
@@ -25,10 +26,12 @@ int main(int argc,char **argv) {
     }
     signal(SIGTERM,stopped);signal(SIGINT,stopped);signal(SIGALRM,stopped);alarm(25);
     const std::string mode=argc>1?argv[1]:"";
-    if((argc==3&&(mode=="--cycles"||mode=="--direct-cycles")) ||
-       (argc==4&&mode=="--model-cycles")) {
+    if(((argc==3||argc==4)&&(mode=="--cycles"||mode=="--direct-cycles")) ||
+       ((argc==4||argc==5)&&mode=="--model-cycles")) {
       const bool direct=mode=="--direct-cycles";
       const int cycles=std::max(1,std::min(50,std::stoi(argv[2])));
+      const int delayArg=mode=="--model-cycles"?4:3;
+      const int delayMs=argc>delayArg?std::max(0,std::min(3000,std::stoi(argv[delayArg]))):1500;
       alarm(unsigned(cycles*10+10));
       Hardware owner;
       auto saveLease=[&](const Json &snapshot) {
@@ -40,16 +43,28 @@ int main(int argc,char **argv) {
       std::array<std::uint8_t,80*144> gray{};gray.fill(127);
       pen::stream::NetworkBatch batch;batch.validCount=32;batch.gray.fill(gray.data());
       pen::stream::Heads reference;
-      if(mode=="--model-cycles") {
-        verifyCviCaptureRuntime();
-        model=pen::stream::makeCvi32(std::string(argv[3])+"/pintu_rgb32_int8.cvimodel","/usr/lib/libcviruntime.so");
-        model->open();model->infer(batch,reference);
-      }
       for(int cycle=1;cycle<=cycles&&!stop;++cycle) {
-        const auto snapshot=direct?Json():scanLeaseSnapshot();
+        const auto snapshot=[&] {
+          if(direct)return Json();
+          const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+          for(;;)try {return scanLeaseSnapshot();}catch(const std::exception &e) {
+            if(std::string(e.what())!="system capture preparing"||std::chrono::steady_clock::now()>=end)throw;
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+          }
+        }();
         if(!direct)saveLease(snapshot);
         Hardware capture;std::shared_ptr<CaptureStream> stream;
-        if(direct)stream=openCviCapture();else capture.open(snapshot);
+        if(direct)stream=openCviCapture();else {
+          capture.reserve(snapshot);
+          if(mode=="--model-cycles"&&!model) {
+            model=makePlatformInference(scanProfileById(snapshot.at("profile").get<std::string>()),argv[3]);
+            model->open();model->infer(batch,reference);
+          } else if(model) {
+            pen::stream::Heads actual;model->infer(batch,actual);
+            if(actual!=reference)throw std::runtime_error("resident model output changed after capture release");
+          }
+          capture.start();
+        }
         std::uint64_t frames=0,last=0;std::int64_t stamp=0;
         const auto consume=[&](const std::uint8_t *,int stride,std::uint64_t sequence,std::int64_t timestamp) {
           if(stride<320||frames&&(sequence!=last+1||timestamp<=stamp))
@@ -62,10 +77,6 @@ int main(int argc,char **argv) {
         }
         stream.reset();capture.close();if(!direct)unlink(leasePath.c_str());
         if(frames<100)throw std::runtime_error("cycle camera did not sustain frames");
-        if(model) {
-          pen::stream::Heads actual;model->infer(batch,actual);
-          if(actual!=reference)throw std::runtime_error("resident model output changed after capture release");
-        }
         unsigned descriptors=0,mappings=0;
         if(auto directory=opendir("/proc/self/fd")) {
           while(auto item=readdir(directory))if(item->d_name[0]!='.')++descriptors;
@@ -76,7 +87,7 @@ int main(int argc,char **argv) {
                  <<" descriptors="<<descriptors<<" mappings="<<mappings<<" resident_model="<<bool(model)<<std::endl;
         // Let the real stock owner rebuild its own VI/VPSS/VB between leases.
         // Direct mode deliberately omits this ownership transition.
-        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
       }
       owner.close();unlink(leasePath.c_str());return stop?1:0;
     }

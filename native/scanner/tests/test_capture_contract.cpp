@@ -1,4 +1,5 @@
 #include "capture_stream.hpp"
+#include "cvi_startup.hpp"
 #include "optical_config.hpp"
 #include "start_policy.hpp"
 #include <cassert>
@@ -12,6 +13,23 @@ template<class F> void rejects(F f) {
   bool rejected=false;try {f();} catch (...) {rejected=true;} assert(rejected);
 }
 int main() {
+  assert(cviStartupCanReopen(0,int(cviBufferEmpty)));
+  assert(!cviStartupCanReopen(1,int(cviBufferEmpty)));
+  assert(!cviStartupCanReopen(0,0));
+  assert(!cviStartupCanReopen(0,int(0xc0068010u)));
+  unsigned opens=0,notices=0;
+  auto notify=[&](const char *){++notices;};
+  assert(openCviWithRecovery([&]{++opens;return 9;},notify)==9);
+  assert(opens==1&&notices==0);
+  opens=notices=0;
+  assert(openCviWithRecovery([&]{if(++opens==1)throw CviStartupEmpty("zero frames");return 7;},notify)==7);
+  assert(opens==2&&notices==1);
+  opens=notices=0;
+  rejects([&]{openCviWithRecovery([&]()->int{++opens;throw CviStartupEmpty("still empty");},notify);});
+  assert(opens==2&&notices==1); // No third attempt or unbounded hardware loop.
+  opens=notices=0;
+  rejects([&]{openCviWithRecovery([&]()->int{++opens;throw std::runtime_error("invalid frame or cleanup failure");},notify);});
+  assert(opens==1&&notices==0);
   const auto s6=scanProfileById("s6-pag7920");
   std::vector<std::uint8_t> native(336*240,23);
   FrameView source{native.data(),native.size(),320,240,336,77,123456};

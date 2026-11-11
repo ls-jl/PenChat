@@ -169,7 +169,7 @@ if(SCANNER_BUILD_REPLAY)
 endif()
 
 if(SCANNER_TARGET STREQUAL "cv1826-s")
-  add_executable(s6-capture-probe EXCLUDE_FROM_ALL "${ROOT}/tests/device/s6_capture_probe.cpp" src/hardware.cpp src/scan_platform.cpp src/cvi_capture.cpp src/runtime_guard.cpp)
+  add_executable(s6-capture-probe EXCLUDE_FROM_ALL "${ROOT}/tests/device/s6_capture_probe.cpp" src/hardware.cpp src/scan_platform.cpp src/cvi_capture.cpp src/platform_inference.cpp src/runtime_guard.cpp)
   target_include_directories(s6-capture-probe PRIVATE src "${ROOT}/.deps/json/single_include")
   target_compile_definitions(s6-capture-probe PRIVATE PENCHAT_CVI_CAPTURE=1 JSON_HAS_CPP_14=1)
   target_link_libraries(s6-capture-probe PRIVATE stream32 dl pthread)

@@ -1,5 +1,6 @@
 #include "../../camera/src/cvi_ion_anchor.h"
 #include "cvi_capture.hpp"
+#include "cvi_startup.hpp"
 #include "../../camera/src/cvi_media_abi.h"
 #include <array>
 #include <chrono>
@@ -8,14 +9,21 @@
 #include <dlfcn.h>
 #include <fstream>
 #include <stdexcept>
+#include <sstream>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <openssl/sha.h>
 
 // Scanner-executable-only scoped initialization guards. Subsequent SDK resume
 // operations must reach ISP/VPSS, but this process must never open the UI's VO.
-namespace {void *captureSystem=nullptr;bool captureBooting=true;int capturePoolCloseError=0;
-template<class F>F captureApi(const char *name){return reinterpret_cast<F>(dlsym(captureSystem,name));}}
+namespace {void *captureSystem=nullptr;bool captureBooting=true;int captureCloseError=0;
+const char *captureCloseStage="";
+template<class F>F captureApi(const char *name){return reinterpret_cast<F>(dlsym(captureSystem,name));}
+void closed(int rc,const char *stage) noexcept {
+  if(!rc)return;
+  if(!captureCloseError){captureCloseError=rc;captureCloseStage=stage;}
+  std::fprintf(stderr,"CVI_CLOSE %s %d; capture reuse disabled\n",stage,rc);
+}}
 extern "C" {
 int v4l2_dev_open(int isp,int vpss,int,int){return captureBooting?0:captureApi<int(*)(int,int,int,int)>("v4l2_dev_open")(isp,vpss,0,0);}
 int v4l2_dev_close(){return captureBooting?0:captureApi<int(*)()>("v4l2_dev_close")();}
@@ -30,8 +38,8 @@ void CVI_SYS_TraceEnd(){}
 }
 namespace penchat_scan {
 void verifyCviCaptureRuntime() {
-  if(capturePoolCloseError)
-    throw std::runtime_error("CVI capture pool cleanup failed: "+std::to_string(capturePoolCloseError)+
+  if(captureCloseError)
+    throw std::runtime_error(std::string("CVI capture cleanup failed at ")+captureCloseStage+": "+std::to_string(captureCloseError)+
                              "; close and reopen PenChat before scanning");
   static void *group=[] {
     dlopen("/lib/libgcc_s.so.1",RTLD_NOW|RTLD_GLOBAL);
@@ -56,23 +64,32 @@ static_assert(sizeof(Pipe)==44,"S6 VI pipe ABI");
 class CviCapture final:public CaptureStream {
   void *sys_=nullptr,*vpu_=nullptr,*sample_=nullptr,*dependencies_=nullptr;
   alignas(8) std::array<unsigned char,280> vi_{};
-  bool descriptors_=false,sensor_=false,isp_=false,group_=false,groupStarted_=false,channel_=false,bound_=false;
+  bool descriptors_=false,sensor_=false,isp_=false,group_=false,groupStarted_=false,channel_=false,bound_=false,viChannel_=false;
   // VB pools and their process-local indexes belong to a capture lease. The
   // stock owner recreates their shared backing while this process keeps SYS/NN.
   bool vb_=false;
+  unsigned readCalls_=0,received_=0;
+  int lastReadCode_=0;
   int (*get_)(int,int,FrameInfo *,int)=nullptr,(*release_)(int,int,FrameInfo *)=nullptr;
   void *(*map_)(U64,U32)=nullptr;int (*unmap_)(void *,U32)=nullptr;
   template<class F>F fn(void *lib,const char *name){auto f=reinterpret_cast<F>(dlsym(lib,name));if(!f)throw std::runtime_error(std::string("Missing CVI capture API: ")+name);return f;}
   static void check(int rc,const char *stage){std::fprintf(stderr,"CVI_STAGE %s %d\n",stage,rc);std::fflush(stderr);if(rc)throw std::runtime_error(std::string("CVI capture ")+stage+": "+std::to_string(rc));}
   void close() noexcept {
-    auto call=[&](const char *name,int a){auto f=reinterpret_cast<int(*)(int)>(dlsym(vpu_,name));if(f)f(a);};
+    auto call=[&](const char *name,int a){auto f=reinterpret_cast<int(*)(int)>(dlsym(vpu_,name));closed(f?f(a):-1,name);};
     if(vpu_) {
-      if(bound_&&sample_){auto f=reinterpret_cast<int(*)(int,int,int)>(dlsym(sample_,"SAMPLE_COMM_VI_UnBind_VPSS"));if(f)f(0,0,0);}
-      if(channel_){auto f=reinterpret_cast<int(*)(int,int)>(dlsym(vpu_,"CVI_VPSS_DisableChn"));if(f)f(0,0);}
+      // Stop the producer before unbinding/destroying its on-the-fly consumer.
+      // DestroyVi below also releases the remaining pipe/device resources.
+      if(viChannel_&&sample_) {
+        auto f=reinterpret_cast<int(*)(void *)>(dlsym(sample_,"SAMPLE_COMM_VI_StopViChn"));
+        closed(f?f(vi_.data()):-1,"vi_channel_stop");
+        viChannel_=false;
+      }
+      if(bound_&&sample_){auto f=reinterpret_cast<int(*)(int,int,int)>(dlsym(sample_,"SAMPLE_COMM_VI_UnBind_VPSS"));closed(f?f(0,0,0):-1,"unbind");}
+      if(channel_){auto f=reinterpret_cast<int(*)(int,int)>(dlsym(vpu_,"CVI_VPSS_DisableChn"));closed(f?f(0,0):-1,"channel_disable");}
       if(groupStarted_)call("CVI_VPSS_StopGrp",0);
       if(group_)call("CVI_VPSS_DestroyGrp",0);
-      if(isp_&&sample_){auto f=reinterpret_cast<int(*)(void *)>(dlsym(sample_,"SAMPLE_COMM_VI_DestroyIsp"));if(f)f(vi_.data());}
-      if(sensor_&&sample_){auto f=reinterpret_cast<int(*)(void *)>(dlsym(sample_,"SAMPLE_COMM_VI_DestroyVi"));if(f)f(vi_.data());}
+      if(isp_&&sample_){auto f=reinterpret_cast<int(*)(void *)>(dlsym(sample_,"SAMPLE_COMM_VI_DestroyIsp"));closed(f?f(vi_.data()):-1,"isp_destroy");}
+      if(sensor_&&sample_){auto f=reinterpret_cast<int(*)(void *)>(dlsym(sample_,"SAMPLE_COMM_VI_DestroyVi"));closed(f?f(vi_.data()):-1,"vi_destroy");}
     }
     if(descriptors_&&sys_) {
       for(const char *name:{"vpss_close","v4l2_isp_close"}) {
@@ -84,11 +101,7 @@ class CviCapture final:public CaptureStream {
       auto f=reinterpret_cast<int(*)()>(dlsym(sys_,"CVI_VB_Exit"));
       // Teardown must not throw from a destructor. The SDK's Exit also resets
       // its local initialized flag, pool indexes and shared-memory mapping.
-      const int rc=f?f():-1;
-      if(rc) {
-        capturePoolCloseError=rc;
-        std::fprintf(stderr,"CVI_CLOSE vb_exit %d; capture pool reuse disabled\n",rc);
-      }
+      closed(f?f():-1,"vb_exit");
       vb_=false;
     }
     if(sample_)dlclose(sample_);if(vpu_)dlclose(vpu_);if(sys_)dlclose(sys_);if(dependencies_)dlclose(dependencies_);dependencies_=nullptr;
@@ -137,7 +150,7 @@ public:
       descriptors_=true;
       check(fn<int(*)()>(sys_,"init_isp_device")(),"isp_device");
       check(fn<int(*)()>(sys_,"init_vpss_device")(),"vpss_device");
-      fn<void(*)(int)>(vpu_,"CVI_VI_Set_SensorPower")(1);
+      check(fn<int(*)(int)>(vpu_,"CVI_VI_Set_SensorPower")(1),"sensor_power");
       // Match the installed S6 sensor pipeline, bypassing only our SYS_Init
       // guards once all owned capture descriptors have been opened.
       std::array<int,16> viMode{};viMode[0]=3;
@@ -179,6 +192,7 @@ public:
       check(fn<int(*)(int)>(vpu_,"CVI_VPSS_StartGrp")(0),"group_start");groupStarted_=true;
       check(fn<int(*)(int,int,int)>(sample_,"SAMPLE_COMM_VI_Bind_VPSS")(0,0,0),"bind");bound_=true;
       // Arm the ISP output only after its on-the-fly scaler consumer is ready.
+      viChannel_=true;
       check(fn<int(*)(void *)>(sample_,"SAMPLE_COMM_VI_StartViChn")(vi_.data()),"vi_channel");
       get_=fn<decltype(get_)>(vpu_,"CVI_VPSS_GetChnFrame");release_=fn<decltype(release_)>(vpu_,"CVI_VPSS_ReleaseChnFrame");
       map_=fn<decltype(map_)>(sys_,"CVI_SYS_Mmap");unmap_=fn<decltype(unmap_)>(sys_,"CVI_SYS_Munmap");
@@ -192,13 +206,23 @@ public:
           frames=frames&&std::uint32_t(sequence)==previous+1&&timestamp>previousTime?frames+1:1;
           previous=std::uint32_t(sequence);previousTime=timestamp;
         });
-      if(frames<3)throw std::runtime_error("CVI sensor startup produced no continuous frames");
+      if(frames<3) {
+        std::ostringstream detail;
+        detail<<"CVI sensor startup produced no continuous frames: reads="<<readCalls_
+              <<" frames="<<received_<<" consecutive="<<frames<<" rc=0x"<<std::hex
+              <<unsigned(lastReadCode_)<<std::dec<<" sequence="<<previous<<" pts="<<previousTime;
+        if(cviStartupCanReopen(received_,lastReadCode_))throw CviStartupEmpty(detail.str());
+        throw std::runtime_error(detail.str());
+      }
       std::fprintf(stderr,"CVI_STAGE sensor_frames_ready %u\n",frames);
     }catch(...){close();throw;}
   }
   ~CviCapture()override{close();}
   bool read(const FrameConsumer &consume)override {
-    FrameInfo info{};if(get_(0,0,&info,20))return false;
+    FrameInfo info{};++readCalls_;lastReadCode_=get_(0,0,&info,20);
+    if(std::uint32_t(lastReadCode_)==cviBufferEmpty)return false;
+    if(lastReadCode_)check(lastReadCode_,"get_frame");
+    ++received_;
     void *mapped=nullptr;
     try {
       const auto &f=info.frame;
@@ -217,5 +241,9 @@ public:
   }
 };
 }
-std::shared_ptr<CaptureStream> openCviCapture(){return std::make_shared<CviCapture>();}
+std::shared_ptr<CaptureStream> openCviCapture(){
+  return openCviWithRecovery([]{return std::make_shared<CviCapture>();},[](const char *error){
+    std::fprintf(stderr,"CVI_STARTUP_ZERO_FRAME_REOPEN %s\n",error);
+  });
+}
 }
