@@ -168,7 +168,17 @@ void App::editorBuild() {
     } else {
       auto l=label(b,title,0,0,w,23);
       lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0);
-      lv_obj_align(l,LV_ALIGN_CENTER,0,0);
+      int inkOffset=0;
+      if(value==","||value==".") {
+        const uint32_t cp=title=="，"?0xff0c:title=="。"?0x3002:
+            static_cast<unsigned char>(value[0]);
+        lv_font_glyph_dsc_t glyph{};
+        // Full-width punctuation has asymmetric side bearings. Center its
+        // visible ink, retaining the baseline and the original key value.
+        if(lv_font_get_glyph_dsc(font(23),&glyph,cp,0)&&glyph.box_w)
+          inkOffset=(int(glyph.adv_w)-int(glyph.box_w))/2-glyph.ofs_x;
+      }
+      lv_obj_align(l,LV_ALIGN_CENTER,inkOffset,0);
     }
     editorKeys_.push_back({x,y,w,h,value,b,layout.keyTouchBounds({x,y,w,h})});
   };
