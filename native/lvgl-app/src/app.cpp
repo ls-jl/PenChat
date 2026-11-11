@@ -122,6 +122,14 @@ App::~App() {
 }
 lv_obj_t *App::box(lv_obj_t *parent, int x, int y, int w, int h,
                    uint32_t color) {
+  // Resolve the page canvas consistently for nested readers, message rows and
+  // navigation controls; keep cards, the composer and keyboard surfaces intact.
+  if (color == theme::background && (view_ == "chat" || view_ == "settings")) {
+    bool keyboard = false;
+    for (auto ancestor = parent; editorRoot_ && ancestor; ancestor = lv_obj_get_parent(ancestor))
+      if (ancestor == editorRoot_) { keyboard = true; break; }
+    if (!keyboard) color = theme::blackPage;
+  }
   auto o = lv_obj_create(parent);
   lv_obj_remove_style_all(o);
   lv_obj_set_pos(o, x, y);
