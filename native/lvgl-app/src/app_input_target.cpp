@@ -54,7 +54,7 @@ void App::editorDiscardTransfer() {
 EditorLayout::Popup App::editorTextArea() const {
   if(!editorText_||lv_obj_is_hidden(editorText_))return {0,0,0,0};
   const auto geometry=editorLayout();
-  if(geometry.compactFull)return {geometry.textX,0,geometry.textAreaWidth,44};
+  if(geometry.compactFull)return {geometry.textX,0,geometry.textAreaWidth,geometry.compactMetrics.headerHeight};
   lv_area_t a;lv_obj_get_coords(editorText_,&a);
   bool inBody=false;for(auto p=editorTarget_;p;p=lv_obj_get_parent(p))if(p==body_){inBody=true;break;}
   if(editorInPlace()&&inBody&&body_&&!modal_) {
@@ -72,19 +72,19 @@ int App::chatComposerHeight() const {
   if(!layout().portrait()) {
     const bool gauge=sessionPreferences_.value("gauge",!effortMemory_.empty());
     const int width=std::max(44,layout().composerWidth()-layout().composerEntryLeft()-layout().composerEntryRight(gauge)-24);
-    lv_point_t size{};lv_text_get_size(&size,text.c_str(),font(20),0,0,width,LV_TEXT_FLAG_NONE);
-    const int inset=std::max(0,(44-int(font(20)->line_height))/2);
+    lv_point_t size{};lv_text_get_size(&size,text.c_str(),font(editorFontSize(KeyboardFont::Editor)),0,0,width,LV_TEXT_FLAG_NONE);
+    const int inset=std::max(0,(44-int(font(editorFontSize(KeyboardFont::Editor))->line_height))/2);
     return std::min(base*2,std::max(base,int(size.y)+2*inset+4));
   }
   // Text has its own inset; the tool row keeps the resting pill's arc center.
   const int leftPad=26,rightPad=14,topPad=32;
   const int toolsTop=layout().composerHeight()/2+layout().composerSendDiameter()/2;
   const int width=std::max(44,layout().composerWidth()-leftPad-rightPad);
-  lv_point_t size{};lv_text_get_size(&size,text.c_str(),font(20),0,0,width,LV_TEXT_FLAG_NONE);
-  const int minimum=std::max(topPad+font(20)->line_height+8+toolsTop,
+  lv_point_t size{};lv_text_get_size(&size,text.c_str(),font(editorFontSize(KeyboardFont::Editor)),0,0,width,LV_TEXT_FLAG_NONE);
+  const int minimum=std::max(topPad+font(editorFontSize(KeyboardFont::Editor))->line_height+8+toolsTop,
                              editing?editorComposerOpenHeight_:0);
   return std::min(std::max(minimum,base*3),
-                  std::max(minimum,topPad+std::max(int(font(20)->line_height),int(size.y))+8+toolsTop));
+                  std::max(minimum,topPad+std::max(int(font(editorFontSize(KeyboardFont::Editor))->line_height),int(size.y))+8+toolsTop));
 }
 int App::chatComposerY() const {
   const bool docked=editor_.active&&editorInPlace()&&view_=="chat";
@@ -121,10 +121,11 @@ void App::layoutChatComposer() {
   auto value=lv_obj_get_child(composer_,0);
   if(value) {
     const bool wrapping=expanded||!layout().portrait();
+    lv_obj_set_style_text_font(value,font(editorFontSize(KeyboardFont::Editor)),0);
     lv_label_set_long_mode(value,wrapping?LV_LABEL_LONG_MODE_WRAP:LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_align(value,LV_ALIGN_TOP_LEFT);
-    lv_obj_set_pos(value,expanded?0:12,expanded?0:std::max(0,(std::min(44,h)-font(20)->line_height)/2));
-    lv_obj_set_size(value,expanded?w:std::max(0,w-24),expanded?h:wrapping?LV_SIZE_CONTENT:font(20)->line_height);
+    lv_obj_set_pos(value,expanded?0:12,expanded?0:std::max(0,(std::min(44,h)-font(editorFontSize(KeyboardFont::Editor))->line_height)/2));
+    lv_obj_set_size(value,expanded?w:std::max(0,w-24),expanded?h:wrapping?LV_SIZE_CONTENT:font(editorFontSize(KeyboardFont::Editor))->line_height);
     lv_obj_set_scrollable(composer_,!layout().portrait()&&height==layout().composerHeight()*2);
     lv_obj_set_scroll_dir(composer_,LV_DIR_VER);
     lv_obj_set_scroll_elastic(composer_,false);lv_obj_set_scroll_chain_ver(composer_,false);
@@ -152,8 +153,8 @@ void App::editorAttachTarget() {
       auto self=static_cast<App *>(lv_event_get_user_data(e));
       if(self->editorText_==lv_event_get_target_obj(e))self->editorText_=nullptr;
     },LV_EVENT_DELETE,this);
-    lv_obj_set_style_text_font(editorText_,font(style==1?19:20),0);
-    lv_obj_set_style_text_color(editorText_,lv_color_hex(theme::text),0);
+    lv_obj_set_style_text_font(editorText_,font(editorFontSize(style==1?KeyboardFont::InlineField:KeyboardFont::Editor)),0);
+    lv_obj_set_style_text_color(editorText_,lv_color_hex(keyboardDesign().style(KeyboardRole::Input).foreground),0);
     lv_obj_set_style_bg_opa(editorText_,LV_OPA_TRANSP,0);
     lv_obj_set_style_border_width(editorText_,0,0);lv_obj_set_style_radius(editorText_,0,0);
     lv_obj_set_style_pad_all(editorText_,0,0);
@@ -161,9 +162,9 @@ void App::editorAttachTarget() {
       lv_obj_set_style_pad_top(editorText_,0,0);lv_obj_set_style_pad_bottom(editorText_,0,0);
       lv_obj_set_style_text_line_space(editorText_,0,0);lv_obj_set_style_text_letter_space(editorText_,0,0);
     }
-    lv_obj_set_style_border_color(editorText_,lv_color_hex(theme::caret),LV_PART_CURSOR|LV_STATE_FOCUSED);
-    lv_obj_set_style_bg_color(editorText_,lv_color_hex(theme::border),LV_PART_SELECTED);
-    lv_obj_set_style_text_color(editorText_,lv_color_hex(theme::text),LV_PART_SELECTED);
+    lv_obj_set_style_border_color(editorText_,lv_color_hex(keyboardDesign().caret),LV_PART_CURSOR|LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(editorText_,lv_color_hex(keyboardDesign().selection),LV_PART_SELECTED);
+    lv_obj_set_style_text_color(editorText_,lv_color_hex(keyboardDesign().style(KeyboardRole::Input).foreground),LV_PART_SELECTED);
     lv_obj_set_scroll_elastic(editorText_,false);lv_obj_set_scroll_momentum(editorText_,false);
     lv_textarea_set_cursor_click_pos(editorText_,false);
     lv_textarea_set_max_length(editorText_,editor_.limit);
@@ -184,7 +185,7 @@ void App::editorAttachTarget() {
     const int visible=lv_obj_get_content_height(editorText_);
     int scroll=lv_obj_get_scroll_y(editorText_);
     if(point.y<scroll)scroll=point.y;
-    else if(point.y+font(20)->line_height>scroll+visible)scroll=point.y+font(20)->line_height-visible;
+    else if(point.y+editorTextFont()->line_height>scroll+visible)scroll=point.y+editorTextFont()->line_height-visible;
     editorScroll(scroll);
   } else if(!editorFollowCursor_)lv_obj_scroll_to_y(editorText_,editorTextScroll_,LV_ANIM_OFF);
   editorFollowCursor_=false;lv_obj_update_layout(editorText_);

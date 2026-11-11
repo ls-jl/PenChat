@@ -7,6 +7,7 @@ namespace {
 struct Icon {
   std::string name;
   uint32_t ink;
+  float scale = 1.f;
   int stemTop = 0;
   int cornerY = 0,cornerX = 0;
   int diameterX=24,diameterY=24,side=0;
@@ -80,7 +81,7 @@ void paint(lv_event_t *event) {
   const float cy = icon->customStem?bounds.y1+icon->cornerY:(bounds.y1+bounds.y2)*.5f;
   const float scale =
       (std::min(lv_obj_get_width(object), lv_obj_get_height(object)) <= 30 ? 0.75f : 1.f) *
-      (icon->name=="globe-large"?1.5f:1.f);
+      (icon->name=="globe-large"?1.5f:1.f) * icon->scale;
   const auto ink = lv_color_hex(icon->ink);
   lv_draw_line_dsc_t visual;
   lv_draw_line_dsc_init(&visual);
@@ -354,8 +355,8 @@ void paint(lv_event_t *event) {
   }
 }
 } // namespace
-void attachIcon(lv_obj_t *object, const std::string &name, uint32_t ink) {
-  auto data = new Icon{name, ink};
+void attachIcon(lv_obj_t *object, const std::string &name, uint32_t ink, float scale) {
+  auto data = new Icon{name, ink};data->scale=scale;
   lv_obj_add_event_cb(object, paint, LV_EVENT_DRAW_MAIN, data);
   if (name=="selection-start" || name=="selection-end")
     lv_obj_add_event_cb(object, [](lv_event_t *event) {
@@ -373,17 +374,17 @@ void attachIcon(lv_obj_t *object, const std::string &name, uint32_t ink) {
       [](lv_event_t *e) { delete static_cast<Icon *>(lv_event_get_user_data(e)); },
       LV_EVENT_DELETE, data);
 }
-void setIcon(lv_obj_t *object, const std::string &name, uint32_t ink) {
+void setIcon(lv_obj_t *object, const std::string &name, uint32_t ink, float scale) {
   for(uint32_t i=0;i<lv_obj_get_event_count(object);++i) {
     auto event=lv_obj_get_event_dsc(object,i);
     if(lv_event_dsc_get_cb(event)!=paint)continue;
     auto data=static_cast<Icon *>(lv_event_dsc_get_user_data(event));
-    if(data->name!=name||data->ink!=ink) {
-      data->name=name;data->ink=ink;lv_obj_invalidate(object);
+    if(data->name!=name||data->ink!=ink||data->scale!=scale) {
+      data->name=name;data->ink=ink;data->scale=scale;lv_obj_invalidate(object);
     }
     return;
   }
-  attachIcon(object,name,ink);lv_obj_invalidate(object);
+  attachIcon(object,name,ink,scale);lv_obj_invalidate(object);
 }
 void setSelectionHandleTop(lv_obj_t *object, int top, int corner, int x, int diameterX, int diameterY) {
   for (uint32_t i=0;i<lv_obj_get_event_count(object);++i) {

@@ -670,7 +670,12 @@ class App {
   void editorOcrResult(const Json &);
   void editorPolicy(bool active);
   lv_obj_t *editorRoot_ = nullptr, *editorText_ = nullptr;
-  struct EditorKey { int x,y,w,h; std::string value; lv_obj_t *object; EditorLayout::Popup hit; };
+  struct EditorKey {
+    int x,y,w,h; std::string value; lv_obj_t *object; EditorLayout::Popup hit;
+    KeyboardRole role=KeyboardRole::Character;
+    KeyboardVariant variant=KeyboardVariant::Default;
+    bool selected=false;
+  };
   std::vector<EditorKey> editorKeys_;
   EditorKey editorPress_{};
   struct EditorContact {
@@ -693,6 +698,13 @@ class App {
   int editorHeld_ = -1, editorRepeats_ = 0;
   bool editorPointer_ = false, editorSlid_ = false, editorExpanded_ = false, editorMenu_ = false;
   int editorStartX_ = 0, editorStartY_ = 0,editorHandleOffsetY_=0;
+  int editorFontSize(KeyboardFont role) const;
+  const lv_font_t *editorTextFont() const;
+  lv_obj_t *editorButton(lv_obj_t *parent,const std::string &title,int x,int y,int width,int height,
+      std::function<void()> action,KeyboardRole role=KeyboardRole::Auxiliary,
+      KeyboardFont textRole=KeyboardFont::Function,KeyboardVariant variant=KeyboardVariant::Default,
+      bool selected=false,lv_text_align_t align=LV_TEXT_ALIGN_CENTER);
+  void editorBuildKey(const KeyPlacement &placement);
   void editorBuild();
   bool editorCanExpand() const;
   bool editorCandidateRow() const;

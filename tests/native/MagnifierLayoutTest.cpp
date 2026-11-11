@@ -27,8 +27,11 @@ int main() {
     for(auto edges:{std::make_pair(side+12,size.first-side-12),std::make_pair(100,160)}) {
       for(int x:{-100,edges.first,edges.second,size.first+100}) {
         const auto p=l.magnifierPopup(x,size.second/2,edges.first,edges.second);
-        assert(p.x>=edges.first&&p.x+p.width<=edges.second);
-        assert(p.width==std::min(180,edges.second-edges.first));
+        // A narrow inline field must not shrink the lens or clamp caret motion.
+        // Its floating feedback is constrained by screen safe bounds only.
+        const auto screen=l.magnifierPopup(x,size.second/2);
+        assert(p.x==screen.x&&p.y==screen.y&&p.width==screen.width&&p.height==screen.height);
+        assert(p.x>=side&&p.x+p.width<=size.first-side&&p.width==180);
       }
     }
   }

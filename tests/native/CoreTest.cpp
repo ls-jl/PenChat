@@ -81,7 +81,13 @@ int main(int argc, char **argv) {
       assert(page.composerY()+page.composerHeight()==size.second-page.safeBottom());
       assert(keyboard.keyInset==0 && keyboard.keySpan==size.first);
       assert(keyboard.portrait && keyboard.docked && keyboard.panelTop==keyboard.compositionY-4 && keyboard.textBottom()<keyboard.compositionY);
-      assert(keyboard.compositionY+20<=keyboard.candidateY);
+      assert(keyboard.compositionY==keyboard.candidateY);
+      const auto composition=keyboard.compositionRow();
+      const int preeditWidth=keyboard.compositionPreeditWidth(60);
+      const auto candidates=keyboard.compositionCandidates(false,preeditWidth);
+      assert(candidates.y==composition.y&&candidates.height==composition.height);
+      assert(candidates.x==composition.x+preeditWidth+keyboard.compositionMetrics.gap);
+      assert(candidates.x+candidates.width==composition.x+composition.width);
       assert(keyboard.candidateY==keyboard.actionsY);
       assert(keyboard.actionsY+44<=keyboard.keyTop);
       const int baseRow=std::max(52,std::min(72,int(size.first*.12)));

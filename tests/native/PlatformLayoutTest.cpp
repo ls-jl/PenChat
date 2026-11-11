@@ -66,7 +66,14 @@ int main() {
   for(const auto &layout:{compact,expanded,landscape,portrait}) {
     assert(std::abs(layout.keyGap*layout.scaleX()/256.-4.)<.6);
     assert(std::abs(layout.rowGap*layout.scaleY()/256.-6.)<.6);
-    assert(layout.deleteX()>layout.thirdRowX()+7*layout.keyWidth+6*layout.keyGap);
+    const auto placed=layout.placeKeys(keyboardKeys(0,false,layout.view()));
+    KeyboardRect lastLetter{},backspace{};
+    for(const auto &key:placed) {
+      if(key.spec.id=="m")lastLetter=key.cap;
+      if(key.spec.id=="delete")backspace=key.cap;
+    }
+    assert(backspace.x>lastLetter.x+lastLetter.width);
+    assert(backspace.x+backspace.width==layout.keyInset+layout.keySpan-layout.keyMargin);
     const auto row=layout.compositionRow(),expand=layout.compositionExpand();
     assert(row.height==44&&expand.height>=44&&expand.width>=44);
     assert(row.x+row.width+4==expand.x&&expand.x+expand.width<=layout.width);
