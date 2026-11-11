@@ -27,7 +27,7 @@ struct ScanService::Impl {
   uint64_t generation = 0, request = 0;
   Json status = Json::object(), lease;
   const CaptureProfile profile=detectedScanProfile();
-  const bool sharedMedia=profile.cvi;
+  const bool sharedMedia=profile.handoff.mediaHandoff;
   std::deque<Json> commands;
   int socket = -1, memory = -1, processLock = -1;
   pid_t child = -1;
@@ -42,13 +42,15 @@ struct ScanService::Impl {
     if (const auto p = getenv("PENCHAT_SCAN_RESOURCES"))
       resources = p;
 #endif
-    available = access(binary.c_str(), R_OK) == 0 &&
-                access(join(resources, detectedScanProfile().cvi ? "pintu_rgb32_int8.cvimodel" : "demo_gain.json").c_str(), R_OK) == 0;
+    available = access(binary.c_str(),R_OK)==0;
 #ifdef PENCHAT_NATIVE_DEVICE
-    // Only explicit board/sensor capture profiles may own the pen hardware.
-    available = available && detectedScanProfile().supported();
+    available = available && profile.supported();
+    if (available) for (const auto &resource:requiredScanResources(profile))
+      available = available && access(join(resources,resource).c_str(),R_OK)==0;
 #else
-    available = available && getenv("PENCHAT_SCANNER_BINARY");
+    // Simulation uses a mock backend and intentionally needs no model/runtime.
+    available = available && getenv("PENCHAT_SCANNER_BINARY") &&
+      access(join(resources,"demo_gain.json").c_str(),R_OK)==0;
 #endif
     worker = std::thread([this] { run(); });
   }
@@ -330,13 +332,13 @@ struct ScanService::Impl {
   }
 };
 void ScanService::recoverHardware(const std::string &data) {
-  if(!detectedScanProfile().cvi)return;
+  if(!detectedScanProfile().handoff.mediaHandoff)return;
   const auto path=join(data,"scanner-lease.json");
   if(access(path.c_str(),F_OK))return;
   const int lock=acquireScanProcessLock(2000);
   struct Close {int fd;~Close(){::close(fd);}} guard{lock};
   const auto lease=Json::parse(fileText(path,65536));
-  if(lease.value("profile",std::string())!="s6-pag7920")
+  if(lease.value("profile",std::string())!=detectedScanProfile().id)
     throw std::runtime_error("Unexpected capture recovery profile");
   restoreScanLease(lease);
   if(!scanLeaseRestored(lease))throw std::runtime_error("System capture recovery failed");
@@ -392,7 +394,7 @@ bool ScanService::nativeOcrKeys() const {
 #ifndef PENCHAT_NATIVE_DEVICE
   if(const char *test=getenv("PENCHAT_TEST_NATIVE_OCR_KEYS"))return std::string(test)=="1";
 #endif
-  return p_->profile.id=="y07-sc2356";
+  return p_->profile.handoff.nativeOcrKeys;
 }
 bool ScanService::available() const { return p_->available; }
 uint64_t ScanService::generation() const {

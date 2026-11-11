@@ -1,6 +1,8 @@
 #include "hardware.hpp"
 #include "memory_policy.hpp"
 #include "runtime_io.hpp"
+#include "optical_config.hpp"
+#include "platform_inference.hpp"
 #include "png.hpp"
 #include "preview.hpp"
 #include "protocol.hpp"
@@ -152,17 +154,14 @@ public:
 class ObservedInference final : public Inference {
   std::unique_ptr<Inference> backend_;
   std::function<void()> started_;
-  bool sliceSync_ = false;
 
 public:
-  ObservedInference(std::unique_ptr<Inference> b, std::function<void()> f, bool sliceSync)
-      : backend_(std::move(b)), started_(std::move(f)), sliceSync_(sliceSync) {}
+  ObservedInference(std::unique_ptr<Inference> b, std::function<void()> f)
+      : backend_(std::move(b)), started_(std::move(f)) {}
   void open() override {
-    RuntimeIoScope scope(sliceSync_);
     backend_->open();
   }
   void close() noexcept override {
-    RuntimeIoScope scope(sliceSync_);
     backend_->close();
   }
   size_t managedBytes() const noexcept override {
@@ -170,7 +169,6 @@ public:
   }
   void infer(const NetworkBatch &b, Heads &h) override {
     started_();
-    RuntimeIoScope scope(sliceSync_);
     backend_->infer(b, h);
   }
 };
@@ -306,71 +304,17 @@ class Worker {
     data["processing_height"] = config_.height;
     data["sensor_rotation"] = rotationName(config_.rotation);
     data["hardware_armed"] = armed_;
+    data["capture_strategy"] = startupName(profile_.capture.startup);
+    data["runtime_path"] = mock_ ? "host_simulation" : scanRuntimePath(profile_,resources_);
+    data["runtime_migration"] = profile_.inference.runtime==RuntimeKind::SystemRknn ? "pending_validation" :
+        profile_.inference.runtime==RuntimeKind::PrivateRknn ? "pinned_private" : "platform_runtime";
     const auto model = engine_->modelPreparation();
     data["model_ready"] = model.state == ModelState::Ready;
     data["model_prepared_us"] = model.elapsedUs;
     if (!sendPacket(fd_, data))
       throw ControlDisconnected();
   }
-  void calibration() {
-    const auto region=sensorRegion(profile_);
-    config_.width = region.width;
-    config_.height = region.height;
-    // Optical mounting is independent of display/touch rotation. Apply this
-    // once in the engine, shared by selection, model input and raw canvas.
-    // S6: clockwise90 relative to the original CCW90 view cancels to None.
-    config_.rotation = profile_.id == "s6-pag7920"
-        ? Rotation::None : Rotation::CounterClockwise90;
-    if(profile_.id=="y07-sc2356") {
-      std::ifstream source(resources_+"/y07-sc2356.json");Json j;source>>j;
-      if(j.value("profile",std::string())!=profile_.id || j.value("sensor_width",0)!=profile_.width ||
-         j.value("sensor_height",0)!=profile_.height || j.value("rotation",std::string())!="counterclockwise90")
-        throw std::runtime_error("Y07 scan calibration profile mismatch");
-      const float gain=j.at("gain_constant").get<float>();
-      if(!std::isfinite(gain)||gain<.8f||gain>1.4f)throw std::runtime_error("invalid Y07 scan calibration");
-      auto k=std::make_shared<Calibration>();k->version=j.at("version").get<std::string>();k->sensorWidth=profile_.width;
-      k->sensorHeight=profile_.height;k->rotation=config_.rotation;k->gain.fill(gain);
-      config_.calibration=k;config_.diagnosticAcceptAll=mock_;return;
-    }
-    if (profile_.id == "y02-sc035gs" || profile_.id == "melon-ov7251" || profile_.cvi) {
-      // Independent neutral flat-field, NOT the ORANGE illumination resource.
-      // Keep raw SC035GS detail; per-frame photometric estimation still runs.
-      auto k = std::make_shared<Calibration>();
-      k->version = profile_.id == "s6-pag7920"
-          ? "s6-pag7920-optical-region-neutral-v4" : profile_.id+"-native-neutral-v1";
-      k->sensorWidth = config_.width;
-      k->sensorHeight = config_.height;
-      k->rotation = config_.rotation;
-      k->gain.fill(1.f);
-      config_.calibration = k;
-      config_.diagnosticAcceptAll = mock_;
-      return;
-    }
-    std::ifstream meta(resources_ + "/demo_gain.json");
-    Json j;
-    meta >> j;
-    if (j.value("sensor_width", 0) != 496 ||
-        j.value("sensor_height", 0) != 360 ||
-        j.value("rotation", std::string()) != "counterclockwise90" ||
-        j.value("gain_shape", Json::array()) != Json::array({288, 160}) ||
-        j.value("gain_dtype", std::string()) != "float32 little endian")
-      throw std::runtime_error("scan calibration profile mismatch");
-    auto k = std::make_shared<Calibration>();
-    k->version = j.at("version").get<std::string>();
-    k->sensorWidth = 496;
-    k->sensorHeight = 360;
-    k->rotation = Rotation::CounterClockwise90;
-    std::ifstream gain(resources_ + "/demo_gain_160x288.f32", std::ios::binary);
-    gain.read(reinterpret_cast<char *>(k->gain.data()),
-              k->gain.size() * sizeof(float));
-    if (!gain || gain.peek() != EOF)
-      throw std::runtime_error("scan calibration length mismatch");
-    for (float value : k->gain)
-      if (!std::isfinite(value) || value < .8f || value > 1.4f)
-        throw std::runtime_error("invalid scan calibration value");
-    config_.calibration = k;
-    config_.diagnosticAcceptAll = mock_;
-  }
+  void calibration() { config_=opticalConfig(profile_,resources_,mock_); }
   void removeExport() {
     for (const char *key : {"path", "previewPath"})
       if (exported_.contains(key)) {
@@ -681,24 +625,13 @@ public:
         directory_(std::move(directory)), mock_(mock), profile_(profile), light_(mock) {
     if (!profile_.supported())
       throw std::runtime_error("unsupported scan board or pen sensor");
-    if(profile_.cvi)hardware_.beforeRestore([this]{yieldMedia();});
+    if(profile_.handoff.mediaHandoff)hardware_.beforeRestore([this]{yieldMedia();});
     std::unique_ptr<Inference> backend;
 #ifdef SCANNER_TEST_SOURCE
     if (mock_)
       backend = std::make_unique<TestInference>();
 #endif
-    if (!backend) {
-      // Y07 firmware ships RKNN 1.4.0, which aborts on this model's CPU
-      // MaxPool dilations. Load the pinned private runtime only on that board.
-      const auto runtime = profile_.privateRuntime.empty()
-          ? std::string("librknnrt.so")
-          : resources_ + "/lib/" + profile_.privateRuntime;
-#ifdef PENCHAT_CVI_CAPTURE
-      backend = makeCvi32(resources_ + "/pintu_rgb32_int8.cvimodel", "/oem/YoudaoDictPen/output/libs/libcviruntime.so");
-#else
-      backend = makeRknn32(resources_ + "/pintu_32.rknn", runtime);
-#endif
-    }
+    if (!backend) backend=makePlatformInference(profile_,resources_);
     Limits limits;
     limits.maxSessions = 1;
     limits.idleModelMs = 0;
@@ -713,7 +646,7 @@ public:
     backend = std::make_unique<ObservedInference>(std::move(backend), [this] {
       int64_t zero = 0;
       firstBatchUs_.compare_exchange_strong(zero, clockUs());
-    }, profile_.id == "y02-sc035gs");
+    });
     engine_ = std::make_unique<Engine>(std::move(backend), limits);
     calibration();
   }
@@ -737,7 +670,7 @@ public:
       yieldMedia();disarm();emit("released");return;
     }
 #endif
-    if (type == "ocr_keys" && profile_.id != "y07-sc2356")
+    if (type == "ocr_keys" && !profile_.handoff.nativeOcrKeys)
       throw std::runtime_error("key-only OCR is not supported on this profile");
     if (type == "ocr_keys" && generation > generation_ && armed_) {
       light_.off();
@@ -838,7 +771,7 @@ public:
       return;
     if (!mock_ && timestamp < pressTime_)
       return;
-    if (!mock_ && afterReleasedFrame(timestamp, sourceCutoffUs_, draining_, profile_.gatesExposure)) {
+    if (!mock_ && afterReleasedFrame(timestamp, sourceCutoffUs_, draining_, profile_.gatesExposure())) {
       ++rejectedAfterRelease_;
       // Outside the released pen's capture window, not a lost in-window frame.
       seal();
@@ -965,7 +898,7 @@ public:
           [this, &readAny] {
             // After S6 seals, return promptly to endScan/control processing;
             // sixteen blocking standby reads must not delay result/commands.
-            return (!profile_.cvi || capturing_ || !readAny) &&
+            return (!profile_.handoff.blockingStandbyRead || capturing_ || !readAny) &&
                    (!draining_ || clockUs() < drainDeadline_);
           });
       if (draining_ && clockUs() >= drainDeadline_)

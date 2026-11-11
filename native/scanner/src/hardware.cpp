@@ -4,8 +4,7 @@
 #endif
 #include "capture_timing.hpp"
 #include <time.h>
-#include "melon_config.hpp"
-#include "s6_config.hpp"
+#include "board_config.hpp"
 #include "start_policy.hpp"
 #include "file_read.hpp"
 #include "app_identity.hpp"
@@ -65,16 +64,12 @@ void require(bool b, const char *s) {
     throw std::runtime_error(s);
 }
 CaptureProfile configured(CaptureProfile p) {
-  if(p.cvi) {
-    return s6Config(p,Json::parse(read("/usr/configs/hal_key_config.json")),
-                      Json::parse(read("/usr/configs/hal_led_config.json")));
-  }
-  if(p.ov7251Startup)
-    return melonConfig(p,Json::parse(read("/usr/configs/hal_key_config.json")),
-                       Json::parse(read("/usr/configs/hal_led_config.json")));
+  if (!p.boardIo.section.empty())
+    return boardConfig(p,Json::parse(read("/usr/configs/hal_key_config.json")),
+                         Json::parse(read("/usr/configs/hal_led_config.json")));
   return p;
 }
-std::string melonKey(unsigned code) {
+std::string discoveredKey(unsigned code) {
   std::string selected;
   auto dir=opendir("/dev/input");require(dir,"scan key unavailable");
   while(auto e=readdir(dir)) {
@@ -163,14 +158,14 @@ Json scanLeaseSnapshot() {
   // runCapFrame may still be starting CaptureFrame after our previous release.
   // Taking an empty snapshot would leave that late child outside the lease.
   require(!j["captures"].empty(), "system capture preparing");
-  if(profile.cvi) {
+  if(profile.platform==PlatformKind::Cvi) {
     j["gpio_existed"]=true;
     j["gpio_number"]=profile.gpio;
     const auto base="/sys/class/gpio/gpio"+std::to_string(profile.gpio);
     j["gpio_value"]=read(base+"/value");j["gpio_direction"]=read(base+"/direction");
     require(j["gpio_direction"]=="out\n","S6 scan light not configured");
     require(j["gpio_value"]=="0\n" || j["gpio_value"]=="1\n","S6 scan light state unavailable");
-  } else if(profile.ov7251Startup) {
+  } else if(profile.capture.nodes==NodePolicy::RkIspPaths) {
     j["video_formats"]=Json::array();
     for(const auto &v: {std::make_pair("/dev/video12","rkisp_selfpath"),std::make_pair("/dev/video11","rkisp_mainpath")}) {
       auto saved=savedVideo(v.first,v.second);if(!saved.is_null())j["video_formats"].push_back(saved);
@@ -216,7 +211,7 @@ void setScanLight(bool on) {
   const auto valuePath=base+"/value";const char *value=valuePath.c_str();
   if (access(value, F_OK) != 0) {
     require(write("/sys/class/gpio/export", number.c_str()), "cannot export scan light");
-    if(profile.ov7251Startup) {
+    if(profile.capture.nodes==NodePolicy::RkIspPaths) {
       // Only an export that actually succeeded belongs to this lease. In
       // particular EBUSY must never cause us to unexport a driver's GPIO.
       int marker=::open(gpioExportMarker.c_str(),O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
@@ -333,10 +328,10 @@ void Hardware::reserve(const Json &lease) {
     profile_ = configured(detectedScanProfile());
     require(profile_.supported() && lease_.value("profile", profile_.id) == profile_.id,
             "scan lease profile mismatch");
-    if(profile_.ov7251Startup || profile_.cvi)
+    if(profile_.capture.startup==StartupPolicy::StandardFirst || profile_.platform==PlatformKind::Cvi)
       require(profile_.gpio==lease_.at("gpio_number").get<unsigned>(),"scan light configuration changed");
 #ifdef PENCHAT_CVI_CAPTURE
-    if(profile_.cvi)verifyCviCaptureRuntime();
+    if(profile_.platform==PlatformKind::Cvi)verifyCviCaptureRuntime();
 #endif
     lightProfile=profile_;
     for (auto &p : lease_.at("guardians"))
@@ -368,7 +363,7 @@ void Hardware::reserve(const Json &lease) {
     }
     gpioExportMarker=lease_.value("gpio_export_marker",std::string());
     setScanLight(false);
-    if(profile_.ov7251Startup||profile_.cvi)profile_.keyNode=melonKey(profile_.keyCode);
+    if(profile_.boardIo.keyDiscovery==KeyDiscovery::NameAndCode)profile_.keyNode=discoveredKey(profile_.keyCode);
     key_ = ::open(profile_.keyNode.c_str(),
                   O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     require(key_ >= 0, "scan key unavailable");
@@ -409,7 +404,7 @@ void Hardware::start() {
   }
 }
 void Hardware::openCamera() {
-  if(profile_.cvi) {
+  if(profile_.platform==PlatformKind::Cvi) {
 #ifdef PENCHAT_CVI_CAPTURE
     cvi_=openCviCapture();return;
 #else
@@ -421,7 +416,7 @@ void Hardware::openCamera() {
   require(sensorName.find(profile_.sensor) != std::string::npos,
           "unsupported pen sensor");
   v4l2_format f{};
-  auto candidates=profile_.ov7251Startup?lease_.at("video_formats"):Json::array({{{"node",profile_.videoNode}}});
+  auto candidates=profile_.capture.startup==StartupPolicy::StandardFirst?lease_.at("video_formats"):Json::array({{{"node",profile_.videoNode}}});
   for(const auto &candidate:candidates) {
     const auto path=candidate.at("node").get<std::string>();
     video_=::open(path.c_str(),O_RDWR|O_NONBLOCK|O_CLOEXEC);if(video_<0)continue;
@@ -465,11 +460,11 @@ void Hardware::openCamera() {
   int one = 1;
   // Both deployed kernels expose the quick-only flag. Y02's stock capture also
   // leaves it set, so STREAMON alone is not proof that pixels are arriving.
-  if(!profile_.ov7251Startup)require(io(sensor_, 0x400456ea, &one) == 0, "pen quick-only failed");
+  if(profile_.capture.startup!=StartupPolicy::StandardFirst)require(io(sensor_, 0x400456ea, &one) == 0, "pen quick-only failed");
   int type = f.type;
   require(io(video_, VIDIOC_STREAMON, &type) == 0, "pen STREAMON failed");
   stream_ = true;
-  if(profile_.ov7251Startup) {
+  if(profile_.capture.startup==StartupPolicy::StandardFirst) {
     startOv7251([this](unsigned ms) {
       bool any=false;unsigned consecutive=0;uint32_t previous=0;
       const auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(ms);
@@ -481,7 +476,7 @@ void Hardware::openCamera() {
       }
       return consecutive>=16?StartupFrames::Stable:any?StartupFrames::Unstable:StartupFrames::None;
     },[&] {require(io(sensor_,0x400456ca,&one)==0,"OV7251 quick stream failed");});
-  } else if (profile_.sensor == "sc2356") {
+  } else if (profile_.capture.startup == StartupPolicy::DoubleQuick) {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     require(io(sensor_, 0x400456ca, &one) == 0, "pen quick stream failed");
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -544,7 +539,7 @@ bool Hardware::keyEvent(bool &down, int64_t *timestamp) {
 void Hardware::exposure(bool enabled) {
   // Keep SC035GS/OV7251 running after startup. Toggling quick-stream at
   // pen release truncates CSI packets; the worker bounds the scan by timestamps.
-  if (!profile_.gatesExposure) return;
+  if (!profile_.gatesExposure()) return;
   int value = enabled ? 1 : 0;
   require(sensor_ >= 0 && io(sensor_, 0x400456ca, &value) == 0,
           "cannot change pen exposure");
@@ -595,9 +590,9 @@ void Hardware::cameraToOcr() {
 }
 void Hardware::close() noexcept {
   bool safeRestore=true;
-  if(!lease_.empty()&&profile_.cvi&&beforeRestore_)try{beforeRestore_();}catch(...){safeRestore=false;}
+  if(!lease_.empty()&&profile_.handoff.mediaHandoff&&beforeRestore_)try{beforeRestore_();}catch(...){safeRestore=false;}
   cvi_.reset();
-  if (sensor_ >= 0 && profile_.sensor == "sc2356") {
+  if (sensor_ >= 0 && profile_.capture.startup == StartupPolicy::DoubleQuick) {
     int zero = 0;
     io(sensor_, 0x400456ca, &zero);
     io(sensor_, 0x400456ea, &zero);
