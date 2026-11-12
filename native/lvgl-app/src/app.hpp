@@ -21,6 +21,7 @@
 #include "presets.hpp"
 #include "scanner.hpp"
 #include "theme.hpp"
+#include "popup_style.hpp"
 #include <map>
 #include <set>
 namespace penchat {
@@ -41,6 +42,17 @@ class App {
   AppLayout layout() const { return {screen_.width,screen_.height}; }
   void portraitPage();
   void arrangeModal();
+  bool roundedDisplay_ = false, contextMenuOpening_ = false, popupConsumeTouch_ = false;
+  lv_obj_t *contextMenuPanel_ = nullptr, *contextMenuList_ = nullptr;
+  std::string contextMenuKind_;
+  lv_obj_t *attachmentPanel_ = nullptr;
+  lv_obj_t *contextMenu(const std::string &kind, int rows, const std::string &title = "",
+                        const std::string &subtitle = "");
+  void selected(lv_obj_t *object, bool value);
+  bool popupTouch(const Json &message);
+  bool keepChatEditor() const;
+  LayoutRect pickerArea(int desiredWidth) const;
+  bool finishChatEditorForNavigation();
   lv_obj_t *modalScroll_=nullptr;
   std::vector<lv_obj_t *> modalButtons_;
   std::unique_ptr<Onboarding> onboarding_;

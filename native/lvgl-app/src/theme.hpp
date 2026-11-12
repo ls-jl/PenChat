@@ -3,7 +3,10 @@
 namespace penchat {
 namespace theme {
 constexpr uint32_t scrim = 0x000000;
-constexpr uint32_t background = 0x212121;
+// Page canvas and keyboard canvas deliberately have separate roles.
+constexpr uint32_t background = 0x000000;
+constexpr uint32_t keyboardCanvas = 0x212121;
+constexpr uint32_t primaryText = 0x212121;
 constexpr uint32_t blackPage = 0x000000;
 constexpr uint32_t keyboardBackground = 0x111111;
 constexpr uint32_t sidebar = 0x171717;
@@ -18,5 +21,14 @@ constexpr uint32_t link = 0x75baff;
 constexpr uint32_t caret = 0x4ade80;
 constexpr uint32_t danger = 0xe79797;
 constexpr uint32_t code = 0x181818;
+constexpr uint32_t popup = sidebar;
+constexpr uint32_t popupHighlight = surface;
+constexpr uint32_t disabledBackground = 0x242424;
+constexpr uint32_t disabledText = 0x777777;
+constexpr int popupBorder = 1;
+constexpr int popupRadius = 16;
+constexpr int portraitPopupRadius = 24;
+constexpr int popupRowHeight = 48;
+constexpr int portraitPopupRowHeight = 64;
 } // namespace theme
 } // namespace penchat

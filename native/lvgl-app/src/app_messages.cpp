@@ -55,20 +55,15 @@ void App::messageMenu(const std::string &id) {
   if(rows.empty())return;
   const bool assistant=rows[0].value("role",std::string())=="assistant";
   const auto text=assistant&&id==assistant_?output_:messageText(rows[0]);
-  closeAttachments();resetPull();input_.cancel();
-  modal(assistant?"回复":"消息","");messageContextId_=id;messageContextText_=text;
-  auto layer=modal_;messageActions_.clear();
-  lv_obj_add_event_cb(layer,[](lv_event_t *e){auto app=static_cast<App *>(lv_event_get_user_data(e));app->messageActions_.clear();app->messageContextId_.clear();app->messageContextText_.clear();},LV_EVENT_DELETE,this);
-  // Use the shared responsive modal reader. Each operation occupies one row.
-  auto list=modalScroll_;lv_obj_clean(list);lv_obj_update_layout(list);
-  lv_obj_set_scroll_dir(list,LV_DIR_VER);
-  const int width=std::max(44,int(lv_obj_get_content_width(list))-8);
+  auto list=contextMenu("message",assistant?2:3);
+  messageContextId_=id;messageContextText_=text;messageActions_.clear();
+  const int width=lv_obj_get_width(list),rowHeight=layout().portrait()?theme::portraitPopupRowHeight:theme::popupRowHeight;
   std::vector<std::pair<std::string,std::string>> actions={{"copy",assistant?"复制全文":"复制"},{"select","选择文本"}};
   if(!assistant)actions.push_back({"edit","编辑消息"});
   int y=0;
   for(const auto &a:actions) {
-    auto b=button(list,a.second,4,y,width,48,[this,id,key=a.first]{events_.push("message_action",{{"session",session_},{"id",id},{"action",key}});},theme::background,LV_TEXT_ALIGN_LEFT);
-    messageActions_[a.first]=b;y+=54;
+    auto b=button(list,a.second,0,y,width,rowHeight-4,[this,id,key=a.first]{events_.push("message_action",{{"session",session_},{"id",id},{"action",key}});},theme::popup,LV_TEXT_ALIGN_LEFT);
+    stylePopupRow(b);messageActions_[a.first]=b;y+=rowHeight;
     if((a.first!="edit"&&text.empty())||(a.first=="edit"&&(generating_||contextBusy_||saveInFlight_||!messageEdit_.empty())))lv_obj_add_state(b,LV_STATE_DISABLED);
   }
 }
@@ -94,7 +89,7 @@ void App::messageEditDefaultPicker() {
   const int w=(screen_.width-162)/3;
   for(size_t i=0;i<modes.size();++i) {
     auto b=button(modal_,modes[i].second,16+i*(w+12),screen_.height-120,w,44,[this,key=modes[i].first]{db_.setting("message_edit_default",key);build();});
-    if(modes[i].first==selected)primary(b);
+    this->selected(b,modes[i].first==selected);
   }
 }
 void App::beginMessageEdit(const std::string &id, bool archive) {

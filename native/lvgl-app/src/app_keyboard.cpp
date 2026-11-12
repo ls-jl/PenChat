@@ -301,14 +301,14 @@ void App::editorBuild() {
     auto cover=box(editorRoot_,area.x,area.y,area.width,area.height,keyboardDesign().background);
     lv_obj_set_scrollable(cover,false);lv_obj_set_clickable(cover,true);
   }
-  editorPreeditViewport_=box(editorRoot_,row.x,row.y,row.width,layout.candidateMetrics.height,theme::background);
+  editorPreeditViewport_=box(editorRoot_,row.x,row.y,row.width,layout.candidateMetrics.height,theme::keyboardCanvas);
   keyboardStyle::composition(editorPreeditViewport_);
   lv_obj_set_scroll_dir(editorPreeditViewport_,LV_DIR_HOR);
   lv_obj_set_scrollbar_mode(editorPreeditViewport_,LV_SCROLLBAR_MODE_OFF);
   lv_obj_set_scroll_elastic(editorPreeditViewport_,false);
   editorPreeditLabel_=label(editorPreeditViewport_,editorCompositionText(),keyboardDesign().composition.labelX,keyboardDesign().composition.labelY,LV_SIZE_CONTENT,editorFontSize(KeyboardFont::Composition),keyboardDesign().compositionText);
   const auto area=layout.compositionCandidates(editorExpanded_,12);
-  editorChoices_=box(editorRoot_,area.x,area.y,area.width,area.height,theme::background);
+  editorChoices_=box(editorRoot_,area.x,area.y,area.width,area.height,theme::keyboardCanvas);
   keyboardStyle::candidates(editorChoices_);
   lv_obj_set_scroll_dir(editorChoices_,editorExpanded_?LV_DIR_VER:LV_DIR_HOR);
   lv_obj_set_scrollbar_mode(editorChoices_,LV_SCROLLBAR_MODE_AUTO);
@@ -371,7 +371,7 @@ void App::editorBuild() {
     }
   }
   if(editorLayoutMenu_||editorPunctuation_) {
-    auto backdrop=box(editorRoot_,0,0,editorLayout().width,editorLayout().height,theme::background);
+    auto backdrop=box(editorRoot_,0,0,editorLayout().width,editorLayout().height,theme::keyboardCanvas);
     lv_obj_set_style_bg_opa(backdrop,LV_OPA_TRANSP,0);lv_obj_set_scrollable(backdrop,false);
     lv_obj_set_clickable(backdrop,true);
     lv_obj_add_event_cb(backdrop,[](lv_event_t *event){
@@ -394,7 +394,7 @@ void App::editorBuild() {
     lv_obj_set_style_radius(panel,layouts?(layout.portrait?popupStyle.portraitMenuRadius:popupStyle.menuRadius):popupStyle.radius,0);
     lv_obj_set_scrollable(panel,layouts);lv_obj_set_scroll_dir(panel,LV_DIR_VER);
     lv_obj_set_scroll_elastic(panel,false);lv_obj_set_scroll_chain_ver(panel,false);
-    if(layouts){lv_obj_set_style_border_width(panel,1,0);lv_obj_set_style_border_color(panel,lv_color_hex(theme::border),0);}
+    if(layouts)stylePopupPanel(panel,layout.portrait);
     if(layouts) {
       const char *names[]={"26键拼音","English","9键拼音","有道输入法"};
       for(int i=0;i<4;++i) {
@@ -418,7 +418,7 @@ void App::editorBuild() {
     }
   }
   if(editorToolsOpen_&&editorMultiLineSupported_) {
-    auto backdrop=box(editorRoot_,0,0,layout.width,layout.height,theme::background);
+    auto backdrop=box(editorRoot_,0,0,layout.width,layout.height,theme::keyboardCanvas);
     lv_obj_set_style_bg_opa(backdrop,LV_OPA_TRANSP,0);lv_obj_set_scrollable(backdrop,false);
     lv_obj_set_clickable(backdrop,true);
     lv_obj_add_event_cb(backdrop,[](lv_event_t *event){auto app=static_cast<App *>(lv_event_get_user_data(event));app->events_.push("editor_action",{{"id",app->editor_.id},{"action","tools"}});},LV_EVENT_CLICKED,this);
@@ -1271,10 +1271,7 @@ void App::editorSyncSelectionMenu() {
     editorSelectionMenu_=box(editorRoot_,0,0,1,1,theme::sidebar);
     auto menu=editorSelectionMenu_;
     lv_obj_set_scroll_dir(menu,LV_DIR_HOR);lv_obj_set_scroll_elastic(menu,false);
-    lv_obj_set_style_radius(menu,keyboardDesign().popups.selectionRadius,0);
-    lv_obj_set_style_shadow_color(menu,lv_color_hex(theme::scrim),0);
-    lv_obj_set_style_shadow_opa(menu,LV_OPA_40,0);
-    lv_obj_set_style_shadow_width(menu,12,0);lv_obj_set_style_shadow_offset_y(menu,3,0);
+    stylePopupPanel(menu);
     lv_obj_add_event_cb(menu,[](lv_event_t *event){
       auto app=static_cast<App *>(lv_event_get_user_data(event));
       if(app->editorSelectionMenu_==lv_event_get_target_obj(event)){
@@ -1289,8 +1286,10 @@ void App::editorSyncSelectionMenu() {
       editorSelectionActions_[command]=editorButton(menu,commands[i].first,4+int(i)*(buttonWidth+4),4,
         buttonWidth,buttonHeight,[this,command]{events_.push("editor_action",{{"id",editor_.id},{"action",command}});},KeyboardRole::Auxiliary,KeyboardFont::Editor,KeyboardVariant::SolidControl);
     }
+    for(const auto &entry:editorSelectionActions_)styleDisabledButton(entry.second);
   }
   for(const auto &entry:editorSelectionActions_) {
+    stylePopupRow(entry.second);
     const auto &command=entry.first;
     const bool disabled=(command=="undo"&&editor_.undo.empty())||
       ((command=="copy"||command=="cut")&&(!editor_.selected()||(editor_.secret&&!editor_.reveal)))||

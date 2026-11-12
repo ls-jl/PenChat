@@ -70,6 +70,11 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
 #ifndef PENCHAT_NATIVE_DEVICE
   if(const char *test=std::getenv("PENCHAT_TEST_SINGLE_LINE_OCR"))editorMultiLineAllowed_=std::string(test)!="1";
 #endif
+  const auto boardModel=fileText("/proc/device-tree/model",4096);
+  roundedDisplay_=boardModel.find("RK3562 Y07 ")!=std::string::npos;
+#ifndef PENCHAT_NATIVE_DEVICE
+  if(const char *test=std::getenv("PENCHAT_TEST_Y07_ROUNDED"))roundedDisplay_=std::string(test)=="1";
+#endif
   inputFocus_ = InputFocus(nativeTouch);
   inputFocused_ = touchLeaseActive_ = !nativeTouch;
   initializeMessageEdits();
@@ -122,14 +127,6 @@ App::~App() {
 }
 lv_obj_t *App::box(lv_obj_t *parent, int x, int y, int w, int h,
                    uint32_t color) {
-  // Resolve the page canvas consistently for nested readers, message rows and
-  // navigation controls; keep cards, the composer and keyboard surfaces intact.
-  if (color == theme::background && (view_ == "chat" || view_ == "settings")) {
-    bool keyboard = false;
-    for (auto ancestor = parent; editorRoot_ && ancestor; ancestor = lv_obj_get_parent(ancestor))
-      if (ancestor == editorRoot_) { keyboard = true; break; }
-    if (!keyboard) color = theme::blackPage;
-  }
   auto o = lv_obj_create(parent);
   lv_obj_remove_style_all(o);
   lv_obj_set_pos(o, x, y);
@@ -157,12 +154,24 @@ lv_obj_t *App::button(lv_obj_t *parent, const std::string &text, int x, int y,
   lv_obj_set_scrollable(o, false);
   lv_obj_set_style_radius(o, 10, 0);
   lv_obj_set_style_bg_color(o, lv_color_hex(theme::border), LV_STATE_PRESSED);
-  auto l = label(o, text, 0, 0, w - 24, 20);
+  bool keyboard=false;
+  for(auto ancestor=parent;editorRoot_&&ancestor;ancestor=lv_obj_get_parent(ancestor))
+    if(ancestor==editorRoot_){keyboard=true;break;}
+  std::string caption=text;int checked=-1;
+  if(!keyboard)for(const auto &prefix:{std::make_pair(std::string("● "),true),
+      {"○ ",false},{"✓ ",true},{"□ ",false}}) {
+    if(caption.compare(0,prefix.first.size(),prefix.first)==0) {
+      checked=prefix.second;caption.erase(0,prefix.first.size());break;
+    }
+  }
+  auto l = label(o, caption, 0, 0, w - 24, 20);
   // A fixed-height action must never center an arbitrarily tall wrapped label.
   lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(l, font(20)->line_height);
   lv_obj_set_style_text_align(l, align, 0);
   lv_obj_align(l, LV_ALIGN_CENTER, 0, 0);
+  if(!keyboard)styleDisabledButton(o);
+  if(checked>=0)selected(o,checked);
   if(layout().portrait()) {
     bool local=false;for(auto p=parent;p;p=lv_obj_get_parent(p))if(p==editorRoot_){local=true;break;}
     if(!local) {
@@ -176,8 +185,8 @@ lv_obj_t *App::button(lv_obj_t *parent, const std::string &text, int x, int y,
 void App::primary(lv_obj_t *object) {
   lv_obj_set_style_bg_color(object, lv_color_hex(theme::text), 0);
   lv_obj_set_style_bg_color(object, lv_color_hex(theme::muted), LV_STATE_PRESSED);
-  lv_obj_set_style_opa(object, LV_OPA_50, LV_STATE_DISABLED);
-  lv_obj_set_style_text_color(lv_obj_get_child(object, 0), lv_color_hex(theme::background), 0);
+  lv_obj_set_style_opa(object, LV_OPA_COVER, LV_STATE_DISABLED);
+  lv_obj_set_style_text_color(lv_obj_get_child(object, 0), lv_color_hex(theme::primaryText), 0);
 }
 lv_obj_t *App::fieldButton(lv_obj_t *parent, const std::string &caption,
                             const std::string &value, int x, int y, int width,
@@ -330,6 +339,7 @@ lv_obj_t *App::icon(lv_obj_t *parent, const std::string &kind, int x, int y,
 void App::closeAttachments() {
   if (popupKind_ == "attachments") { ++sessionInfoGeneration_; sessionInfoPending_ = false; }
   contextUsageArc_ = contextUsageLabel_ = nullptr;
+  attachmentPanel_ = nullptr;
   attachmentEntries_.clear();
   popupKind_.clear();
   if (!attachments_)
@@ -356,6 +366,7 @@ void App::toggleAttachments() {
   onClick(attachments_, [this] { closeAttachments(); });
   const int menuWidth=std::min(320,layout().portrait()?layout().composerWidth():screen_.width-126);
   auto menu = box(attachments_, 20, 12, menuWidth, screen_.height - 78, theme::surface);
+  attachmentPanel_=menu;
   lv_obj_set_style_radius(menu, 16, 0);
   lv_obj_set_scroll_dir(menu, LV_DIR_VER);
   lv_obj_set_scroll_elastic(menu, false);
@@ -395,6 +406,7 @@ void App::toggleAttachments() {
     const auto actionId = ids[i];
     auto action = [this, actionId] {
       if (actionId == "session_info") {
+        if(!finishChatEditorForNavigation())return;
         openSessionInfo();
         return;
       }
@@ -408,14 +420,17 @@ void App::toggleAttachments() {
           modal("已修改联网搜索", "当前回复继续使用发送时的配置，下一次提问生效。");
         return;
       }
-      if (actionId == "camera")
-        show("camera");
-      else if (actionId == "album")
-        show("album");
+      if (actionId == "camera") {
+        if(!finishChatEditorForNavigation())return;show("camera");
+      }
+      else if (actionId == "album") {
+        if(!finishChatEditorForNavigation())return;show("album");
+      }
       else if (actionId == "models")
         modelPicker();
-      else if (actionId == "compress")
-        startContext(true);
+      else if (actionId == "compress") {
+        if(!finishChatEditorForNavigation())return;startContext(true);
+      }
       else if (actionId == "summary")
         contextDetails();
       else if (actionId == "presets")
@@ -518,9 +533,10 @@ void App::modelPicker(bool forTitles) {
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
-  const int panelWidth = std::min(650, screen_.width - (layout().portrait()?32:130));
-  auto panel = box(attachments_, 20, 12, panelWidth, screen_.height - 78, theme::surface);
-  lv_obj_set_style_radius(panel, 16, 0);
+  const auto area=pickerArea(std::min(650,screen_.width-(layout().portrait()?32:130)));
+  const int panelWidth=area.width;
+  auto panel=box(attachments_,area.x,area.y,panelWidth,area.height,theme::popup);
+  attachmentPanel_=panel;stylePopupPanel(panel,layout().portrait());
   lv_obj_set_scroll_dir(panel, LV_DIR_VER);
   auto current = currentModel();
   if (forTitles)
@@ -599,11 +615,10 @@ void App::effortPicker() {
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
-  const int panelWidth = screen_.width - (layout().portrait()?32:130);
-  const int sliderWidth = panelWidth - 80;
-  auto panel = box(attachments_, 20, 12, panelWidth, screen_.height - 78, theme::surface);
-  lv_obj_set_scrollable(panel, false);
-  lv_obj_set_style_radius(panel, 16, 0);
+  const auto area=pickerArea(screen_.width-(layout().portrait()?32:130));
+  const int panelWidth=area.width,sliderWidth=panelWidth-80;
+  auto panel=box(attachments_,area.x,area.y,panelWidth,area.height,theme::popup);
+  attachmentPanel_=panel;lv_obj_set_scrollable(panel,false);stylePopupPanel(panel,layout().portrait());
   auto selected = model.value("effective_effort", std::string());
   if (selected.empty())
     selected = "api_default";
@@ -977,6 +992,7 @@ void App::clear() {
   if(readGesture_.active())readSuppressed_=readDown_;
   readReset();
   onboarding_.reset();modalButtons_.clear();modalScroll_=nullptr;
+  contextMenuPanel_=contextMenuList_=nullptr;contextMenuKind_.clear();contextMenuOpening_=false;
   updateActions_.clear(); updateProgress_=updateProgressText_=updateTransferText_=nullptr;
   feedbackActions_.clear();
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
@@ -1004,6 +1020,7 @@ void App::clear() {
     input_.cancel();
   if (popupKind_ == "attachments") { ++sessionInfoGeneration_; sessionInfoPending_ = false; }
   contextUsageArc_ = contextUsageLabel_ = nullptr;
+  attachmentPanel_ = nullptr;
   attachmentEntries_.clear();
   attachments_ = modal_ = nullptr;
   popupKind_.clear();
@@ -1249,7 +1266,7 @@ void App::modal(const std::string &title, const std::string &text) {
   const bool portraitPhoto = !layout().portrait() && (view_=="camera" || view_=="crop") && cameraAngle_%180;
   const int mw=portraitPhoto?photoWidth():screen_.width,mh=portraitPhoto?photoHeight():screen_.height;
   const int layerWidth=portraitPhoto?mw-16:layout().modalWidth();
-  auto layer = box(screenObj_, portraitPhoto?8:layout().modalX(), 0, layerWidth, mh, theme::surface);
+  auto layer = box(screenObj_, portraitPhoto?8:layout().modalX(), 0, layerWidth, mh, theme::popup);
   modal_ = layer;modalButtons_.clear();
   lv_obj_add_event_cb(
       layer,
@@ -1261,7 +1278,7 @@ void App::modal(const std::string &title, const std::string &text) {
   lv_obj_set_style_border_color(layer, lv_color_hex(theme::border), 0);
   lv_obj_set_style_border_width(layer, 1, 0);
   label(layer, title, 15, 7, layerWidth-30, 23);
-  auto scroll = box(layer, 10, 42, layerWidth-20, mh-115, theme::surface);
+  auto scroll = box(layer, 10, 42, layerWidth-20, mh-115, theme::popup);
   modalScroll_=scroll;
   readableLabel(scroll, text, 5, 0, layerWidth-30, 20);
   button(layer, "关闭", portraitPhoto?layerWidth-110:screen_.width-205, mh-66, 100, 44,
@@ -1304,7 +1321,7 @@ void App::rebuildChatControls() {
   lv_obj_set_scrollable(chatControls_, false);
   lv_obj_set_style_radius(chatControls_, layout().composerHeight()/2, 0);
   auto attachment = icon(
-      chatControls_, "plus", layout().composerInset(), layout().composerInset(), 44, 44, [this] { if(editor_.active&&editorInPlace()&&!editorAccept())return;toggleAttachments(); },
+      chatControls_, "plus", layout().composerInset(), layout().composerInset(), 44, 44, [this] { toggleAttachments(); },
       theme::surface);
   // Keep the glyph in place; near-edge taps belong to attachments, not IME.
   lv_obj_set_ext_click_area(attachment, 8);
@@ -1312,7 +1329,7 @@ void App::rebuildChatControls() {
   const bool gauge = sessionPreferences_.value("gauge", !effortMemory_.empty());
   if (gauge)
     icon(
-        chatControls_, "gauge", composerWidth - (layout().portrait()?layout().composerInset()+100:100), 2, 44, 44, [this] { if(editor_.active&&editorInPlace()&&!editorAccept())return;effortPicker(); },
+        chatControls_, "gauge", composerWidth - (layout().portrait()?layout().composerInset()+100:100), 2, 44, 44, [this] { effortPicker(); },
         theme::surface, theme::muted);
   auto compose = [this] {
     if (contextBusy_ || !composerTapAllowed_)
@@ -1351,7 +1368,7 @@ void App::rebuildChatControls() {
         else if (canSend())
           sendMessage();
       },
-      sendEnabled ? theme::text : theme::border, theme::background);
+      sendEnabled ? theme::text : theme::border, theme::primaryText);
   // Grow the portrait circle equally around its existing center.
   lv_obj_align(send, LV_ALIGN_RIGHT_MID, -layout().composerInset() + (sendDiameter - 44) / 2, 0);
   if (!sendEnabled)
@@ -2368,7 +2385,7 @@ void App::updateFontPreview(int percent) {
 void App::fontSizePage() {
   pageHeader("字体大小");
   pageAction("恢复默认", 96, 120, [this] { updateFontPreview(100); });
-  pageAction("保存", 0, 84, [this] { events_.push("reading_font_apply"); });
+  primary(pageAction("保存", 0, 84, [this] { events_.push("reading_font_apply"); }));
   const int width = layout().contentWidth();
   label(pageContent_, "聊天正文、思考过程与公式同步缩放；菜单和键盘保持原大小。",
         10, 4, width - 20, 16, theme::muted);
@@ -2673,7 +2690,7 @@ void App::cameraPage() {
   lv_obj_set_scrollable(center,false);lv_obj_set_clickable(center,false);lv_obj_center(center);
   auto shutterMark=box(center,0,0,28,28);
   lv_obj_set_style_bg_opa(shutterMark,LV_OPA_TRANSP,0);lv_obj_set_scrollable(shutterMark,false);lv_obj_set_clickable(shutterMark,false);lv_obj_center(shutterMark);
-  attachIcon(shutterMark,"camera",theme::background);
+  attachIcon(shutterMark,"camera",theme::primaryText);
   if(layout().portrait())cameraRotatingControls_.push_back(shutterMark);
   onClick(shutter,[this]{if(!cameraCapturing_){cameraCapturing_=true;camera_.capture(cameraAngle_);}});
   auxiliary(workspace.turn,"rotate90","转向90°",
@@ -2979,6 +2996,7 @@ void App::suspend(bool value) {
   if(onboarding_)onboarding_->tick(false);
   if (value && feedback_) feedback_->background();
   if (value) cancelBalances();
+  if(value){popupConsumeTouch_=contextMenuOpening_=false;if(contextMenuPanel_)closeHistoryContext();else closeAttachments();}
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
   resetBack();
   backStart_ = Json::object();
@@ -3244,6 +3262,7 @@ void App::handle(const Json &m) {
     // Production input has one owner. Never replay Falcon or delayed IPC touches.
     if (touchInput_.enabled() && m.value("source", std::string()) != "native-evdev") return;
     lastTouch_ = m;
+    if(popupTouch(m))return;
     const bool down=m.value("pressed",false)&&!m.value("cancelled",false);
     if(down&&!systemEdgeDown_)
       systemEdgeGesture_=layout().portrait()&&!editor_.active&&!imageViewer_&&view_!="crop"&&m.value("y",0)<layout().safeTop();
@@ -3537,7 +3556,7 @@ void App::tick() {
                            {{"session", session}, {"message", id}});
             },
             theme::danger);
-        lv_obj_set_style_text_color(lv_obj_get_child(remove, 0), lv_color_hex(theme::background), 0);
+        lv_obj_set_style_text_color(lv_obj_get_child(remove, 0), lv_color_hex(theme::primaryText), 0);
       }
     } else if (e.type == "image_delete_confirm") {
       if (view_ == "chat" && visible_ && modal_ &&
@@ -3949,6 +3968,9 @@ Json App::diagnostics() const {
       {"chat_render_pending", dirty_ || chatRenderPending_ || !chatFinishPending_.empty()},
       {"attachments", attachments_ != nullptr},
       {"popup", popupKind_},
+      {"popup_bounds",attachmentPanel_?bounds(attachmentPanel_):Json()},
+      {"context_menu",{{"kind",contextMenuKind_},{"bounds",contextMenuPanel_?bounds(contextMenuPanel_):Json()},
+        {"list",contextMenuList_?bounds(contextMenuList_):Json()},{"opening",contextMenuOpening_}}},
       {"has_conversation_content", hasConversationContent_},
       {"effort_gauge", sessionPreferences_.value("gauge", !effortMemory_.empty())},
       {"session_preferences", sessionPreferences_},

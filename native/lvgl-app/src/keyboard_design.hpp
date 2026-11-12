@@ -58,7 +58,7 @@ struct KeyboardDesign {
   std::array<KeyboardStylePatch,size_t(KeyboardVariant::Count)> variants{};
   KeyboardTypography typography;
   std::array<KeyboardProfile,4> profiles{};
-  uint32_t background=theme::keyboardBackground, popupBackground=theme::sidebar;
+  uint32_t background=theme::keyboardBackground, popupBackground=theme::popup;
   uint32_t compositionText=theme::muted, caret=theme::caret, selection=theme::border;
   struct Keys {
     int gap=4, rowGap=6, margin=4, touchX=4, touchY=3;
@@ -95,8 +95,8 @@ struct KeyboardDesign {
   } portrait;
   struct Icons { float keyScale=1, utilityScale=1, controlScale=1; } icons;
   struct Popups {
-    int safeMargin=4, radius=12, menuRadius=16, portraitMenuRadius=24;
-    int menuWidth=224, portraitMenuWidth=320, menuRow=48, portraitMenuRow=64;
+    int safeMargin=4, radius=12, menuRadius=theme::popupRadius, portraitMenuRadius=theme::portraitPopupRadius;
+    int menuWidth=224, portraitMenuWidth=320, menuRow=theme::popupRowHeight, portraitMenuRow=theme::portraitPopupRowHeight;
     int menuPadding=4, portraitMenuPadding=8, menuGap=12;
     int lensWidth=180, lensHeight=58, lensOffset=96, portraitLensOffset=58;
     int lensScale=448, selectionRadius=10;
@@ -104,7 +104,7 @@ struct KeyboardDesign {
 
   KeyboardDesign() {
     auto &primary=roles[size_t(KeyboardRole::Primary)];
-    primary.background=theme::text;primary.foreground=theme::background;
+    primary.background=theme::text;primary.foreground=theme::primaryText;
     primary.pressedBackground=theme::muted;primary.radius=10;
     primary.opacity=primary.pressedOpacity=255;primary.disabledOpacity=127;
     auto &auxiliary=roles[size_t(KeyboardRole::Auxiliary)];
@@ -112,9 +112,9 @@ struct KeyboardDesign {
     auto &input=roles[size_t(KeyboardRole::Input)];
     input.radius=8;input.opacity=51;
     auto &composition=roles[size_t(KeyboardRole::Composition)];
-    composition.background=theme::background;composition.radius=8;composition.opacity=51;
+    composition.background=theme::keyboardCanvas;composition.radius=8;composition.opacity=51;
     auto &candidates=roles[size_t(KeyboardRole::Candidates)];
-    candidates.background=theme::background;candidates.radius=8;candidates.opacity=0;
+    candidates.background=theme::keyboardCanvas;candidates.radius=8;candidates.opacity=0;
     auto &candidate=roles[size_t(KeyboardRole::Candidate)];
     candidate.radius=6;candidate.opacity=0;candidate.pressedOpacity=255;
     auto &menu=roles[size_t(KeyboardRole::Menu)];

@@ -14,7 +14,7 @@ void App::balanceVendorPicker() {
       providerForm_["balance_vendor"] = vendor;
       build();
     }, theme::surface, LV_TEXT_ALIGN_LEFT);
-    if (vendor == selected) primary(row);
+    this->selected(row,vendor == selected);
     y += 56;
   }
 }

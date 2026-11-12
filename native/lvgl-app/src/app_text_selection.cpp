@@ -311,15 +311,15 @@ void App::readDraw(bool menu) {
       attachIcon(readHandles_[i], i ? "selection-end" : "selection-start", theme::accent);
     }
     readMenu_ = box(readOverlay_, 0, 0, 188, 52, theme::sidebar);
-    lv_obj_set_style_radius(readMenu_, 10, 0);
+    stylePopupPanel(readMenu_);
     lv_obj_set_scrollable(readMenu_, false);
-    button(readMenu_, "全选", 4, 4, 88, 44, [this] {
+    auto all=button(readMenu_, "全选", 4, 4, 88, 44, [this] {
       if (!readRegion(readActive_))
         return;
       readSelection_.select(0, editLength(readSelection_.text));
       readDraw(true);
     });
-    button(readMenu_, "复制", 96, 4, 88, 44, [this] {
+    auto copy=button(readMenu_, "复制", 96, 4, 88, 44, [this] {
       if (!readRegion(readActive_))
         return;
       if (editorClipboard_.copy(readSelection_.selection()))
@@ -327,6 +327,7 @@ void App::readDraw(bool menu) {
       else
         replyToast("选区过长，无法复制");
     });
+    stylePopupRow(all);stylePopupRow(copy);
   }
   const auto range = readSelection_.range();
   std::vector<lv_area_t> marks;

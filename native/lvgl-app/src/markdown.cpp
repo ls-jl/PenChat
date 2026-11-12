@@ -873,7 +873,7 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
       color(subdued ? theme::reasoningLink : theme::link);
     else
       color(subdued ? theme::reasoning : theme::text);
-    if (p.style & Mono) {
+    if ((p.style & Mono) && block.kind != "code") {
       color(theme::surface);
       cairo_rectangle(c, p.x, p.y, p.width, p.height);
       cairo_fill(c);

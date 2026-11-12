@@ -22,6 +22,9 @@ void App::inputAction(lv_obj_t *object,const std::function<void()> &action) {
   const auto serial=found->second.serial;const auto view=view_;auto previousModal=modal_;
   lv_point_t point{};auto input=lv_indev_active();if(input)lv_indev_get_point(input,&point);
   lv_area_t area;lv_obj_get_coords(object,&area);const lv_point_t relative{point.x-area.x1,point.y-area.y1};
+  bool picker=false;
+  for(auto parent=object;parent;parent=lv_obj_get_parent(parent))if(parent==attachments_)picker=true;
+  if(keepChatEditor()&&picker) {action();return;}
   if(editor_.active&&editorInPlace()) {
     if(object==editorTarget_)return;
     // Commit first while retaining the existing page objects. The copied action

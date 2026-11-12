@@ -35,9 +35,10 @@ void App::presetPicker() {
   auto backdrop = button(attachments_, "", 0, 0, screen_.width-layout().gutter(), screen_.height,
                          [this] { closeAttachments(); });
   lv_obj_set_style_bg_opa(backdrop, LV_OPA_TRANSP, 0);
-  const int panelWidth=screen_.width-(layout().portrait()?32:130);
-  auto panel = box(attachments_, 20, 12, panelWidth, screen_.height - 78, theme::surface);
-  lv_obj_set_style_radius(panel, 16, 0);
+  const auto area=pickerArea(screen_.width-(layout().portrait()?32:130));
+  const int panelWidth=area.width;
+  auto panel=box(attachments_,area.x,area.y,panelWidth,area.height,theme::popup);
+  attachmentPanel_=panel;stylePopupPanel(panel,layout().portrait());
   lv_obj_set_scroll_dir(panel, LV_DIR_VER);
   lv_obj_set_scroll_elastic(panel, false);
   lv_obj_set_scroll_momentum(panel, false);

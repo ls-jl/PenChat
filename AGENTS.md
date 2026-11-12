@@ -223,8 +223,9 @@ Private asset deletion is queued transactionally, then collected after commit;
 respect shared references and never follow symlinks or delete system album originals.
 Device tests that swap databases must isolate assets/backup files as well and use
 SQLite backup snapshots for online reads. Shared icon geometry lives in icons.cpp;
-use it for keyboard symbols too. History long-press actions occupy one horizontal
-row with 50px touch height. Nonempty chat content has 8px top padding.
+use it for keyboard symbols too. History long-press actions use a content-sized vertical popup with at least
+44px touch targets; overflow scrolls inside that popup. Full title/time are
+available from its heading. Text-selection actions retain their horizontal row. Nonempty chat content has 8px top padding.
 
 Transfer jobs run outside LVGL. Production transfer root is /userdisk/Favorite/PenChat;
 host tests use a private data directory (PENCHAT_TRANSFER_ROOT is host-only).
@@ -456,3 +457,22 @@ artifacts outside Git.
   second display/touch rotation or raw-resolution scale. Retain this estimate as
   provisional until a verified panel mask or a physical corner-pattern check is
   available; a rectangular host screenshot cannot validate physical clipping.
+
+
+## Shared native colour and popup roles
+
+All business page canvases use pure black. Keep cards/fields separate from the
+page canvas; never infer an arbitrary nested widget's colour from its current
+page name. `theme.hpp` owns page, surface, popup, primary, disabled, selection,
+text and semantic colours. The keyboard canvas retains its independent #212121
+composition role and #111111 base; page black must not change keyboard rendering.
+Long-press operation menus share the globe selector's popup shell and vertical
+rows. Selection/copy/paste menus share its colours/border but retain horizontal
+commands and existing placement. Dialogs and ordinary pickers keep their structure.
+Selected non-keyboard choices use a blue native check, not the white primary role.
+Block code has one code background; only inline code gets a per-span background.
+On Y07, opening Plus retains the exact chat editor, unfinished composition, OCR,
+undo and keyboard. Its first outside touch dismisses the popup and consumes the
+whole contact sequence; it never becomes a keypress or a Send. Model/effort/preset
+choices retain editing; entering another business page completes the old editor
+normally. Do not rebuild keyboard caps or restart OCR just to show/hide a popup.

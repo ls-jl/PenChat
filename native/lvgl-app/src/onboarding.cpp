@@ -44,7 +44,7 @@ lv_obj_t *Onboarding::text(lv_obj_t *p,const std::string &s,int x,int y,int w,in
 }
 lv_obj_t *Onboarding::control(const std::string &id,const std::string &s,int x,int y,int w,bool primary) {
   auto o=rect(root_,x,y,w,44,primary?theme::text:theme::surface);
-  auto l=text(o,s,0,0,w-8,18,primary?theme::background:theme::text);
+  auto l=text(o,s,0,0,w-8,18,primary?theme::primaryText:theme::text);
   lv_label_set_long_mode(l,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(l,font(18)->line_height);lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(l);
   lv_obj_set_style_bg_color(o,lv_color_hex(theme::border),LV_STATE_PRESSED);
   lv_obj_set_style_opa(o,LV_OPA_50,LV_STATE_DISABLED);

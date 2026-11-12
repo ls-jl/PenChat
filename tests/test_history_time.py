@@ -50,11 +50,16 @@ def run(w,h):
             shot(a,f'{w}-time-first')
             row=next(r for r in s['history_rows'] if r['id']=='today')
             a.long_press(row['x'],row['y']);s=a.diag()
-            assert s['history_details']['title_length']==caps['today']['title_length']
+            assert 0<s['history_details']['title_length']<=caps['today']['title_length']
             assert str(datetime.datetime.now().year)+'年' in s['history_details']['time']
-            actions=s['history_actions'];assert len(actions)==5
-            assert len({r[1] for r in actions.values()})==1 and all(r[3]-r[1]+1==50 for r in actions.values())
-            shot(a,f'{w}-static-details');a.tap(w-10,h-10)
+            actions={k:v for k,v in s['history_actions'].items() if k!='details'};assert len(actions)==5
+            assert len({r[1] for r in actions.values()})==5 and all(r[3]-r[1]+1>=44 for r in actions.values())
+            shot(a,f'{w}-compact-actions');a.history_action('details')
+            t.wait_for(lambda:a.diag()['modal'] and not a.diag()['context_menu']['kind'])
+            # The compact header may elide, but details must retain the whole
+            # static title in the selectable reader, not just the visible label.
+            assert max(r['length'] for r in a.diag()['text_selection']['regions'])>=caps['today']['title_length']
+            shot(a,f'{w}-static-details');a.tap(w-65,h-44)
             mode(a,'title',w,h);s=a.diag()
             assert all(not c['time'] and not c['marquee'] for c in s['history_captions'].values())
             shot(a,f'{w}-title-first')
@@ -81,4 +86,4 @@ def run(w,h):
 
 if __name__=='__main__':
     for size in ((960,266),(936,280)):run(*size)
-    print('History time UI: calendar formats, missing dates, priority/marquee, full static title, single-row actions, off-mode recording and restart passed at both sizes.')
+    print('History time UI: calendar formats, missing dates, priority/marquee, full static title, vertical popup actions, off-mode recording and restart passed at both sizes.')

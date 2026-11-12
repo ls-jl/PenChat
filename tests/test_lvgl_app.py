@@ -139,8 +139,18 @@ class Native:
             y=round(y*space['native_height']/space['height'])
         self.tap(x,y)
     def history_action(self,key):
-        x1,y1,x2,y2=self.diag()["history_actions"][key]
-        self.tap((x1+x2)//2,(y1+y2)//2)
+        for _ in range(30):
+            state=self.diag();bounds=state["history_actions"][key]
+            viewport=state.get('context_menu',{}).get('list')
+            if key=='details' or not viewport or (bounds[1]>=viewport[1] and bounds[3]<=viewport[3]):
+                self.tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2);return
+            x=(viewport[0]+viewport[2])//2
+            start=viewport[3]-10 if bounds[3]>viewport[3] else viewport[1]+10
+            end=max(viewport[1]+10,start-70) if bounds[3]>viewport[3] else min(viewport[3]-10,start+70)
+            for step in range(7):
+                self.send('touch',x=x,y=start+(end-start)*step//6,pressed=True);time.sleep(.02)
+            self.send('touch',x=x,y=end,pressed=False);time.sleep(.15)
+        raise AssertionError('History action unreachable: '+key)
     def long_press(self,x,y,duration=.65):
         self.send('touch',x=x,y=y,pressed=True);time.sleep(duration);self.send('touch',x=x,y=y,pressed=False);time.sleep(.08)
     def diag(self):

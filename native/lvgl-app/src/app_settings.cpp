@@ -11,7 +11,7 @@ void App::composerShortcutPicker() {
     const std::string mode = modes[i];
     auto item = button(modalScroll_, names[i], 4, i * 52, width - 8, 48,
                        [this, mode] { events_.push("composer_shortcut_apply", {{"mode", mode}}); });
-    if (mode == composerShortcut_.mode()) primary(item);
+    selected(item, mode == composerShortcut_.mode());
   }
   label(modalScroll_, "双击加号左侧空白唤出，单击收回。自动模式累计滚动超过1.5屏后收回；竖屏不受影响。",
         4, 164, width - 8, 16, theme::muted);
