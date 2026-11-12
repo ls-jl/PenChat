@@ -419,3 +419,40 @@ overwrites previously stitched text with white. Other boards keep their full fie
 Use `docs/S6-ARMV7-DEV.md` for target builds and current acceptance limits.
 
 Shared UI uses LayoutClass (portrait, >=3:1 wide landscape, compact landscape). Classify only interpreted Falcon logical geometry; never select hardware by aspect ratio. Compact editor design scaling is isolated in EditorLayout. DisplaySurface false means temporary busy/retry; preserve latest pixels. DRM topRegion retains portrait official IME clipping. S6 SYS, ION anchor and NN stay process-scoped; VB config/init/exit is capture-lease-scoped and exits after VI/ISP/VPSS before stock handback. Failed VB cleanup poisons reuse before pausing the guardian. Keep evidence and remaining paper-quality acceptance in docs/S6-SCAN-RECOVERY.md; merge or ready alone is not proof of recovery.
+
+## Y07 rounded-screen safety: provisional photo estimate
+
+The user's 2026-11-13 photograph shows a strongly rounded active display, not
+just a rounded housing. Approximate perspective correction and four-corner fits
+put the circle-equivalent radius near 18% of the logical short edge (about 100px
+at the observed 568x1210 geometry; allow roughly 95–115px for photographic error).
+This is a visual design estimate, not a measured panel specification, physical
+millimetres, or a device-resolution fallback. Keep the photograph and measurement
+artifacts outside Git.
+
+- For Y07 layout work, use `S = min(logicalWidth, logicalHeight)` from interpreted
+  Falcon configuration. Treat `R = ceil(0.20*S)` as a conservative provisional
+  corner envelope, with an additional content margin `M = ceil(0.015*S)`.
+  At 568x1210 these are R=114px and M=9px, examples only. Do not infer the Y07
+  hardware mask solely from portrait aspect ratio or apply it to other models.
+- Near a top/bottom corner, let `t` be distance from that logical screen edge.
+  For `0 <= t < R`, the left/right content inset is at least
+  `ceil(R - sqrt(R*R - (R-t)*(R-t)) + M)`; outside the corner band use M.
+  Keep content at least M from the top/bottom edge as well. Evaluate the nearest
+  corner of the actual visible content/target, not only its centre. Example
+  insets at t=24/44/72px are 54/34/18px respectively. Existing 24px side/top
+  padding alone is not proof that a control clears the Y07 corner.
+- If a component cannot yet use the curved envelope, use a conservative
+  `ceil(0.08*S)` inset from both adjoining edges for its corner content (46px
+  in the example). This is a corner fallback, not a full-page gutter: retain
+  full-width middle keyboard rows and avoid shrinking all content by R.
+- Apply this check to edge navigation, composer tools, bottom keyboard globe/
+  hide controls, camera/crop/scan confirmation actions, and floating menus or
+  magnifiers. Keep text/icons and at least a 44x44 effective visible touch target
+  inside the safe shape; page backgrounds and image canvases may remain full bleed.
+  Preserve the existing exception allowing selection handles partly off-screen,
+  and never clamp caret movement using the magnifier's safe position.
+- Use logical coordinates after Falcon geometry interpretation; do not apply a
+  second display/touch rotation or raw-resolution scale. Retain this estimate as
+  provisional until a verified panel mask or a physical corner-pattern check is
+  available; a rectangular host screenshot cannot validate physical clipping.
