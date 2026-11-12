@@ -827,9 +827,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
     }
     // The text entry shares the pull gesture, but attachment/send controls do
     // not. Keep threshold scaling tied to the unobstructed reading viewport.
-    const bool floatingNavigation=layout().portrait()&&y>=layout().safeTop()&&y<layout().safeTop()+48&&
-        ((x>=layout().safeSide()&&x<layout().safeSide()+48)||
-         (scanner_.available()&&x>=screen_.width-layout().safeSide()-80));
+    const bool floatingNavigation=layout().portrait()&&y<layout().chatReaderTop();
     const bool inPullArea = !floatingNavigation && (inReader || inComposer);
     pullTrackActivity_ = view_ == "chat" && !navigationOpen_ && !modal_ &&
                          !attachments_ && inPullArea;
@@ -993,6 +991,7 @@ void App::clear() {
   pageActions_.clear();
   transferProgress_ = nullptr;
   scanWarning_ = scanHolder_ = scanImage_ = scanLabel_ = scanUse_ = scanHint_ = nullptr;
+  chatHeader_ = chatTitle_ = nullptr;
   historyRows_.clear();
   historyCaptions_.clear();historyActions_.clear();historyFullTitle_=historyFullTime_=nullptr;
   historyContextId_.clear();
@@ -1124,10 +1123,24 @@ void App::build() {
     albumPage();
   else if (view_ == "crop")
     cropPage();
+  if (view_ == "chat" && layout().portrait()) {
+    chatHeader_ = box(screenObj_, 0, 0, screen_.width, layout().chatReaderTop());
+    lv_obj_set_scrollable(chatHeader_, false);
+    if (navigation) lv_obj_set_parent(navigation, chatHeader_);
+    const int left = layout().safeSide() + 64;
+    const int statusX = screen_.width - layout().safeSide() - 88;
+    chatTitle_ = label(chatHeader_, "", left, layout().safeTop()+10, statusX-left-12, 20);
+    lv_label_set_long_mode(chatTitle_, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_height(chatTitle_, font(20)->line_height);
+    refreshChatTitle();
+  }
   if (view_ == "chat" && scanner_.available()) {
-    auto hint = box(screenObj_, layout().portrait()?screen_.width-layout().safeSide()-80:12, layout().portrait()?layout().safeTop():60, layout().portrait()?80:64, layout().portrait()?44:64);
+    const bool portrait = layout().portrait();
+    auto hint = box(portrait?chatHeader_:screenObj_, portrait?screen_.width-layout().safeSide()-88:12, portrait?layout().safeTop():60, portrait?88:64, portrait?48:64);
     lv_obj_set_scrollable(hint, false);
-    scanHint_ = label(hint, "扫描\n准备中", 4, 5, 60, 14, theme::muted);
+    scanHint_ = label(hint, portrait?"扫描准备中":"扫描\n准备中", 4, portrait?14:5, portrait?80:60, portrait?16:14, theme::muted);
+    lv_label_set_long_mode(scanHint_, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_height(scanHint_, portrait?font(16)->line_height:font(14)->line_height*2);
     onClick(hint, [this] {
       auto state = scanner_.state().value("type", std::string());
       if (state == "error" || state == "fatal") {
@@ -1253,7 +1266,8 @@ void App::modal(const std::string &title, const std::string &text) {
 }
 void App::chat() {
   int width = layout().bodyWidth();
-  lv_obj_set_height(body_, screen_.height);
+  lv_obj_set_y(body_, layout().chatReaderTop());
+  lv_obj_set_height(body_, screen_.height - layout().chatReaderTop());
   // At the edge, rapid guarded swipes must not repeatedly stretch and snap
   // back.
   lv_obj_set_scroll_elastic(body_, false);
@@ -1262,7 +1276,10 @@ void App::chat() {
   lv_obj_set_flex_flow(messageContent_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(messageContent_, 10, 0);
   lv_obj_set_style_pad_bottom(messageContent_, chatComposerHeight()+16+layout().safeBottom(), 0);
-  if(layout().portrait())lv_obj_set_style_pad_top(messageContent_,56+layout().safeTop(),0);
+  if(layout().portrait()) {
+    lv_obj_set_style_pad_left(messageContent_,8,0);
+    lv_obj_set_style_pad_right(messageContent_,8,0);
+  }
   lv_obj_set_scrollable(messageContent_, false);
   lv_obj_add_event_cb(
       body_,
@@ -1897,7 +1914,8 @@ void App::renderMessages(bool bottom, bool cached) {
                    "message_type='image') LIMIT 1",
                    {session_})
              .empty();
-  int width = screen_.width - 112;
+  int width = layout().chatMessageWidth();
+  if (!cached) refreshChatTitle();
   const auto questionSeq=db_.query("SELECT coalesce(min(seq),?) seq FROM chat_messages WHERE session_id=? AND role='user' AND (length(trim(coalesce(output_text,'')))>0 OR message_type='image')",{INT64_MAX,session_})[0]["seq"].get<int64_t>();
   bool more = int(messages.size()) >= 30;
   if (more)
@@ -3587,8 +3605,10 @@ void App::tick() {
       auto title = db_.settings().value("auto_title_enabled", true)
                        ? fitTitle(e.data.value("title", std::string()))
                        : std::string();
-      if (db_.finishTitle(e.data["session"], e.data["token"], title))
+      if (db_.finishTitle(e.data["session"], e.data["token"], title)) {
         historyDirty_ = true;
+        if (e.data["session"] == session_) refreshChatTitle();
+      }
     } else if (e.type == "response_state" || e.type == "done" ||
                e.type == "cancelled" || e.type == "network_error") {
       if (e.data.value("generation", -1) != networkGeneration_ || !generating_)
@@ -3876,6 +3896,13 @@ Json App::diagnostics() const {
       {"text_selection",readDiagnostic()},
       {"reply_actions",replyDiagnostic()},
       {"navigation_button", view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back"},
+      {"chat_header", {{"bounds",chatHeader_?bounds(chatHeader_):Json()},
+                        {"title",chatTitle_?std::string(lv_label_get_text(chatTitle_)):std::string()},
+                        {"title_bounds",chatTitle_?bounds(chatTitle_):Json()},
+                        {"scan",scanHint_?std::string(lv_label_get_text(scanHint_)):std::string()},
+                        {"scan_bounds",scanHint_?bounds(scanHint_):Json()},
+                        {"reader_bounds",view_=="chat"&&body_?bounds(body_):Json()},
+                        {"message_width",layout().chatMessageWidth()}}},
       {"pull_indicator_y", pullIndicator_ ? lv_obj_get_y(pullIndicator_) : -1},
       {"pull_content_y", body_ ? lv_obj_get_style_translate_y(body_, LV_PART_MAIN) : 0},
       {"following_latest", chatFollowing_},

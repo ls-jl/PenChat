@@ -694,7 +694,7 @@ void App::editorMoveDismiss(int offset) {
     const bool previous=chatLayout_;chatLayout_=true;
     const int scroll=lv_obj_get_scroll_y(body_);
     const int base=editorDismissTracking_||editorDismissing_||editorDismissReturnAt_?editorDismissBodyHeight_:
-        view_=="chat"?chatComposerY()-8:editorLayout().panelTop;
+        view_=="chat"?chatComposerY()-8-lv_obj_get_y(body_):editorLayout().panelTop;
     lv_obj_set_height(body_,base+editorDismissOffset_);lv_obj_update_layout(body_);
     const int maximum=std::max(0,int(lv_obj_get_scroll_y(body_)+lv_obj_get_scroll_bottom(body_)));
     lv_obj_scroll_to_y(body_,std::min(scroll,maximum),LV_ANIM_OFF);
@@ -744,7 +744,8 @@ void App::editorViewport() {
   }
   if(toBottom_)lv_obj_set_y(toBottom_,composerY-56);
   if(view_=="chat"&&messageContent_)lv_obj_set_style_pad_bottom(messageContent_,docked?16:chatComposerHeight()+16+this->layout().safeBottom(),0);
-  const int height=docked?(view_=="chat"?composerY-8:l.panelTop)+editorDismissOffset_:screen_.height;
+  const int top=view_=="chat"?lv_obj_get_y(body_):0;
+  const int height=docked?(view_=="chat"?composerY-8-top:l.panelTop)+editorDismissOffset_:screen_.height-top;
   const bool previous=chatLayout_;chatLayout_=true;
   const int scroll=lv_obj_get_scroll_y(body_);const bool resized=lv_obj_get_height(body_)!=height;
   lv_obj_set_height(body_,height);

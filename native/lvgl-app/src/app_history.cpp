@@ -4,6 +4,12 @@
 #include "tools.hpp"
 #include <algorithm>
 namespace penchat {
+void App::refreshChatTitle() {
+  if (!chatTitle_) return;
+  const auto info = db_.sessionInfo(session_);
+  const auto title = info.value("title", std::string());
+  lv_label_set_text(chatTitle_, title.empty()?"新聊天":title.c_str());
+}
 int App::titleWidth() const {
   return (screen_.width * 2 / 3 - 24 - 48) * 4 / 5;
 }
@@ -285,6 +291,7 @@ void App::historyContext(const std::string &id) {
             if (titleSession_ == id)
               titleCancel_ = true;
             db_.renameSession(id, title);
+            if (id == session_) refreshChatTitle();
           }
           toggleNavigation();
         },

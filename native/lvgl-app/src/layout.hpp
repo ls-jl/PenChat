@@ -43,6 +43,8 @@ struct AppLayout {
   int composerY() const { return height - composerHeight() - safeBottom(); }
   int gutter() const { return portrait() ? 0 : 86; }
   int bodyWidth() const { return width - gutter() - 4; }
+  int chatReaderTop() const { return portrait() ? safeTop() + 56 : 0; }
+  int chatMessageWidth() const { return portrait() ? bodyWidth() - 16 : width - 112; }
   int contentWidth() const { return width - (portrait() ? 32 : 118); }
   int composerX() const { return portrait() ? safeSide() : 106; }
   LayoutRect composerShortcut() const {

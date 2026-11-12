@@ -42,10 +42,11 @@ void App::syncScanner() {
   scanner_.eligible(eligible, session_, ocrKeys, !imageViewer_);
   if (scanHint_) {
     auto state = scanner_.state().value("type", std::string());
+    const bool portrait = layout().portrait();
     const char *text = !eligible          ? ""
-                       : state == "ready" ? "扫描\n就绪"
-                       : (state == "error" || state == "fatal") ? "扫描\n不可用"
-                       : eligible ? "扫描\n准备中"
+                       : state == "ready" ? (portrait?"扫描就绪":"扫描\n就绪")
+                       : (state == "error" || state == "fatal") ? (portrait?"扫描不可用":"扫描\n不可用")
+                       : eligible ? (portrait?"扫描准备中":"扫描\n准备中")
                                   : "";
     if (std::string(lv_label_get_text(scanHint_)) != text)
       lv_label_set_text(scanHint_, text);
