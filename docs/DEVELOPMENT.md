@@ -130,3 +130,18 @@ Y07 通过驱动 LED 类控制白灯，使用厂商模式值1，不套用 ORANGE
 `bash scripts/build-web-search.sh rk3562` 与 `bash scripts/build-web-search.sh cv1826-s`，
 主应用仍使用原有构建脚本。不要把另一目标的 `assets/web-search` 放进安装包。
 开发编译不执行搜索、不调用付费模型；`tests/test_web_tools.py` 是单独的模拟请求回归入口。
+
+### Markdown 标点换行（dev）
+
+三类布局共用 `RichText::layout` 的软换行规则。常见中英文收尾标点与前文
+一起换行，左括号、左引号随其后的文字；加粗、链接及其他行内样式的边界
+不产生额外断点。表格单元格复用相同规则，行内公式也保留收尾标点。
+超长英文单词仍可按字符拆行；极窄区域中，连一个完整标点组合都放不下时
+保留该组合并允许横向阅读。主动换行与代码块不套用禁则，不改写原文和复制偏移。
+字宽预读与落点共用单次布局内、最多256项的缓存。
+
+定向检查：构建 `penchat-markdown-wrap-tests` 和 `penchat-text-selection-tests`，
+再执行 `ctest --test-dir build/host -R '^penchat-(markdown-wrap|text-selection)$' --output-on-failure`。
+新增用例覆盖多字号、窄栏、样式边界、公式、表格、长单词及显式换行。
+`penchat-markdown-wrap-tests <字体> <MicroTeX资源目录> <已有输出目录>`
+可额外生成几种阅读宽度的排版截图；截图不入库。

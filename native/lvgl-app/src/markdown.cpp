@@ -12,6 +12,8 @@ extern "C" {
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <functional>
+#include <unordered_map>
 #include <list>
 #include <stdexcept>
 namespace penchat {
@@ -585,6 +587,21 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
     lineTop = y;
   };
   (void)lineTop;
+  // The lookahead and placement passes share glyph metrics. Bound this local
+  // cache so long replies do not retain an additional unbounded text index.
+  std::unordered_map<uint64_t, float> advances;
+  auto advanceOf = [&](const std::string &ch, uint32_t cp, int style) {
+    const uint64_t key = (uint64_t(uint32_t(style)) << 32) | cp;
+    const auto found = advances.find(key);
+    if (found != advances.end()) return found->second;
+    p_->select(c, actualSize, style, cp);
+    cairo_text_extents_t extents;
+    cairo_text_extents(c, ch.c_str(), &extents);
+    const float advance = (style & Mono)
+        ? float(actualSize * .62) * (cp >= 128 ? 2 : 1) : extents.x_advance;
+    if (advances.size() < 256) advances.emplace(key, advance);
+    return advance;
+  };
   size_t textOffset = 0;
   auto add = [&](const Run &run, int forceWidth) {
     if ((run.style & DisplayMath) && x > left)
@@ -626,14 +643,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
       }
       const auto cp = codepoint(ch);
       if ((cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0xe0100 && cp <= 0xe01ef) || cp == 0x200d || cp == 0x200c || cp == 0x200b) continue;
-      p_->select(c, actualSize, run.style, cp);
-      cairo_text_extents_t e;
-      cairo_text_extents(c, ch.c_str(), &e);
-      float advance =
-          (run.style & Mono)
-              ? float(actualSize * .62) *
-                    (static_cast<unsigned char>(ch[0]) >= 128 ? 2 : 1)
-              : e.x_advance;
+      float advance = advanceOf(ch, cp, run.style);
       if (block.kind != "code" && (ch == " " || ch == "\t") &&
           (x == left || x + advance > width - 6)) {
         if (x > left) newline();
@@ -663,51 +673,115 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
   };
   if (!block.marker.empty())
     add({block.marker, "", 0}, 0);
-  // Keep word fragments together even when Markdown changes style/link midway.
-  // CJK characters remain independent wrapping units; oversized words retain
-  // character wrapping so an identifier or URL can never overflow the reader.
-  std::vector<Run> word;
-  float wordWidth = 0;
-  auto flushWord = [&]() {
-    if (word.empty()) return;
-    const bool wrap = block.kind != "code";
-    if (wrap && x > left && x + wordWidth > width - 6) newline();
-    const bool fits = wordWidth <= width - 6 - left;
-    for (const auto &part : word) add(part, wrap && fits ? 1 : 0);
-    word.clear();
-    wordWidth = 0;
-  };
   auto wordCharacter = [](uint32_t cp) {
     return (cp < 128 && (std::isalnum(static_cast<unsigned char>(cp)) ||
                          cp == '_' || cp == '\'')) ||
            (cp >= 0xc0 && cp <= 0x52f && cp != 0xd7 && cp != 0xf7) ||
            (cp >= 0x1e00 && cp <= 0x1eff) || cp == 0x2019;
   };
-  for (const auto &run : block.runs) {
-    if (run.style & (Math | Image)) {
-      flushWord();
-      add(run, 0);
-      continue;
+  auto closingPunctuation = [](uint32_t cp) {
+    switch (cp) {
+    case ',': case '.': case '!': case '?': case ':': case ';':
+    case ')': case ']': case '}': case '%':
+    case 0x00b0: case 0x2030: case 0x2031: case 0x2103: case 0x2109:
+    case 0x2019: case 0x201d: case 0x2026:
+    case 0x3001: case 0x3002: case 0x3009: case 0x300b: case 0x300d:
+    case 0x300f: case 0x3011: case 0x3015: case 0x3017: case 0x3019:
+    case 0x301b: case 0xff01: case 0xff05: case 0xff09: case 0xff0c:
+    case 0xff0e: case 0xff1a: case 0xff1b: case 0xff1f: case 0xff3d:
+    case 0xff5d: case 0xff60: case 0xff63: case 0xff64:
+      return true;
+    default: return false;
     }
-    for (const auto &ch : characters(run.text)) {
-      const auto cp = codepoint(ch);
-      if (wordCharacter(cp)) {
-        p_->select(c, actualSize, run.style, cp);
-        cairo_text_extents_t extents;
-        cairo_text_extents(c, ch.c_str(), &extents);
-        wordWidth += (run.style & Mono)
-            ? float(actualSize * .62) * (cp >= 128 ? 2 : 1)
-            : extents.x_advance;
-        if (!word.empty() && word.back().style == run.style &&
-            word.back().link == run.link) word.back().text += ch;
-        else word.push_back({ch, run.link, run.style});
+  };
+  auto openingPunctuation = [](uint32_t cp) {
+    switch (cp) {
+    case '(': case '[': case '{': case 0x2018: case 0x201c:
+    case 0x3008: case 0x300a: case 0x300c: case 0x300e: case 0x3010:
+    case 0x3014: case 0x3016: case 0x3018: case 0x301a: case 0xff08:
+    case 0xff3b: case 0xff5b: case 0xff5f: case 0xff62:
+      return true;
+    default: return false;
+    }
+  };
+  // Delay one wrapping unit: a word (across Markdown spans) or CJK character,
+  // its opening brackets and its trailing punctuation. Never break those at a
+  // soft line boundary. Explicit newlines and code retain their own semantics.
+  // Oversized words are reprocessed as characters, still carrying punctuation;
+  // genuinely indivisible units may overflow into the existing horizontal reader.
+  std::function<void(const std::vector<Run> &, bool)> flow;
+  flow = [&](const std::vector<Run> &runs, bool keepWords) {
+    std::vector<Run> group;
+    float groupWidth = 0;
+    bool onlyOpening = false, lastWord = false, joinNext = false;
+    auto flush = [&]() {
+      if (group.empty()) return;
+      if (keepWords && groupWidth > width - 6 - left) {
+        flow(group, false);
       } else {
-        flushWord();
-        add({ch, run.link, run.style}, 0);
+        if (x > left && x + groupWidth > width - 6) newline();
+        for (const auto &part : group) add(part, 1);
+      }
+      group.clear(); groupWidth = 0;
+      onlyOpening = lastWord = joinNext = false;
+    };
+    auto append = [&](const Run &part, float advance) {
+      groupWidth += advance;
+      if (!group.empty() && !(part.style & Math) &&
+          !(group.back().style & Math) && group.back().style == part.style &&
+          group.back().link == part.link) group.back().text += part.text;
+      else group.push_back(part);
+    };
+    for (const auto &run : runs) {
+      if (run.style & (DisplayMath | Image)) {
+        flush(); add(run, 0); continue;
+      }
+      if (run.style & Math) {
+        if (!onlyOpening) flush();
+        try {
+          const auto key = std::to_string(actualSize) + ":" + run.text;
+          const auto cached = p_->cache.find(key);
+          const int advance = cached != p_->cache.end()
+              ? cached->second->width : formula(run.text, actualSize).width;
+          append(run, advance);
+          onlyOpening = lastWord = joinNext = false;
+        } catch (...) {
+          flush(); add(run, 0);
+        }
+        continue;
+      }
+      for (const auto &ch : characters(run.text)) {
+        if (ch == "\n" || ch == " " || ch == "\t") {
+          flush(); add({ch, run.link, run.style}, 0); continue;
+        }
+        const auto cp = codepoint(ch);
+        const bool word = wordCharacter(cp);
+        const bool extending = (cp >= 0x300 && cp <= 0x36f) ||
+            (cp >= 0xfe00 && cp <= 0xfe0f) ||
+            (cp >= 0xe0100 && cp <= 0xe01ef) || cp == 0x200d || cp == 0x200c;
+        const bool close = closingPunctuation(cp) || extending ||
+            (cp == '"' && !group.empty() && !onlyOpening);
+        const bool open = openingPunctuation(cp) || (cp == '"' && !close);
+        if (!group.empty() && !onlyOpening && !close && !joinNext &&
+            !(keepWords && lastWord && word && !open)) flush();
+        const bool wasEmpty = group.empty();
+        const bool invisible = (cp >= 0xfe00 && cp <= 0xfe0f) ||
+            (cp >= 0xe0100 && cp <= 0xe01ef) || cp == 0x200d ||
+            cp == 0x200c || cp == 0x200b;
+        const float advance = invisible ? 0 : advanceOf(ch, cp, run.style);
+        append({ch, run.link, run.style}, advance);
+        onlyOpening = open && (wasEmpty || onlyOpening);
+        lastWord = word && (!close || cp == 0x2019);
+        joinNext = cp == 0x200d;
       }
     }
+    flush();
+  };
+  if (block.kind == "code") {
+    for (const auto &run : block.runs) add(run, 0);
+  } else {
+    flow(block.runs, true);
   }
-  flushWord();
   newline();
   RichLayout layout;
   layout.width = std::ceil(maxWidth);
