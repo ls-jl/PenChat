@@ -129,7 +129,10 @@ void paint(lv_event_t *event) {
     lv_draw_arc(layer, &d);
   };
   const auto &k = icon->name;
-  if (k == "context-summary") {
+  if (k == "wallet") {
+    rect(-10,-7,20,16,3);line(-7,-7,-7,-10);line(-7,-10,7,-10);
+    rect(2,-2,9,6,2);rect(5,0,2,2,LV_RADIUS_CIRCLE,true);
+  } else if (k == "context-summary") {
     // Open document corners, paired endpoints and two text strokes.
     rect(-10,-10,4,4,LV_RADIUS_CIRCLE,true);
     line(-8,-6,-8,5);arc(90,180,4,-4,5);line(-4,9,1,9);

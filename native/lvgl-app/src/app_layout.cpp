@@ -11,6 +11,7 @@ void App::arrangeModal() {
   if(modalScroll_)lv_obj_set_height(modalScroll_,std::max(80,screen_.height-76-int(modalButtons_.size())*52));
 }
 void App::portraitPage() {
+  if (view_ == "balances") return; // The balance reader measures full-width rows itself.
   const bool compactForm=layout().compact() &&
       (view_=="provider" || view_=="model" || view_=="api_compatibility" || view_=="anthropic_connection");
   if(!pageContent_||!pageHeader_||(!layout().portrait()&&!compactForm)||view_=="provider_models"||view_=="album"||view_=="archives"||view_=="archive_chat"||(view_=="provider"&&providerForm_.empty()))return;

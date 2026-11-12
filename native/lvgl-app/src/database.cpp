@@ -775,6 +775,7 @@ Json Database::providerForm(const std::string &id) {
           {"model", names},
           {"default_effort", metadata.value("default_effort", std::string())},
           {"model_adapter", metadata.value("model_adapter", std::string("auto"))},
+          {"balance_vendor", metadata.value("balance_vendor", std::string())},
           {"compatibility", objectField(metadata, "compatibility")},
           {"anthropic", objectField(metadata, "anthropic")},
           {"max_output_tokens", metadata.value("max_output_tokens", Json(16384))},
@@ -983,6 +984,7 @@ std::string Database::saveProvider(const Json &f, const std::vector<std::string>
       if (f.contains("compatibility")) metadata["compatibility"] = objectField(f, "compatibility");
       if (f.contains("anthropic")) metadata["anthropic"] = objectField(f, "anthropic");
       metadata["model_adapter"] = f.value("model_adapter", std::string("auto"));
+      if (f.contains("balance_vendor")) metadata["balance_vendor"] = f.value("balance_vendor", std::string());
       metadata["max_output_tokens"] = f.value("max_output_tokens", Json(16384));
       if (old[0]["api_key"] != f.value("apiKey", std::string()) ||
           (f.contains("headers") && objectField(old[0], "headers_json") != f["headers"]))
@@ -1008,6 +1010,7 @@ std::string Database::saveProvider(const Json &f, const std::vector<std::string>
                      {"compatibility", objectField(f, "compatibility")},
                      {"anthropic", objectField(f, "anthropic")},
                      {"model_adapter", f.value("model_adapter", std::string("auto"))},
+                     {"balance_vendor", f.value("balance_vendor", std::string())},
                      {"credential_revision", uid("credentials")},
                      {"max_output_tokens", f.value("max_output_tokens", Json(16384))}})
                    .dump(),

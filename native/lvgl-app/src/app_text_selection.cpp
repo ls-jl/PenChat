@@ -477,6 +477,14 @@ void App::readDraw(bool menu) {
 bool App::readTouch(int x, int y, bool down, bool cancelled) {
   const bool began = down && !readDown_;
   readDown_ = down && !cancelled;
+  // The floating root navigation button is above the portrait reader. Its
+  // hit area must win over a full-width selectable message underneath it.
+  if (view_ == "chat" && layout().portrait() && !editor_.active && !navigationOpen_ &&
+      !readGesture_.active() && !readMenuPointer_ && !readSelection_.selected() && !modal_ && !attachments_ && x >= layout().safeSide() && x < layout().safeSide() + 48 &&
+      y >= layout().safeTop() && y < layout().safeTop() + 48) {
+    if (began) readReset();
+    return false;
+  }
   if (readSuppressed_) {
     if (!down || cancelled)
       readSuppressed_ = false;

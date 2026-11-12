@@ -14,6 +14,7 @@
 #include "images.hpp"
 #include "native_touch.hpp"
 #include "network.hpp"
+#include "balance.hpp"
 #include "platform.hpp"
 #include "pull_geometry.hpp"
 #include "reasoning.hpp"
@@ -61,6 +62,20 @@ class App {
   NativeTouch touchInput_;
   Events events_;
   PinyinService pinyin_;
+  std::unique_ptr<BalanceService> balanceService_;
+  std::map<std::string, Json> balanceResults_;
+  std::set<std::string> balancePending_, balanceExpanded_;
+  uint64_t balanceGeneration_ = 0;
+  bool balanceDirty_ = false;
+  int64_t balanceLastRender_ = 0;
+  lv_obj_t *balanceShortcut_ = nullptr;
+  void openBalances();
+  void balancePage();
+  void refreshBalances(const std::string &id = "");
+  void cancelBalances();
+  void balanceEvent(const Event &event);
+  void balanceVendorPicker();
+  Json balanceDiagnostic() const;
   std::unique_ptr<Updater> updater_;
   Json updateState_=Json::object(),updateSnapshot_=Json::object();
   bool updateDirty_=false,updateReturning_=false,updateExit_=false;
