@@ -12,7 +12,8 @@ public:
   ScanService(Events &, const std::string &workspace, const std::string &data);
   ~ScanService();
   void stop();
-  void eligible(bool enabled, const std::string &session, bool ocrKeys = false);
+  void eligible(bool enabled, const std::string &session, bool ocrKeys = false,
+                bool penInput = true);
   uint64_t prepareReview(uint64_t scan);
   void cancelReview(uint64_t scan);
   void confirm(uint64_t scan);

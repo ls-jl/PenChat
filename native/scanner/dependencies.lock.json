@@ -23,7 +23,7 @@
     "src/memory_policy.hpp": "ad5ca5cb32d7debc4e0009a89f8d892ca6ee4b520de4c4b0790f5362f6077886",
     "src/runtime_io.hpp": "1920f786a5faf268e9f14a21274690b8c280fa5006a234d1a9c251e4f857ef94",
     "src/runtime_guard.cpp": "2866a54afd4e71a58e84e8362392cc462cbadebda95cdcd85f32514a30c50fb9",
-    "src/main.cpp": "2b013253914406a213e3556b0b074e8c9d521e7d794a148c14876c3e38377ce9",
+    "src/main.cpp": "6efe975638c2216e008537eb715298f4dbfde62414c2beb549af19a308316679",
     "runtime-symbols.list": "868ca8503bbdbfab6029fe3fca3aceb20e76b4908f63be8bfdcf0f9c9ac92951",
     "tests/test_runtime_io.cpp": "726a9a9e417ad3520743a286ae755f0c857a7b164d74b7b9ea22525c31fd7d05",
     "src/hardware.cpp": "965465ba63282b955d5b51531cf50ca01ce3fbe861f339e2380ae59a49881895",

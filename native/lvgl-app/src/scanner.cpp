@@ -21,7 +21,7 @@ struct ScanService::Impl {
   mutable std::mutex mutex;
   std::condition_variable cv;
   std::thread worker;
-  bool desiredOcr = false;
+  bool desiredOcr = false, desiredPenInput = true;
   bool stopped = false, desired = false, disarmed = true, available = false;
   std::string session;
   uint64_t generation = 0, request = 0;
@@ -66,7 +66,8 @@ struct ScanService::Impl {
   Json command(const std::string &type, uint64_t scan = 0) {
     return {{"v", ProtocolVersion},     {"type", type},
             {"generation", generation}, {"session", session},
-            {"requestId", ++request},   {"scanId", scan}};
+            {"requestId", ++request},   {"scanId", scan},
+            {"pen_input_enabled", desiredPenInput}};
   }
   void queue(const std::string &type, uint64_t scan = 0) {
     commands.push_back(command(type, scan));
@@ -300,7 +301,10 @@ struct ScanService::Impl {
             if (j.value("generation", uint64_t(0)) != generation ||
                 j.value("session", std::string()) != session)
               continue;
-            status = j;
+            if (type == "pen_input")
+              status["pen_input_enabled"] = j.value("pen_input_enabled", true);
+            else
+              status = j;
             if (type == "released") {
               disarmed = true;
               if(sharedMedia&&scanLeaseRestored(lease))unlink(join(data,"scanner-lease.json").c_str());
@@ -348,7 +352,8 @@ ScanService::ScanService(Events &e, const std::string &w, const std::string &d)
     : p_(new Impl(e, w, d)) {}
 ScanService::~ScanService() = default;
 void ScanService::stop() { p_->stop(); }
-void ScanService::eligible(bool enabled, const std::string &session, bool ocrKeys) {
+void ScanService::eligible(bool enabled, const std::string &session, bool ocrKeys,
+                           bool penInput) {
   std::lock_guard<std::mutex> l(p_->mutex);
   if (!p_->available || p_->stopped)
     return;
@@ -356,6 +361,7 @@ void ScanService::eligible(bool enabled, const std::string &session, bool ocrKey
   if (enabled && (!p_->desired || p_->session != session || p_->desiredOcr != ocrKeys)) {
     p_->desired = true;
     p_->desiredOcr = ocrKeys;
+    p_->desiredPenInput = penInput;
     p_->session = session;
     ++p_->generation;
     p_->disarmed = false;
@@ -363,6 +369,9 @@ void ScanService::eligible(bool enabled, const std::string &session, bool ocrKey
                   {"generation", p_->generation},
                   {"session", session}};
     p_->queue(ocrKeys ? "ocr_keys" : "arm");
+  } else if (enabled && p_->desiredPenInput != penInput) {
+    p_->desiredPenInput = penInput;
+    p_->queue("pen_input");
   } else if (!enabled && p_->desired) {
     p_->desired = false;
     p_->desiredOcr = false;

@@ -33,11 +33,13 @@ void App::syncScanner() {
   // continues through suspend() and its normal cancel/join/release path.
   if(active&&pageVisible_&&(!windowFocused_||!inputFocused_))return;
   bool eligible = bridge_.generation() > 0 && visible_ && inputFocused_ && !keyboard_ &&
-                  !editor_.active && (!imageViewer_ || viewerScanResult_) && !imageStoreBusy_ && !contextBusy_ && !replyBusy_ && !editorOcrActive_ && editorOcrStopId_.empty() &&
+                  !editor_.active && !imageStoreBusy_ && !contextBusy_ && !replyBusy_ && !editorOcrActive_ && editorOcrStopId_.empty() &&
                   !navigationOpen_ && !modal_ && !attachments_ && !pulling_ &&
                   (view_ == "chat" || active);
   const bool ocrKeys=scanner_.nativeOcrKeys()&&editor_.active&&visible_&&inputFocused_&&!keyboard_;
-  scanner_.eligible(eligible, session_, ocrKeys);
+  // A local image overlay does not need the system camera. Keep the current
+  // capture lease and gate pen presses, avoiding an ISP close/reopen on return.
+  scanner_.eligible(eligible, session_, ocrKeys, !imageViewer_);
   if (scanHint_) {
     auto state = scanner_.state().value("type", std::string());
     const char *text = !eligible          ? ""
@@ -167,6 +169,12 @@ void App::scanEvent(const Event &event) {
     return;
   }
   if (event.type == "scan_started") {
+    if (imageViewer_ && !viewerScanResult_) {
+      // A press may already have been queued when the overlay closed the gate.
+      // Discard that scan without releasing/reopening the hardware lease.
+      scanner_.discard(j.value("scanId", uint64_t(0)));
+      return;
+    }
     if(editor_.active) {
       // Pen presses during OCR handoff cannot open a scan page or release the
       // key lease before the system OCR route has been acknowledged.

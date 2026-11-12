@@ -181,7 +181,7 @@ class Worker {
   PreviewSlot *slot_;
   std::string resources_, directory_, session_, state_ = "disarmed";
   uint64_t generation_ = 0, request_ = 0, scan_ = 0;
-  bool ocrKeys_ = false;
+  bool ocrKeys_ = false, penInputEnabled_ = true;
   unsigned ocrSequence_ = 0;
   bool mock_ = false, armed_ = false, capturing_ = false, finished_ = false;
 #ifdef SCANNER_TEST_SOURCE
@@ -305,6 +305,7 @@ class Worker {
     data["processing_height"] = config_.height;
     data["sensor_rotation"] = rotationName(config_.rotation);
     data["hardware_armed"] = armed_;
+    data["pen_input_enabled"] = penInputEnabled_;
     data["capture_strategy"] = startupName(profile_.capture.startup);
     data["runtime_path"] = mock_ ? "host_simulation" : scanRuntimePath(profile_,resources_);
     data["runtime_migration"] = profile_.inference.runtime==RuntimeKind::SystemRknn ? "pending_validation" :
@@ -452,6 +453,12 @@ class Worker {
     if (!armed_ || down == keyDown_)
       return;
     keyDown_ = down;
+    if (!penInputEnabled_) {
+      // Track edges while blocked. Re-enabling while held must not start a
+      // scan; wait for the actual release and a fresh press.
+      requireRelease_ = down;
+      return;
+    }
     if (down) {
       if (retryEmpty(eventUs))
         return;
@@ -690,6 +697,7 @@ public:
       disarm();
       ocrKeys_ = type == "ocr_keys";
       generation_ = generation;
+      penInputEnabled_ = j.value("pen_input_enabled", true);
       session_ = j.at("session").get<std::string>();
       request_ = j.value("requestId", uint64_t(0));
       if (mock_) {
@@ -725,6 +733,15 @@ public:
     } else if (type == "disarm" || type == "cancel") {
       disarm();
       emit("released");
+    } else if (type == "pen_input") {
+      penInputEnabled_ = j.value("pen_input_enabled", true);
+      requireRelease_ = keyDown_;
+      if (!penInputEnabled_ && capturing_) {
+        light_.off();
+        release(true);
+        state_ = "ready";
+      }
+      emit("pen_input");
     } else if(type=="prepare_review" && j.value("scanId",uint64_t(0))==scan_) {
       try {exportResult(true);}
       catch(const std::exception &e) {emit("review_error",{{"error",e.what()}});}

@@ -28,7 +28,7 @@ void App::openImageViewer(const std::string &path, bool scanResult) {
   viewerClose_=icon(imageViewer_,"close",screen_.width-44-(layout().portrait()?layout().safeSide():16),layout().portrait()?layout().safeTop():8,44,44,[this]{events_.push("image_view_close");},theme::surface);
   viewerKey_=path.empty()?std::string():images_.request(path,32768,32768);
   lv_obj_update_layout(imageViewer_);lv_obj_move_foreground(imageViewer_);
-  if(!viewerScanResult_)scanner_.eligible(false,session_);
+  syncScanner();
   refreshImageViewer();
 }
 void App::closeImageViewer(bool restore) {
