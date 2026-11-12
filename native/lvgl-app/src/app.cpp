@@ -1079,6 +1079,8 @@ void App::build() {
     chat();
   else if (view_ == "settings")
     settingsPage();
+  else if (view_ == "balances")
+    balancePage();
   else if (view_ == "font_size")
     fontSizePage();
   else if (view_ == "http_settings")
@@ -1178,6 +1180,7 @@ void App::build() {
   if (imageViewer_) lv_obj_move_foreground(imageViewer_);
 }
 void App::show(const std::string &view) {
+  if (view_ == "balances" && view != view_) cancelBalances();
   if (view != view_) composerShortcut_.reset();
   if ((view_ == "web_source" || view_ == "web_details") && view != "web_source")
     cancelWebReader();
@@ -2413,6 +2416,7 @@ void App::reasoningDisplayPicker() {
   }
 }
 void App::goBack() {
+  if (view_ == "balances") { show("chat"); toggleNavigation(); return; }
   if (view_ == "web_source") {
     show("web_details");
     return;
@@ -2552,15 +2556,31 @@ void App::historyDrawer() {
       navigationScroll_ = 0;
       historyDrawer();
     });
-  const int footerWidth = (panelWidth - 36) / 2;
+  const int footerSpace = panelWidth - listLeft - 12 - 48 - 16;
+  const int footerWidth = footerSpace * 3 / 5;
+  const int walletX = listLeft + footerWidth + 8;
   auto footerAction = [&](int x, int width, const char *kind, const char *title,
                           std::function<void()> action) {
     icon(panel, kind, x, footerY, 48, 48, action, theme::sidebar);
-    button(panel, title, x + 52, footerY, width - 52, 48, action,
+    button(panel, title, x + 46, footerY, width - 46, 48, action,
            theme::sidebar, LV_TEXT_ALIGN_LEFT);
   };
   footerAction(listLeft, footerWidth, "newchat", "新建聊天", [this] { newChat(); });
-  footerAction(panelWidth - 156, 144, "settings", "设置",
+  auto held = std::make_shared<bool>(false);
+  auto wallet = icon(panel, "wallet", walletX, footerY, 48, 48,
+                     [this, held] { if (!*held) openBalances(); }, theme::sidebar);
+  balanceShortcut_ = wallet;
+  struct WalletPress { App *app; std::shared_ptr<bool> held; };
+  auto press = new WalletPress{this, held};
+  lv_obj_add_event_cb(wallet, [](lv_event_t *e) {
+    auto p = static_cast<WalletPress *>(lv_event_get_user_data(e));
+    if (lv_event_get_code(e) == LV_EVENT_DELETE) { p->app->balanceShortcut_ = nullptr; delete p; return; }
+    if (lv_event_get_code(e) == LV_EVENT_PRESSED) *p->held = false;
+    if (lv_event_get_code(e) == LV_EVENT_LONG_PRESSED) {
+      *p->held = true; p->app->events_.push("balance_hint");
+    }
+  }, LV_EVENT_ALL, press);
+  footerAction(walletX + 56, panelWidth - 12 - walletX - 56, "settings", "设置",
                [this] { show("settings"); });
   lv_obj_update_layout(navigation_);
   // LVGL needs scrollable extent before it will start an elastic gesture.
@@ -2958,6 +2978,7 @@ void App::suspend(bool value) {
   diagnosticRecord("lifecycle", value ? "background" : "foreground");
   if(onboarding_)onboarding_->tick(false);
   if (value && feedback_) feedback_->background();
+  if (value) cancelBalances();
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
   resetBack();
   backStart_ = Json::object();
@@ -2988,6 +3009,7 @@ void App::suspend(bool value) {
   touchDown_ = false;
   pullTrackActivity_ = false;
   visible_ = pageVisible_;
+  if (!value && visible_ && view_ == "balances") refreshBalances();
   input_.cancel();
   updateInputFocus();
   if (value) {
@@ -3013,6 +3035,8 @@ void App::shutdown() {
   if (shutdownComplete_) return;
   shutdownComplete_ = true;
   cancelWebReader();
+  cancelBalances();
+  if (balanceService_) balanceService_->stop();
   if(onboarding_)onboarding_->tick(false);
   touchInput_.close();
   input_.cancel();
@@ -3324,6 +3348,11 @@ void App::handle(const Json &m) {
   syncScanner();
 }
 void App::tick() {
+  if (balanceDirty_ && ticks() - balanceLastRender_ >= 100 && view_ == "balances" && !touchDown_ && body_ && !lv_obj_is_scrolling(body_) && !readGesture_.active()) {
+    balanceDirty_ = false;
+    balanceLastRender_ = ticks();
+    build();
+  }
   updateInputFocus();
   editorOcrFlushStop();
   if(startupReadyPending_ && display_.presented()) {
@@ -3632,6 +3661,10 @@ void App::tick() {
         if (e.type == "network_error")
           notice_ = e.data.value("error", std::string("网络错误"));
       }
+    } else if (e.type == "balance_result") {
+      balanceEvent(e);
+    } else if (e.type == "balance_hint") {
+      replyToast("账户余额");
     } else if (e.type == "models") {
       providerModelsResult(e);
     } else if (e.type == "image_ready" || e.type == "image_error") {
@@ -3997,6 +4030,7 @@ Json App::diagnostics() const {
            : 0},
       {"scroll_y", body_ ? lv_obj_get_scroll_y(body_) : 0},
       {"settings", settingsDiagnostic()},
+      {"balances", balanceDiagnostic()},
       {"reading_font", {{"percent", readingFontPercent_}, {"size", readingFontSize()},
                         {"draft", readingFontDraft_}, {"slider", bounds(fontSlider_)},
                         {"preview", bounds(fontPreview_)}}},

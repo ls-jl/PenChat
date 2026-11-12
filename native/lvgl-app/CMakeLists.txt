@@ -94,7 +94,7 @@ add_custom_command(OUTPUT "${FORMAT_INCLUDE}"
     "${ROOT}/docs/transfer-format/使用说明.md" "${ROOT}/docs/transfer-format/聊天格式.md"
     "${ROOT}/docs/transfer-format/预设格式.md" "${ROOT}/docs/transfer-format/Markdown导入.md"
   VERBATIM)
-add_library(penchat_core STATIC src/pinyin.cpp src/common.cpp src/database.cpp src/database_storage.cpp src/database_transfer.cpp src/database_context.cpp src/database_messages.cpp src/database_replies.cpp src/context.cpp src/usage.cpp src/transfer.cpp src/transfer_format.cpp "${FORMAT_INCLUDE}" src/network.cpp src/tools.cpp src/http_service.cpp src/anthropic.cpp src/markdown.cpp src/images.cpp src/scanner.cpp
+add_library(penchat_core STATIC src/pinyin.cpp src/common.cpp src/database.cpp src/database_storage.cpp src/database_transfer.cpp src/database_context.cpp src/database_messages.cpp src/database_replies.cpp src/context.cpp src/usage.cpp src/transfer.cpp src/transfer_format.cpp "${FORMAT_INCLUDE}" src/network.cpp src/balance.cpp src/tools.cpp src/http_service.cpp src/anthropic.cpp src/markdown.cpp src/images.cpp src/scanner.cpp
   "${ROOT}/native/scanner/src/hardware.cpp"
   "${CAMERA}/src/accelerometer.cpp" "${CAMERA}/src/camera_logic.cpp" "${CAMERA}/src/util.cpp" "${CAMERA}/src/capture.cpp" "${CAMERA}/src/overlay.cpp" "${CAMERA}/src/stb_impl.cpp" "${CAMERA}/src/image_data.cpp")
 target_include_directories(penchat_core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -115,7 +115,7 @@ if(NOT CMAKE_CROSSCOMPILING)
   target_compile_definitions(penchat-sensor-guard-test PRIVATE CAMERA_SENSOR_GUARD_TESTING=1)
 endif()
 add_executable(penchat-lvgl src/main.cpp src/platform.cpp src/app.cpp src/app_api.cpp src/app_anthropic.cpp src/app_model_catalog.cpp src/app_settings.cpp src/app_navigation.cpp src/app_image_viewer.cpp src/app_image_touch.cpp src/native_touch.cpp src/icons.cpp src/app_input_target.cpp src/app_keyboard.cpp src/app_history.cpp src/app_messages.cpp src/app_replies.cpp src/scanner_ui.cpp src/app_crop.cpp src/app_presets.cpp src/app_transfer.cpp src/app_feedback.cpp src/app_update.cpp src/app_onboarding.cpp src/onboarding.cpp src/onboarding_3d.cpp src/app_layout.cpp src/app_context.cpp src/app_web.cpp src/app_session_info.cpp)
-target_sources(penchat-lvgl PRIVATE src/app_text_selection.cpp src/app_providers.cpp)
+target_sources(penchat-lvgl PRIVATE src/app_text_selection.cpp src/app_providers.cpp src/app_balance.cpp)
 if(PENCHAT_TARGET STREQUAL "cv1826-s" AND CMAKE_CROSSCOMPILING)
   set(COMPOSITOR "${ROOT}/native/compositor")
   add_library(penchat_composite_transport STATIC "${COMPOSITOR}/composite_wire.cpp")
@@ -263,6 +263,10 @@ if(NOT CMAKE_CROSSCOMPILING)
   target_link_libraries(penchat-provider-settings-tests penchat_core)
   target_compile_options(penchat-provider-settings-tests PRIVATE -UNDEBUG)
   add_test(NAME penchat-provider-settings COMMAND penchat-provider-settings-tests)
+  add_executable(penchat-balance-tests "${ROOT}/tests/native/BalanceTest.cpp")
+  target_link_libraries(penchat-balance-tests penchat_core)
+  target_compile_options(penchat-balance-tests PRIVATE -UNDEBUG)
+  add_test(NAME penchat-balance COMMAND penchat-balance-tests)
   add_executable(penchat-web-tools-tests "${ROOT}/tests/native/WebToolsTest.cpp")
   add_executable(penchat-markdown-wrap-tests "${ROOT}/tests/native/MarkdownWrapTest.cpp")
   target_link_libraries(penchat-markdown-wrap-tests penchat_core)

@@ -147,14 +147,17 @@ void App::providerPage() {
   pageActions_["provider-protocol"] = api;
   field("baseURL", "Base URL", right, 4, column);
   field("apiKey", "API Key", 10, 58, column, true);
+  settingsRow("balance_vendor", "余额查询厂商",
+              balanceVendorName(providerForm_.value("balance_vendor", std::string())),
+              10, 122, width - 20, [this] { balanceVendorPicker(); });
   settingsRow("provider_advanced", "更多连接选项",
               providerAdvanced_ ? "已展开 · 返回此页后仍需保存"
                                 : "默认推理强度、兼容模式与厂商适配",
-              10, 122, width - 20, [this] {
+              10, 186, width - 20, [this] {
                 providerAdvanced_ = !providerAdvanced_;
                 build();
               });
-  int y = 186;
+  int y = 250;
   if (providerAdvanced_) {
     settingsRow("provider_effort", "默认推理强度",
                 effortLabel(providerForm_.value("default_effort", std::string())), 10, y,
