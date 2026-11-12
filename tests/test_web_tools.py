@@ -17,10 +17,14 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         arguments={'query':'fixture search'}
         if self.mode=='image': name='web_read_image';arguments={'page_id':1,'link_id':1,'inspect':False}
         else:name='web_search'
-        if number==1 and self.mode not in ('direct','syntax'):
+        if (number==1 and self.mode not in ('direct','syntax')) or (self.mode=='long' and number<=26):
             if anthropic: answer={'type':'message','role':'assistant','content':[{'type':'tool_use','id':'call_1','name':name,'input':arguments}],'stop_reason':'tool_use','usage':{'input_tokens':8,'output_tokens':2}}
             elif chat: answer={'choices':[{'index':0,'message':{'role':'assistant','content':None,'tool_calls':[{'id':'call_1','type':'function','function':{'name':name,'arguments':json.dumps(arguments)}}]},'finish_reason':'tool_calls'}],'usage':{'prompt_tokens':8,'completion_tokens':2}}
             else:answer={'status':'completed','output':[{'type':'function_call','id':'fc1','call_id':'call_1','name':name,'arguments':json.dumps(arguments)}],'usage':{'input_tokens':8,'output_tokens':2}}
+            if self.mode=='long':
+                if anthropic:answer['content'][0]['id']='call_'+str(number)
+                elif chat:answer['choices'][0]['message']['tool_calls'][0]['id']='call_'+str(number)
+                else:answer['output'][0].update(id='fc'+str(number),call_id='call_'+str(number))
         else:
             text='![fixture](penchat-image:img_1)' if self.mode=='image' else 'Fixture answer [source](https://example.org/)'
             if self.mode=='syntax':text='Useful preface\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="web_open">\n{"url":"https://example.org/"}'
@@ -90,6 +94,20 @@ while True:
                 prompt=request['messages'][0]['content'] if protocol=='chat' else request['system' if protocol=='anthropic' else 'instructions']
                 self.assertEqual(prompt.count('PenChat_APPLICATION_RULES_V1'),1)
                 self.assertEqual(prompt.count(model['system_prompt']),1)
+            if mode=='long':
+                self.assertEqual(len(Fixture.requests),27)
+                for request in Fixture.requests:
+                    self.assertEqual(len(request['tools']),6)
+                    self.assertNotIn('tool_choice',request)
+                self.assertEqual(sum(e['type']=='done' for e in data),1)
+                self.assertFalse(any(e['type'] in ('network_error','exception') for e in data),data)
+                state=next(e['data'] for e in data if e['type']=='response_state')
+                self.assertEqual(state['output'],'Fixture answer [source](https://example.org/)')
+                self.assertEqual(len(state['metadata']['web_records']),26)
+                self.assertEqual(state['metadata']['tool_rounds'],27)
+                self.assertEqual(state['metadata']['usage']['output_tokens'],56)
+                self.assertEqual(len({r['call_id'] for r in state['metadata']['web_records']}),26)
+                return
             if mode=='syntax':
                 self.assertEqual(len(Fixture.requests),1)
                 self.assertEqual(sum(e['type']=='done' for e in data),1)
@@ -123,6 +141,10 @@ while True:
                 with self.subTest(protocol=protocol,stream=stream):self.run_case(protocol,stream)
     def test_direct_no_search(self):self.run_case('chat',mode='direct')
     def test_text_model_inline_image(self):self.run_case('responses',mode='image')
+    def test_no_answer_wide_call_count_limit(self):
+        for protocol in ('responses','chat','anthropic'):
+            for stream in (True,False):
+                with self.subTest(protocol=protocol,stream=stream):self.run_case(protocol,stream,mode='long')
     def test_tool_syntax_is_ordinary_text(self):
         for protocol in ('responses','chat','anthropic'):
             for stream in (True,False):

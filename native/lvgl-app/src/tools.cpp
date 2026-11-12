@@ -317,7 +317,6 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
   std::set<std::string> calls;
   const auto start = ticks();
   int64_t toolTime = 0, firstBody = 0;
-  unsigned operations = 0;
   WebProcess web(model.at("web_binary").get<std::string>());
   int toolTimeout = 15000;
   Json seedUrls = Json::array();
@@ -387,13 +386,15 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
   };
   try {
     validateToolModel(model);
-    for (unsigned round = 0; round < 8; ++round) {
+    // A tool-using answer ends when the model answers, not at an arbitrary
+    // request count. Cancellation, timeout and context bounds still apply.
+    for (uint64_t round = 0;; ++round) {
       if (cancel)
         throw std::runtime_error("cancelled");
       const auto remaining = int64_t(apiOptions(model).timeout) * 1000 - (ticks() - start);
       if (remaining <= 0)
         throw std::runtime_error("本次请求已超时");
-      model["web_tools"] = round < 7;
+      model["web_tools"] = true;
       model["tool_remaining_ms"] = remaining;
       checkContextResources(input);
       if (modelContextEstimate(input, model) > size_t(contextBudget(model)))
@@ -474,8 +475,6 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
         events.push("done", {{"generation", generation}});
         return;
       }
-      if (round == 7)
-        throw std::runtime_error("已达到工具续答次数上限");
       auto wire = roundMeta.value("tool_wire", Json::array());
       if (wire.empty())
         throw std::runtime_error("工具调用缺少完整续传内容");
@@ -488,8 +487,6 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
       for (const auto &call : requested) {
         if (cancel)
           throw std::runtime_error("cancelled");
-        if (++operations > 24)
-          throw std::runtime_error("已达到工具操作上限");
         const auto id = call.at("id").get<std::string>(), name = call.at("name").get<std::string>();
         if (id.empty() || id.size() > 256 || !calls.insert(id).second)
           throw std::runtime_error("重复或无效的工具调用编号");
