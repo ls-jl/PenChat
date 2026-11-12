@@ -1619,11 +1619,14 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
             asset = entry;
         const auto path = asset.is_object() ? asset.value("path", std::string()) : std::string();
         if (!path.empty()) {
-          auto h = box(parent, 0, 0, width, std::min(240, std::max(100, screen_.height / 3)),
+          // New flex children have no resolved height until LVGL lays them out.
+          // Use the intended viewport size for decoding, never that transient 0.
+          const int imageHeight = std::min(240, std::max(100, screen_.height / 3));
+          auto h = box(parent, 0, 0, width, imageHeight,
                        theme::background);
           lv_obj_set_scrollable(h, false);
           image(
-              h, path, 0, 0, width, lv_obj_get_height(h),
+              h, path, 0, 0, width, imageHeight,
               [this, path] { requestImageViewer(path); }, false, true);
           auto caption=button(
               parent, r.text.empty() ? "图片来源" : r.text, 0, 0, width, 44,
@@ -1633,7 +1636,7 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
               },
               theme::background, LV_TEXT_ALIGN_LEFT);
           readLinkText(lv_obj_get_child(caption,0),r.text.empty()?"图片来源":r.text,asset.value("source_url",std::string()));
-          const auto key=images_.request(path,width,lv_obj_get_height(h),true);
+          const auto key=images_.request(path,width,imageHeight,true);
           auto retry=button(parent,"重试读取图片",0,0,width,44,[this,path]{
             images_.retry(path);if(view_=="chat")renderMessages(false,true);else build();
           },theme::background,LV_TEXT_ALIGN_LEFT);
