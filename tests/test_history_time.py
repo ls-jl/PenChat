@@ -29,8 +29,8 @@ def shot(a,name):
 def mode(a,key,w,h):
     a.to_chat();a.open_settings();a.setting('history_time');t.wait_for(lambda:a.diag()['modal'])
     shot(a,f'{w}-time-picker')
-    index={'time':0,'title':1,'off':2}[key];width=(w-162)//3
-    a.tap(84+16+index*(width+12)+width//2,90)
+    from choice_ui import select
+    select(a,key)
     t.wait_for(lambda:not a.diag()['modal']);a.to_chat();a.open_navigation()
 
 def run(w,h):

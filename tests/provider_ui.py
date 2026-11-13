@@ -14,7 +14,8 @@ def activate(app,key,tap=True):
         x=(v[0]+v[2])//2;start=v[1]+(v[3]-v[1])*3//4 if bounds[3]>v[3] else v[1]+(v[3]-v[1])//4
         delta=-min(110,(v[3]-v[1])//2) if bounds[3]>v[3] else min(110,(v[3]-v[1])//2)
         for step in range(7):app.send('touch',x=x,y=start+delta*step//6,pressed=True);time.sleep(.02)
-        app.send('touch',x=x,y=start+delta,pressed=False);time.sleep(.12)
+        time.sleep(.16) # Settle the reader before release, avoiding test-only fling oscillation.
+        app.send('touch',x=x,y=start+delta,pressed=False);time.sleep(.16)
     raise AssertionError(('Unreachable Provider control',key,bounds,v))
 
 

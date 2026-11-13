@@ -103,7 +103,9 @@ def run(w,h):
             assert (p/'original.png').exists() and (p/'assets/photo.png').exists()
             shot(a,f'{w}-sent-archived')
             # Default edit policy persists, and no warning appears on next edit.
-            a.open_settings();a.setting('message_edit');shot(a,f'{w}-default-policy');a.tap(84+16+(w-162)//3+12+(w-162)//6,h-98)
+            a.open_settings();a.setting('message_edit');shot(a,f'{w}-default-policy')
+            from choice_ui import select
+            select(a,'archive')
             with sqlite3.connect(p/'penchat.db') as db:assert json.loads(db.execute("select value_json from app_settings where key='message_edit_default'").fetchone()[0])=='archive'
             a.to_chat()
             edited_id=next(id for id,role,text in rows(p) if text=='Edited and sent')

@@ -83,19 +83,9 @@ void App::messageEditWarning(const std::string &id) {
   button(modal_,"继续",26+width,screen_.height-66,width,44,[this,id]{events_.push("message_begin",{{"session",session_},{"id",id},{"archive",false}});});
 }
 void App::messageEditDefaultPicker() {
-  modal("编辑消息", "仅在点击发送时覆盖后续对话。取消编辑不会修改原记录。选择默认处理方式后，编辑前不再询问。");
-  auto selected=db_.settings().value("message_edit_default",std::string("ask"));
-  const std::vector<std::pair<std::string,std::string>> modes={{"ask","每次询问"},{"archive","发送时先归档"},{"overwrite","发送时直接覆盖"}};
-  const int w=(screen_.width-162)/3;
-  lv_obj_update_layout(modalScroll_);
-  auto description=lv_obj_get_child(modalScroll_,0);
-  const int optionsY=lv_obj_get_height(description)+12;
-  for(size_t i=0;i<modes.size();++i) {
-    auto b=button(layout().compact()?modalScroll_:modal_,modes[i].second,
-      layout().compact()?4:16+i*(w+12),layout().compact()?optionsY+int(i)*48:screen_.height-120,
-      layout().compact()?layout().modalWidth()-28:w,44,[this,key=modes[i].first]{db_.setting("message_edit_default",key);build();});
-    this->selected(b,modes[i].first==selected);
-  }
+  choiceMenu("message_edit", {{"ask","每次询问"},{"archive","发送时先归档"},{"overwrite","发送时直接覆盖"}},
+    db_.settings().value("message_edit_default",std::string("ask")),
+    [this](const std::string &key){db_.setting("message_edit_default",key);build();});
 }
 void App::beginMessageEdit(const std::string &id, bool archive) {
   if(generating_||contextBusy_||imageStoreBusy_||messageEditBusy_||!messageEdit_.empty())return;

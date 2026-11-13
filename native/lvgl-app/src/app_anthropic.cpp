@@ -2,16 +2,8 @@
 #include "context.hpp"
 namespace penchat {
 void App::protocolPicker() {
-  modal("选择接口", "");
-  lv_obj_update_layout(modalScroll_);
-  const auto current = providerForm_.value("api", std::string("responses"));
-  int y = 0;
-  for (const auto &entry : {std::make_pair("responses", "Responses"),
-                            std::make_pair("chat", "Chat Completions"),
-                            std::make_pair("anthropic", "Anthropic Messages")}) {
-    const std::string key = entry.first, title = entry.second;
-    button(modalScroll_, std::string(current == key ? "● " : "○ ") + title, 4, y,
-           lv_obj_get_width(modalScroll_)-8, 44, [this, key] {
+  choiceMenu("protocol", {{"responses","Responses"},{"chat","Chat Completions"},{"anthropic","Anthropic Messages"}},
+    providerForm_.value("api",std::string("responses")), [this](const std::string &key) {
       const auto previous = providerForm_.value("api", std::string("responses"));
       const auto address = providerForm_.value("baseURL", std::string());
       if (address.empty() || (previous != "anthropic" && address == "https://api.openai.com/v1") ||
@@ -19,9 +11,7 @@ void App::protocolPicker() {
         providerForm_["baseURL"] = key == "anthropic" ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1";
       if (providerForm_.value("name", std::string()) == "OpenAI" && key == "anthropic") providerForm_["name"] = "Anthropic";
       providerForm_["api"] = key; build();
-    }, theme::surface, LV_TEXT_ALIGN_LEFT);
-    y += 48;
-  }
+    });
 }
 void App::anthropicConnectionPage() {
   pageHeader("Anthropic 连接设置");

@@ -124,20 +124,9 @@ void App::tickTitles() {
   });
 }
 void App::historyTimePicker() {
-  modal("历史时间显示","");
-  const auto selected=db_.settings().value("history_time_display",std::string("time"));
-  const char *keys[]={"time","title","off"};
-  const char *names[]={"时间显示优先","会话标题优先","关闭时间显示"};
-  const int width=(screen_.width-162)/3;
-  for(int i=0;i<3;++i) {
-    const std::string key=keys[i];
-    button(layout().compact()?modalScroll_:modal_,(selected==key?"● ":"○ ")+std::string(names[i]),
-           layout().compact()?4:16+i*(width+12),layout().compact()?i*48:65,
-           layout().compact()?layout().modalWidth()-28:width,layout().compact()?44:52,
-           [this,key]{events_.push("history_time_display",{{"mode",key}});});
-  }
-  label(layout().compact()?modalScroll_:modal_,"仅影响显示；发送与回复完成时间始终记录",
-        layout().compact()?4:16,layout().compact()?152:130,screen_.width-135,16,theme::muted);
+  choiceMenu("history_time", {{"time","时间显示优先"},{"title","会话标题优先"},{"off","关闭时间显示"}},
+    db_.settings().value("history_time_display",std::string("time")),
+    [this](const std::string &key){events_.push("history_time_display",{{"mode",key}});});
 }
 void App::historyCaption(lv_obj_t *parent,const Json &session,int x,int y,int width) {
   const auto text=session.value("title",std::string("对话"));

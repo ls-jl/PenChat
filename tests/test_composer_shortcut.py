@@ -31,11 +31,12 @@ def shortcut(a, double=True):
     return point
 
 def select_mode(a, mode):
+    from choice_ui import select
     a.open_settings()
     a.setting('composer_shortcut')
     assert a.diag()['modal']
     capture(a, OUT/f"{a.diag()['width']}-settings-{mode}.png")
-    a.tap(a.diag()['width']//2, 66+52*['auto','manual','off'].index(mode))
+    select(a,mode)
     t.wait_for(lambda:not a.diag()['modal'])
     with sqlite3.connect(a.directory/'penchat.db') as db:
         assert json.loads(db.execute("select value_json from app_settings where key='landscape_composer_shortcut'").fetchone()[0]) == mode

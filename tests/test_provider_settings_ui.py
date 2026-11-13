@@ -83,7 +83,8 @@ def run(width,height,port):
             assert restored[:2]==(mid,'Friendly name') and json.loads(restored[2])==saved
             activate(app,'添加 Provider');field(app,'name','Another provider');field(app,'apiKey','fixture-key');field(app,'baseURL',base)
             activate(app,'provider-protocol');capture(app,OUT,f'{width}-protocols')
-            app.tap(220,160);assert app.diag()['provider_protocol']=='anthropic'
+            from choice_ui import select
+            select(app,'anthropic');assert app.diag()['provider_protocol']=='anthropic'
             activate(app,'provider_advanced');activate(app,'anthropic_connection');capture(app,OUT,f'{width}-messages-connection');back(app)
             activate(app,'保存');assert app.diag()['view']=='provider_models';capture(app,OUT,f'{width}-empty-provider')
             other=rows("select id from providers where name='Another provider'")[0][0]

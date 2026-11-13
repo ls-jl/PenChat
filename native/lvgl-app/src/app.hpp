@@ -46,7 +46,12 @@ class App {
   lv_obj_t *contextMenuPanel_ = nullptr, *contextMenuList_ = nullptr;
   std::string contextMenuKind_;
   lv_obj_t *attachmentPanel_ = nullptr;
-  lv_obj_t *contextMenu(const std::string &kind, int rows);
+  lv_obj_t *contextMenu(const std::string &kind, int rows, int width = 0);
+  std::map<std::string, lv_obj_t *> choiceActions_;
+  void choiceMenu(const std::string &kind,
+                  const std::vector<std::pair<std::string, std::string>> &options,
+                  const std::string &current,
+                  std::function<void(const std::string &)> apply);
   void selected(lv_obj_t *object, bool value);
   bool popupTouch(const Json &message);
   bool keepChatEditor() const;

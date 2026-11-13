@@ -48,7 +48,8 @@ def run(width, height):
             shot(app, f'{width}-catalog-adapters')
             # The list scrolls independently inside the dialog; first choice
             # remains automatic rather than treating a proxy as an official host.
-            app.tap(300,64)
+            from choice_ui import select
+            select(app,'auto')
             assert app.diag()['view']=='provider'
             app.page_action('保存')
         finally: app.close()

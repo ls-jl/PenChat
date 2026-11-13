@@ -9,19 +9,9 @@ Json App::webMetadata(const std::string &id) const {
   return found == webMessageMetadata_.end() ? Json::object() : found->second;
 }
 void App::webPolicyPicker() {
-  modal("新聊天联网搜索", "仅影响新建聊天；上拉新建继承上一会话。开启后由模型决定是否搜索。");
-  auto list = lv_obj_get_child(modal_, 1);
-  lv_obj_clean(list);
-  int y = 0;
-  for (const auto &entry :
-       {std::make_pair("on", "默认开启"), {"off", "默认关闭"}, {"recent", "使用最近一次状态"}}) {
-    const std::string key = entry.first;
-    button(list, entry.second, 4, y, screen_.width - 145, 44, [this, key] {
-      db_.setting("new_chat_web", key);
-      build();
-    });
-    y += 48;
-  }
+  choiceMenu("new_chat_web", {{"on","默认开启"},{"off","默认关闭"},{"recent","使用最近一次状态"}},
+    db_.settings().value("new_chat_web",std::string("on")),
+    [this](const std::string &key){db_.setting("new_chat_web",key);build();});
 }
 void App::cancelWebReader() {
   webReaderCancel_ = true;

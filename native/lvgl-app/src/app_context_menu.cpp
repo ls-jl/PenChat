@@ -35,7 +35,29 @@ void App::selected(lv_obj_t *object,bool value) {
     attachIcon(mark,"check",theme::accent);
   }
 }
-lv_obj_t *App::contextMenu(const std::string &kind,int rows) {
+void App::choiceMenu(const std::string &kind,
+                     const std::vector<std::pair<std::string,std::string>> &options,
+                     const std::string &current,
+                     std::function<void(const std::string &)> apply) {
+  int width=224;
+  for(const auto &option:options) {
+    lv_point_t measured{};
+    lv_text_get_size(&measured,option.second.c_str(),font(20),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+    width=std::max(width,int(measured.x)+72);
+  }
+  auto list=contextMenu("choice:"+kind,int(options.size()),std::min(440,width));
+  const int rowHeight=layout().portrait()?theme::portraitPopupRowHeight:theme::popupRowHeight;
+  int y=0;
+  for(const auto &option:options) {
+    const auto key=option.first;
+    auto row=button(list,option.second,0,y,lv_obj_get_width(list),rowHeight-4,
+      [this,key,apply]{closeHistoryContext();apply(key);},theme::popup,LV_TEXT_ALIGN_LEFT);
+    selected(row,key==current);stylePopupRow(row);
+    choiceActions_[key]=row;
+    y+=rowHeight;
+  }
+}
+lv_obj_t *App::contextMenu(const std::string &kind,int rows,int width) {
   readReset();closeAttachments();resetPull();
   if(modal_)lv_obj_delete(modal_);
   contextMenuKind_=kind;
@@ -50,6 +72,7 @@ lv_obj_t *App::contextMenu(const std::string &kind,int rows) {
     if(lv_event_get_code(event)==LV_EVENT_DELETE && lv_event_get_target_obj(event)==lv_event_get_current_target_obj(event)) {
       self->modal_=self->modalScroll_=self->contextMenuPanel_=self->contextMenuList_=nullptr;
       self->contextMenuKind_.clear();self->contextMenuOpening_=false;
+      self->choiceActions_.clear();
       self->historyActions_.clear();self->historyContextId_.clear();
       self->refreshHistoryHighlight();
       self->messageActions_.clear();self->messageContextId_.clear();self->messageContextText_.clear();
@@ -61,7 +84,7 @@ lv_obj_t *App::contextMenu(const std::string &kind,int rows) {
   const int availableHeight=keepChatEditor()?editorLayout().panelTop:screen_.height;
   const LayoutRect anchor{lastTouch_.value("x",screen_.width/2),lastTouch_.value("y",screen_.height/2),1,1};
   const auto area=placeContextPopup(screen_.width,screen_.height,roundedDisplay_,anchor,
-                                   portrait?320:224,rows*rowHeight+2*padding,availableHeight);
+                                   width>0?width:portrait?320:224,rows*rowHeight+2*padding,availableHeight);
   auto panel=box(layer,area.x,area.y,area.width,area.height,theme::popup);
   contextMenuPanel_=panel;stylePopupPanel(panel,portrait);lv_obj_set_scrollable(panel,false);
   auto list=box(panel,padding,padding,area.width-2*padding,

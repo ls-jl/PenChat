@@ -3,20 +3,11 @@
 #include <cstdlib>
 namespace penchat {
 void App::balanceVendorPicker() {
-  modal("余额查询厂商", "仅用于余额查询，不改变聊天接口；保存服务商后生效。");
-  lv_obj_update_layout(modalScroll_);
-  auto explanation = lv_obj_get_child(modalScroll_, 0);
-  int y = lv_obj_get_y(explanation) + lv_obj_get_height(explanation) + 12;
-  const auto selected = providerForm_.value("balance_vendor", std::string());
-  for (const std::string vendor : {"", "deepseek", "kimi", "siliconflow", "302ai"}) {
-    auto row = button(modalScroll_, balanceVendorName(vendor), 4, y,
-                      lv_obj_get_width(modalScroll_) - 8, 48, [this, vendor] {
-      providerForm_["balance_vendor"] = vendor;
-      build();
-    }, theme::surface, LV_TEXT_ALIGN_LEFT);
-    this->selected(row,vendor == selected);
-    y += 56;
-  }
+  std::vector<std::pair<std::string,std::string>> options;
+  for(const std::string vendor:{"","deepseek","kimi","siliconflow","302ai"})
+    options.push_back({vendor,balanceVendorName(vendor)});
+  choiceMenu("balance_vendor",options,providerForm_.value("balance_vendor",std::string()),
+    [this](const std::string &key){providerForm_["balance_vendor"]=key;build();});
 }
 void App::cancelBalances() {
   ++balanceGeneration_;

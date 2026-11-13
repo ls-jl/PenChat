@@ -163,24 +163,12 @@ void App::providerPage() {
                 effortLabel(providerForm_.value("default_effort", std::string())), 10, y,
                 width - 20, [this] {
                   const auto current = providerForm_.value("default_effort", std::string());
-                  modal("默认推理强度", "");
-                  lv_obj_update_layout(modalScroll_);
-                  const int span = lv_obj_get_width(modalScroll_) - 16;
-                  int at = 0;
-                  std::vector<std::string> values{""};
-                  values.insert(values.end(), effortOrder().begin(), effortOrder().end());
-                  for (const auto &value : values) {
-                    button(
-                        modalScroll_,
-                        std::string(value == current ? "● " : "○ ") + effortLabel(value), 4, at,
-                        span, 44,
-                        [this, value] {
-                          providerForm_["default_effort"] = value;
-                          build();
-                        },
-                        theme::surface, LV_TEXT_ALIGN_LEFT);
-                    at += 48;
-                  }
+                  std::vector<std::pair<std::string,std::string>> options;
+                  options.push_back({"",effortLabel("")});
+                  for(const auto &key:effortOrder())options.push_back({key,effortLabel(key)});
+                  choiceMenu("provider_effort",options,current,[this](const std::string &key) {
+                    providerForm_["default_effort"]=key;build();
+                  });
                 });
     y += 64;
     settingsRow("api_compatibility", "API 兼容模式",

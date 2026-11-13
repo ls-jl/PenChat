@@ -89,31 +89,15 @@ void App::presetsPage() {
 }
 void App::presetChoices(const std::string &field) {
   const bool modelField = field == "model_id" || field == "compression_model_id";
-  modal(modelField ? "预设模型" : field == "effort" ? "预设推理强度" : "系统提示词", "");
-  auto panel = lv_obj_get_child(modal_, 1);
-  lv_obj_clean(panel);
-  lv_obj_set_scroll_dir(panel, LV_DIR_VER);
-  lv_obj_set_scroll_elastic(panel, false);
-  lv_obj_set_scroll_momentum(panel, false);
-  lv_obj_set_height(lv_obj_get_child(modal_, -1), 44);
-  int y = 0;
-  auto option = [&](const std::string &value, const std::string &name) {
-    button(panel, (presetForm_.value(field, std::string()) == value ? "● " : "○ ") + name,
-           4, y, layout().portrait()?layout().modalWidth()-28:screen_.width-144, 44, [this, field, value] {
-             presetForm_[field] = value;
-             build();
-           }, theme::surface, LV_TEXT_ALIGN_LEFT);
-    y += 48;
-  };
+  std::vector<std::pair<std::string,std::string>> options;
+  auto option=[&](const std::string &key,const std::string &name){options.push_back({key,name});};
   if (field == "prompt_mode") {
     option("inherit", "沿用会话"); option("custom", "自定义"); option("clear", "清空");
   } else if (modelField) {
     option("", field == "compression_model_id" ? "跟随聊天模型" : "沿用会话");
     for (const auto &provider : db_.providers()) {
-      label(panel, provider.value("name", std::string()), 12, y, screen_.width - 160, 17, theme::muted);
-      y += 26;
       for (const auto &m : db_.models()) if (m["provider_id"] == provider["id"])
-        option(m["id"], m.value("display_name",m.value("name", std::string())));
+        option(m["id"], m.value("display_name",m.value("name", std::string()))+" · "+provider.value("name",std::string()));
     }
   } else {
     option("", "沿用会话");
@@ -126,6 +110,8 @@ void App::presetChoices(const std::string &field) {
     else choices = {"api_default"};
     for (const auto &key : choices) option(key, key == "api_default" ? "API 默认（不传参数）" : effortLabel(key));
   }
+  choiceMenu("preset_"+field,options,presetForm_.value(field,std::string()),
+    [this,field](const std::string &key){presetForm_[field]=key;build();});
 }
 void App::presetEditor() {
   pageHeader("编辑预设");
@@ -160,9 +146,10 @@ void App::presetEditor() {
   primary(save);
   auto action = [&](const std::string &text, int x, int y, std::function<void()> callback) {
     auto separator = text.find("：");
-    if (separator != std::string::npos)
-      fieldButton(pageContent_, text.substr(0, separator), text.substr(separator + 3), x, y, column, callback);
-    else {
+    if (separator != std::string::npos) {
+      auto field=fieldButton(pageContent_, text.substr(0, separator), text.substr(separator + 3), x, y, column, callback);
+      pageActions_["preset:"+text.substr(0,separator)]=field;
+    } else {
       auto object = button(pageContent_, text, x, y, column, 48, callback, theme::surface, LV_TEXT_ALIGN_LEFT);
       if (text == "删除预设") lv_obj_set_style_text_color(lv_obj_get_child(object, 0), lv_color_hex(theme::danger), 0);
     }

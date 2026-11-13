@@ -4,13 +4,14 @@ import json, os, pathlib, signal, sqlite3, tempfile, time
 from test_lvgl_app import Native, ROOT, wait_for
 from test_reasoning_ui import seed
 from settings_ui import locate
+from choice_ui import select
 
 BINARY = pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY', ROOT/'build/host/penchat-lvgl'))
 OUT = pathlib.Path(os.environ.get('PENCHAT_SETTINGS_ARTIFACTS', ROOT/'.work/settings-ui'))
 OUT.mkdir(parents=True, exist_ok=True)
 SWITCHES = ('image_auto_send', 'auto_title', 'auto_context', 'persistent_exports')
 ROWS = ('models','presets','reasoning','image_auto_send','auto_title','title_model',
-        'auto_context','archives','history_time','message_edit','font_size','keyboard','pull_sensitivity','compression_threshold','composer_shortcut','transfer','persistent_exports','http_idle','about','feedback','update','web_policy')
+        'auto_context','archives','history_time','message_edit','retry_archive_prompt','font_size','keyboard','pull_sensitivity','compression_threshold','composer_shortcut','transfer','persistent_exports','http_idle','about','feedback','update','web_policy')
 
 def shot(app, name):
     path = app.directory/'lvgl-diagnostic.png'
@@ -83,7 +84,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-settings-') as folder:
         app.tap(800,230);assert app.diag()['scroll_y']==before
         app.setting('title_model');app.tap(250,40)
         assert config(directory)['title_model_id']=='' and app.diag()['scroll_y']==before
-        app.setting('reasoning');shot(app,'reasoning-picker');app.tap(800,96)
+        app.setting('reasoning');shot(app,'reasoning-picker');select(app,'always')
         assert config(directory)['reasoning_display']=='always'
         for name,view in [('archives','archives'),('presets','presets'),('transfer','transfer'),('models','provider')]:
             locate(app.diag,app.settings_swipe,name);before=app.diag()['scroll_y']

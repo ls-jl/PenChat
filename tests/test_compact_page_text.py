@@ -5,6 +5,7 @@ import test_lvgl_app as ui
 from test_reasoning_ui import seed
 from provider_ui import activate, capture
 from settings_ui import locate
+from choice_ui import select,dismiss
 
 OUT=ui.ROOT/'.work/compact-page-text';OUT.mkdir(parents=True,exist_ok=True)
 ui.port=1
@@ -48,16 +49,15 @@ for width,height in [(640,260),(640,360)]:
             activate(a,'model-edit:a');capture(a,OUT,f'{width}x{height}-model-editor')
             a.to_chat();a.open_settings();a.setting('message_edit')
             capture(a,OUT,f'{width}x{height}-edit-options')
-            a.tap(width-70,height-44)
+            dismiss(a)
             a.to_chat();a.open_settings();a.setting('archives')
             capture(a,OUT,f'{width}x{height}-archives')
             view=next(iter(a.diag()['archive_views'].values()))
             assert view[0]<width//2 and view[2]-view[0]+1>120,view
             a.to_chat();a.open_settings();a.setting('reasoning')
             capture(a,OUT,f'{width}x{height}-reasoning-options')
-            # The first choice lives in the modal reader rather than three
-            # undersized columns. It still applies its original persisted value.
-            a.tap(300,64);ui.wait_for(lambda:not a.diag()['modal'])
+            # The content-sized floating menu keeps the original saved value.
+            select(a,'collapsed')
             with sqlite3.connect(p/'penchat.db') as db:
                 assert json.loads(db.execute("select value_json from app_settings where key='reasoning_display'").fetchone()[0])=='collapsed'
             a.setting('font_size');capture(a,OUT,f'{width}x{height}-font')

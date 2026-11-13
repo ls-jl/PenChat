@@ -204,17 +204,10 @@ void App::modelCapabilityRows(int y) {
   }
 }
 void App::modelAdapterPicker() {
-  modal("厂商参数适配", "自定义中转默认只发标准字段；明确选厂商后才发送它的扩展。不自动重试或切换协议。");
-  auto list = lv_obj_get_child(modal_, 1);
-  lv_obj_clean(list);
-  int y = 0;
-  const auto current = providerForm_.value("model_adapter", std::string("auto"));
-  for (const auto &entry : {std::make_pair("auto", "自动 · 仅信任官方地址"), {"standard", "仅标准参数"}, {"deepseek", "DeepSeek"}, {"qwen", "Qwen"}, {"glm", "GLM"}, {"kimi", "Kimi"}, {"minimax", "MiniMax"}}) {
-    const std::string key = entry.first;
-    button(list, std::string(current == key ? "● " : "○ ") + entry.second, 4, y, screen_.width - 145, 44,
-           [this, key] { providerForm_["model_adapter"] = key; build(); }, theme::surface, LV_TEXT_ALIGN_LEFT);
-    y += 48;
-  }
+  choiceMenu("model_adapter", {{"auto","自动 · 仅信任官方地址"},{"standard","仅标准参数"},
+      {"deepseek","DeepSeek"},{"qwen","Qwen"},{"glm","GLM"},{"kimi","Kimi"},{"minimax","MiniMax"}},
+    providerForm_.value("model_adapter",std::string("auto")),
+    [this](const std::string &key){providerForm_["model_adapter"]=key;build();});
 }
 void App::compressionSettings() {
   const int percent = compressionPercent(db_.settings());

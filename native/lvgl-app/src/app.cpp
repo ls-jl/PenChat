@@ -2430,22 +2430,9 @@ void App::fontSizePage() {
   updateFontPreview(readingFontDraft_);
 }
 void App::reasoningDisplayPicker() {
-  modal("自动展开思考过程", "");
-  const std::pair<const char *, const char *> choices[] = {
-      {"collapsed", "不展开"},
-      {"during", "思考完毕后收起"},
-      {"always", "始终展开"}};
-  const auto mode =
-      db_.settings().value("reasoning_display", std::string("collapsed"));
-  const int choiceWidth = (screen_.width - 92 - 70) / 3;
-  for (int i = 0; i < 3; ++i) {
-    const std::string key = choices[i].first;
-    button(layout().compact()?modalScroll_:modal_, (mode == key ? "● " : "○ ") + std::string(choices[i].second),
-           layout().compact()?4:16+i*(choiceWidth+12), layout().compact()?i*48:65,
-           layout().compact()?layout().modalWidth()-28:choiceWidth, layout().compact()?44:52, [this, key] {
-             events_.push("reasoning_display", {{"mode", key}});
-           });
-  }
+  choiceMenu("reasoning_display", {{"collapsed","不展开"},{"during","思考完毕后收起"},{"always","始终展开"}},
+    db_.settings().value("reasoning_display",std::string("collapsed")),
+    [this](const std::string &key){events_.push("reasoning_display",{{"mode",key}});});
 }
 void App::goBack() {
   if (view_ == "balances") { show("chat"); toggleNavigation(); return; }
@@ -3872,7 +3859,8 @@ Json App::diagnostics() const {
                            {"y", (area.y1 + area.y2) / 2}});
   }
   auto bounds=[](lv_obj_t *object)->Json {if(!object)return Json();lv_area_t a;lv_obj_get_coords(object,&a);return Json::array({a.x1,a.y1,a.x2,a.y2});};
-  Json historyCaptions=Json::object(),historyActions=Json::object();
+  Json historyCaptions=Json::object(),historyActions=Json::object(),choiceActions=Json::object();
+  for(const auto &entry:choiceActions_)choiceActions[entry.first]={{"bounds",bounds(entry.second)},{"selected",lv_obj_has_state(entry.second,LV_STATE_CHECKED)}};
   for(const auto &entry:historyCaptions_) {
     auto title=entry.second.title;auto time=entry.second.time;
     historyCaptions[entry.first]={{"title_bounds",bounds(title)},{"time_bounds",bounds(time)},
@@ -3991,7 +3979,7 @@ Json App::diagnostics() const {
       {"popup", popupKind_},
       {"popup_bounds",attachmentPanel_?bounds(attachmentPanel_):Json()},
       {"context_menu",{{"kind",contextMenuKind_},{"bounds",contextMenuPanel_?bounds(contextMenuPanel_):Json()},
-        {"list",contextMenuList_?bounds(contextMenuList_):Json()},{"opening",contextMenuOpening_}}},
+        {"list",contextMenuList_?bounds(contextMenuList_):Json()},{"opening",contextMenuOpening_},{"choices",choiceActions}}},
       {"has_conversation_content", hasConversationContent_},
       {"effort_gauge", sessionPreferences_.value("gauge", !effortMemory_.empty())},
       {"session_preferences", sessionPreferences_},
