@@ -131,10 +131,13 @@ void App::historyTimePicker() {
   const int width=(screen_.width-162)/3;
   for(int i=0;i<3;++i) {
     const std::string key=keys[i];
-    button(modal_,(selected==key?"● ":"○ ")+std::string(names[i]),16+i*(width+12),65,width,52,
+    button(layout().compact()?modalScroll_:modal_,(selected==key?"● ":"○ ")+std::string(names[i]),
+           layout().compact()?4:16+i*(width+12),layout().compact()?i*48:65,
+           layout().compact()?layout().modalWidth()-28:width,layout().compact()?44:52,
            [this,key]{events_.push("history_time_display",{{"mode",key}});});
   }
-  label(modal_,"仅影响显示；发送与回复完成时间始终记录",16,130,screen_.width-135,16,theme::muted);
+  label(layout().compact()?modalScroll_:modal_,"仅影响显示；发送与回复完成时间始终记录",
+        layout().compact()?4:16,layout().compact()?152:130,screen_.width-135,16,theme::muted);
 }
 void App::historyCaption(lv_obj_t *parent,const Json &session,int x,int y,int width) {
   const auto text=session.value("title",std::string("对话"));
@@ -356,7 +359,8 @@ void App::archivesPage() {
   auto sessions = db_.sessions(archiveOffset_, true);
   if (sessions.empty())
     emptyState("没有归档会话", "长按历史对话可归档，在这里还原或删除。");
-  const bool portrait=layout().portrait();
+  // Keep archive titles above their actions on short landscape as well.
+  const bool portrait=layout().category()!=LayoutClass::WideLandscape;
   int y = 6;
   for (const auto &session : sessions) {
     auto id = session["id"].get<std::string>();

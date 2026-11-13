@@ -17,8 +17,16 @@ void App::arrangeModal() {
 }
 void App::portraitPage() {
   if (view_ == "balances") return; // The balance reader measures full-width rows itself.
+  // Short landscape has too little label width for the wide-screen two-column
+  // forms (especially after reserving switches and arrows). Reuse the measured
+  // single-column flow, not smaller type or clipped captions. Readers/grids keep
+  // their own layout; the font slider also keeps its endpoint labels together.
   const bool compactForm=layout().compact() &&
-      (view_=="provider" || view_=="model" || view_=="api_compatibility" || view_=="anthropic_connection");
+      (view_=="settings" || view_=="presets" || view_=="preset_edit" ||
+       view_=="keyboard_settings" || view_=="http_settings" ||
+       view_=="feedback" || view_=="update" || view_=="transfer" ||
+       view_=="provider" || view_=="model" || view_=="api_compatibility" ||
+       view_=="anthropic_connection");
   if(!pageContent_||!pageHeader_||(!layout().portrait()&&!compactForm)||view_=="provider_models"||view_=="album"||view_=="archives"||view_=="archive_chat"||(view_=="provider"&&providerForm_.empty()))return;
   lv_obj_update_layout(pageContent_);
   struct Item {lv_obj_t *o;int x,y;};std::vector<Item> items;
@@ -38,7 +46,10 @@ void App::portraitPage() {
       // Buttons and field rows keep their own interaction and state, only their
       // measured frame changes. Labels preserve the same typography.
       for(unsigned i=0;i<lv_obj_get_child_count(o);++i){auto child=lv_obj_get_child(o,i);
-        if(lv_obj_check_type(child,&lv_label_class))lv_obj_set_width(child,std::max(44,rowWidth-28));
+        if(lv_obj_check_type(child,&lv_label_class)) {
+          const int padding=lv_obj_get_style_align(child,LV_PART_MAIN)==LV_ALIGN_LEFT_MID?52:28;
+          lv_obj_set_width(child,std::max(44,rowWidth-padding));
+        }
       }
       for(auto &entry:settingsControls_)if(entry.second.row==o){
         auto &c=entry.second;lv_obj_set_width(c.title,rowWidth-80);lv_obj_set_width(c.detail,rowWidth-80);

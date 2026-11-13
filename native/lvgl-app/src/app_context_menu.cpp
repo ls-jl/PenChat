@@ -22,6 +22,9 @@ void App::selected(lv_obj_t *object,bool value) {
   lv_obj_set_style_bg_color(object,lv_color_hex(theme::surface),LV_STATE_CHECKED);
   auto caption=lv_obj_get_child(object,0);
   if(caption) {
+    // Newly created controls have not necessarily resolved their width yet.
+    // Measuring before layout collapsed captions to the 24px minimum ("...").
+    lv_obj_update_layout(object);
     lv_obj_set_width(caption,std::max(24,int(lv_obj_get_width(object))-52));
     lv_obj_align(caption,LV_ALIGN_LEFT_MID,36,0);
     lv_obj_set_style_text_color(caption,lv_color_hex(theme::text),0);

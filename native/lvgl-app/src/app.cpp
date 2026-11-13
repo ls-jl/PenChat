@@ -194,11 +194,15 @@ lv_obj_t *App::fieldButton(lv_obj_t *parent, const std::string &caption,
   auto object = button(parent, value, x, y, width, 48, std::move(action), theme::surface, LV_TEXT_ALIGN_LEFT);
   auto text = lv_obj_get_child(object, 0);
   lv_obj_set_style_text_font(text, font(19), 0);
-  lv_obj_set_height(text, 23);
-  lv_obj_align(text, LV_ALIGN_TOP_LEFT, 12, 23);
+  const int captionHeight = layout().compact() ? font(15)->line_height : 19;
+  const int valueHeight = layout().compact() ? font(19)->line_height : 23;
+  const int valueY = layout().compact() ? 3 + captionHeight + 2 : 23;
+  lv_obj_set_height(text, valueHeight);
+  lv_obj_align(text, LV_ALIGN_TOP_LEFT, 12, valueY);
   auto name = label(object, caption, 12, 3, width - 24, 15, theme::muted);
   lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(name, 19);
+  lv_obj_set_height(name, captionHeight);
+  if (layout().compact()) lv_obj_set_height(object, std::max(48, valueY + valueHeight + 3));
   lv_obj_set_clickable(name, false);
   if(layout().portrait())inputTarget(object,"field:"+caption+":"+std::to_string(inputOrdinal_-1),1);
   return object;
@@ -2395,16 +2399,18 @@ void App::fontSizePage() {
   pageAction("恢复默认", 96, 120, [this] { updateFontPreview(100); });
   primary(pageAction("保存", 0, 84, [this] { events_.push("reading_font_apply"); }));
   const int width = layout().contentWidth();
-  label(pageContent_, "聊天正文、思考过程与公式同步缩放；菜单和键盘保持原大小。",
+  auto description = label(pageContent_, "聊天正文、思考过程与公式同步缩放；菜单和键盘保持原大小。",
         10, 4, width - 20, 16, theme::muted);
-  fontPercentLabel_ = label(pageContent_, "", 10, 29, width - 20, 20);
+  lv_obj_update_layout(description);
+  const int extra = layout().compact() ? std::max(0, int(lv_obj_get_height(description))-19) : 0;
+  fontPercentLabel_ = label(pageContent_, "", 10, 29+extra, width - 20, 20);
   lv_obj_set_style_text_align(fontPercentLabel_, LV_TEXT_ALIGN_CENTER, 0);
-  label(pageContent_, "75%", 10, 59, 70, 18, theme::muted);
-  auto maximum = label(pageContent_, "150%", width - 80, 59, 70, 18, theme::muted);
+  label(pageContent_, "75%", 10, 59+extra, 70, 18, theme::muted);
+  auto maximum = label(pageContent_, "150%", width - 80, 59+extra, 70, 18, theme::muted);
   lv_obj_set_style_text_align(maximum, LV_TEXT_ALIGN_RIGHT, 0);
   fontSlider_ = lv_slider_create(pageContent_);
   lv_obj_remove_style_all(fontSlider_);
-  lv_obj_set_pos(fontSlider_, 100, 64);
+  lv_obj_set_pos(fontSlider_, 100, 64+extra);
   lv_obj_set_size(fontSlider_, width - 200, 16);
   lv_obj_set_ext_click_area(fontSlider_, 16);
   lv_slider_set_range(fontSlider_, 15, 30);
@@ -2420,7 +2426,7 @@ void App::fontSizePage() {
     app->updateFontPreview(lv_slider_get_value(app->fontSlider_) * 5);
   }, LV_EVENT_VALUE_CHANGED, this);
   fontPreview_ = label(pageContent_, "文字大小预览 Aa 123\n让阅读更轻松，按自己的习惯调整。",
-                        10, 104, width - 20, 21);
+                        10, 104+extra, width - 20, 21);
   updateFontPreview(readingFontDraft_);
 }
 void App::reasoningDisplayPicker() {
@@ -2434,8 +2440,9 @@ void App::reasoningDisplayPicker() {
   const int choiceWidth = (screen_.width - 92 - 70) / 3;
   for (int i = 0; i < 3; ++i) {
     const std::string key = choices[i].first;
-    button(modal_, (mode == key ? "● " : "○ ") + std::string(choices[i].second),
-           16 + i * (choiceWidth + 12), 65, choiceWidth, 52, [this, key] {
+    button(layout().compact()?modalScroll_:modal_, (mode == key ? "● " : "○ ") + std::string(choices[i].second),
+           layout().compact()?4:16+i*(choiceWidth+12), layout().compact()?i*48:65,
+           layout().compact()?layout().modalWidth()-28:choiceWidth, layout().compact()?44:52, [this, key] {
              events_.push("reasoning_display", {{"mode", key}});
            });
   }

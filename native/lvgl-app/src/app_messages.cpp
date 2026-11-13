@@ -87,8 +87,13 @@ void App::messageEditDefaultPicker() {
   auto selected=db_.settings().value("message_edit_default",std::string("ask"));
   const std::vector<std::pair<std::string,std::string>> modes={{"ask","每次询问"},{"archive","发送时先归档"},{"overwrite","发送时直接覆盖"}};
   const int w=(screen_.width-162)/3;
+  lv_obj_update_layout(modalScroll_);
+  auto description=lv_obj_get_child(modalScroll_,0);
+  const int optionsY=lv_obj_get_height(description)+12;
   for(size_t i=0;i<modes.size();++i) {
-    auto b=button(modal_,modes[i].second,16+i*(w+12),screen_.height-120,w,44,[this,key=modes[i].first]{db_.setting("message_edit_default",key);build();});
+    auto b=button(layout().compact()?modalScroll_:modal_,modes[i].second,
+      layout().compact()?4:16+i*(w+12),layout().compact()?optionsY+int(i)*48:screen_.height-120,
+      layout().compact()?layout().modalWidth()-28:w,44,[this,key=modes[i].first]{db_.setting("message_edit_default",key);build();});
     this->selected(b,modes[i].first==selected);
   }
 }
