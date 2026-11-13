@@ -289,6 +289,15 @@ class App {
   void selectMessageText(const std::string &text);
   void reasoningDisplayPicker();
   std::vector<lv_obj_t *> reasoningHeaders_;
+  struct ReasoningControl {
+    lv_obj_t *arrow=nullptr,*detail=nullptr,*wrap=nullptr;
+    std::string text;
+    int width=0,naturalHeight=0;
+    bool expanded=false;
+  };
+  std::map<std::string,ReasoningControl> reasoningControls_;
+  void toggleReasoning(const std::string &id, bool expanded);
+  std::map<std::string,lv_obj_t *> navigationFooter_;
   bool modelAdvanced_ = false, hasConversationContent_ = false;
   bool navigationPointerDown_ = false, navigationBackdrop_ = false;
   int navigationStartX_ = 0, navigationStartY_ = 0, navigationDistance_ = 0;

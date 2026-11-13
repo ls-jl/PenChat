@@ -72,7 +72,8 @@ int main(int argc, char **argv) {
       assert(!right.contains(l.split,100) && !left.contains(0,70));
     }
     // Portrait layouts use logical reading width, never physical axes or a
-    // tall-screen multiplier. Landscape geometry above remains unchanged.
+    // tall-screen multiplier. Portrait trigger travel is explicitly doubled;
+    // landscape geometry above remains unchanged.
     for (const auto size : {std::make_pair(568,1210),std::make_pair(600,1280)}) {
       const AppLayout page{size.first,size.second};
       const EditorLayout keyboard(size.first,size.second);
@@ -101,7 +102,7 @@ int main(int argc, char **argv) {
       for(const auto &action:keyboard.actions())assert(action.x>=0&&action.width>=44&&action.x+action.width<=size.first);
       const auto pull=pullGeometry({0,0,size.first,size.second},size.first,size.second,size.second-58);
       const auto shorter=pullGeometry({0,0,size.first,size.second/2},size.first,size.second,size.second/2-58);
-      assert(pull.fill+pull.start>210&&pull.fill+pull.start<250);
+      assert(pull.fill+pull.start>420&&pull.fill+pull.start<500);
       assert(pull.fill==shorter.fill&&pull.start==shorter.start);
     }
     for (const auto cfg : {Json::object(), Json{{"width",960},{"height",266}},
@@ -358,7 +359,9 @@ int main(int argc, char **argv) {
   assert(db.responseInput(session, assistant).size() == 1);
   auto imageSession = uid("session");
   auto imagePath = join(dir, "fixture.png");
-  atomicText(imagePath, "image fixture bytes");
+  // Request serialization validates actual image bytes, so use a real 1px PNG.
+  const char imageFixture[] = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90\x77\x53\xde\x00\x00\x00\x0c\x49\x44\x41\x54\x78\x9c\x63\x70\x68\x38\x00\x00\x02\x84\x01\x81\x26\x97\xa7\x2b\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82";
+  atomicText(imagePath,std::string(imageFixture,sizeof(imageFixture)-1));
   db.append(imageSession, "user", "",
             {{"path", imagePath}, {"source", "album"}});
   auto imageInput = db.responseInput(imageSession, "");

@@ -32,12 +32,15 @@ void App::balanceButton(lv_obj_t *parent,int x,int y,uint32_t background) {
 void App::openBalances() {
   if (navigationList_) navigationScroll_ = std::max(0, int(lv_obj_get_scroll_y(navigationList_)));
   closeNavigation(false);
-  auto list=contextMenu("balances",layout().portrait()?8:4,layout().portrait()?440:520);
+  auto list=contextMenu("balances",layout().portrait()?8:4,layout().portrait()?340:360);
   const int padding=layout().portrait()?8:4;
   const int width=lv_obj_get_width(contextMenuPanel_);
   auto title=label(contextMenuPanel_,"账户余额",padding+12,padding+10,width-152,21);
   lv_obj_set_height(title,font(21)->line_height);
-  balanceRefresh_=button(contextMenuPanel_,"刷新",width-padding-112,padding,112,44,[this]{refreshBalances();},theme::popup);
+  balanceRefresh_=button(contextMenuPanel_,"刷新",width-padding-112,padding,112,44,[this]{refreshBalances();},theme::surface);
+  lv_obj_set_style_radius(balanceRefresh_,22,0);
+  auto divider=box(contextMenuPanel_,padding+12,padding+49,width-2*padding-24,1,theme::border);
+  lv_obj_set_clickable(divider,false);lv_obj_set_scrollable(divider,false);
   lv_obj_set_y(list,padding+52);lv_obj_set_height(list,lv_obj_get_height(contextMenuPanel_)-2*padding-52);
   refreshBalances();
 }
@@ -122,15 +125,26 @@ void App::balancePage() {
     const auto vendor = objectField(provider, "metadata_json").value("balance_vendor", std::string());
     if (vendor.empty()) continue;
     ++count;
+    if(count>1){auto line=box(reader,left,y-10,width,1,theme::border);lv_obj_set_clickable(line,false);lv_obj_set_scrollable(line,false);}
     const auto id = provider.at("id").get<std::string>();
     auto found = balanceResults_.find(id);
     const bool have = found != balanceResults_.end() && found->second.value("identity", std::string()) == balanceIdentity(provider);
     const Json result = have ? found->second : Json::object();
-    auto caption = label(reader, provider.value("name", std::string("服务商")), left, y, width, 21);
-    lv_label_set_long_mode(caption, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_height(caption, font(21)->line_height);
-    y+=font(21)->line_height+8;
     const auto balances = result.value("balances", Json::array());
+    bool details=false;
+    for(const auto &money:balances)details=details||!money.at("details").empty();
+    const int captionY=y+(details?std::max(0,(44-int(font(18)->line_height))/2):0);
+    auto caption=label(reader,provider.value("name",std::string("服务商")),left,captionY,width-(details?52:0),18,theme::muted);
+    lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(caption,font(21)->line_height);
+    if(details) {
+      auto arrow=icon(reader,balanceExpanded_.count(id)?"chevron-down":"chevron-right",left+width-44,y,44,44,[this,id]{
+        if(balanceExpanded_.count(id))balanceExpanded_.erase(id);else balanceExpanded_.insert(id);
+        balancePage();
+      },theme::popup,theme::muted);
+      lv_obj_set_style_bg_color(arrow,lv_color_hex(theme::surface),LV_STATE_PRESSED);
+      balanceDetailActions_[id]=arrow;
+    }
+    y+=std::max(int(font(18)->line_height),details?44:0)+8;
     const bool pending = balancePending_.count(id);
     if (pending) text(balances.empty() ? "正在查询…" : "正在刷新，以下为上次结果", 17, theme::muted);
     else if (result.value("status", std::string()) == "error") {
@@ -151,16 +165,7 @@ void App::balancePage() {
       time_t seconds = result.at("queried_at").get<int64_t>() / 1000;
       tm local{}; char formatted[40]{};
       localtime_r(&seconds, &local); strftime(formatted, sizeof(formatted), "%Y-%m-%d %H:%M:%S", &local);
-      text(std::string("查询时间：") + formatted, 16, theme::muted);
-    }
-    bool details = false;
-    for (const auto &money : balances) details = details || !money.at("details").empty();
-    if (details) {
-      auto toggle = button(reader, balanceExpanded_.count(id) ? "收起明细" : "余额明细", left, y, width, 48, [this, id] {
-        if (balanceExpanded_.count(id)) balanceExpanded_.erase(id); else balanceExpanded_.insert(id);
-        balancePage();
-      });
-      balanceDetailActions_[id] = toggle; y += 56;
+      text(std::string("查询时间：") + formatted, 14, theme::muted);
     }
     y += 20;
   }

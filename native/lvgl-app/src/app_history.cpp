@@ -408,7 +408,7 @@ void App::openArchiveReader(const std::string &id) {
 void App::archiveReaderPage() {
   auto session=db_.sessionInfo(archiveReaderId_);
   pageHeader(session.empty()?"归档会话":session.value("title",std::string("归档会话")));
-  reasoningHeaders_.clear();expandedReasoning_.clear();archiveReaderMessages_.clear();
+  reasoningHeaders_.clear();reasoningControls_.clear();expandedReasoning_.clear();archiveReaderMessages_.clear();
   lv_obj_set_flex_flow(pageContent_,LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_all(pageContent_,8,0);
   lv_obj_set_style_pad_row(pageContent_,8,0);

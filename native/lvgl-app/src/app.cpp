@@ -1015,10 +1015,10 @@ void App::clear() {
   transferProgress_ = nullptr;
   scanWarning_ = scanHolder_ = scanImage_ = scanLabel_ = scanUse_ = scanHint_ = nullptr;
   chatHeader_ = chatTitle_ = nullptr;
-  historyRows_.clear();
+  historyRows_.clear();navigationFooter_.clear();
   historyCaptions_.clear();historyActions_.clear();
   historyContextId_.clear();
-  reasoningHeaders_.clear();
+  reasoningHeaders_.clear();reasoningControls_.clear();
   if (navigationList_)
     navigationScroll_ = std::max(0, int(lv_obj_get_scroll_y(navigationList_)));
   navigation_ = navigationList_ = navigationActive_ = nullptr;
@@ -1852,24 +1852,25 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
           expanded = manual->second;
         if (expanded)
           expandedReasoning_.insert(id);
-        auto toggle = [this, id, expanded, source] {
-          events_.push(
-              "reasoning_toggle",
-              {{"id", id}, {"expanded", !expanded}, {"session", source}});
+        auto toggle = [this, id, source] {
+          events_.push("reasoning_toggle",{{"id",id},{"session",source}});
         };
-        icon(header,
-             expandedReasoning_.count(id) ? "chevron-down" : "chevron-right", 0,
-             0, 44, 44, toggle, theme::background, theme::muted);
-        auto titleButton = button(header, title, 44, 0, 300, 44, toggle,
-                                  theme::background, LV_TEXT_ALIGN_LEFT);
-        lv_obj_set_style_text_color(lv_obj_get_child(titleButton, 0),
-                                    lv_color_hex(theme::reasoning), 0);
-        if (expandedReasoning_.count(id)) {
-          auto detail = box(wrap, 0, 0, textWidth, LV_SIZE_CONTENT);
-          lv_obj_set_scrollable(detail, false);
-          lv_obj_set_flex_flow(detail, LV_FLEX_FLOW_COLUMN);
-          richMessage(detail, reason, textWidth, true, id + ":reasoning");
+        auto arrow=icon(header,"chevron-right",0,0,44,44,toggle,theme::background,theme::muted);
+        lv_obj_set_style_bg_color(arrow,lv_color_hex(theme::surface),LV_STATE_PRESSED);
+        lv_obj_set_style_transform_pivot_x(arrow,22,0);lv_obj_set_style_transform_pivot_y(arrow,22,0);
+        lv_obj_set_style_transform_rotation(arrow,expanded?900:0,0);
+        lv_obj_set_clickable(header,false);
+        auto caption=label(header,title,52,10,std::max(1,textWidth-52),20,theme::reasoning);
+        lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(caption,font(20)->line_height);
+        ReasoningControl control;control.arrow=arrow;control.wrap=wrap;control.text=std::move(reason);
+        control.width=textWidth;control.expanded=expanded;
+        if(expanded) {
+          control.detail=box(wrap,0,0,textWidth,LV_SIZE_CONTENT);
+          lv_obj_set_scrollable(control.detail,false);lv_obj_set_flex_flow(control.detail,LV_FLEX_FLOW_COLUMN);
+          lv_obj_set_style_pad_left(control.detail,52,0);lv_obj_set_style_pad_top(control.detail,2,0);lv_obj_set_style_pad_bottom(control.detail,8,0);
+          richMessage(control.detail,control.text,std::max(44,textWidth-52),true,id+":reasoning");
         }
+        reasoningControls_[id]=std::move(control);
       } else
         label(header, title, 0, 10, textWidth, 20, theme::reasoning);
     }
@@ -1911,6 +1912,58 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
     if(!readOnly&&stringValue(m,"role")=="assistant")replyBar(wrap,m,textWidth,m["seq"].get<int64_t>()>questionSeq);
   }
 }
+void App::toggleReasoning(const std::string &id,bool expanded) {
+  auto found=reasoningControls_.find(id);if(found==reasoningControls_.end())return;
+  auto &control=found->second;
+  const int scroll=lv_obj_get_scroll_y(body_);const bool previous=chatLayout_;chatLayout_=true;
+  readReset();control.expanded=expanded;
+  if(expanded)expandedReasoning_.insert(id);else expandedReasoning_.erase(id);
+  auto arrow=control.arrow;
+  const int angle=lv_obj_get_style_transform_rotation(arrow,LV_PART_MAIN);
+  lv_anim_delete(arrow,nullptr);
+  lv_anim_t turn;lv_anim_init(&turn);lv_anim_set_var(&turn,arrow);lv_anim_set_values(&turn,angle,expanded?900:0);
+  lv_anim_set_duration(&turn,180);lv_anim_set_path_cb(&turn,lv_anim_path_ease_out);
+  lv_anim_set_exec_cb(&turn,[](void *object,int32_t value){lv_obj_set_style_transform_rotation(static_cast<lv_obj_t *>(object),value,0);});
+  lv_anim_start(&turn);
+  const bool fresh=!control.detail;
+  if(fresh) {
+    control.detail=box(control.wrap,0,0,control.width,LV_SIZE_CONTENT);
+    lv_obj_set_scrollable(control.detail,false);lv_obj_set_flex_flow(control.detail,LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_left(control.detail,52,0);lv_obj_set_style_pad_top(control.detail,2,0);lv_obj_set_style_pad_bottom(control.detail,8,0);
+    richMessage(control.detail,control.text,std::max(44,control.width-52),true,id+":reasoning");
+    lv_obj_move_to_index(control.detail,lv_obj_get_index(lv_obj_get_parent(arrow))+1);
+  }
+  auto detail=control.detail;
+  const int start=fresh||lv_obj_is_hidden(detail)?0:lv_obj_get_height(detail);
+  lv_anim_delete(detail,nullptr);lv_obj_set_hidden(detail,false);lv_obj_set_height(detail,LV_SIZE_CONTENT);
+  lv_obj_update_layout(detail);control.naturalHeight=std::max(1,int(lv_obj_get_height(detail)));
+  lv_obj_set_height(detail,start);
+  lv_anim_t reveal;lv_anim_init(&reveal);lv_anim_set_var(&reveal,detail);lv_anim_set_user_data(&reveal,this);
+  lv_anim_set_values(&reveal,start,expanded?control.naturalHeight:0);lv_anim_set_duration(&reveal,180);
+  lv_anim_set_path_cb(&reveal,lv_anim_path_ease_out);
+  lv_anim_set_custom_exec_cb(&reveal,[](lv_anim_t *animation,int32_t value){
+    auto app=static_cast<App *>(lv_anim_get_user_data(animation));
+    const bool old=app->chatLayout_;app->chatLayout_=true;
+    auto widget=static_cast<lv_obj_t *>(animation->var);lv_obj_set_height(widget,value);
+    lv_obj_update_layout(widget);app->paintVisible();app->chatLayout_=old;
+  });
+  lv_anim_set_completed_cb(&reveal,[](lv_anim_t *animation){
+    auto app=static_cast<App *>(lv_anim_get_user_data(animation));
+    for(auto &entry:app->reasoningControls_)if(entry.second.detail==animation->var) {
+      const bool old=app->chatLayout_;app->chatLayout_=true;
+      if(entry.second.expanded)lv_obj_set_height(entry.second.detail,LV_SIZE_CONTENT);
+      else lv_obj_set_hidden(entry.second.detail,true);
+      lv_obj_update_layout(entry.second.wrap);app->chatLayout_=old;
+      if(app->view_=="chat"){app->chatScroll_=lv_obj_get_scroll_y(app->body_);app->updateChatControls(true);}
+      app->paintVisible();break;
+    }
+  });
+  lv_anim_start(&reveal);
+  lv_obj_update_layout(control.wrap);lv_obj_scroll_to_y(body_,scroll,LV_ANIM_OFF);
+  if(view_=="chat")chatScroll_=lv_obj_get_scroll_y(body_);
+  chatLayout_=previous;
+}
+
 void App::renderMessages(bool bottom, bool cached) {
   if (!messageContent_)
     return;
@@ -1926,7 +1979,7 @@ void App::renderMessages(bool bottom, bool cached) {
   chatLayout_ = true;
   rasters_.clear();
   liveContent_ = nullptr;
-  reasoningHeaders_.clear();
+  reasoningHeaders_.clear();reasoningControls_.clear();
   lv_obj_clean(messageContent_);
   auto messages = cached ? rows_ : messageEdit_.empty()?db_.messages(session_, messageOffset_, 30):editedMessages();
   lv_obj_set_style_pad_top(messageContent_, messages.empty() ? 0 : 8, 0);
@@ -2508,7 +2561,7 @@ void App::closeNavigation(bool resumeCamera) {
   const bool wasOpen = navigationOpen_;
   if(wasOpen)historyCaptions_.clear();
   navigationOpen_ = false;
-  historyRows_.clear();
+  historyRows_.clear();navigationFooter_.clear();
   navigationBackdrop_ = navigationPointerDown_ = false;
   auto object = navigation_;
   navigation_ = navigationList_ = navigationActive_ = nullptr;
@@ -2536,7 +2589,7 @@ void App::historyDrawer() {
   // Only the drawer is replaced when paging, keeping the underlying form/draft.
   if (navigationList_)
     navigationScroll_ = std::max(0, int(lv_obj_get_scroll_y(navigationList_)));
-  historyRows_.clear();historyCaptions_.clear();
+  historyRows_.clear();historyCaptions_.clear();navigationFooter_.clear();
   auto previous = navigation_;
   navigation_ = navigationList_ = navigationActive_ = nullptr;
   if (previous)
@@ -2589,13 +2642,20 @@ void App::historyDrawer() {
       historyDrawer();
     });
   const int footerSpace = panelWidth - listLeft - 12 - (layout().portrait()?64:16);
-  const int footerWidth = layout().portrait()?footerSpace*3/5:footerSpace/2;
+  lv_point_t settingsText{};lv_text_get_size(&settingsText,"设置",font(20),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+  const int settingsMinimum=settingsText.x+56;
+  const int footerWidth=layout().portrait()?std::min(footerSpace*3/5,std::max(48,footerSpace-settingsMinimum)):footerSpace/2;
   const int walletX = listLeft + footerWidth + 8;
   auto footerAction = [&](int x, int width, const char *kind, const char *title,
                           std::function<void()> action) {
-    icon(panel, kind, x, footerY, 48, 48, action, theme::sidebar);
-    button(panel, title, x + 46, footerY, width - 46, 48, action,
-           theme::sidebar, LV_TEXT_ALIGN_LEFT);
+    auto control=button(panel,title,x,footerY,width,48,std::move(action),theme::sidebar,LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_style_radius(control,24,0);
+    auto caption=lv_obj_get_child(control,0);
+    lv_obj_set_width(caption,std::max(1,width-56));lv_obj_align(caption,LV_ALIGN_LEFT_MID,44,0);
+    lv_obj_set_clickable(caption,false);
+    auto glyph=icon(control,kind,8,8,32,32,{},theme::sidebar);
+    lv_obj_set_style_bg_opa(glyph,LV_OPA_TRANSP,0);lv_obj_set_clickable(glyph,false);
+    navigationFooter_[kind]=control;
   };
   footerAction(listLeft, footerWidth, "newchat", "新建聊天", [this] { newChat(); });
   if(layout().portrait())balanceButton(panel,walletX,footerY,theme::sidebar);
@@ -3376,7 +3436,7 @@ void App::handle(const Json &m) {
 }
 void App::tick() {
   if (balanceDirty_ && ticks() - balanceLastRender_ >= 100 && contextMenuKind_ == "balances" &&
-      !touchDown_ && contextMenuList_ && !lv_obj_is_scrolling(contextMenuList_) && !readGesture_.active() && !(readActive_&&readSelection_.selected())) {
+      !touchDown_ && !lastTouch_.value("pressed",false) && contextMenuList_ && !lv_obj_is_scrolling(contextMenuList_) && !readGesture_.active() && !(readActive_&&readSelection_.selected())) {
     balanceDirty_ = false;
     balanceLastRender_ = ticks();
     balancePage();
@@ -3589,18 +3649,15 @@ void App::tick() {
         retryWarning(e.data.value("id", std::string()));
       }
     } else if (e.type == "reasoning_toggle") {
-      if(view_=="archive_chat"&&e.data.value("session",std::string())==archiveReaderId_) {
+      const auto id=e.data.value("id",std::string());
+      auto found=reasoningControls_.find(id);
+      const auto source=e.data.value("session",std::string());
+      if(found!=reasoningControls_.end() && ((view_=="archive_chat"&&source==archiveReaderId_) || (view_=="chat"&&source==session_))) {
         input_.cancel();lv_obj_stop_scroll_anim(body_);
-        archiveReasoningOverrides_[e.data["id"].get<std::string>()]=e.data["expanded"].get<bool>();
-        build();
-      } else if (view_ == "chat" &&
-          e.data.value("session", std::string()) == session_) {
-        input_.cancel();
-        lv_obj_stop_scroll_anim(body_);
-        reasoningOverrides_[e.data["id"].get<std::string>()] =
-            e.data["expanded"].get<bool>();
-        chatFollowing_ = false;
-        renderMessages(false);
+        const bool expanded=!found->second.expanded;
+        (view_=="archive_chat"?archiveReasoningOverrides_:reasoningOverrides_)[id]=expanded;
+        if(view_=="chat")chatFollowing_=false;
+        toggleReasoning(id,expanded);
       }
     } else if (e.type == "title_model_detail") {
       if (view_ == "settings" && visible_ && popupKind_ == "title_models") {
@@ -3872,6 +3929,16 @@ Json App::diagnostics() const {
        {"time",time?lv_label_get_text(time):""}};
   }
   for(const auto &entry:historyActions_)historyActions[entry.first]=bounds(entry.second);
+  Json reasonControls=Json::array(),footer=Json::object();
+  for(const auto &entry:reasoningControls_) {
+    const auto &c=entry.second;
+    reasonControls.push_back({{"id",entry.first},{"arrow",bounds(c.arrow)},{"title",bounds(lv_obj_get_child(lv_obj_get_parent(c.arrow),1))},
+      {"expanded",c.expanded},{"angle",lv_obj_get_style_transform_rotation(c.arrow,LV_PART_MAIN)},
+      {"detail",c.detail?bounds(c.detail):Json()}});
+  }
+  for(const auto &entry:navigationFooter_)footer[entry.first]={{"bounds",bounds(entry.second)},
+    {"caption",bounds(lv_obj_get_child(entry.second,0))},{"glyph",bounds(lv_obj_get_child(entry.second,1))},
+    {"pressed",lv_obj_has_state(entry.second,LV_STATE_PRESSED)}};
   Json attachmentActions = Json::object();
   for (const auto &entry : attachmentEntries_) attachmentActions[entry.first] = bounds(entry.second);
   Json archiveViews=Json::object();
@@ -3998,8 +4065,8 @@ Json App::diagnostics() const {
        model.empty() ? std::vector<std::string>() : supportedEfforts(model)},
       {"effort_choices",
        model.empty() ? std::vector<std::string>() : effortChoices(model)},
-      {"reasoning_header_count", reasoningHeaders_.size()},
-      {"reasoning_header_x", reasonHeader.x1 + 120},
+      {"reasoning_header_count", reasoningHeaders_.size()},{"reasoning_controls",reasonControls},{"navigation_footer",footer},
+      {"reasoning_header_x", reasonHeader.x1 + 22},
       {"reasoning_header_y", (reasonHeader.y1 + reasonHeader.y2) / 2},
       {"reasoning_observed", reasoningMetadata_.value("reasoning_observed", false)},
       {"reasoning_expanded_count", expandedReasoning_.size()},

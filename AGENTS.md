@@ -371,7 +371,9 @@ replaces only the keyboard panel; landscape clipboard stays in the right editor.
 page scrolling and field focus remain available above the keyboard. Rebind focused
 controls by stable page/field identity after a rebuild; cancel a missing target on
 the next UI tick, never dereference a deleted LVGL control. Portrait pull distance is based on
-min(unobstructed reader height, reader width/2), frozen at pointer-down.
+min(unobstructed reader height, reader width/2), frozen at pointer-down. Double the
+computed total trigger travel for portrait only; keep its slop/guards/stretch and
+all landscape thresholds unchanged.
 Preserve existing landscape geometry. Model fill buttons stay anchored to their
 field; album grids/archive readers keep their own layout rather than form reflow.
 Y07 SC2356 is an independent 752x440 profile using the driver LED class, never
@@ -500,3 +502,5 @@ choices retain editing; entering another business page completes the old editor
 normally. Do not rebuild keyboard caps or restart OCR just to show/hide a popup.
 
 Provider management lists only Providers, with connection fields above an independent model section in one detail page. Keep a process-local workspace across child editors; all connection/model changes commit together on the DB worker only on explicit whole-page Save. Model management has no default/use selector; preserve preset/session selection. Horizontal balance access is bottom-left on chat, mirrored from History; portrait retains the drawer entry. All balance views use one scrollable popup with one all-provider Refresh and no separate channel labels.
+
+Reasoning disclosure titles are plain text; only the 44px native arrow toggles, rotating with the in-place 180ms content reveal. History footer icons/captions share one hit target and pressed background. Account balance details use a header arrow, never a full-width details action row.
