@@ -1,6 +1,7 @@
 #include "markdown.hpp"
 #include "latex.h"
 #include "md4c.h"
+#include "markdown_tables.hpp"
 #include "theme.hpp"
 extern "C" {
 #include "entity.h"
@@ -336,7 +337,7 @@ Document parseMarkdown(const std::string &source, bool streaming) {
     p.doc.blocks.push_back(std::move(raw));
     return std::move(p.doc);
   }
-  auto input = normalizeMath(source);
+  auto input = detail::normalizeTableBoundaries(normalizeMath(source));
   MD_PARSER parser{};
   parser.flags = MD_DIALECT_GITHUB | MD_FLAG_LATEXMATHSPANS | MD_FLAG_NOHTML;
   parser.enter_block = enterBlock;
