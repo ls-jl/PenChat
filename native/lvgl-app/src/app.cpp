@@ -532,17 +532,44 @@ void App::chooseEffort(const std::string &key) {
 void App::modelPicker(bool forTitles) {
   closeAttachments();
   resetPull();
-  attachments_ = box(screenObj_,layout().gutter(),0,screen_.width-layout().gutter(),screen_.height);
+  const bool portrait=layout().portrait();
+  auto models=db_.models();
+  const auto providers=db_.providers();
+  attachments_ = box(portrait?lv_screen_active():screenObj_,layout().gutter(),0,screen_.width-layout().gutter(),screen_.height);
   popupKind_ = forTitles ? "title_models" : "models";
   lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::scrim), 0);
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
-  const auto area=pickerArea(std::min(650,screen_.width-(layout().portrait()?32:130)));
+  int naturalHeight=8+(forTitles?48:0),naturalWidth=264;
+  if(portrait) {
+    for(const auto &provider:providers) {
+      if(models.empty())break;
+      naturalHeight+=30;
+      lv_point_t measured{};
+      lv_text_get_size(&measured,provider.value("name",std::string("Provider")).c_str(),font(18),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+      naturalWidth=std::max(naturalWidth,int(measured.x)+40);
+    }
+    for(const auto &model:models) {
+      naturalHeight+=46;
+      lv_point_t measured{};
+      lv_text_get_size(&measured,model.value("display_name",model.value("name",std::string())).c_str(),font(20),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+      naturalWidth=std::max(naturalWidth,int(measured.x)+76);
+    }
+    if(models.empty())naturalHeight+=48;
+    if(forTitles&&!models.empty())naturalHeight+=30;
+  }
+  const LayoutRect anchor=portrait&&view_=="chat"?LayoutRect{layout().safeSide(),chatComposerY(),1,1}:
+      LayoutRect{lastTouch_.value("x",screen_.width/2),lastTouch_.value("y",screen_.height/2),1,1};
+  const auto area=portrait?placeContextPopup(screen_.width,screen_.height,roundedDisplay_,anchor,
+      std::min(440,naturalWidth),std::min(360,naturalHeight),keepChatEditor()?editorLayout().panelTop:0):
+      pickerArea(std::min(650,screen_.width-130));
   const int panelWidth=area.width;
   auto panel=box(attachments_,area.x,area.y,panelWidth,area.height,theme::popup);
   attachmentPanel_=panel;stylePopupPanel(panel,layout().portrait());
   lv_obj_set_scroll_dir(panel, LV_DIR_VER);
+  lv_obj_set_scroll_elastic(panel,false);
+  lv_obj_set_scroll_chain_ver(panel,false);
   auto current = currentModel();
   if (forTitles)
     current = {{"id", db_.settings().value("title_model_id", std::string())}};
@@ -557,13 +584,15 @@ void App::modelPicker(bool forTitles) {
         theme::surface, LV_TEXT_ALIGN_LEFT);
     y += 48;
   }
-  auto models = db_.models();
   std::sort(models.begin(), models.end(), [](const Json &a, const Json &b) {
     return a.value("name", std::string()) < b.value("name", std::string());
   });
-  for (const auto &provider : db_.providers()) {
-    label(panel, provider.value("name", std::string("Provider")), 14, y, panelWidth - 40,
+  for (const auto &provider : providers) {
+    if(portrait&&models.empty())break;
+    auto caption=label(panel, provider.value("name", std::string("Provider")), 14, y, panelWidth - 40,
           18, theme::muted);
+    lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_height(caption,font(18)->line_height);
     y += 30;
     for (const auto &model : models)
       if (model["provider_id"] == provider["id"]) {
@@ -571,7 +600,7 @@ void App::modelPicker(bool forTitles) {
         auto held = std::make_shared<bool>(false);
         auto item = button(
             panel,
-            (current.value("id", std::string()) == id ? "● " : "○ ") +
+            (portrait?std::string():current.value("id", std::string()) == id ? "● " : "○ ") +
                 model.value("display_name",model.value("name",std::string())),
             8, y, panelWidth - 30, 44,
             [this, id, forTitles, held] {
@@ -583,6 +612,7 @@ void App::modelPicker(bool forTitles) {
               build();
             },
             theme::surface, LV_TEXT_ALIGN_LEFT);
+        if(portrait){selected(item,current.value("id",std::string())==id);stylePopupRow(item);}
         if (forTitles) {
           auto action = new std::function<void()>([this, id, held] {
             *held = true;
@@ -600,10 +630,11 @@ void App::modelPicker(bool forTitles) {
       }
   }
   if (models.empty())
-    button(panel, "添加 Provider / 模型", 10, 50, panelWidth - 50, 48,
-           [this] { show("provider"); });
+    button(panel, "添加 Provider / 模型", 10, portrait?y:50, panelWidth - 30, 48,
+           [this] { if(finishChatEditorForNavigation())show("provider"); });
   if (forTitles && !models.empty())
-    label(attachments_, "长按模型查看完整名称", 24, screen_.height - 50, panelWidth, 16, theme::muted);
+    label(portrait?panel:attachments_, "长按模型查看完整名称", portrait?14:24,
+          portrait?y+4:screen_.height-50, panelWidth-28, 16, theme::muted);
 }
 void App::effortPicker() {
   auto model = currentModel();
