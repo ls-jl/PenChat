@@ -47,8 +47,8 @@ with tempfile.TemporaryDirectory(prefix='penchat-settings-') as folder:
                 a,b,c,d=row[key]
                 assert x1<=a<=c<row['indicator'][0] and y1<=b<=d<=y2,(name,key,row)
             assert row['title'][3]<row['detail'][1],name
-        assert rows['presets']['bounds'][0]-rows['models']['bounds'][2]-1==16
-        assert all(48<=rows[k]['bounds'][1] and rows[k]['bounds'][3]<266 for k in ROWS[:6])
+        assert rows['title_model']['bounds'][0]-rows['auto_title']['bounds'][2]-1==16
+        assert all(48<=rows[k]['bounds'][1] and rows[k]['bounds'][3]<266 for k in ('models','web_policy'))
         assert state['settings']['viewport'][1:4:2]==[0,state['height']-1]
         assert state['settings']['heading'][1]==7
         shot(app,'first-screen-long-model')
@@ -59,6 +59,11 @@ with tempfile.TemporaryDirectory(prefix='penchat-settings-') as folder:
         assert scrolled['settings']['viewport'][1]==0
         # The old pinned-header strip is now part of the actionable viewport.
         upper=[k for k,v in scrolled['settings']['rows'].items() if 0<=v['bounds'][1]<48 and v['bounds'][3]<scrolled['height']]
+        for _ in range(4):
+            if upper:break
+            app.settings_swipe(-25);wait_for(lambda:not app.diag()['settings']['scrolling'])
+            scrolled=app.diag()
+            upper=[k for k,v in scrolled['settings']['rows'].items() if 0<=v['bounds'][1]<48 and v['bounds'][3]<scrolled['height']]
         assert upper
         before=scrolled['scroll_y'];locate(app.diag,app.settings_swipe,upper[0])
         assert app.diag()['scroll_y']==before
@@ -95,7 +100,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-settings-') as folder:
         app.setting('about');assert app.diag()['modal'];shot(app,'about');app.tap(890,222)
         assert not app.diag()['modal'] and app.diag()['scroll_y']==before
         # A swipe beginning on a toggle row must scroll without activating it.
-        show_top(app);row=app.diag()['settings']['rows']['image_auto_send']['bounds']
+        show_top(app);row=locate(app.diag,app.settings_swipe,'image_auto_send')['bounds']
         x,y=(row[0]+row[2])//2,(row[1]+row[3])//2
         for dy in (0,-20,-40,-60):app.send('touch',x=x,y=y+dy,pressed=True);time.sleep(.04)
         app.send('touch',x=x,y=y-60,pressed=False);time.sleep(.2)

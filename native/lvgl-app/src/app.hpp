@@ -393,6 +393,7 @@ class App {
     bool toggle;
   };
   std::map<std::string, SettingsControl> settingsControls_;
+  std::vector<std::pair<std::string, lv_obj_t *>> settingsGroups_;
   lv_obj_t *chatControls_ = nullptr, *toBottom_ = nullptr;
   lv_obj_t *attachments_ = nullptr, *modal_ = nullptr,
            *pullIndicator_ = nullptr, *pullArc_ = nullptr,

@@ -1005,7 +1005,7 @@ void App::clear() {
   fontSlider_ = fontPercentLabel_ = fontPreview_ = nullptr;
   cropActions_.clear();cropViewport_=cropBitmap_=cropSelection_=nullptr;
   if(!imageViewer_)imageGesture_={};
-  settingsControls_.clear();
+  settingsControls_.clear();settingsGroups_.clear();
   settingsHeading_ = nullptr;
   pageHeading_ = pageHeader_ = pageContent_ = nullptr;
   pageActions_.clear();
@@ -2266,8 +2266,10 @@ Json App::settingsDiagnostic() const {
     if (control.toggle) row["checked"] = lv_obj_has_state(control.indicator, LV_STATE_CHECKED);
     rows[entry.first] = std::move(row);
   }
+  Json groups = Json::array();
+  for (const auto &entry : settingsGroups_) groups.push_back({{"id", entry.first}, {"bounds", bounds(entry.second)}});
   const bool active = view_ == "settings" && body_;
-  return {{"rows", rows}, {"scrolling", active && lv_obj_is_scrolling(body_)},
+  return {{"rows", rows}, {"groups", groups}, {"scrolling", active && lv_obj_is_scrolling(body_)},
           {"viewport", active ? bounds(body_) : Json()},
           {"heading", active && settingsHeading_ ? bounds(settingsHeading_) : Json()}};
 }
@@ -2275,38 +2277,62 @@ void App::settingsPage() {
   pageHeader("设置");
   settingsHeading_ = pageHeading_;
   const int width = layout().contentWidth();
-  const int gap = 16, column = (width - gap) / 2;
-  const int left = 10, right = left + column + gap;
+  const bool twoColumns = layout().category() == LayoutClass::WideLandscape;
+  const int left = twoColumns ? 10 : 16, gap = 16, column = (width - gap) / 2;
+  int y = 4;
+  bool secondColumn = false;
+  auto finishRow = [&] {
+    if (secondColumn) { y += 64; secondColumn = false; }
+  };
+  auto section = [&](const std::string &id, const std::string &name) {
+    finishRow();
+    // Completed rows already include 8px spacing; add 8px for the 16px group gap.
+    if (!settingsGroups_.empty()) y += 8;
+    auto heading = label(pageContent_, name, left, y, width, 16, theme::muted);
+    const int height = std::max(20, int(font(16)->line_height));
+    lv_obj_set_height(heading, height);
+    settingsGroups_.push_back({id, heading});
+    y += height + 8;
+  };
+  auto row = [&](const std::string &id, const std::string &title, const std::string &detail,
+                 std::function<void()> action, int checked = -1, bool unavailable = false,
+                 bool fullWidth = false) {
+    if (!twoColumns || fullWidth) {
+      finishRow();
+      settingsRow(id, title, detail, left, y, width, std::move(action), checked, unavailable);
+      y += 64;
+    } else {
+      settingsRow(id, title, detail, left + (secondColumn ? column + gap : 0), y, column,
+                  std::move(action), checked, unavailable);
+      secondColumn = !secondColumn;
+      if (!secondColumn) y += 64;
+    }
+  };
   const auto config = db_.settings();
   const auto settings = config.value("penchat_settings", Json::object());
-  label(pageContent_, "聊天与会话", left, 4, width, 16, theme::muted);
-  settingsRow("models", "模型管理", "Provider 与模型", left, 28, column,
-              [this] { show("provider"); });
-  settingsRow("presets", "会话预设", "管理会话配置", right, 28, column,
-              [this] { show("presets"); });
+
+  section("models", "模型");
+  row("models", "模型管理", "Provider 与模型", [this] { show("provider"); }, -1, false, true);
+
+  section("tools", "工具调用");
+  const auto webPolicy = config.value("new_chat_web", std::string("on"));
+  row("web_policy", "新聊天联网搜索",
+      webPolicy == "off" ? "默认关闭" : webPolicy == "recent" ? "使用最近一次状态" : "默认开启",
+      [this] { webPolicyPicker(); }, -1, false, true);
+
+  section("chat", "聊天");
+  row("presets", "会话预设", "管理会话配置", [this] { show("presets"); });
   const auto reasoningMode = config.value("reasoning_display", std::string("collapsed"));
   const std::string reasoningName = reasoningMode == "always" ? "始终展开"
                                     : reasoningMode == "during" ? "思考完毕后收起" : "不展开";
-  settingsRow("reasoning", "思考过程", reasoningName, left, 92, column,
-              [this] { reasoningDisplayPicker(); });
-  settingsRow("image_auto_send", "图片自动发送", "开启后自动发送图片消息", right, 92, column,
-              [this] {
-                auto value = db_.settings().value("penchat_settings", Json::object());
-                // Read first: C++14 allows [] to insert null before the RHS
-                // value() is evaluated on the device's GCC 6 toolchain.
-                const bool enabled = value.value("autoSendCapturedContent", false);
-                value["autoSendCapturedContent"] = !enabled;
-                db_.setting("penchat_settings", value);
-                build();
-              }, settings.value("autoSendCapturedContent", false));
+  row("reasoning", "思考过程", reasoningName, [this] { reasoningDisplayPicker(); });
   const bool autoTitle = config.value("auto_title_enabled", true);
-  settingsRow("auto_title", "自动命名", "首条回复完成后生成标题", left, 156, column,
-              [this, autoTitle] {
-                db_.setting("auto_title_enabled", !autoTitle);
-                if (autoTitle) titleCancel_ = true;
-                build();
-              }, autoTitle);
-  auto titleModelId = config.value("title_model_id", std::string());
+  row("auto_title", "自动命名", "首条回复完成后生成标题", [this, autoTitle] {
+    db_.setting("auto_title_enabled", !autoTitle);
+    if (autoTitle) titleCancel_ = true;
+    build();
+  }, autoTitle);
+  const auto titleModelId = config.value("title_model_id", std::string());
   std::string titleModelName = titleModelId.empty() ? "跟随当前聊天模型" : "指定模型不可用";
   bool titleModelMissing = !titleModelId.empty();
   for (const auto &model : db_.models()) {
@@ -2315,75 +2341,66 @@ void App::settingsPage() {
       titleModelMissing = false;
     }
   }
-  settingsRow("title_model", "命名模型", titleModelName, right, 156, column,
-              [this] { modelPicker(true); }, -1, titleModelMissing);
+  row("title_model", "命名模型", titleModelName, [this] { modelPicker(true); }, -1, titleModelMissing);
   const bool autoContext = config.value("auto_context_compression", true);
-  settingsRow("auto_context", "自动上下文压缩", "压缩前归档，保留消息和图片", left, 220, column,
-              [this, autoContext] {
-                db_.setting("auto_context_compression", !autoContext);
-                build();
-              }, autoContext);
-  settingsRow("archives", "归档会话", "查看、还原或删除归档", right, 220, column,
-              [this] { archiveOffset_ = 0; show("archives"); });
-  const auto historyMode=config.value("history_time_display",std::string("time"));
-  const auto editDefault=config.value("message_edit_default",std::string("ask"));
-  settingsRow("message_edit","编辑消息",editDefault=="archive"?"发送时先归档":editDefault=="overwrite"?"发送时直接覆盖":"每次询问",right,284,column,[this]{messageEditDefaultPicker();});
-  settingsRow("history_time","历史时间显示",historyMode=="title"?"会话标题优先":historyMode=="off"?"关闭时间显示":"时间显示优先",left,284,column,[this]{historyTimePicker();});
-  const bool retryPrompt=config.value("retry_archive_prompt",false);
-  settingsRow("retry_archive_prompt","重试前提示归档","开启后，重试较早回复时询问是否归档",left,348,column,
-    [this,retryPrompt]{db_.setting("retry_archive_prompt",!retryPrompt);build();},retryPrompt);
-  label(pageContent_, "阅读与交互", left, 420, width, 16, theme::muted);
-  settingsRow("font_size", "字体大小", std::to_string(readingFontPercent_) + "% · 聊天、思考和公式",
-              left, 444, column, [this] {
-                readingFontDraft_ = readingFontPercent_;
-                show("font_size");
-              });
-  settingsRow("keyboard", "键盘与输入", "独立拼音与学习记忆", right, 444, column, [this] { show("keyboard_settings"); });
+  row("auto_context", "自动上下文压缩", "压缩前归档，保留消息和图片", [this, autoContext] {
+    db_.setting("auto_context_compression", !autoContext); build();
+  }, autoContext);
+  row("compression_threshold", "自动压缩阈值", std::to_string(compressionPercent(config)) + "% × 模型最大上下文",
+      [this] { compressionSettings(); });
+  row("image_auto_send", "图片自动发送", "开启后自动发送图片消息", [this] {
+    auto value = db_.settings().value("penchat_settings", Json::object());
+    // Read before assigning through []: GCC 6/C++14 operand order is unspecified.
+    const bool enabled = value.value("autoSendCapturedContent", false);
+    value["autoSendCapturedContent"] = !enabled;
+    db_.setting("penchat_settings", value); build();
+  }, settings.value("autoSendCapturedContent", false));
+  const auto historyMode = config.value("history_time_display", std::string("time"));
+  row("history_time", "历史时间显示", historyMode == "title" ? "会话标题优先" : historyMode == "off" ? "关闭时间显示" : "时间显示优先",
+      [this] { historyTimePicker(); });
+  const auto editDefault = config.value("message_edit_default", std::string("ask"));
+  row("message_edit", "编辑消息", editDefault == "archive" ? "发送时先归档" : editDefault == "overwrite" ? "发送时直接覆盖" : "每次询问",
+      [this] { messageEditDefaultPicker(); });
+  const bool retryPrompt = config.value("retry_archive_prompt", false);
+  row("retry_archive_prompt", "重试前提示归档", "开启后，重试较早回复时询问是否归档",
+      [this, retryPrompt] { db_.setting("retry_archive_prompt", !retryPrompt); build(); }, retryPrompt);
+  row("archives", "归档会话", "查看、还原或删除归档", [this] { archiveOffset_ = 0; show("archives"); });
   const auto offset = (pullSensitivityOffset_ > 0 ? "+" : "") + std::to_string(pullSensitivityOffset_) + "%";
-  settingsRow("pull_sensitivity", "上滑新建灵敏度", "偏移 " + offset + (pullSensitivityOffset_ ? " · 相对新版基准" : " · 新版基准"),
-              left, 508, column, [this] { pullSensitivityPicker(); });
-  settingsRow("compression_threshold", "自动压缩阈值", std::to_string(compressionPercent(config)) + "% × 模型最大上下文",
-              right, 508, column, [this] { compressionSettings(); });
+  row("pull_sensitivity", "上滑新建灵敏度", "偏移 " + offset + (pullSensitivityOffset_ ? " · 相对新版基准" : " · 新版基准"),
+      [this] { pullSensitivityPicker(); });
   const std::string shortcutMode = composerShortcut_.mode();
-  settingsRow("composer_shortcut", "横屏输入框快捷唤出",
-              shortcutMode == "off" ? "关闭" : shortcutMode == "manual" ? "开启，仅手动收回" : "开启，滚动后自动收回",
-              left, 572, width, [this] { composerShortcutPicker(); });
-  label(pageContent_, "数据与应用", left, 644, width, 16, theme::muted);
-  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 668, column,
-              [this] { openTransfer(); });
+  row("composer_shortcut", "横屏输入框快捷唤出",
+      shortcutMode == "off" ? "关闭" : shortcutMode == "manual" ? "开启，仅手动收回" : "开启，滚动后自动收回",
+      [this] { composerShortcutPicker(); }, -1, false, true);
+
+  section("app", "应用");
+  row("font_size", "字体大小", std::to_string(readingFontPercent_) + "% · 聊天、思考和公式", [this] {
+    readingFontDraft_ = readingFontPercent_; show("font_size");
+  });
+  row("keyboard", "键盘与输入", "独立拼音与学习记忆", [this] { show("keyboard_settings"); });
+  row("transfer", "导入与导出", "聊天与预设备份", [this] { openTransfer(); });
   const bool persistentExports = config.value("persistent_export_directory", false);
-  settingsRow("persistent_exports", "持久化导出目录",
-              persistentExports ? "关闭应用后保留导出文件" : "关闭应用时清理导出文件",
-              right, 668, column, [this, persistentExports] {
-                db_.setting("persistent_export_directory", !persistentExports);
-                build();
-              }, persistentExports);
+  row("persistent_exports", "持久化导出目录", persistentExports ? "关闭应用后保留导出文件" : "关闭应用时清理导出文件",
+      [this, persistentExports] { db_.setting("persistent_export_directory", !persistentExports); build(); }, persistentExports);
   const auto idle = httpIdleSeconds();
   const auto idleText = idle < 60 ? std::to_string(idle) + "秒" : std::to_string(idle/60) + "分" + (idle%60 ? std::to_string(idle%60)+"秒" : "");
-  settingsRow("http_idle", "连接保留时间", idleText + " · 全应用", left, 732, column, [this] { show("http_settings"); });
-  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", right, 732, column,
-              [this] {
-                const auto summary = db_.summary();
-                modal("关于 " PENCHAT_NAME,
-                      "版本：" PENCHAT_VERSION " · LVGL 9.6.0\n"
-                      "存储：" + summary["sessions"].dump() + " 个会话 / " +
-                      summary["messages"].dump() + " 条消息\n"
-                      "作者：" PENCHAT_AUTHOR "\n"
-                      "AI 协作：" PENCHAT_AI_CONTRIBUTOR "\n"
-                      "项目地址：" PENCHAT_PROJECT_URL);
-                button(modal_,"使用引导",16,screen_.height-66,112,44,[this]{events_.push("open_onboarding");});
-              });
+  row("http_idle", "连接保留时间", idleText + " · 全应用", [this] { show("http_settings"); });
+  row("update", "检查更新", std::string("当前 ")+PENCHAT_VERSION+" · 在线安装新版本", [this] { openUpdate(true); });
   const auto pending = feedback_ ? feedback_->state().value("pending", size_t(0)) : 0;
-  settingsRow("feedback", "问题反馈", std::to_string(pending) + " 份待处理 · 诊断与机型适配",
-              left, 796, width, [this] { feedbackView_ = "form"; show("feedback"); });
-  const auto webPolicy = config.value("new_chat_web", std::string("on"));
-  settingsRow("web_policy", "新聊天联网搜索",
-              webPolicy == "off"      ? "默认关闭"
-              : webPolicy == "recent" ? "使用最近一次状态"
-                                      : "默认开启",
-              right, 924, column, [this] { webPolicyPicker(); });
-  settingsRow("update", "检查更新", std::string("当前 ")+PENCHAT_VERSION+" · 在线安装新版本",
-              left, 860, width, [this] { openUpdate(true); });
+  row("feedback", "问题反馈", std::to_string(pending) + " 份待处理 · 诊断与机型适配",
+      [this] { feedbackView_ = "form"; show("feedback"); }, -1, false, true);
+  row("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", [this] {
+    const auto summary = db_.summary();
+    modal("关于 " PENCHAT_NAME,
+          "版本：" PENCHAT_VERSION " · LVGL 9.6.0\n"
+          "存储：" + summary["sessions"].dump() + " 个会话 / " + summary["messages"].dump() + " 条消息\n"
+          "作者：" PENCHAT_AUTHOR "\n"
+          "AI 协作：" PENCHAT_AI_CONTRIBUTOR "\n"
+          "项目地址：" PENCHAT_PROJECT_URL);
+    button(modal_,"使用引导",16,screen_.height-66,112,44,[this]{events_.push("open_onboarding");});
+  }, -1, false, true);
+  finishRow();
+  lv_obj_set_height(pageContent_, std::max(y, int(lv_obj_get_style_min_height(pageContent_, LV_PART_MAIN))));
 }
 void App::updateFontPreview(int percent) {
   readingFontDraft_ = std::max(75, std::min(150, percent));

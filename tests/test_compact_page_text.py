@@ -68,7 +68,7 @@ for width,height in [(960,266),(568,1210)]:
         a=ui.Native(BINARY,folder,screen={'width':width,'height':height,'direction':0})
         try:
             a.open_settings();rows=a.diag()['settings']['rows']
-            if width>height:assert rows['models']['bounds'][1]==rows['presets']['bounds'][1]
+            if width>height:assert rows['presets']['bounds'][1]==rows['reasoning']['bounds'][1]
             else:assert rows['presets']['bounds'][1]>rows['models']['bounds'][3]
         finally:a.close()
 print('COMPACT_FORM_WIDTH_BASELINES_ARCHIVE_TITLE_OPTIONS_SCROLL_AND_OTHER_LAYOUTS_OK')
