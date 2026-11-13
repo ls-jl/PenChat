@@ -19,6 +19,13 @@ class Database {
   void deleteConversationRows(const std::string &session, const Json &rows);
   void refreshConversationCount(const std::string &session);
   void migrate(const std::string &path);
+  void migrateReplyChoices(const std::string &path);
+  Json replyMessageSnapshot(const std::string &message);
+  void saveReplyResult(const std::string &message);
+  void restoreReplyResult(const Json &payload);
+  void pinReplyAssets(const std::string &group,const std::string &owner,const Json &rows);
+  void clearReplyChoices(const std::string &session,int64_t removedAfter=INT64_MAX);
+  Json replyUsageExtras(const std::string &session,const Json &visible);
   void cleanup() noexcept;
   void collectAssets(bool discover = false);
   void deferAssetCollection();
@@ -114,10 +121,17 @@ public:
   Json commitMessageEdit(const Json &snapshot, const Json &images,
                          const std::string &text, const Json &preferences,
                          bool archive, int64_t sentAt);
-  Json commitRegeneration(const Json &snapshot, const std::string &message,
-                          bool archive, Json checkpoint, std::atomic<bool> &cancel);
   Json createBranch(const Json &snapshot, const std::string &message,
                     const Json &preferences, std::atomic<bool> &cancel);
+  Json replyChoices(const std::string &session);
+  int64_t replyCut(const std::string &session);
+  bool replyHasLater(const std::string &session,const std::string &message);
+  Json beginReplyResult(const Json &snapshot,const std::string &message,const Json &archive,
+                        const Json &checkpoint,std::atomic<bool> &cancel);
+  void selectReplyResult(const std::string &session,const std::string &message,int ordinal);
+  void discardPreparedReply(const std::string &message,const std::string &result);
+  Json commitReplyContinuation(const Json &snapshot,const std::string &text,
+                               const Json &preferences,const Json &checkpoint);
   Json summary();
 };
 } // namespace penchat

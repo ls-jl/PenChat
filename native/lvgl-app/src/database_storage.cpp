@@ -17,8 +17,8 @@ void Database::detachSharedAssets(const std::string &column, const std::string &
   if (column != "session_id" && column != "message_id")
     throw std::invalid_argument("Invalid asset owner column");
   auto rows = query("SELECT id,metadata_json FROM message_assets WHERE " + column +
-                        "=? AND EXISTS(SELECT 1 FROM message_parts p WHERE "
-                        "p.asset_id=message_assets.id)",
+                        "=? AND (EXISTS(SELECT 1 FROM message_parts p WHERE "
+                        "p.asset_id=message_assets.id) OR EXISTS(SELECT 1 FROM reply_asset_refs r WHERE r.asset_id=message_assets.id))",
                     {id});
   for (const auto &row : rows) {
     auto metadata = objectField(row, "metadata_json");
@@ -33,7 +33,7 @@ void Database::migrate(const std::string &path) {
     return queryOnWorker(sql, Json::array());
   };
   auto version = run("SELECT value FROM schema_meta WHERE key='schema_version'");
-  if (!version.empty() && version[0]["value"] == "2")
+  if (!version.empty() && (version[0]["value"] == "2" || version[0]["value"] == "3"))
     return;
   if (!version.empty() && version[0]["value"] != "1")
     throw std::runtime_error("Unsupported database schema version");
@@ -281,7 +281,7 @@ void Database::collectAssets(bool discover) {
       "SELECT id,stored_path,display_src FROM message_assets a WHERE session_id "
       "IS NULL AND message_id IS NULL AND metadata_json LIKE '%\"_gc_detached\":true%' "
       "AND NOT EXISTS(SELECT 1 FROM message_parts "
-      "p WHERE p.asset_id=a.id) LIMIT 128");
+      "p WHERE p.asset_id=a.id) AND NOT EXISTS(SELECT 1 FROM reply_asset_refs r WHERE r.asset_id=a.id) LIMIT 128");
   if (!detached.empty()) {
     execute("BEGIN IMMEDIATE");
     try {
@@ -487,8 +487,8 @@ Json Database::messagesBefore(const std::string &session, int64_t before, int li
       query("SELECT m.*,a.stored_path,a.original_path,a.display_src,a.width,a.height "
             "FROM chat_messages m LEFT JOIN message_parts p ON p.message_id=m.id AND "
             "p.part_index=0 LEFT JOIN message_assets a ON a.id=p.asset_id WHERE "
-            "m.session_id=? AND m.seq<? ORDER BY m.seq DESC LIMIT ?",
-            {session, before, std::max(1, std::min(100, limit))});
+            "m.session_id=? AND m.seq<? AND (m.seq<=? OR (m.role='user' AND m.message_type='image' AND coalesce(m.output_text,'')='' AND m.seq>(SELECT coalesce(max(seq),0) FROM chat_messages WHERE session_id=? AND role='assistant'))) ORDER BY m.seq DESC LIMIT ?",
+            {session, before, replyCut(session),session,std::max(1, std::min(100, limit))});
   std::reverse(rows.begin(), rows.end());
   return rows;
 }

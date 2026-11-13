@@ -92,7 +92,7 @@ def chat(w,h):
    with sqlite3.connect(p/'penchat.db') as db:
     pivot=db.execute("select id from chat_messages where session_id=? and role='assistant' order by seq desc limit 1",(branch,)).fetchone()[0]
    reply_action(a,pivot,'retry')
-   assert a.diag()['reply_actions']['confirm'];confirm_retry(a,True);settled(a)
+   assert not a.diag()['reply_actions']['confirm'];settled(a)
    assert len(Handler.requests)==3 and a.diag()['session']==branch and not a.diag()['modal']
    assert '未发送草稿' not in json.dumps(Handler.requests[-1][2],ensure_ascii=False)
    # Manual compression goes through Messages with its own instruction, no effort.

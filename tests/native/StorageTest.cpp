@@ -109,7 +109,7 @@ int main() {
     assert(
         db.query(
             "SELECT value FROM schema_meta WHERE key='schema_version'")[0]["value"] ==
-        "2");
+        "3");
     assert(access((path + ".backup-v1").c_str(), F_OK) == 0);
     assert(db.query("PRAGMA foreign_key_check").empty());
     auto migrated = ticks() - begin;

@@ -94,6 +94,14 @@ Json sessionMetrics(Json snapshot, const Json &model, const Json &pending) {
       ++cacheSamples;
     }
   }
+  const auto extra=snapshot.value("extra_usage",Json::object());
+  replies+=extra.value("replies",0);known+=extra.value("known",0);
+  const auto extraTotals=extra.value("totals",Json::object()),extraReported=extra.value("reported",Json::object());
+  for(auto it=extraTotals.begin();it!=extraTotals.end();++it) {
+    const auto prior=totals.value(it.key(),int64_t(0)),samples=reported.value(it.key(),int64_t(0));
+    totals[it.key()]=prior+it.value().get<int64_t>();reported[it.key()]=samples+extraReported.value(it.key(),int64_t(0));
+  }
+  cacheInput+=extra.value("cache_input",int64_t(0));cacheRead+=extra.value("cache_read",int64_t(0));cacheSamples+=extra.value("cache_samples",0);
   auto checkpoint = snapshot.value("checkpoint", Json::object());
   const bool editing = pending.value("editing", false);
   if (editing) {

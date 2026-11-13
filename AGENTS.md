@@ -209,6 +209,17 @@ silently drop a tail. Stable image-supported rotation must remain usable.
 
 Normalize bounded HTTP error text to valid UTF-8 before saving or displaying it; byte truncation can split a multibyte character. Manual retry reuses the latest failed/cancelled/interrupted assistant row, excludes its partial output and reasoning from input, and resets its reasoning metadata. Never retry automatically or duplicate user/image rows.
 
+Schema v3 keeps reply_groups/results/asset_refs separately from the current
+canonical assistant rows. Use effective messages/context snapshots for readers,
+requests, compression, branching and export: later physical rows can be hidden
+but must survive until continuation. Result 1 restores the original tail; new
+results hide it. Only a successfully committed new message fixes choices and
+collects discarded alternatives. The continuation transaction also writes the
+new assistant/request snapshot and any chosen retry/compression archive. Keep
+candidate assets pinned, opaque state identity-scoped, and discarded usage as
+bounded counters. Retry archive prompts default off and only apply to older
+replies; the latest reply always retries directly. See docs/REPLY-CHOICES.md.
+
 Camera/crop surfaces may be quarter-turned without changing the 960×266 bridge/display coordinates. Map custom crop touches through photoPoint exactly once; freeze pose at the shutter and rotate saved RGB pixels once. Crop zoom (1–16×) only changes the view, never the saved pixel geometry; keep preview decoding bounded. The source-built penchat-sensor-guard shares Camera's sensor lock and restores only reporting it enabled, including parent EOF; never modify wake/calibration/frequency settings.
 
 Schema v2 migrations must validate ownership/uniqueness before any data change and

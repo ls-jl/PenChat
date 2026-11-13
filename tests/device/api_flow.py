@@ -57,8 +57,7 @@ def run(ctx,handler):
     assert read()['session_info']['latest']['total_tokens']==1200;capture('api-compatible-usage');tap(40,32)
     handler.mode='error';type_question();tap(W-52,H-34);settle(2);wait(lambda:read()['modal']);capture('api-http-error')
     time.sleep(.7);assert len(handler.requests)==2
-    handler.mode='json';tap(W-190,H-44);wait(lambda:bool(read()['reply_actions']['confirm']));capture('api-manual-retry-confirm')
-    width=(W-262)//2;tap(110+width+width//2,H-44);settle(3);assert not read()['modal']
+    handler.mode='json';tap(W-190,H-44);settle(3);assert not read()['modal'] and not read()['reply_actions']['confirm']
     capture('api-retry-complete')
     tap(40,32);wait(lambda:read()['navigation_open']);tap(W*2//3-70,H-30);wait(lambda:read()['view']=='settings')
     from settings_ui import locate

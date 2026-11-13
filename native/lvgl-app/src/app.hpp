@@ -229,7 +229,10 @@ class App {
 
   std::map<std::string,std::string> sessionDrafts_;
   bool switchDraft(const std::string &next);
-  struct ReplyControls {lv_obj_t *bar,*copy,*retry,*branch;bool body,question;};
+  struct ReplyControls {lv_obj_t *bar,*copy,*retry,*branch,*previous,*next;bool body,question;int ordinal,total;};
+  Json replyChoiceRows_=Json::object();
+  int replyAnchorY_=0,replyAnchorScroll_=0;
+  void selectReply(const std::string &,int);
   std::map<std::string,ReplyControls> replyControls_;
   std::string replyConfirmId_,replyToken_;
   Json replyConfirmModel_=Json::object();
@@ -769,11 +772,12 @@ class App {
   std::string presetSummary(const Json &preset);
 
   bool contextBusy_ = false;
+  std::string contextPreparedMessage_,contextPreparedResult_;
   int contextGeneration_ = 0;
   std::thread contextWorker_;
   std::atomic<bool> contextCancel_{false};
   void startContext(bool manual, const std::string &retry = "",
-                    bool regenerate = false, bool archive = false,
+                    bool regenerate = false,
                     Json frozenModel = Json::object());
   void cancelContext();
   void contextProgress(const std::string &text);
@@ -793,7 +797,7 @@ class App {
   Json sessionInfoData_ = Json::object();
   std::map<std::string, lv_obj_t *> attachmentEntries_;
   void sendPrepared(Json model, Json input, const std::string &retryId,
-                    const std::string &draft);
+                    const std::string &draft,Json prepared=Json::object(),Json checkpoint=Json::object());
   void stopNetwork();
   void fetchModels();
   void saveProvider();

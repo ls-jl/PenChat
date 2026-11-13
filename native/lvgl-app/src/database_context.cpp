@@ -29,6 +29,9 @@ Json Database::contextSnapshot(const std::string &session, bool lease) {
   snapshot["session"] = sessions[0];
   snapshot["checkpoint"] = objectField(sessions[0], "metadata_json")
                                .value("context_compression", Json::object());
+  snapshot["reply_choices"]=replyChoices(session);
+  const auto cut=replyCut(session);
+  const auto lastAssistant=query("SELECT coalesce(max(seq),0) n FROM chat_messages WHERE session_id=? AND role='assistant'",{session})[0]["n"].get<int64_t>();
   int64_t seq = -1;
   for (;;) {
     auto page = query("SELECT * FROM chat_messages WHERE session_id=? AND seq>? ORDER "
@@ -38,6 +41,9 @@ Json Database::contextSnapshot(const std::string &session, bool lease) {
       break;
     for (auto m : page) {
       seq = m["seq"];
+      if(seq>cut) {
+        if(!(m["role"]=="user"&&m["message_type"]=="image"&&(!m["output_text"].is_string()||m["output_text"].get<std::string>().empty())&&seq>lastAssistant))continue;
+      }
       m["parts"] = Json::array();
       for (const auto &part :
            query("SELECT "
@@ -62,6 +68,7 @@ Json Database::contextSnapshot(const std::string &session, bool lease) {
     }
   }
   snapshot["source_checksum"] = contextChecksum(snapshot["rows"], INT64_MAX);
+  snapshot["extra_usage"]=replyUsageExtras(session,snapshot["rows"]);
   if (lease) {
     ++assetLeases_;
     snapshot["leased"] = true;

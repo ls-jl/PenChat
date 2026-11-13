@@ -78,8 +78,7 @@ def run(ctx,handler):
  assert SIGNATURE not in json.dumps(handler.requests[-1][2])
  handler.mode='401';count=len(handler.requests);type_question();tap(W-52,H-34);settle(count+1);assert state()['modal']
  capture('anthropic-http-error');time.sleep(.3);assert len(handler.requests)==count+1
- handler.mode='json';tap(W-190,H-44);wait(lambda:bool(state()['reply_actions']['confirm']));capture('anthropic-retry-confirm')
- width=(W-262)//2;tap(110+width+width//2,H-44);settle(count+2);assert not state()['modal'];capture('anthropic-json-retry')
+ handler.mode='json';tap(W-190,H-44);settle(count+2);assert not state()['modal'] and not state()['reply_actions']['confirm'];capture('anthropic-json-retry')
  ctx['result']['anthropic']={'local_fake_server':True,'image':True,'streaming':True,'signed_replay':True,
   'usage':True,'compression_archive':True,'auth_headers':['x-api-key','bearer'],'versions':['2023-06-01','2026-10-21'],
   'http1':True,'compatible_json':True,'manual_retry':True,'no_automatic_retry':True,'requests':len(handler.requests)}

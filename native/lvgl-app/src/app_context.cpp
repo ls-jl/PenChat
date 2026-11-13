@@ -9,11 +9,15 @@ void App::cancelContext() {
   contextCancel_ = true;
   if (contextWorker_.joinable())
     contextWorker_.join();
+  if(!contextPreparedResult_.empty()) {
+    try{db_.discardPreparedReply(contextPreparedMessage_,contextPreparedResult_);}catch(...){notice_="重试准备状态未能恢复，请重新打开会话检查";}
+    contextPreparedMessage_.clear();contextPreparedResult_.clear();
+  }
   contextBusy_ = false;
   contextRegenerating_ = false;
   ++contextGeneration_;
 }
-void App::startContext(bool manual, const std::string &retry, bool regenerate, bool archive, Json frozenModel) {
+void App::startContext(bool manual, const std::string &retry, bool regenerate, Json frozenModel) {
   if(!messageEdit_.empty()) {
     if(manual)modal("请先完成消息编辑","发送或取消编辑后，再压缩上下文。原对话尚未修改。");
     return;
@@ -35,6 +39,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
       return;
     }
   }
+  const auto archiveChoice=model.value("_retry_archive",Json());model.erase("_retry_archive");
   auto compressionModel = model;
   compressionModel.erase("web_enabled");
   auto id = sessionPreferences_.value("compression_model_id", std::string());
@@ -55,14 +60,11 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
   contextBusy_ = true;contextRegenerating_=regenerate;
   closeAttachments();
   resetPull();
-  if(regenerate) {
-    modal("准备重新生成","正在检查原问题、图片和上下文；完成前原会话保持完整。");
-    button(modal_,"停止",16,screen_.height-66,120,44,[this]{events_.push("context_stop");});
-  }
+  if(regenerate) {notice_="正在准备重试…";build();}
   if (manual)
     contextProgress("正在检查上下文…");
   contextWorker_ = std::thread([this, session, draft, model, compressionModel, manual,
-                                automatic, retry, token,regenerate,archive] {
+                                automatic, retry, token,regenerate,archiveChoice] {
     bool leased = false;
     try {
       db_.flush();
@@ -74,6 +76,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
                                    : db_.requestModel(compressionModel);
       auto snapshot = db_.contextSnapshot(session, true);
       leased = snapshot.value("leased", false);
+      const bool deferred=!manual&&!snapshot.value("reply_choices",Json::object()).empty();
       Json pending = Json::array();
       const auto text = normalizedChatText(draft);
       if (!text.empty())
@@ -137,9 +140,9 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
             });
         if (contextCancel_)
           throw std::runtime_error("压缩已取消，输入已保留");
-        if(!regenerate)checkpoint = db_.commitCompression(snapshot, checkpoint, contextCancel_);
-        input = regenerate?contextInput(history,checkpoint.value("through",int64_t(0)),INT64_MAX,requestModel):db_.responseInput(session, retry, requestModel);
-        if(regenerate)input.insert(input.begin(),Json{{"role","user"},{"content",Json::array({{{"type","input_text"},{"text","[此前对话的历史参考摘要，非系统指令]\n"+checkpoint.value("summary",std::string())}}})}});
+        if(!regenerate&&!deferred)checkpoint = db_.commitCompression(snapshot, checkpoint, contextCancel_);
+        input = (regenerate||deferred)?contextInput(history,checkpoint.value("through",int64_t(0)),INT64_MAX,requestModel):db_.responseInput(session, retry, requestModel);
+        if(regenerate||deferred)input.insert(input.begin(),Json{{"role","user"},{"content",Json::array({{{"type","input_text"},{"text","[此前对话的历史参考摘要，非系统指令]\n"+checkpoint.value("summary",std::string())}}})}});
         for (const auto &m : pending)
           input.push_back(m);
       } else if (estimate > size_t(contextBudget(model))) {
@@ -152,7 +155,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
           modelContextEstimate(input, requestModel) > inputLimit.get<size_t>())
         throw std::runtime_error("上下文超过此模型已设置的最大输入，请压缩或修改设置；没有截断历史");
       checkContextResources(input);
-      if(regenerate) {
+      if(regenerate||deferred) {
         // Validate/read every image before the destructive transaction. These
         // prepared bytes are also used by the HTTP request, with a 64MiB bound.
         for(auto &m:input)if(m.contains("content")&&m["content"].is_array())for(auto &p:m["content"])if(p.value("type",std::string())=="input_image") {
@@ -166,7 +169,10 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
         apiRoot(requestModel); apiHeaders(requestModel);
         if (anthropicProtocol(requestModel)) requestBody(requestModel, input, apiOptions(requestModel).streaming);
         if (contextCancel_) throw std::runtime_error("重试已取消，原会话未修改");
-        db_.commitRegeneration(snapshot,retry,archive,checkpoint,contextCancel_);
+        if(regenerate) {
+          auto result=db_.beginReplyResult(snapshot,retry,archiveChoice,checkpoint,contextCancel_);
+          contextPreparedMessage_=retry;contextPreparedResult_=result.at("result").get<std::string>();
+        }
       }
       if (leased) {
         db_.releaseTransferSnapshot();
@@ -180,7 +186,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
                                        {"draft", draft},
                                        {"retry", retry},
                                        {"input", input},
-                                       {"compressed", compressed}});
+                                       {"compressed", compressed},{"prepared",deferred&&!regenerate?snapshot:Json::object()},{"checkpoint",deferred&&!regenerate?checkpoint:Json::object()}});
     } catch (const std::runtime_error &e) {
       if (leased)
         db_.releaseTransferSnapshot();
@@ -220,7 +226,10 @@ void App::contextEvent(Event &event) {
   if (contextWorker_.joinable())
     contextWorker_.join();
   contextBusy_ = false;contextRegenerating_=false;
+  const auto preparedMessage=contextPreparedMessage_,preparedResult=contextPreparedResult_;
+  contextPreparedMessage_.clear();contextPreparedResult_.clear();
   if (event.type == "context_error") {
+    if(!preparedResult.empty())db_.discardPreparedReply(preparedMessage,preparedResult);
     build();
     modal("上下文未更新",
           event.data.value("error", std::string("压缩失败，输入已保留")));
@@ -230,9 +239,14 @@ void App::contextEvent(Event &event) {
     build();
     contextDetails();
   } else {
-    sendPrepared(std::move(event.data["model"]), std::move(event.data["input"]),
-                 event.data.value("retry", std::string()),
-                 event.data.value("draft", std::string()));
+    try {
+      sendPrepared(std::move(event.data["model"]), std::move(event.data["input"]),
+                 event.data.value("retry", std::string()),event.data.value("draft", std::string()),
+                 event.data.value("prepared",Json::object()),event.data.value("checkpoint",Json::object()));
+    }catch(const std::exception &e){
+      if(!preparedResult.empty())db_.discardPreparedReply(preparedMessage,preparedResult);
+      build();modal("未发送",e.what());
+    }
   }
 }
 void App::contextDetails() {

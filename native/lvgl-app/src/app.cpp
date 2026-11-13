@@ -1754,6 +1754,7 @@ void App::replyContent(lv_obj_t *parent, const std::string &text, int width,
 void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::string &source,
                             int width,bool readOnly,int lastAssistant,int64_t questionSeq) {
   webMessageMetadata_.clear();
+  replyChoiceRows_=readOnly?Json::object():db_.replyChoices(source);
   const auto reasoningMode=reasoningDisplay_;
   lv_obj_t *photoGroup = nullptr;
   for (const auto &m : messages) {
@@ -2324,36 +2325,39 @@ void App::settingsPage() {
   const auto editDefault=config.value("message_edit_default",std::string("ask"));
   settingsRow("message_edit","编辑消息",editDefault=="archive"?"发送时先归档":editDefault=="overwrite"?"发送时直接覆盖":"每次询问",right,284,column,[this]{messageEditDefaultPicker();});
   settingsRow("history_time","历史时间显示",historyMode=="title"?"会话标题优先":historyMode=="off"?"关闭时间显示":"时间显示优先",left,284,column,[this]{historyTimePicker();});
-  label(pageContent_, "阅读与交互", left, 356, width, 16, theme::muted);
+  const bool retryPrompt=config.value("retry_archive_prompt",false);
+  settingsRow("retry_archive_prompt","重试前提示归档","开启后，重试较早回复时询问是否归档",left,348,column,
+    [this,retryPrompt]{db_.setting("retry_archive_prompt",!retryPrompt);build();},retryPrompt);
+  label(pageContent_, "阅读与交互", left, 420, width, 16, theme::muted);
   settingsRow("font_size", "字体大小", std::to_string(readingFontPercent_) + "% · 聊天、思考和公式",
-              left, 380, column, [this] {
+              left, 444, column, [this] {
                 readingFontDraft_ = readingFontPercent_;
                 show("font_size");
               });
-  settingsRow("keyboard", "键盘与输入", "独立拼音与学习记忆", right, 380, column, [this] { show("keyboard_settings"); });
+  settingsRow("keyboard", "键盘与输入", "独立拼音与学习记忆", right, 444, column, [this] { show("keyboard_settings"); });
   const auto offset = (pullSensitivityOffset_ > 0 ? "+" : "") + std::to_string(pullSensitivityOffset_) + "%";
   settingsRow("pull_sensitivity", "上滑新建灵敏度", "偏移 " + offset + (pullSensitivityOffset_ ? " · 相对新版基准" : " · 新版基准"),
-              left, 444, column, [this] { pullSensitivityPicker(); });
+              left, 508, column, [this] { pullSensitivityPicker(); });
   settingsRow("compression_threshold", "自动压缩阈值", std::to_string(compressionPercent(config)) + "% × 模型最大上下文",
-              right, 444, column, [this] { compressionSettings(); });
+              right, 508, column, [this] { compressionSettings(); });
   const std::string shortcutMode = composerShortcut_.mode();
   settingsRow("composer_shortcut", "横屏输入框快捷唤出",
               shortcutMode == "off" ? "关闭" : shortcutMode == "manual" ? "开启，仅手动收回" : "开启，滚动后自动收回",
-              left, 508, width, [this] { composerShortcutPicker(); });
-  label(pageContent_, "数据与应用", left, 580, width, 16, theme::muted);
-  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 604, column,
+              left, 572, width, [this] { composerShortcutPicker(); });
+  label(pageContent_, "数据与应用", left, 644, width, 16, theme::muted);
+  settingsRow("transfer", "导入与导出", "聊天与预设备份", left, 668, column,
               [this] { openTransfer(); });
   const bool persistentExports = config.value("persistent_export_directory", false);
   settingsRow("persistent_exports", "持久化导出目录",
               persistentExports ? "关闭应用后保留导出文件" : "关闭应用时清理导出文件",
-              right, 604, column, [this, persistentExports] {
+              right, 668, column, [this, persistentExports] {
                 db_.setting("persistent_export_directory", !persistentExports);
                 build();
               }, persistentExports);
   const auto idle = httpIdleSeconds();
   const auto idleText = idle < 60 ? std::to_string(idle) + "秒" : std::to_string(idle/60) + "分" + (idle%60 ? std::to_string(idle%60)+"秒" : "");
-  settingsRow("http_idle", "连接保留时间", idleText + " · 全应用", left, 668, column, [this] { show("http_settings"); });
-  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", right, 668, column,
+  settingsRow("http_idle", "连接保留时间", idleText + " · 全应用", left, 732, column, [this] { show("http_settings"); });
+  settingsRow("about", "关于 " PENCHAT_NAME, "版本、存储、作者与项目地址", right, 732, column,
               [this] {
                 const auto summary = db_.summary();
                 modal("关于 " PENCHAT_NAME,
@@ -2367,15 +2371,15 @@ void App::settingsPage() {
               });
   const auto pending = feedback_ ? feedback_->state().value("pending", size_t(0)) : 0;
   settingsRow("feedback", "问题反馈", std::to_string(pending) + " 份待处理 · 诊断与机型适配",
-              left, 732, width, [this] { feedbackView_ = "form"; show("feedback"); });
+              left, 796, width, [this] { feedbackView_ = "form"; show("feedback"); });
   const auto webPolicy = config.value("new_chat_web", std::string("on"));
   settingsRow("web_policy", "新聊天联网搜索",
               webPolicy == "off"      ? "默认关闭"
               : webPolicy == "recent" ? "使用最近一次状态"
                                       : "默认开启",
-              right, 860, column, [this] { webPolicyPicker(); });
+              right, 924, column, [this] { webPolicyPicker(); });
   settingsRow("update", "检查更新", std::string("当前 ")+PENCHAT_VERSION+" · 在线安装新版本",
-              left, 796, width, [this] { openUpdate(true); });
+              left, 860, width, [this] { openUpdate(true); });
 }
 void App::updateFontPreview(int percent) {
   readingFontDraft_ = std::max(75, std::min(150, percent));
@@ -2838,7 +2842,7 @@ void App::sendMessage(const std::string &retry) {
   startContext(false, retryId);
 }
 void App::sendPrepared(Json model, Json input, const std::string &retryId,
-                       const std::string &draft) {
+                       const std::string &draft,Json prepared,Json checkpoint) {
   if (input.empty()) {
     build();
     return;
@@ -2849,10 +2853,16 @@ void App::sendPrepared(Json model, Json input, const std::string &retryId,
   model["web_asset_root"] = join(dataDir_, "assets");
   bindPreferences(model);
   sessionPreferences_["has_sent"] = true;
-  savePreferences();
+  std::string preparedAssistant;
+  if(!prepared.empty()) {
+    auto recordModel=model;recordModel.erase("api_key");recordModel.erase("headers");recordModel.erase("provider_headers");
+    prepared["_record_model"]=recordModel;prepared["_sent_at"]=sendActionAt_;
+  }
+  if(!prepared.empty())preparedAssistant=db_.commitReplyContinuation(prepared,normalizedChatText(draft),sessionPreferences_,checkpoint).at("message").get<std::string>();
+  else savePreferences();
   if (retryId.empty()) {
     const auto text = normalizedChatText(draft);
-    if (!text.empty()) db_.append(session_, "user", text, Json::object(), sessionPreferences_);
+    if (preparedAssistant.empty()&&!text.empty()) db_.append(session_, "user", text, Json::object(), sessionPreferences_);
     if (draft_ == draft)
       draft_.clear();
   }
@@ -2861,7 +2871,7 @@ void App::sendPrepared(Json model, Json input, const std::string &retryId,
   messageOffset_ = 0;
   chatFollowing_ = true;
   if (retryId.empty())
-    assistant_ = db_.append(session_, "assistant", "", Json::object(), sessionPreferences_);
+    assistant_ = preparedAssistant.empty()?db_.append(session_, "assistant", "", Json::object(), sessionPreferences_):preparedAssistant;
   else {
     assistant_ = retryId;
     db_.execute("UPDATE chat_messages SET metadata_json='{}' WHERE id=?", {retryId});
@@ -2870,7 +2880,7 @@ void App::sendPrepared(Json model, Json input, const std::string &retryId,
   }
   const auto started=nowMs();
   messageTimeline_={{"version",1},{"request_started_at",started}};
-  db_.recordRequest(assistant_, model,sendActionAt_?sendActionAt_:started,started);
+  if(preparedAssistant.empty())db_.recordRequest(assistant_, model,sendActionAt_?sendActionAt_:started,started);
   notice_.clear();
   reasoningMetadata_ = Json::object();
   output_.clear();

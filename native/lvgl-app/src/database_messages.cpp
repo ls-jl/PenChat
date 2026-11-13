@@ -91,6 +91,7 @@ Json Database::commitMessageEdit(const Json &snapshot, const Json &images,
           current["checkpoint"] != snapshot.at("checkpoint") || current["rows"] != snapshot.at("rows"))
         throw std::runtime_error("会话已变化，未覆盖原记录，请取消后重新编辑");
       auto archived = archive ? archiveCopy(current, "编辑前副本", "edit_archive") : std::string();
+      clearReplyChoices(session,pivot-1);
       auto oldAssets = query("SELECT stored_path,display_src FROM message_assets WHERE message_id IN "
                              "(SELECT id FROM chat_messages WHERE session_id=? AND seq>=?)", {session,pivot});
       enqueueAssets(oldAssets);

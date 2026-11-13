@@ -37,6 +37,7 @@ Database::Database(const std::string &path) {
       throw std::runtime_error(message);
     }
     migrate(path);
+    migrateReplyChoices(path);
     worker_ = std::thread([this] {
       for (;;) {
         std::function<void()> task;
@@ -52,8 +53,14 @@ Database::Database(const std::string &path) {
       }
     });
     execute("INSERT OR IGNORE INTO schema_meta(key,value) "
-            "VALUES('schema_version','2')");
+            "VALUES('schema_version','3')");
     execute("UPDATE chat_messages SET status='interrupted' WHERE status='streaming'");
+    perform([this] {
+      execute("BEGIN IMMEDIATE");
+      try {for(const auto &g:query("SELECT message_id FROM reply_groups"))saveReplyResult(g["message_id"]);execute("COMMIT");}
+      catch(...){execute("ROLLBACK");throw;}
+      return Json();
+    });
     {
       std::lock_guard<std::mutex> lock(jobsMutex_);
       jobs_.push_back([this] {
@@ -414,9 +421,9 @@ Json Database::messages(const std::string &s, int offset, int limit) {
   int position = nearest->first;
   int64_t cursor = nearest->second;
   while (position < page) {
-    auto rows = query("SELECT seq FROM chat_messages WHERE session_id=? AND seq<? "
+    auto rows = query("SELECT seq FROM chat_messages WHERE session_id=? AND seq<? AND (seq<=? OR (role='user' AND message_type='image' AND coalesce(output_text,'')='' AND seq>(SELECT coalesce(max(seq),0) FROM chat_messages WHERE session_id=? AND role='assistant'))) "
                       "ORDER BY seq DESC LIMIT ?",
-                      {s, cursor, limit});
+                      {s, cursor, replyCut(s),s,limit});
     if (int(rows.size()) < limit)
       return Json::array();
     cursor = rows.back()["seq"];
@@ -555,6 +562,7 @@ std::string Database::append(const std::string &s, const std::string &role,
       hasImage ? image["path"].get<std::string>() : std::string();
   std::string stored, preview;
   bool transaction = false;
+  bool ownTransaction = true;
   try {
     if (hasImage) {
 
@@ -585,7 +593,8 @@ std::string Database::append(const std::string &s, const std::string &role,
         });
       }
     }
-    execute("BEGIN IMMEDIATE");
+    ownTransaction = sqlite3_get_autocommit(db_) != 0;
+    if(ownTransaction)execute("BEGIN IMMEDIATE");
     transaction = true;
     // A new UI conversation is transient until its first message is committed.
     // Persist its row and active selection in the same transaction as content.
@@ -650,9 +659,9 @@ std::string Database::append(const std::string &s, const std::string &role,
                  : role,
              preview, s});
     setting("active_session_id", s);
-    execute("COMMIT");
+    if(ownTransaction)execute("COMMIT");
   } catch (...) {
-    if (transaction)
+    if (transaction && ownTransaction)
       execute("ROLLBACK");
     for (auto &path : createdAssets) {
       unlink(path.c_str());
@@ -735,6 +744,7 @@ void Database::updateMessage(const std::string &id, const std::string &t,
             {t, r, status, error.is_null() ? Json() : Json(error.dump()), nowMs(), id});
     execute("UPDATE message_parts SET text=? WHERE message_id=? AND part_type='text'",
             {t, id});
+    saveReplyResult(id);
     execute("COMMIT");
   } catch (...) {
     execute("ROLLBACK");
@@ -921,7 +931,8 @@ void Database::recordRequest(const std::string &message, const Json &model,int64
         mode != "disabled" && caps.value("display_supported", false);
     parameters["api_version"] = anthropicVersion(model);
   }
-  execute("BEGIN IMMEDIATE");
+  const bool ownTransaction=sqlite3_get_autocommit(db_)!=0;
+  if(ownTransaction)execute("BEGIN IMMEDIATE");
   try {
     auto rows=query("SELECT session_id,seq,metadata_json FROM chat_messages WHERE id=?",{message});
     if(!rows.empty()) {
@@ -939,10 +950,14 @@ void Database::recordRequest(const std::string &message, const Json &model,int64
       auto meta=objectField(rows[0],"metadata_json");meta["timeline"]={{"version",1},{"request_started_at",startedAt}};
       execute("UPDATE chat_messages SET provider_id=?,model_config_id=?,request_json=?,metadata_json=? WHERE id=?",
               {model["provider_id"],model["id"],parameters.dump(),meta.dump(),message});
+      if(!query("SELECT id FROM reply_groups WHERE message_id=?",{message}).empty()) {
+        auto sessionMeta=objectField(sessionInfo(session),"metadata_json");sessionMeta.erase("title_token");sessionMeta["title_state"]="manual";
+        execute("UPDATE chat_sessions SET metadata_json=? WHERE id=?",{sessionMeta.dump(),session});
+      }
       recordActivity(session,sentAt);
     }
-    execute("COMMIT");
-  } catch(...) {execute("ROLLBACK");throw;}
+    if(ownTransaction)execute("COMMIT");
+  } catch(...) {if(ownTransaction)execute("ROLLBACK");throw;}
 }
 std::string Database::saveProvider(const Json &f, const std::vector<std::string> &names, bool replaceModels) {
   if (!onWorker()) {
