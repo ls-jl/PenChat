@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
 namespace penchat {
 enum class LayoutClass { Portrait, WideLandscape, CompactLandscape };
 inline LayoutClass classifyLayout(int width, int height) {
@@ -12,6 +13,33 @@ inline LayoutClass classifyLayout(int width, int height) {
 // Geometry is measured from the loaded Falcon logical screen, never a device
 // resolution fallback. Sensor/photo dimensions are independent of these regions.
 struct LayoutRect { int x,y,width,height; };
+// Provisional Y07 optical mask. Geometry is always logical, and the explicit
+// capability must never be inferred from the resolution or aspect ratio.
+struct ScreenSafety {
+  int width=0,height=0;
+  bool rounded=false;
+  bool enabled() const { return rounded && height>width && width>0; }
+  int radius() const { return enabled()?int(std::ceil(std::min(width,height)*.20)):0; }
+  int margin() const { return enabled()?int(std::ceil(std::min(width,height)*.015)):0; }
+  int cornerInset() const { return enabled()?int(std::ceil(std::min(width,height)*.08)):0; }
+  int sideInset(int y,int h) const {
+    if(!enabled())return 0;
+    const int r=radius(),m=margin();
+    const int t=std::max(0,std::min(y,height-y-h));
+    if(t>=r)return m;
+    return int(std::ceil(r-std::sqrt(double(r)*r-double(r-t)*(r-t))+m));
+  }
+  LayoutRect fit(LayoutRect rect) const {
+    if(!enabled())return rect;
+    const int m=margin();
+    rect.height=std::min(rect.height,std::max(1,height-2*m));
+    rect.y=std::max(m,std::min(height-m-rect.height,rect.y));
+    const int side=sideInset(rect.y,rect.height);
+    rect.width=std::min(rect.width,std::max(1,width-2*side));
+    rect.x=std::max(side,std::min(width-side-rect.width,rect.x));
+    return rect;
+  }
+};
 struct ScanWorkspace {
   LayoutRect caption, preview, warning, use, cancel;
   int captionFloor, previewBottom;
@@ -27,14 +55,20 @@ struct GuideWorkspace {
 };
 struct AppLayout {
   int width, height;
+  bool rounded=false;
+  ScreenSafety safety() const { return {width,height,rounded}; }
+  LayoutRect edgeRect(LayoutRect rect) const { return safety().fit(rect); }
+  int edgeSide(int y,int h) const { return std::max(safeSide(),safety().sideInset(y,h)); }
+  int navigationX() const { return edgeSide(safeTop(),48); }
   LayoutClass category() const { return classifyLayout(width,height); }
   bool portrait() const { return category() == LayoutClass::Portrait; }
   bool compact() const { return category() == LayoutClass::CompactLandscape; }
   // Portrait panels have strongly rounded physical corners. Keep interactive
   // content inset; backgrounds/images can still extend to the full canvas.
   int safeSide() const { return portrait() ? std::max(24, std::min(32, width / 24)) : 0; }
-  int safeTop() const { return safeSide(); }
-  int safeBottom() const { return portrait() ? safeSide() + 4 : 10; }
+  int safeTop() const { return std::max(safeSide(),safety().cornerInset()); }
+  int safeBottom() const { return portrait() ? std::max(safeSide()+4,safety().cornerInset()) : 10; }
+  int readerBottomSpace() const { return safety().enabled()?safeBottom()+2*safety().margin():12; }
   int composerInset() const { return portrait() ? 25 : 2; }
   int composerSendDiameter() const { return portrait() ? 54 : 44; }
   int composerHeight() const { return 44+2*composerInset(); }
@@ -54,10 +88,16 @@ struct AppLayout {
   int modalX() const { return portrait() ? 12 : 84; }
   int modalWidth() const { return width - (portrait() ? 24 : 92); }
   ScanWorkspace scanWorkspace() const {
-    if(portrait()) return {{72,16,width-88,24},{10,56,width-20,height-186},
-      {16,28,width-32,24},{16,height-112,width-32,44},{16,height-60,width-32,44},48,height-130};
+    if(portrait()) {
+      if(!safety().enabled())return {{72,16,width-88,24},{10,56,width-20,height-186},
+        {16,28,width-32,24},{16,height-112,width-32,44},{16,height-58,width-32,44},48,height-130};
+      const int top=safeTop(),cancelY=height-safeBottom()-44,useY=cancelY-52;
+      return {{navigationX()+56,top+8,width-navigationX()-80,24},
+        {10,top+48,width-20,useY-top-64},{16,top+28,width-32,24},
+        edgeRect({16,useY,width-32,44}),edgeRect({16,cancelY,width-32,44}),top+40,useY-16};
+    }
     return {{10,0,width-120,24},{10,32,width-330,height-88},
-      {10,28,width-330,24},{width-305,32,200,44},{width-305,84,200,44},28,height-56};
+      {10,28,width-330,24},{width-305,32,200,44},{width-305,86,200,44},28,height-56};
   }
   CameraWorkspace cameraWorkspace(int w,int h,bool quarterTurn) const {
     if(portrait()||quarterTurn) {
@@ -76,7 +116,7 @@ struct AppLayout {
   }
   CropWorkspace cropWorkspace(int w,int h) const {
     if(portrait()) {
-      const int side=safeSide(),available=w-2*side;
+      const int side=edgeSide(safeTop(),44),available=w-2*side;
       const int y=h-safeBottom()-12-48,albumY=y-56;
       const int buttonWidth=(available-24)/3;
       return {{side,safeTop(),available,albumY-safeTop()-16},
@@ -90,7 +130,8 @@ struct AppLayout {
   }
   GuideWorkspace guideWorkspace() const {
     const bool p=portrait();const int split=p?width-4:width/2,right=p?20:split+20;
-    return {p,split,right,width-right-20,height-56,p?std::min(520,height*43/100):height-80};
+    const int side=safety().enabled()?navigationX():right;
+    return {p,split,side,width-side-(p?side:20),height-(safety().enabled()?safeBottom()+44:56),p?std::min(520,height*43/100):height-80};
   }
 };
 } // namespace penchat

@@ -461,14 +461,14 @@ void App::readDraw(bool menu) {
   }
   readSelectionBounds_ = selectedBounds;
   const auto candidate = placeSelectionMenu(
-      selectedBounds, selectionMenuSafeArea(screen_.width, screen_.height), 188, 52);
+      selectedBounds, selectionMenuSafeArea(screen_.width, screen_.height,roundedDisplay_), 188, 52,0,layout().safety());
   int clearance=0;
   for(auto handle:readHandles_)if(!lv_obj_is_hidden(handle)) {
     const auto shape=selectionHandleShape(handle);
     clearance=std::max(clearance,selectionMenuClearance(selectedBounds,candidate,
       {shape.x1,shape.y1,shape.x2-shape.x1+1,shape.y2-shape.y1+1}));
   }
-  const auto placement=placeSelectionMenu(selectedBounds,selectionMenuSafeArea(screen_.width,screen_.height),188,52,clearance);
+  const auto placement=placeSelectionMenu(selectedBounds,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_),188,52,clearance,layout().safety());
   const auto &popup = placement.bounds;
   lv_obj_set_pos(readMenu_, popup.x, popup.y);
   lv_obj_set_size(readMenu_, popup.width, popup.height);

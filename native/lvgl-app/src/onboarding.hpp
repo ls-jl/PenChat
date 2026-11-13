@@ -2,11 +2,13 @@
 #include "platform.hpp"
 #include "onboarding_3d.hpp"
 #include "theme.hpp"
+#include "layout.hpp"
 #include <array>
 #include <map>
 namespace penchat {
 // A self-contained, synthetic demonstration. It has no business-service handles.
 class Onboarding {
+  ScreenSafety safety_;
   struct Motion { lv_obj_t *object; int x, y, dx, dy; };
   lv_obj_t *root_ = nullptr, *pause_ = nullptr;
   std::array<lv_obj_t *, 4> stages_{};
@@ -36,7 +38,7 @@ class Onboarding {
   void chat(lv_obj_t *,bool=false);
   void scene(int,lv_obj_t *);
 public:
-  Onboarding(lv_obj_t *,int,int,int,bool,bool,std::function<void(const std::string &)>);
+  Onboarding(lv_obj_t *,int,int,int,bool,bool,std::function<void(const std::string &)>,bool rounded=false);
   ~Onboarding();
   void tick(bool visible);
   void toggle();

@@ -459,6 +459,12 @@ artifacts outside Git.
   provisional until a verified panel mask or a physical corner-pattern check is
   available; a rectangular host screenshot cannot validate physical clipping.
 
+`ScreenSafety` in the shared layout implements this provisional envelope. Pass
+the explicit Y07 capability into page, editor, guide and popup geometry; never
+derive it from portrait dimensions. The keyboard's main grid intentionally keeps
+its original geometry; only edge utilities/floating feedback use the mask.
+Host masked screenshots are QA artifacts, not an additional device display layer.
+
 
 ## Shared native colour and popup roles
 

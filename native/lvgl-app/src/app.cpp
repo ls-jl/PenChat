@@ -1079,7 +1079,7 @@ void App::build() {
     onboardingPage();builtView_=view_;builtPageKey_=pageKey();syncScanner();syncBackPolicy();return;
   }
   lv_obj_t *navigation=nullptr;
-  if(view_!="crop"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", layout().portrait()?layout().safeSide():16, layout().portrait()?layout().safeTop():8, 48, 48, [this] {
+  if(view_!="crop"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", layout().portrait()?layout().navigationX():16, layout().portrait()?layout().safeTop():8, 48, 48, [this] {
     if(editor_.active){editorAccept();return;}
     if (view_ == "chat") {
       if(!messageEdit_.empty())cancelMessageEdit();else toggleNavigation();
@@ -1146,8 +1146,8 @@ void App::build() {
     chatHeader_ = box(screenObj_, 0, 0, screen_.width, layout().chatReaderTop());
     lv_obj_set_scrollable(chatHeader_, false);
     if (navigation) lv_obj_set_parent(navigation, chatHeader_);
-    const int left = layout().safeSide() + 64;
-    const int statusX = screen_.width - layout().safeSide() - 88;
+    const int left = layout().navigationX() + 64;
+    const int statusX = screen_.width - layout().navigationX() - 88;
     chatTitle_ = label(chatHeader_, "", left, layout().safeTop()+10, statusX-left-12, 20);
     lv_label_set_long_mode(chatTitle_, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_height(chatTitle_, font(20)->line_height);
@@ -1155,7 +1155,7 @@ void App::build() {
   }
   if (view_ == "chat" && scanner_.available()) {
     const bool portrait = layout().portrait();
-    auto hint = box(portrait?chatHeader_:screenObj_, portrait?screen_.width-layout().safeSide()-88:12, portrait?layout().safeTop():60, portrait?88:64, portrait?48:64);
+    auto hint = box(portrait?chatHeader_:screenObj_, portrait?screen_.width-layout().navigationX()-88:12, portrait?layout().safeTop():60, portrait?88:64, portrait?48:64);
     lv_obj_set_scrollable(hint, false);
     scanHint_ = label(hint, portrait?"扫描准备中":"扫描\n准备中", 4, portrait?14:5, portrait?80:60, portrait?16:14, theme::muted);
     lv_label_set_long_mode(scanHint_, LV_LABEL_LONG_MODE_DOTS);
@@ -1277,8 +1277,11 @@ void App::modal(const std::string &title, const std::string &text) {
   lv_obj_set_style_radius(layer, 16, 0);
   lv_obj_set_style_border_color(layer, lv_color_hex(theme::border), 0);
   lv_obj_set_style_border_width(layer, 1, 0);
-  label(layer, title, 15, 7, layerWidth-30, 23);
-  auto scroll = box(layer, 10, 42, layerWidth-20, mh-115, theme::popup);
+  const bool rounded=layout().safety().enabled()&&!portraitPhoto;
+  const int top=rounded?layout().safeTop():7;
+  const int left=rounded?std::max(15,layout().navigationX()-layout().modalX()):15;
+  label(layer, title, left, top, layerWidth-2*left, 23);
+  auto scroll = box(layer, 10, rounded?top+40:42, layerWidth-20, mh-115, theme::popup);
   modalScroll_=scroll;
   readableLabel(scroll, text, 5, 0, layerWidth-30, 20);
   button(layer, "关闭", portraitPhoto?layerWidth-110:screen_.width-205, mh-66, 100, 44,
@@ -2169,22 +2172,23 @@ void App::pageHeader(const std::string &title, int top) {
   top+=layout().safeTop();
   pageHeader_ = box(body_, 0, top, width, 48);
   lv_obj_set_scrollable(pageHeader_, false);
-  if(layout().portrait())icon(pageHeader_,"back",layout().safeSide(),2,44,44,[this]{if(editor_.active){editorAccept();return;}goBack();});
-  const int titleX=layout().portrait()?layout().safeSide()+56:10;
-  pageHeading_ = label(pageHeader_, title, titleX, 7, width-titleX-10,26);
+  if(layout().portrait())icon(pageHeader_,"back",layout().navigationX(),2,44,44,[this]{if(editor_.active){editorAccept();return;}goBack();});
+  const int titleX=layout().portrait()?layout().navigationX()+56:10;
+  pageHeading_ = label(pageHeader_, title, titleX, 7,
+    width-titleX-(layout().safety().enabled()?layout().navigationX():10),26);
   readLabel(pageHeading_,title);
   lv_label_set_long_mode(pageHeading_, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(pageHeading_,font(26)->line_height);
   pageContent_ = box(body_, 0, top + 48, width, LV_SIZE_CONTENT);
   lv_obj_set_scrollable(pageContent_, false);
   lv_obj_set_style_min_height(pageContent_, screen_.height - top - 60, 0);
-  lv_obj_set_style_pad_bottom(body_, 12, 0);
+  lv_obj_set_style_pad_bottom(body_, layout().readerBottomSpace(), 0);
   lv_obj_set_style_width(body_, 3, LV_PART_SCROLLBAR);
   lv_obj_set_style_bg_color(body_, lv_color_hex(theme::muted), LV_PART_SCROLLBAR);
   lv_obj_set_style_radius(body_, 3, LV_PART_SCROLLBAR);
 }
 lv_obj_t *App::pageAction(const std::string &title, int right, int width, std::function<void()> action) {
-  const int x = layout().portrait()?layout().bodyWidth()-right-width-layout().safeSide():screen_.width-86-right-width;
+  const int x = layout().portrait()?layout().bodyWidth()-right-width-layout().navigationX():screen_.width-86-right-width;
   auto result = button(pageHeader_, title, x, 2, width, 44, std::move(action));
   pageActions_[title] = result;
   const int titleWidth = lv_obj_get_style_width(pageHeading_,LV_PART_MAIN);
@@ -2531,7 +2535,7 @@ void App::historyDrawer() {
   lv_obj_set_style_bg_opa(navigation_, 120, 0);
   lv_obj_set_clickable(navigation_, true);
   const int panelWidth = screen_.width * 2 / 3;
-  const int listLeft=layout().portrait()?layout().safeSide():12;
+  const int listLeft=layout().portrait()?layout().navigationX():12;
   const int listTop=layout().portrait()?layout().safeTop():8;
   const int footerY=screen_.height-48-(layout().portrait()?layout().safeBottom():6);
   const int listWidth = panelWidth - listLeft - 12;
@@ -4074,6 +4078,8 @@ Json App::diagnostics() const {
       {"reader_height",body_?lv_obj_get_height(body_):0},
       {"page_content_height",pageContent_?lv_obj_get_height(pageContent_):0},
       {"safe_insets", {layout().safeSide(),layout().safeTop(),layout().safeSide(),layout().safeBottom()}},
+      {"screen_safety",{{"rounded",layout().safety().enabled()},{"radius",layout().safety().radius()},
+        {"margin",layout().safety().margin()},{"navigation_x",layout().navigationX()}}},
       {"toolbar_y", chatControls_ ? lv_obj_get_y(chatControls_) : -1},
       {"to_bottom_visible", toBottom_ && !lv_obj_is_hidden(toBottom_)},
       {"session", session_},

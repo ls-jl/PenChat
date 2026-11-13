@@ -57,8 +57,8 @@ lv_obj_t *App::contextMenu(const std::string &kind,int rows) {
   const int padding=portrait?8:4;
   const int availableHeight=keepChatEditor()?editorLayout().panelTop:screen_.height;
   const LayoutRect anchor{lastTouch_.value("x",screen_.width/2),lastTouch_.value("y",screen_.height/2),1,1};
-  const auto area=placeContextPopup(screen_.width,availableHeight,roundedDisplay_,anchor,
-                                   portrait?320:224,rows*rowHeight+2*padding);
+  const auto area=placeContextPopup(screen_.width,screen_.height,roundedDisplay_,anchor,
+                                   portrait?320:224,rows*rowHeight+2*padding,availableHeight);
   auto panel=box(layer,area.x,area.y,area.width,area.height,theme::popup);
   contextMenuPanel_=panel;stylePopupPanel(panel,portrait);lv_obj_set_scrollable(panel,false);
   auto list=box(panel,padding,padding,area.width-2*padding,

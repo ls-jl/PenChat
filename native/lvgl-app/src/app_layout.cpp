@@ -4,11 +4,16 @@ void App::arrangeModal() {
   if(!modal_||!layout().portrait())return;
   lv_obj_update_layout(modal_);
   const int w=lv_obj_get_width(modal_);
+  lv_area_t bounds;lv_obj_get_coords(modal_,&bounds);
+  int buttonTop=screen_.height-66;
   for(size_t i=0;i<modalButtons_.size();++i) {
-    auto b=modalButtons_[i];lv_obj_set_pos(b,16,screen_.height-66-int(i)*52);lv_obj_set_size(b,w-32,44);
-    auto l=lv_obj_get_child(b,0);if(l)lv_obj_set_width(l,w-56);
+    auto area=layout().edgeRect({bounds.x1+16,screen_.height-(layout().safety().enabled()?layout().safeBottom()+44:66)-int(i)*52,w-32,44});
+    auto b=modalButtons_[i];lv_obj_set_pos(b,area.x-bounds.x1,area.y-bounds.y1);lv_obj_set_size(b,area.width,area.height);
+    buttonTop=std::min(buttonTop,area.y);
+    auto l=lv_obj_get_child(b,0);if(l)lv_obj_set_width(l,area.width-24);
   }
-  if(modalScroll_)lv_obj_set_height(modalScroll_,std::max(80,screen_.height-76-int(modalButtons_.size())*52));
+  if(modalScroll_)lv_obj_set_height(modalScroll_,std::max(80,layout().safety().enabled()?
+    buttonTop-bounds.y1-int(lv_obj_get_y(modalScroll_))-10:screen_.height-76-int(modalButtons_.size())*52));
 }
 void App::portraitPage() {
   if (view_ == "balances") return; // The balance reader measures full-width rows itself.

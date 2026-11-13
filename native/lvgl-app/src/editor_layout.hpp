@@ -24,16 +24,19 @@ struct EditorLayout {
   int width, height, split, textX, textWidth, textY = 56, textHeight;
   int actionsY, bottomY, rowHeight, keyTop=6, bottomHeight=44, candidateY=6, compositionY=6;
   bool portrait=false, docked=false, compact=false, compactFull=false;
+  bool rounded=false;
+  ScreenSafety safety() const { return {width,height,rounded}; }
   int panelTop=0, textAreaWidth=0, keyboardLift=0;
   int keyInset=0, keySpan=0;
   int keyGap=4, rowGap=6, keyMargin=4;
   double keyWidth;
   EditorLayout(int w, int h, bool selectionOnly = false, bool chatComposer = false,
                bool swapWideSides = false, bool compactExpanded = false,
-               bool inlineReveal = false, const KeyboardDesign &design = keyboardDesign()) :
+               bool inlineReveal = false, const KeyboardDesign &design = keyboardDesign(), bool roundedScreen = false) :
       keyMetrics(design.keys),compositionMetrics(design.composition),candidateMetrics(design.candidates),
       controlMetrics(design.controls),compactMetrics(design.compact),popupMetrics(design.popups),
       nativeWidth(w),nativeHeight(h),width(w),height(h) {
+    rounded=roundedScreen;
     keyGap=design.keys.gap;rowGap=design.keys.rowGap;keyMargin=design.keys.margin;
     keyTop=design.wide.keyTop;bottomHeight=design.controls.height;
     candidateY=compositionY=design.wide.keyTop;
@@ -207,8 +210,9 @@ struct EditorLayout {
   Popup floatingPopup(int x,int y,int w,int h) const {
     const AppLayout safe{width,height};const int side=std::max(popupMetrics.safeMargin,safe.safeSide()),top=std::max(popupMetrics.safeMargin,safe.safeTop()),bottom=std::max(popupMetrics.safeMargin,safe.safeBottom());
     w=std::min(w,width-2*side);h=std::min(h,height-top-bottom);
-    return {std::max(side,std::min(width-w-side,x)),
-            std::max(top,std::min(height-h-bottom,y)),w,h};
+    const auto fitted=safety().fit({std::max(side,std::min(width-w-side,x)),
+            std::max(top,std::min(height-h-bottom,y)),w,h});
+    return {fitted.x,fitted.y,fitted.width,fitted.height};
   }
   Popup magnifierPopup(int cursorX,int cursorY,int editorLeft=0,int editorRight=0) const {
     const AppLayout safe{width,height};
@@ -224,7 +228,8 @@ struct EditorLayout {
     const int w=std::min(popupMetrics.lensWidth,right-left),h=std::min(popupMetrics.lensHeight,height-top-bottom);
     const int x=std::max(left,std::min(right-w,cursorX-w/2));
     const int y=std::max(top,std::min(height-bottom-h,cursorY-popupMetrics.lensOffset-(portrait?popupMetrics.portraitLensOffset:0)));
-    return {x,y,w,h};
+    const auto fitted=safety().fit({x,y,w,h});
+    return {fitted.x,fitted.y,fitted.width,fitted.height};
   }
   int selectionHandleWidth() const {return scaled?int(std::ceil(double(controlMetrics.height)*256/scaleX())):controlMetrics.height;}
   int selectionHandleHeight() const {return scaled?int(std::ceil(double(controlMetrics.height)*256/scaleY())):controlMetrics.height;}
@@ -233,8 +238,12 @@ struct EditorLayout {
   Popup globeKey() const {
     const int commaCenter=8+px(keyWidth+14)+px(keyWidth+10)/2;
     const int centerY=px((bottomY+bottomHeight-1.+height-1)/2.);
-    return {commaCenter-keyMetrics.utilityShiftX-keyMetrics.utilitySize/2,
-            centerY-keyMetrics.utilityShiftY-keyMetrics.utilitySize/2,keyMetrics.utilitySize,keyMetrics.utilitySize};
+    auto fitted=safety().fit({commaCenter-keyMetrics.utilityShiftX-keyMetrics.utilitySize/2,
+            centerY-keyMetrics.utilityShiftY-keyMetrics.utilitySize/2,keyMetrics.utilitySize,keyMetrics.utilitySize});
+    if(safety().enabled())fitted.x=std::max(fitted.x,
+      safety().sideInset(fitted.y+(fitted.height-controlMetrics.height)/2,controlMetrics.height)+
+      std::max(0,(controlMetrics.portraitDoneWidth-fitted.width)/2));
+    return {fitted.x,fitted.y,fitted.width,fitted.height};
   }
   struct Action { const char *name; int x, width, y; };
   std::vector<Action> actions(bool chat=false, bool singleLineOcr=false) const {

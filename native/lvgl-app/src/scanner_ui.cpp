@@ -103,7 +103,7 @@ void App::scanPage() {
     lv_obj_set_style_bg_color(scanUse_, lv_color_hex(theme::surface), 0);
     lv_obj_set_style_text_color(lv_obj_get_child(scanUse_, 0), lv_color_hex(theme::muted), 0);
   }
-  button(body_, "取消", portrait?16:screen_.width-305, portrait?screen_.height-58:86, portrait?screen_.width-32:200, 44, [this] { show("chat"); });
+  button(body_, "取消", workspace.cancel.x, workspace.cancel.y, workspace.cancel.width, workspace.cancel.height, [this] { show("chat"); });
   if (!scanResult_.empty()) {
     auto c = scanResult_.value("counts", Json::object());
     std::string text;

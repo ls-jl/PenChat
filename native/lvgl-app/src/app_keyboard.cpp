@@ -1254,8 +1254,8 @@ void App::editorSyncSelectionMenu() {
     std::max(1,int(std::ceil((selected.x+selected.width)*sx))-int(std::floor(selected.x*sx))),
     std::max(1,int(std::ceil((selected.y+selected.height)*sy))-int(std::floor(selected.y*sy)))};
   const int buttonWidth=layout.selectionButtonWidth(),buttonHeight=layout.selectionButtonHeight();
-  const auto candidate=placeSelectionMenu(native,selectionMenuSafeArea(screen_.width,screen_.height),
-    int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+4)+4)*sx)),int(std::ceil((buttonHeight+8)*sy)));
+  const auto candidate=placeSelectionMenu(native,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_),
+    int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+4)+4)*sx)),int(std::ceil((buttonHeight+8)*sy)),0,this->layout().safety());
   int clearance=0;
   if(editor_.selected())for(auto handle:editorHandles_)if(handle&&!lv_obj_is_hidden(handle)) {
     const auto shape=selectionHandleShape(handle);
@@ -1264,8 +1264,8 @@ void App::editorSyncSelectionMenu() {
       int(std::ceil((shape.y2+1)*sy))-int(std::floor(shape.y1*sy))};
     clearance=std::max(clearance,selectionMenuClearance(native,candidate,grip));
   }
-  const auto placed=placeSelectionMenu(native,selectionMenuSafeArea(screen_.width,screen_.height),
-    int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+4)+4)*sx)),int(std::ceil((buttonHeight+8)*sy)),clearance);
+  const auto placed=placeSelectionMenu(native,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_),
+    int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+4)+4)*sx)),int(std::ceil((buttonHeight+8)*sy)),clearance,this->layout().safety());
   const auto &p=placed.bounds;
   if(!editorSelectionMenu_) {
     editorSelectionMenu_=box(editorRoot_,0,0,1,1,theme::sidebar);

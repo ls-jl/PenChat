@@ -39,7 +39,7 @@ class App {
     std::string tableKey;
     std::map<std::pair<int, int>, lv_obj_t *> tiles;
   };
-  AppLayout layout() const { return {screen_.width,screen_.height}; }
+  AppLayout layout() const { return {screen_.width,screen_.height,roundedDisplay_}; }
   void portraitPage();
   void arrangeModal();
   bool roundedDisplay_ = false, contextMenuOpening_ = false, popupConsumeTouch_ = false;
@@ -636,7 +636,7 @@ class App {
   void editorCompactEnsureCaret();
 
   EditorLayout editorLayout() const {
-    EditorLayout result(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,editorSwapSides_,editorCompactExpanded_,editor_.secret);
+    EditorLayout result(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,editorSwapSides_,editorCompactExpanded_,editor_.secret,keyboardDesign(),roundedDisplay_);
     if(officialDocked_&&keyboard_&&officialHeight_>0)result.panelTop=screen_.height-officialHeight_;
     return result;
   }

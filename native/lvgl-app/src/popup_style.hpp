@@ -48,26 +48,21 @@ inline void stylePopupRow(lv_obj_t *object) {
 // Pure logical geometry. Rounded mask is an explicit Y07 capability, never
 // inferred from aspect ratio; host tests can exercise both masks independently.
 inline LayoutRect popupSafeArea(int width, int height, bool rounded) {
-  const AppLayout layout{width,height};
+  const AppLayout layout{width,height,rounded};
   const int margin = rounded ? int(std::ceil(std::min(width,height)*.015)) : 8;
   return {std::max(margin,layout.safeSide()), std::max(margin,layout.safeTop()),
           width-2*std::max(margin,layout.safeSide()),
           height-std::max(margin,layout.safeTop())-std::max(margin,layout.safeBottom())};
 }
 inline LayoutRect placeContextPopup(int width,int height,bool rounded,
-                                     LayoutRect anchor,int desiredWidth,int desiredHeight) {
+                                     LayoutRect anchor,int desiredWidth,int desiredHeight,int bottomLimit=0) {
   const auto safe=popupSafeArea(width,height,rounded);
-  const int h=std::min(desiredHeight,std::max(44,safe.height*4/5));
+  const int bottom=bottomLimit>0?std::min(safe.y+safe.height,bottomLimit):safe.y+safe.height;
+  const int h=std::min(desiredHeight,std::max(44,(bottom-safe.y)*4/5));
   int y=anchor.y+anchor.height+8;
-  if(y+h>safe.y+safe.height)y=anchor.y-h-8;
-  y=std::max(safe.y,std::min(safe.y+safe.height-h,y));
-  int side=safe.x;
-  if(rounded) {
-    const int radius=int(std::ceil(std::min(width,height)*.20));
-    const int margin=int(std::ceil(std::min(width,height)*.015));
-    const int t=std::max(0,std::min(y,height-y-h));
-    if(t<radius) side=std::max(side,int(std::ceil(radius-std::sqrt(double(radius*radius-(radius-t)*(radius-t)))+margin)));
-  }
+  if(y+h>bottom)y=anchor.y-h-8;
+  y=std::max(safe.y,std::min(bottom-h,y));
+  const int side=std::max(safe.x,ScreenSafety{width,height,rounded}.sideInset(y,h));
   const int w=std::min(desiredWidth,std::max(44,width-2*side));
   const int x=std::max(side,std::min(width-side-w,anchor.x));
   return {x,y,w,h};

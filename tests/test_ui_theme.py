@@ -9,17 +9,23 @@ ROOT=t.ROOT;t.port=1
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ROOT/'build/host/penchat-lvgl'))
 OUT=ROOT/'.work/ui-unification-20261113/screens';OUT.mkdir(parents=True,exist_ok=True)
 class App(t.Native):
- def __init__(self,p,w,h,binary=BINARY):
+ def __init__(self,p,w,h,binary=BINARY,onboarding=False):
   self.w=w;self.h=h
-  super().__init__(binary,p,seed_model=False,official_adapter=False,screen={'width':w,'height':h,'direction':0})
+  super().__init__(binary,p,seed_model=False,official_adapter=False,onboarding=onboarding,screen={'width':w,'height':h,'direction':0})
  def tapb(self,b):self.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
  def settings_swipe(self,delta):
   start=min(self.h-35,220) if delta<0 else 75;end=max(20,min(self.h-20,start+delta))
   for i in range(7):self.send('touch',x=self.w//2,y=start+(end-start)*i//6,pressed=True);time.sleep(.02)
   time.sleep(.1);self.send('touch',x=self.w//2,y=end,pressed=False);time.sleep(.15)
  def open_navigation(self):
-  self.to_chat();self.tap(48,48) if self.h>self.w else self.tap(40,32)
+  self.to_chat();self.nav_tap()
   t.wait_for(lambda:self.diag()['navigation_open'])
+ def nav_tap(self):
+  d=self.diag()
+  if self.h<=self.w:self.tap(40,32);return
+  heading=(d.get('page') or {}).get('heading')
+  y=heading[1]+16 if heading else d['safe_insets'][1]+24
+  self.tap(d.get('screen_safety',{}).get('navigation_x',d['safe_insets'][0])+22,y)
  def open_settings(self):
   self.open_navigation();self.tap(self.w*2//3-70,self.h-(48 if self.h>self.w else 30));t.wait_for(lambda:self.diag()['view']=='settings')
  def top(self):
@@ -32,7 +38,7 @@ class App(t.Native):
    if d['navigation_open']:self.tap(self.w-12,85)
    elif d['view']=='chat':return
    else:
-    self.top();self.tap(48,48) if self.h>self.w else self.tap(40,32)
+    self.top();self.nav_tap()
   raise AssertionError(self.diag()['view'])
  def key(self,name):
   e=self.diag()['editor'];k=next(k for k in e['keys'] if k['key']==name);s=e['coordinate_space'];x,y=k['x'],k['y']

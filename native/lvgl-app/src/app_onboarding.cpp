@@ -15,7 +15,7 @@ void App::openOnboarding() {
 }
 void App::onboardingPage() {
   onboarding_.reset(new Onboarding(screenObj_,screen_.width,screen_.height,onboardingStep_,onboardingReplay_,!db_.models().empty(),
-    [this](const std::string &action){events_.push("onboarding_action",{{"action",action},{"step",onboardingStep_}});}));
+    [this](const std::string &action){events_.push("onboarding_action",{{"action",action},{"step",onboardingStep_}});},roundedDisplay_));
   if(!onboardingPending_.empty())onboarding_->busy(true);
 }
 void App::onboardingAction(const std::string &action) {

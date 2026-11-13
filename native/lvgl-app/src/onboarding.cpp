@@ -43,8 +43,9 @@ lv_obj_t *Onboarding::text(lv_obj_t *p,const std::string &s,int x,int y,int w,in
   lv_label_set_text(o,s.c_str());lv_obj_set_clickable(o,false);return o;
 }
 lv_obj_t *Onboarding::control(const std::string &id,const std::string &s,int x,int y,int w,bool primary) {
-  auto o=rect(root_,x,y,w,44,primary?theme::text:theme::surface);
-  auto l=text(o,s,0,0,w-8,18,primary?theme::primaryText:theme::text);
+  const auto area=safety_.fit({x,y,w,44});
+  auto o=rect(root_,area.x,area.y,area.width,area.height,primary?theme::text:theme::surface);
+  auto l=text(o,s,0,0,area.width-8,18,primary?theme::primaryText:theme::text);
   lv_label_set_long_mode(l,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(l,font(18)->line_height);lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(l);
   lv_obj_set_style_bg_color(o,lv_color_hex(theme::border),LV_STATE_PRESSED);
   lv_obj_set_style_opa(o,LV_OPA_50,LV_STATE_DISABLED);
@@ -150,16 +151,20 @@ void Onboarding::scene(int phase,lv_obj_t *p) {
     motions_[phase].push_back({touch,(phase==0?25:310)*sceneWidth_/400,(phase==0?12:112)*sceneHeight_/150,phase==0?45:-24,0});
   }
 }
-Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool replaying,bool configured,std::function<void(const std::string &)> action)
-  : action_(std::move(action)),step_(step) {
+Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool replaying,bool configured,std::function<void(const std::string &)> action,bool rounded)
+  : safety_{width,height,rounded},action_(std::move(action)),step_(step) {
   root_=rect(parent,0,0,width,height,theme::background,0);
-  const auto geometry=AppLayout{width,height}.guideWorkspace();
+  const AppLayout layout{width,height,rounded};
+  const auto geometry=layout.guideWorkspace();
   const bool portrait=geometry.portrait;
   const int split=geometry.split,right=geometry.right,measure=geometry.measure;
   const int footer=geometry.footer,demoH=geometry.demoHeight;
-  auto demo=rect(root_,16,12,portrait?width-32:split-28,demoH,theme::sidebar,14);
-  text(demo,"操作演示",14,8,portrait?width-64:split-60,16,theme::muted);
-  sceneWidth_=std::min(640,portrait?width-48:split-44);
+  const int demoY=safety_.enabled()?layout.safeTop():12;
+  const int demoX=safety_.enabled()?layout.navigationX():16;
+  const int demoWidth=portrait?width-2*demoX:split-28;
+  auto demo=rect(root_,demoX,demoY,demoWidth,demoH,theme::sidebar,14);
+  text(demo,"操作演示",14,8,demoWidth-32,16,theme::muted);
+  sceneWidth_=std::min(640,demoWidth-16);
   sceneHeight_=std::min(360,portrait?sceneWidth_*150/400:height-130);
   const int sceneY=portrait?42+(demoH-50-sceneHeight_)/2:42;
   for(int n=0;n<4;++n){stages_[n]=rect(demo,8,sceneY,sceneWidth_,sceneHeight_,theme::background,0);scene(n,stages_[n]);lv_obj_set_hidden(stages_[n],true);}
@@ -182,18 +187,19 @@ Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool repla
     renderer_.reset();if(texture_){lv_draw_buf_destroy(texture_);texture_=nullptr;}
     renderFailed_=true;
   }
-  const int top=portrait?demoH+92:13;
+  const int top=portrait?demoH+92+demoY-12:13;
   text(root_,std::to_string(step+1)+" / 7"+(step<3?" · 必看":" · 功能介绍"),right,top,measure,16,theme::muted);
   text(root_,titles[step],right,top+30,measure,portrait?28:24);
   auto description=text(root_,copy[step],right,top+70,measure,portrait?21:(measure<340?16:18));
   lv_obj_set_style_text_line_space(description,measure<340&&!portrait?3:5,0);
   if(step==2&&configured)text(root_,"已配置模型，可直接继续",right,portrait?top+176:174,measure,16,theme::link);
   if(step==6)text(root_,"可在“关于 PenChat”中重看引导",right,portrait?top+176:174,measure,16,theme::muted);
-  const int playbackY=portrait?demoH+28:footer;
+  const int playbackY=portrait?demoH+28+demoY-12:footer;
   pause_=control("pause","暂停",16,playbackY,80);control("replay","重播",104,playbackY,80);
-  auto phaseCaption=text(demo,captions[step][0],126,8,portrait?width-190:split-166,16,theme::link);actions_["caption"]=phaseCaption;
-  if(step>0)control("back","上一步",width-220,footer,92);
-  control("next",step==6?"开始使用":"下一步",width-120,footer,100,true);
+  auto phaseCaption=text(demo,captions[step][0],126,8,safety_.enabled()?demoWidth-158:portrait?width-190:split-166,16,theme::link);actions_["caption"]=phaseCaption;
+  const int end=safety_.enabled()?layout.edgeSide(footer,44):20;
+  if(step>0)control("back","上一步",width-end-200,footer,92);
+  control("next",step==6?"开始使用":"下一步",width-end-100,footer,100,true);
   if(step==2)control("configure","去配置",right,footer,100);
   else if(step>=3||replaying)control("finish",replaying?"关闭引导":"结束引导",right,footer,112);
   tick(true);
