@@ -620,7 +620,13 @@ void App::effortPicker() {
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
-  const auto area=pickerArea(screen_.width-(layout().portrait()?32:130));
+  const bool portrait=layout().portrait();
+  const bool stagger=portrait && options.size()>6;
+  // A slider has a natural height; the available reader height is not its
+  // content height, especially with the portrait keyboard closed.
+  const auto area=portrait?placeContextPopup(screen_.width,screen_.height,roundedDisplay_,
+      {layout().safeSide(),chatComposerY(),1,1},std::min(520,screen_.width-32),stagger?218:194,
+      keepChatEditor()?editorLayout().panelTop:0):pickerArea(screen_.width-130);
   const int panelWidth=area.width,sliderWidth=panelWidth-80;
   auto panel=box(attachments_,area.x,area.y,panelWidth,area.height,theme::popup);
   attachmentPanel_=panel;lv_obj_set_scrollable(panel,false);stylePopupPanel(panel,layout().portrait());
@@ -628,8 +634,8 @@ void App::effortPicker() {
   if (selected.empty())
     selected = "api_default";
   auto title =
-      label(panel, effortLabel(selected) + " · 推理强度", 24, 14, panelWidth - 230, 24);
-  button(panel, "跟随设置", panelWidth - 166, 4, 156, 44, [this] {
+      label(panel, effortLabel(selected) + " · 推理强度", 24, 14, panelWidth - (portrait?178:230), portrait?21:24);
+  button(panel, "跟随设置", panelWidth - (portrait?138:166), 4, portrait?128:156, 44, [this] {
     chooseEffort("");
     build();
   });
@@ -715,7 +721,7 @@ void App::effortPicker() {
   for (size_t i = 0; i < options.size(); ++i) {
     int x =
         options.size() == 1 ? panelWidth / 2 : 40 + int(i) * sliderWidth / int(options.size() - 1);
-    auto caption = label(panel, effortLabel(options[i]), x - 38, 138, 76, 18);
+    auto caption = label(panel, effortLabel(options[i]), x - 38, 138+(stagger?int(i%2)*28:0), 76, stagger?16:18);
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
   }
 }
@@ -1137,6 +1143,8 @@ void App::build() {
     webSourcePage();
   else if (view_ == "session_info")
     sessionInfoPage();
+  else if (view_ == "context_summary")
+    contextSummaryPage();
   else if (view_ == "model")
     modelPage();
   else if (view_ == "scan")

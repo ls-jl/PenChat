@@ -31,8 +31,19 @@ void App::balanceButton(lv_obj_t *parent,int x,int y,uint32_t background) {
 }
 void App::openBalances() {
   if (navigationList_) navigationScroll_ = std::max(0, int(lv_obj_get_scroll_y(navigationList_)));
-  closeNavigation(false);
+  const bool inDrawer=layout().portrait() && navigationOpen_;
+  if(!inDrawer)closeNavigation(false);
   auto list=contextMenu("balances",layout().portrait()?8:4,layout().portrait()?340:360);
+  if(inDrawer) {
+    // The wallet is a drawer action, not a navigation away from history. Keep
+    // both its reader and selection alive below the dismissible balance layer.
+    const int left=std::max(popupSafeArea(screen_.width,screen_.height,roundedDisplay_).x,
+        layout().safety().sideInset(lv_obj_get_y(contextMenuPanel_),lv_obj_get_height(contextMenuPanel_)));
+    const int width=std::min(int(lv_obj_get_width(contextMenuPanel_)),screen_.width*2/3-left-8);
+    lv_obj_set_x(contextMenuPanel_,left);
+    lv_obj_set_width(contextMenuPanel_,width);
+    lv_obj_set_width(list,width-16);
+  }
   const int padding=layout().portrait()?8:4;
   const int width=lv_obj_get_width(contextMenuPanel_);
   auto title=label(contextMenuPanel_,"账户余额",padding+12,padding+10,width-152,21);

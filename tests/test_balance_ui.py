@@ -29,7 +29,7 @@ def setup(folder, lines=80):
     return file,fixtures
 
 def open_drawer(a):
-    a.to_chat();d=a.diag();a.tap(48,48) if d['height']>d['width'] else a.tap(40,32)
+    a.to_chat();d=a.diag();a.tap(d['safe_insets'][0]+24,d['safe_insets'][1]+24) if d['height']>d['width'] else a.tap(40,32)
     assert a.diag()['navigation_open']
 
 def open_balances(a):
@@ -43,7 +43,9 @@ def open_balances(a):
     a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
     wait_for(lambda:a.diag()['balances']['open'] and a.diag()['balances']['pending']==0)
     wait_for(lambda:len(a.diag()['balances']['states'])==4)
-    assert a.diag()['view']=='chat' and not a.diag()['navigation_open']
+    assert a.diag()['view']=='chat' and a.diag()['navigation_open']==(d['height']>d['width'])
+    if d['height']>d['width']:
+        b=a.diag()['balances']['bounds'];assert b[0]<d['width']//4 and b[2]<d['width']*2//3
     b=a.diag()['balances']['bounds'];assert (b[2]-b[0]+1)*(b[3]-b[1]+1)<d['width']*d['height']*.75
 
 def popup_action(a,key):
@@ -62,6 +64,7 @@ for width,height in [(960,266),(640,260),(568,1210)]:
     with tempfile.TemporaryDirectory(prefix='penchat-balance-ui-') as temp:
         folder=pathlib.Path(temp);fixture,fixtures=setup(folder)
         os.environ['PENCHAT_TEST_BALANCE_FIXTURE']=str(fixture)
+        if height>width:os.environ['PENCHAT_TEST_Y07_ROUNDED']='1'
         a=Native(BINARY,folder,seed_model=False,screen={'width':width,'height':height,'direction':0,'xoffset':0,'yoffset':0})
         try:
             before=a.diag();time.sleep(.35);capture(a,OUT/f'{width}x{height}-before.png');open_balances(a)
@@ -78,13 +81,15 @@ for width,height in [(960,266),(640,260),(568,1210)]:
             assert '0.000123' not in json.dumps(a.diag()['balances'])
             assert 'FAKE-KEY' not in json.dumps(a.diag())
             a.tap(2,height//2);wait_for(lambda:not a.diag()['balances']['open'])
-            after=a.diag();assert after['session']==before['session'] and after['draft_length']==before['draft_length']
+            after=a.diag();assert after['navigation_open']==(height>width)
+            assert after['session']==before['session'] and after['draft_length']==before['draft_length']
             assert abs(after['scroll_y']-before['scroll_y'])<=10 and a.diag()['view']=='chat'
             fixtures['deepseek']={'status':200,'body':'{"balance_infos":[{"currency":"CNY","total_balance":"91.23"}]}'}
             fixture.write_text(json.dumps(fixtures));open_balances(a)
             assert a.diag()['balances']['states']['deepseek']=='ready'
             a.tap(2,height//2);wait_for(lambda:not a.diag()['balances']['open'])
             print('Balance popup passed:',width,height,flush=True)
-        finally:a.close()
+        finally:
+            a.close();os.environ.pop('PENCHAT_TEST_Y07_ROUNDED',None)
 os.environ.pop('PENCHAT_TEST_BALANCE_FIXTURE',None)
 print('Balance popups in three layouts: placement, local scroll, all-provider refresh and chat preservation passed')

@@ -250,45 +250,46 @@ void App::contextEvent(Event &event) {
   }
 }
 void App::contextDetails() {
-  closeAttachments();
-  auto rows =
-      db_.query("SELECT metadata_json FROM chat_sessions WHERE id=?", {session_});
-  auto checkpoint = rows.empty() ? Json::object()
-                                 : objectField(rows[0], "metadata_json")
-                                       .value("context_compression", Json::object());
-  if (checkpoint.empty()) {
-    modal("上下文", "尚未压缩，完整历史将用于后续请求。可从加号菜单手动压缩。");
+  if(!finishChatEditorForNavigation())return;
+  show("context_summary");
+}
+void App::contextSummaryPage() {
+  pageHeader("上下文摘要");
+  const auto rows=db_.query("SELECT metadata_json FROM chat_sessions WHERE id=?",{session_});
+  const auto checkpoint=rows.empty()?Json::object():objectField(rows[0],"metadata_json")
+      .value("context_compression",Json::object());
+  const int left=layout().portrait()?16:10;
+  const int width=layout().contentWidth();
+  int y=12;
+  auto text=[&](const std::string &value,int size,uint32_t color) {
+    auto line=readableLabel(pageContent_,value,left,y,width,size,color);
+    lv_obj_update_layout(line);y+=lv_obj_get_height(line)+20;
+  };
+  if(checkpoint.empty()) {
+    text("尚未压缩",22,theme::text);
+    text("完整历史将用于后续请求。可从加号菜单手动压缩上下文。",20,theme::muted);
     return;
   }
-  auto time = checkpoint.value("created_at", int64_t(0));
-  time_t seconds = time / 1000;
-  char stamp[64]{};
-  struct tm local {};
-  localtime_r(&seconds, &local);
-  strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M", &local);
-  modal(
-      "上下文摘要",
-      std::string(checkpoint.value("enabled", true) ? "已生效" : "已停用，请重新压缩") +
-          " · 覆盖至第 " + std::to_string(checkpoint.value("through", int64_t(0))) +
-          " 条\n" + stamp + "\n\n" + checkpoint.value("summary", std::string()));
-  const auto archive = checkpoint.value("archive_id", std::string());
-  if (!archive.empty())
-    button(modal_, "对应归档", 16, screen_.height - 66, 140, 44, [this, archive] {
-      auto found = db_.sessionInfo(archive);
-      if (found.empty()) {
-        modal("归档已删除", "摘要仍有效，当前完整历史仍保留。");
-        return;
-      }
-      archiveOffset_ = 0;
-      archiveHighlight_ = archive;
-      auto order =
-          db_.query("SELECT count(*) n FROM chat_sessions s WHERE status='archived' "
-                    "AND EXISTS(SELECT 1 FROM chat_messages m WHERE m.session_id=s.id) "
-                    "AND (updated_at>? OR (updated_at=? AND id<?))",
-                    {found["updated_at"], found["updated_at"], archive});
-      if (!order.empty())
-        archiveOffset_ = (order[0]["n"].get<int>() / 30) * 30;
-      show("archives");
-    });
+  const auto archive=checkpoint.value("archive_id",std::string());
+  if(!archive.empty())pageAction("对应归档",12,120,[this,archive] {
+    const auto found=db_.sessionInfo(archive);
+    if(found.empty()){modal("归档已删除","摘要仍有效，当前完整历史仍保留。");return;}
+    archiveOffset_=0;archiveHighlight_=archive;
+    const auto order=db_.query("SELECT count(*) n FROM chat_sessions s WHERE status='archived' "
+        "AND EXISTS(SELECT 1 FROM chat_messages m WHERE m.session_id=s.id) "
+        "AND (updated_at>? OR (updated_at=? AND id<?))",
+        {found["updated_at"],found["updated_at"],archive});
+    if(!order.empty())archiveOffset_=(order[0]["n"].get<int>()/30)*30;
+    show("archives");
+  });
+  text(std::string(checkpoint.value("enabled",true)?"已生效":"已停用，请重新压缩")+
+      " · 覆盖至第 "+std::to_string(checkpoint.value("through",int64_t(0)))+" 条",18,theme::muted);
+  const auto time=checkpoint.value("created_at",int64_t(0));
+  if(time>0) {
+    time_t seconds=time/1000;tm local{};char stamp[64]{};
+    localtime_r(&seconds,&local);strftime(stamp,sizeof(stamp),"%Y-%m-%d %H:%M",&local);
+    text(std::string("压缩时间：")+stamp,18,theme::muted);
+  }
+  text(checkpoint.value("summary",std::string()),20,theme::text);
 }
 } // namespace penchat

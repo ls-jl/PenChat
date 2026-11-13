@@ -809,6 +809,7 @@ class App {
   void contextProgress(const std::string &text);
   void contextEvent(Event &event);
   void contextDetails();
+  void contextSummaryPage();
   void openSessionInfo();
   void refreshSessionInfo();
   void sessionInfoPage();
