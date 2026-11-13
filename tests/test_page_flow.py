@@ -3,6 +3,7 @@
 import json,os,pathlib,signal,sqlite3,struct,tempfile,time,zlib
 import test_lvgl_app as t
 from test_reasoning_ui import seed
+from provider_ui import activate as provider_action,open_model
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
 OUT=t.ROOT/'.work/page-flow';OUT.mkdir(parents=True,exist_ok=True)
 t.port=1
@@ -43,7 +44,8 @@ def run(w,h):
             headingY=page['heading'][1];actionsY={k:v[1] for k,v in page['actions'].items()}
             if name=='provider-list':assert page['actions']['添加 Provider'][1]==10
             for bounds in page['actions'].values():
-                assert page['heading'][2]<bounds[0] and bounds[3]-bounds[1]+1>=44,(name,page)
+                assert bounds[3]-bounds[1]+1>=44,(name,page)
+                if bounds[1]<48:assert page['heading'][2]<bounds[0],(name,page)
             shot(name+'-top')
             if scroll:
                 maximum=d['scroll_bottom']+d['scroll_y'];a.settings_swipe(-120);t.wait_for(lambda:not a.diag()["page"]["scrolling"])
@@ -56,9 +58,10 @@ def run(w,h):
         try:
             a.open_settings();inspect('settings')
             a.setting('models');inspect('provider-list')
-            a.tap(870,120);assert a.diag()['view']=='model';inspect('model')
+            open_model(a,'a');assert a.diag()['view']=='model';inspect('model')
             a.page_action('参数映射');inspect('model-mappings')
-            a.page_action('保存');assert a.diag()['view']=='provider'
+            a.page_action('完成');assert a.diag()['view']=='provider'
+            a.tap(40,32)
             a.page_action('添加 Provider');inspect('provider-form')
             a.settings_swipe(-100);t.wait_for(lambda:not a.diag()["page"]["scrolling"]);before=a.diag()['scroll_y']
             # A same-form rebuild must preserve the reading position and keep

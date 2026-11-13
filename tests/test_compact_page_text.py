@@ -46,7 +46,7 @@ for width,height in [(640,260),(640,360)]:
             activate(a,'新增预设');capture(a,OUT,f'{width}x{height}-preset-editor')
             a.to_chat();a.open_settings();a.setting('models')
             capture(a,OUT,f'{width}x{height}-model-list')
-            activate(a,'model-edit:a');capture(a,OUT,f'{width}x{height}-model-editor')
+            activate(a,'provider-open:p');activate(a,'model-edit:a');capture(a,OUT,f'{width}x{height}-model-editor')
             a.to_chat();a.open_settings();a.setting('message_edit')
             capture(a,OUT,f'{width}x{height}-edit-options')
             dismiss(a)

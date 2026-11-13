@@ -82,7 +82,10 @@ struct AppLayout {
   int contentWidth() const { return width - (portrait() ? 32 : 118); }
   int composerX() const { return portrait() ? safeSide() : 106; }
   LayoutRect composerShortcut() const {
-    return {12, composerY(), std::max(44, composerX() - 24), composerHeight()};
+    if(portrait())return {12,composerY(),std::max(44,composerX()-24),composerHeight()};
+    // The wallet now owns the old lower-left blank area. Keep a full 44px
+    // invisible target just above/right of it, entirely outside the capsule.
+    return {composerX()-44,composerY()-46,44,44};
   }
   int composerWidth() const { return width - composerX() - (portrait() ? safeSide() : 24); }
   int modalX() const { return portrait() ? 12 : 84; }

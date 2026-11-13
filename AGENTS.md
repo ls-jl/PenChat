@@ -343,8 +343,12 @@ the composer visible. A page-origin downward drag that crosses
 the docked keyboard panel may push it down; release beyond the frozen threshold
 closes editing without sending, otherwise return over 160ms. Key/caret/selection
 drags never dismiss. Lifecycle and multi-touch cancel the push and reset transforms.
-The portrait attachment menu expands upwards from the composer, capped at five
-44px rows plus padding; remaining items scroll locally, never stretch to the top. The collapsed portrait
+All attachment menus align exactly with the actual composer capsule left edge;
+their bottom extends at least 10px below the capsule bottom. Use natural measured
+width/row height, maximize visible content within the logical screen, and choose
+the feasible vertical position nearest screen center without artificial blank
+height. Overflow scrolls locally. They may cover the composer/keyboard and must
+remain above the retained editor root without committing input. The collapsed portrait
 pill alone keeps 25px around the 44px send circle. Chinese
 composition uses the same row as the official/OCR/clipboard actions; never add
 a separate candidate row in portrait. The borderless globe is 1.5x, below and
@@ -494,3 +498,5 @@ undo and keyboard. Its first outside touch dismisses the popup and consumes the
 whole contact sequence; it never becomes a keypress or a Send. Model/effort/preset
 choices retain editing; entering another business page completes the old editor
 normally. Do not rebuild keyboard caps or restart OCR just to show/hide a popup.
+
+Provider management lists only Providers, with connection fields above an independent model section in one detail page. Keep a process-local workspace across child editors; all connection/model changes commit together on the DB worker only on explicit whole-page Save. Model management has no default/use selector; preserve preset/session selection. Horizontal balance access is bottom-left on chat, mirrored from History; portrait retains the drawer entry. All balance views use one scrollable popup with one all-provider Refresh and no separate channel labels.

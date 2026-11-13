@@ -6,6 +6,7 @@
 #include <stdexcept>
 namespace penchat {
 void App::saveModelForm() {
+  if(modelForm_==modelEditOriginal_)return;
   auto caps = objectField(modelForm_, "capabilities_json");
   const auto previous = caps;
   caps["reasoning"] = modelForm_.at("reasoning");
@@ -38,7 +39,15 @@ void App::saveModelForm() {
   const auto name=modelForm_.value("name",std::string());
   if(!hasChatText(name) || name.find_first_of("\r\n")!=std::string::npos)
     throw std::runtime_error("请填写有效的模型 ID，不能包含换行");
-  db_.saveModelSettings(modelForm_.at("id"),caps,name,modelForm_.value("display_name",name));
+  bool found=false;
+  for(const auto &model:providerDraftModels_)if(model.at("id")!=modelForm_.at("id") &&
+      model.at("name")==name)throw std::runtime_error("该服务商下已存在相同的模型 ID");
+  for(auto &model:providerDraftModels_)if(model.at("id")==modelForm_.at("id")) {
+    model["name"]=name;model["display_name"]=modelForm_.value("display_name",name);
+    const bool edited=model.value("workspace_caps_edited",false)||caps!=previous;
+    model["workspace_caps_edited"]=edited;model["capabilities_json"]=caps;found=true;break;
+  }
+  if(!found)throw std::runtime_error("模型草稿已失效，请返回服务商重试");
 }
 void App::modelCapabilityRows(int y) {
   const int width = layout().contentWidth(), col = (width - 36) / 2, right = col + 26;

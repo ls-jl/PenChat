@@ -4,7 +4,8 @@ import http.server,json,os,pathlib,signal,sqlite3,tempfile,threading,time
 import test_lvgl_app as t
 from anthropic_fixture import Handler,seed,configure,SIGNATURE,REDACTED
 from test_reply_actions import action as reply_action,confirm as confirm_retry,bottom
-from provider_ui import activate as provider_action
+from provider_ui import activate as provider_action,commit_model
+from choice_ui import select
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
 OUT=t.ROOT/'.work/anthropic-ui';OUT.mkdir(parents=True,exist_ok=True)
 def shot(a,name):
@@ -27,10 +28,10 @@ def configuration(w,h):
  with tempfile.TemporaryDirectory(prefix='penchat-anthropic-settings-') as folder:
   p=pathlib.Path(folder);seed(p,1);a=t.Native(BINARY,p,screen={'width':w,'height':h,'direction':0})
   try:
-   a.open_settings();a.setting('models');a.tap(w-90,76)
-   a.tap(w-230,128);assert a.diag()['modal'];shot(a,f'{w}-protocols')
-   a.tap(400,112);assert a.diag()['provider_protocol']=='chat'
-   a.tap(w-230,128);a.tap(400,160);assert a.diag()['provider_protocol']=='anthropic'
+   a.open_settings();a.setting('models');provider_action(a,'provider-open:p')
+   provider_action(a,'provider-protocol');assert a.diag()['modal'];shot(a,f'{w}-protocols')
+   select(a,'chat');assert a.diag()['provider_protocol']=='chat'
+   provider_action(a,'provider-protocol');select(a,'anthropic');assert a.diag()['provider_protocol']=='anthropic'
    row(a,'provider_advanced');row(a,'anthropic_connection');assert a.diag()['view']=='anthropic_connection';shot(a,f'{w}-connection-default')
    row(a,'anthropic_auth');row(a,'anthropic_version');row(a,'anthropic_headers')
    enter(a,json.dumps({'X-Fixture':'yes','anthropic-workspace-id':'workspace-test'}))
@@ -49,11 +50,11 @@ def configuration(w,h):
    provider_action(a,'model-edit:a');assert a.diag()['view']=='model';shot(a,f'{w}-adaptive-model')
    row(a,'max_output');enter(a,'32768');a.page_action('参数映射')
    row(a,'thinking_high');enter(a,'xhigh');shot(a,f'{w}-adaptive-mapping')
-   a.page_action('保存');assert a.diag()['view']=='provider'
+   commit_model(a);assert a.diag()['view']=='provider'
    provider_action(a,'model-edit:b');assert a.diag()['view']=='model';shot(a,f'{w}-budget-model')
    a.page_action('参数映射');row(a,'thinking_high');enter(a,'20000')
-   a.page_action('保存');assert a.diag()['modal'];shot(a,f'{w}-invalid-budget')
-   a.tap(w-70,h-44);row(a,'thinking_high');enter(a,'8192');a.page_action('保存')
+   a.page_action('完成');assert a.diag()['modal'];shot(a,f'{w}-invalid-budget')
+   a.tap(w-70,h-44);row(a,'thinking_high');enter(a,'8192');commit_model(a)
    assert a.diag()['view']=='provider'
   finally:a.close()
 
@@ -144,10 +145,10 @@ def streaming():
     reason,meta=db.execute("select reasoning_text,metadata_json from chat_messages where role='assistant' order by seq desc limit 1").fetchone()
     assert not reason and json.loads(meta)['reasoning_observed']
    assert SIGNATURE not in (p/'runtime.log').read_text() and REDACTED not in json.dumps(a.diag())
-   a.open_settings();a.setting('models');a.tap(870,76)
-   a.tap(250,180);enter(a,'');before=len(Handler.requests)
-   a.tap(250,235);t.wait_for(lambda:len(Handler.requests)==before+2);time.sleep(.25)
-   a.page_action('保存')
+   a.open_settings();a.setting('models');provider_action(a,'provider-open:p')
+   provider_action(a,'provider-add-models');before=len(Handler.requests)
+   provider_action(a,'models-fetch');t.wait_for(lambda:len(Handler.requests)==before+2);time.sleep(.25)
+   a.tap(40,32);provider_action(a,'provider-save-bottom')
    with sqlite3.connect(p/'penchat.db') as db:
     names=[n for n, in db.execute('select name from model_configs where enabled=1 order by name')]
     assert names==['claude-fixture','claude-fixture-second']

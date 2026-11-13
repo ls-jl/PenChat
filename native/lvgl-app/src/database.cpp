@@ -1,5 +1,7 @@
 #include "database.hpp"
 #include "api_config.hpp"
+#include "anthropic_config.hpp"
+#include "chat_text.hpp"
 #include "chat_time.hpp"
 #include "context.hpp"
 #include "network.hpp"
@@ -976,7 +978,8 @@ std::string Database::saveProvider(const Json &f, const std::vector<std::string>
   bool first = models().empty();
   const bool firstProvider=providers().empty();
   bool connectionChanged=false;
-  execute("BEGIN IMMEDIATE");
+  const bool ownTransaction=sqlite3_get_autocommit(db_)!=0;
+  if(ownTransaction)execute("BEGIN IMMEDIATE");
   try {
     if (editing) {
       auto old = query("SELECT metadata_json,headers_json,api_key,base_url FROM providers WHERE "
@@ -1068,14 +1071,101 @@ std::string Database::saveProvider(const Json &f, const std::vector<std::string>
                 {available[0]["id"].get<std::string>()});
       }
     }
-    execute("COMMIT");
-    if(connectionChanged)invalidateHttpProvider(id);
+    if(ownTransaction)execute("COMMIT");
+    if(ownTransaction&&connectionChanged)invalidateHttpProvider(id);
   } catch (...) {
-    execute("ROLLBACK");
+    if(ownTransaction)execute("ROLLBACK");
     throw;
   }
   return id;
 }
+Json Database::saveProviderWorkspace(const Json &form, const Json &drafts) {
+  if(!onWorker())return perform([=]{return saveProviderWorkspace(form,drafts);});
+  if(!drafts.is_array())throw std::runtime_error("模型草稿无效");
+  if(!hasChatText(form.value("name",std::string())) || !hasChatText(form.value("baseURL",std::string())) ||
+     !hasChatText(form.value("apiKey",std::string())))throw std::runtime_error("请填写名称、Base URL 和 API Key");
+  Json request={{"base_url",form.value("baseURL",std::string())},{"api_key",form.value("apiKey",std::string())},
+    {"headers_json",form.value("headers",Json::object())},
+    {"provider_metadata",{{"api",form.value("api",std::string("responses"))},{"anthropic",objectField(form,"anthropic")}}}};
+  apiRoot(request);apiHeaders(request);
+  const auto previous=form.contains("id")?providerForm(form.at("id")):Json::object();
+  bool connectionChanged=false;
+  for(const auto &key:{"baseURL","apiKey","headers","api","compatibility","anthropic"})
+    if(previous.value(key,Json())!=form.value(key,Json()))connectionChanged=true;
+  execute("BEGIN IMMEDIATE");
+  try {
+    const auto provider=saveProvider(form,{},false);
+    Json mapping=Json::object(), prepared=Json::array();
+    std::set<std::string> names,ids;
+    for(const auto &draft:drafts) {
+      const auto key=draft.at("id").get<std::string>();
+      const auto name=draft.value("name",std::string());
+      const bool deleted=draft.value("workspace_deleted",false);
+      if(key.empty()||name.empty()||name.find_first_of("\r\n")!=std::string::npos ||
+         name.find_first_not_of(" \t")==std::string::npos || !ids.insert(key).second)
+        throw std::runtime_error("模型 ID 无效或重复");
+      if(!deleted&&!names.insert(name).second)throw std::runtime_error("该服务商下存在重复的模型 ID");
+      auto stored=query("SELECT * FROM model_configs WHERE id=?",{key});
+      if(!stored.empty()&&stored[0]["provider_id"]!=provider)throw std::runtime_error("模型不属于当前服务商");
+      std::string id=key;
+      if(stored.empty()) {
+        if(!draft.value("workspace_new",false))throw std::runtime_error("模型已失效，请重新打开服务商");
+        auto match=query("SELECT * FROM model_configs WHERE provider_id=? AND name=?",{provider,name});
+        if(!match.empty()) {
+          if(match[0].value("enabled",0)!=0)throw std::runtime_error("该服务商下已存在相同的模型 ID");
+          stored=match;id=stored[0]["id"];
+        }
+      }
+      auto caps=draft.value("capabilities_json",Json());
+      if(caps.is_string())caps=Json::parse(caps.get<std::string>(),nullptr,false);
+      if(!caps.is_object())throw std::runtime_error("模型 "+name+" 的能力配置无效");
+      if(!deleted && form.value("api",std::string())=="anthropic") {
+        Json model={{"name",name},{"capabilities_json",caps}};
+        try {validateAnthropic(model,objectField(caps,"reasoning"));}
+        catch(const std::exception &error){throw std::runtime_error("模型 "+name+"："+error.what());}
+      }
+      auto entry=draft;entry["resolved_id"]=id;entry["existing"]=!stored.empty();
+      mapping[key]=id;prepared.push_back(entry);
+    }
+    // Validate the complete desired state before changing any model row.
+    std::set<std::string> resolved;
+    for(const auto &entry:prepared) {
+      const auto id=entry.at("resolved_id").get<std::string>();
+      if(!resolved.insert(id).second)throw std::runtime_error("模型恢复关系重复");
+      auto conflict=query("SELECT id FROM model_configs WHERE provider_id=? AND name=? AND id<>?",
+                          {provider,entry.at("name"),id});
+      for(const auto &row:conflict) {
+        bool moving=false;
+        for(const auto &other:prepared)if(other.at("resolved_id")==row.at("id")&&other.at("name")!=entry.at("name"))moving=true;
+        if(!moving)throw std::runtime_error("该服务商下已存在相同的模型 ID");
+      }
+    }
+    // Temporary names allow two stable IDs to exchange names under the UNIQUE constraint.
+    for(const auto &entry:prepared)if(entry.at("existing").get<bool>())
+      execute("UPDATE model_configs SET name=? WHERE id=?",{uid("workspace-name"),entry.at("resolved_id")});
+    for(const auto &entry:prepared) {
+      const bool deleted=entry.value("workspace_deleted",false);
+      if(!entry.at("existing").get<bool>()&&deleted)continue;
+      const auto id=entry.at("resolved_id");
+      const auto name=entry.at("name");
+      const auto display=entry.value("display_name",name.get<std::string>());
+      const auto caps=objectField(entry,"capabilities_json");
+      if(entry.at("existing").get<bool>())
+        execute("UPDATE model_configs SET name=?,display_name=?,capabilities_json=?,enabled=?,is_default=CASE WHEN ? THEN 0 ELSE is_default END,updated_at=? WHERE id=?",
+                {name,display,caps.dump(),deleted?0:1,deleted?1:0,nowMs(),id});
+      else execute("INSERT INTO model_configs(id,provider_id,name,display_name,model_type,capabilities_json,created_at,updated_at,is_default) VALUES(?,?,?,?,'chat',?,?,?,0)",
+                   {id,provider,name,display,caps.dump(),nowMs(),nowMs()});
+    }
+    if(query("SELECT m.id FROM model_configs m JOIN providers p ON p.id=m.provider_id WHERE m.enabled=1 AND p.enabled=1 AND m.is_default=1").empty()) {
+      auto available=models();
+      if(!available.empty())execute("UPDATE model_configs SET is_default=1 WHERE id=?",Json::array({available[0]["id"]}));
+    }
+    execute("COMMIT");
+    if(connectionChanged)invalidateHttpProvider(provider);
+    return {{"provider_id",provider},{"model_ids",mapping}};
+  } catch(...) {execute("ROLLBACK");throw;}
+}
+
 void Database::addProviderModels(const std::string &id,const std::vector<std::string> &names) {
   if(!onWorker()){perform([=]{addProviderModels(id,names);return Json();});return;}
   if(names.empty())throw std::runtime_error("请先选择或填写要添加的模型");

@@ -1,3 +1,4 @@
+#include "attachment_layout.hpp"
 #include "app.hpp"
 #include "chat_text.hpp"
 #include "chat_time.hpp"
@@ -353,6 +354,7 @@ void App::closeAttachments() {
   lv_obj_delete(object);
 }
 void App::toggleAttachments() {
+  if(view_!="chat"||!chatControls_)return;
   if (contextBusy_) {
     contextProgress("正在整理历史，请稍候…");
     return;
@@ -362,19 +364,17 @@ void App::toggleAttachments() {
     return;
   }
   resetPull();
-  attachments_ = box(screenObj_,layout().gutter(),0,screen_.width-layout().gutter(),screen_.height);
+  // Finish the composer transition so a click during its animation uses the
+  // actual resting capsule, with enough physical room for the 10px overlap.
+  if(chatControls_){lv_anim_delete(chatControls_,nullptr);lv_obj_set_y(chatControls_,chatComposerY());}
+  lv_obj_update_layout(screenObj_);
+  lv_area_t capsule;lv_obj_get_coords(chatControls_,&capsule);
+  attachments_ = box(lv_screen_active(),0,0,screen_.width,screen_.height);
   popupKind_ = "attachments";
   lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::scrim), 0);
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
   lv_obj_set_scrollable(attachments_, false);
   onClick(attachments_, [this] { closeAttachments(); });
-  const int menuWidth=std::min(320,layout().portrait()?layout().composerWidth():screen_.width-126);
-  auto menu = box(attachments_, 20, 12, menuWidth, screen_.height - 78, theme::surface);
-  attachmentPanel_=menu;
-  lv_obj_set_style_radius(menu, 16, 0);
-  lv_obj_set_scroll_dir(menu, LV_DIR_VER);
-  lv_obj_set_scroll_elastic(menu, false);
-  lv_obj_set_scroll_momentum(menu, false);
   std::vector<std::string> names{"拍照", "相册", "模型", "推理强度"};
   std::vector<std::string> icons{"camera", "album", "settings", "gauge"};
   std::vector<std::string> ids{"camera", "album", "models", "effort", "compress", "summary"};
@@ -394,18 +394,19 @@ void App::toggleAttachments() {
   ids.push_back("session_info");
   names.push_back("会话信息");
   icons.push_back("info");
-  if(layout().portrait()) {
-    const int anchor=chatComposerY()-4;
-    const int available=std::max(44,anchor-layout().safeTop());
-    const int height=std::min(available,std::min(int(names.size())*44+8,5*44+8));
-    lv_obj_set_align(menu,LV_ALIGN_BOTTOM_LEFT);
-    lv_obj_set_pos(menu,layout().composerX(),anchor-screen_.height);
-    lv_obj_set_height(menu,0);
-    lv_anim_t animation;lv_anim_init(&animation);lv_anim_set_var(&animation,menu);
-    lv_anim_set_exec_cb(&animation,[](void *object,int32_t value){lv_obj_set_height(static_cast<lv_obj_t *>(object),value);});
-    lv_anim_set_values(&animation,0,height);lv_anim_set_duration(&animation,180);
-    lv_anim_set_path_cb(&animation,lv_anim_path_ease_out);lv_anim_start(&animation);
+  int measuredWidth=0;
+  for(const auto &name:names) {
+    lv_point_t measured{};lv_text_get_size(&measured,name.c_str(),font(20),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+    measuredWidth=std::max(measuredWidth,int(measured.x)+76);
   }
+  const auto area=attachmentMenuArea(layout(),{capsule.x1,capsule.y1,capsule.x2-capsule.x1+1,capsule.y2-capsule.y1+1},
+                                    measuredWidth,int(names.size())*44+8);
+  const int menuWidth=area.width;
+  auto menu=box(attachments_,area.x,area.y,area.width,area.height,theme::surface);
+  attachmentPanel_=menu;
+  lv_obj_set_style_radius(menu,16,0);
+  lv_obj_set_scroll_dir(menu,LV_DIR_VER);
+  lv_obj_set_scroll_elastic(menu,false);lv_obj_set_scroll_momentum(menu,false);
   for (int i = 0; i < int(names.size()); ++i) {
     const auto actionId = ids[i];
     auto action = [this, actionId] {
@@ -723,8 +724,8 @@ void App::modelPage() {
   pageHeader("模型设置");
   const int width = layout().contentWidth(), column = (width - 14) / 2;
   const auto id = modelForm_.value("id", std::string());
-  auto save = pageAction("保存", 24, 130, [this, id] {
-    try { saveModelForm(); show("provider"); }
+  auto save = pageAction("完成", 24, 130, [this, id] {
+    try { saveModelForm(); returnProvider(); }
     catch (const std::exception &e) { modal("模型设置未保存", e.what()); }
   });
   primary(save);
@@ -992,6 +993,8 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  if(contextMenuKind_=="balances")cancelBalances();
+  closeAttachments();
   composerShortcut_.pause();
   if(readGesture_.active())readSuppressed_=readDown_;
   readReset();
@@ -1100,8 +1103,6 @@ void App::build() {
     chat();
   else if (view_ == "settings")
     settingsPage();
-  else if (view_ == "balances")
-    balancePage();
   else if (view_ == "font_size")
     fontSizePage();
   else if (view_ == "http_settings")
@@ -1173,6 +1174,7 @@ void App::build() {
       }
     });
   }
+  if(view_=="chat"&&!layout().portrait())balanceButton(screenObj_,16,screen_.height-56,theme::background);
   if(navigation)lv_obj_move_foreground(navigation);
   portraitPage();
   refreshImages();
@@ -1197,11 +1199,10 @@ void App::build() {
   chatLayout_ = false;
   syncScanner();
   if (view_=="archive_chat" || (view_=="transfer" && transferScreen_.compare(0,7,"format_")==0))paintVisible();
-  if (editorRoot_) {editorViewport();editorSyncText();lv_obj_move_foreground(editorRoot_);}
+  if (editorRoot_) {editorViewport();editorSyncText();lv_obj_move_foreground(editorRoot_);if(attachments_&&popupKind_=="attachments")lv_obj_move_foreground(attachments_);}
   if (imageViewer_) lv_obj_move_foreground(imageViewer_);
 }
 void App::show(const std::string &view) {
-  if (view_ == "balances" && view != view_) cancelBalances();
   if (view != view_) composerShortcut_.reset();
   if ((view_ == "web_source" || view_ == "web_details") && view != "web_source")
     cancelWebReader();
@@ -1234,9 +1235,9 @@ void App::show(const std::string &view) {
   closeNavigation(false);
   closeAttachments();
   resetPull();
-  if ((view_ == "provider" || view_ == "provider_models" || view_ == "api_compatibility" || view_ == "anthropic_connection") &&
-      view != "provider" && view != "provider_models" && view != "api_compatibility" && view != "anthropic_connection") {
-    providerForm_ = Json::object();
+  if ((view_ == "provider" || view_ == "provider_models" || view_ == "model" || view_ == "api_compatibility" || view_ == "anthropic_connection") &&
+      view != "provider" && view != "provider_models" && view != "model" && view != "api_compatibility" && view != "anthropic_connection") {
+    providerForm_ = Json::object();providerDraftModels_=Json::array();providerOriginal_=Json::object();providerWorkspaceId_.clear();
     modelNames_.clear();
     ++modelGeneration_;
     modelCancel_ = true;
@@ -1388,7 +1389,7 @@ void App::rebuildChatControls() {
   layoutChatComposer();
   updateChatControls(false);
   if(editor_.active&&editorInPlace()&&editorRoot_) {
-    editorViewport();editorSyncText();lv_obj_move_foreground(editorRoot_);
+    editorViewport();editorSyncText();lv_obj_move_foreground(editorRoot_);if(attachments_&&popupKind_=="attachments")lv_obj_move_foreground(attachments_);
   }
 }
 bool App::atLatestBottom() const {
@@ -2452,7 +2453,6 @@ void App::reasoningDisplayPicker() {
     [this](const std::string &key){events_.push("reasoning_display",{{"mode",key}});});
 }
 void App::goBack() {
-  if (view_ == "balances") { show("chat"); toggleNavigation(); return; }
   if (view_ == "web_source") {
     show("web_details");
     return;
@@ -2488,20 +2488,16 @@ void App::goBack() {
   } else if (view_ == "archives")
     show("settings");
   else if (view_ == "model")
-    show("provider");
+    returnProvider();
   else if (view_ == "provider_models") {
-    ++modelGeneration_;modelCancel_=true;
-    providerForm_=Json::object();modelNames_.clear();providerModelSelection_.clear();
-    providerModelsId_.clear();show("provider");
+    ++modelGeneration_;modelCancel_=true;modelNames_.clear();providerModelSelection_.clear();
+    returnProvider();
   } else if (view_ == "provider") {
     if (!providerForm_.empty()) {
-      providerForm_ = Json::object();
-      modelNames_.clear();
-      ++modelGeneration_;
-      modelCancel_ = true;
-      build();
-    } else
-      show("settings");
+      if(!providerDirty()){leaveProvider();return;}
+      choiceMenu("provider_exit",{{"edit","继续编辑"},{"discard","放弃修改"},{"save","保存并返回"}},"edit",
+        [this](const std::string &key){if(key=="discard")leaveProvider();else if(key=="save")saveProvider(true);});
+    } else show("settings");
   } else if (view_ == "settings") {
     show("chat");
     if(messageEdit_.empty())toggleNavigation();
@@ -2592,8 +2588,8 @@ void App::historyDrawer() {
       navigationScroll_ = 0;
       historyDrawer();
     });
-  const int footerSpace = panelWidth - listLeft - 12 - 48 - 16;
-  const int footerWidth = footerSpace * 3 / 5;
+  const int footerSpace = panelWidth - listLeft - 12 - (layout().portrait()?64:16);
+  const int footerWidth = layout().portrait()?footerSpace*3/5:footerSpace/2;
   const int walletX = listLeft + footerWidth + 8;
   auto footerAction = [&](int x, int width, const char *kind, const char *title,
                           std::function<void()> action) {
@@ -2602,22 +2598,9 @@ void App::historyDrawer() {
            theme::sidebar, LV_TEXT_ALIGN_LEFT);
   };
   footerAction(listLeft, footerWidth, "newchat", "新建聊天", [this] { newChat(); });
-  auto held = std::make_shared<bool>(false);
-  auto wallet = icon(panel, "wallet", walletX, footerY, 48, 48,
-                     [this, held] { if (!*held) openBalances(); }, theme::sidebar);
-  balanceShortcut_ = wallet;
-  struct WalletPress { App *app; std::shared_ptr<bool> held; };
-  auto press = new WalletPress{this, held};
-  lv_obj_add_event_cb(wallet, [](lv_event_t *e) {
-    auto p = static_cast<WalletPress *>(lv_event_get_user_data(e));
-    if (lv_event_get_code(e) == LV_EVENT_DELETE) { p->app->balanceShortcut_ = nullptr; delete p; return; }
-    if (lv_event_get_code(e) == LV_EVENT_PRESSED) *p->held = false;
-    if (lv_event_get_code(e) == LV_EVENT_LONG_PRESSED) {
-      *p->held = true; p->app->events_.push("balance_hint");
-    }
-  }, LV_EVENT_ALL, press);
-  footerAction(walletX + 56, panelWidth - 12 - walletX - 56, "settings", "设置",
-               [this] { show("settings"); });
+  if(layout().portrait())balanceButton(panel,walletX,footerY,theme::sidebar);
+  const int settingsX=walletX+(layout().portrait()?56:8);
+  footerAction(settingsX,panelWidth-12-settingsX,"settings","设置",[this]{show("settings");});
   lv_obj_update_layout(navigation_);
   // LVGL needs scrollable extent before it will start an elastic gesture.
   // A transparent one-pixel tail also enables bounce for short/empty lists.
@@ -3052,7 +3035,7 @@ void App::suspend(bool value) {
   touchDown_ = false;
   pullTrackActivity_ = false;
   visible_ = pageVisible_;
-  if (!value && visible_ && view_ == "balances") refreshBalances();
+  if (!value && visible_ && contextMenuKind_ == "balances") refreshBalances();
   input_.cancel();
   updateInputFocus();
   if (value) {
@@ -3392,10 +3375,11 @@ void App::handle(const Json &m) {
   syncScanner();
 }
 void App::tick() {
-  if (balanceDirty_ && ticks() - balanceLastRender_ >= 100 && view_ == "balances" && !touchDown_ && body_ && !lv_obj_is_scrolling(body_) && !readGesture_.active()) {
+  if (balanceDirty_ && ticks() - balanceLastRender_ >= 100 && contextMenuKind_ == "balances" &&
+      !touchDown_ && contextMenuList_ && !lv_obj_is_scrolling(contextMenuList_) && !readGesture_.active() && !(readActive_&&readSelection_.selected())) {
     balanceDirty_ = false;
     balanceLastRender_ = ticks();
-    build();
+    balancePage();
   }
   updateInputFocus();
   editorOcrFlushStop();
@@ -3876,6 +3860,9 @@ Json App::diagnostics() const {
                            {"y", (area.y1 + area.y2) / 2}});
   }
   auto bounds=[](lv_obj_t *object)->Json {if(!object)return Json();lv_area_t a;lv_obj_get_coords(object,&a);return Json::array({a.x1,a.y1,a.x2,a.y2});};
+  Json workspaceModels=Json::array();
+  for(const auto &m:providerDraftModels_)workspaceModels.push_back({{"id",m.at("id")},{"name",m.value("name",std::string())},
+    {"deleted",m.value("workspace_deleted",false)},{"new",m.value("workspace_new",false)}});
   Json historyCaptions=Json::object(),historyActions=Json::object(),choiceActions=Json::object();
   for(const auto &entry:choiceActions_)choiceActions[entry.first]={{"bounds",bounds(entry.second)},{"selected",lv_obj_has_state(entry.second,LV_STATE_CHECKED)}};
   for(const auto &entry:historyCaptions_) {
@@ -3909,6 +3896,8 @@ Json App::diagnostics() const {
       {"touch", lastTouch_},
       {"view", view_},
       {"provider_protocol", providerForm_.is_object() ? providerForm_.value("api", std::string()) : std::string()},
+      {"provider_workspace",{{"active",!providerWorkspaceId_.empty()},{"dirty",providerDirty()},
+        {"model_count",providerDraftModels_.size()},{"models",workspaceModels},{"deleted_count",std::count_if(providerDraftModels_.begin(),providerDraftModels_.end(),[](const Json &m){return m.value("workspace_deleted",false);})}}},
       {"anthropic_connection", view_ == "anthropic_connection" ? objectField(providerForm_, "anthropic") : Json::object()},
       {"model_catalog", view_ == "model" ? modelRecommendation(modelForm_) : Json::object()},
       {"model_parameters", view_ == "model" ? Json({{"reasoning", modelForm_["reasoning"]},
@@ -3958,6 +3947,7 @@ Json App::diagnostics() const {
       {"capsule_endcap_x2", 2 * capsule.x2 - (capsule.y2 - capsule.y1)},
       {"capsule_center_y2", capsule.y1 + capsule.y2},
       {"composer_bounds", {capsule.x1,capsule.y1,capsule.x2,capsule.y2}},
+      {"attachment_button",chatControls_?bounds(lv_obj_get_child(chatControls_,0)):Json()},
       {"composer_text_bounds", {entry.x1,entry.y1,entry.x2,entry.y2}},
       {"navigation_open", navigationOpen_},
       {"session_info", view_ == "session_info" ? sessionInfoData_ : Json::object()},
@@ -3993,6 +3983,8 @@ Json App::diagnostics() const {
       {"at_latest_bottom", atLatestBottom()},
       {"chat_render_pending", dirty_ || chatRenderPending_ || !chatFinishPending_.empty()},
       {"attachments", attachments_ != nullptr},
+      {"attachment_above_keyboard", !editorRoot_ || (attachments_ && popupKind_=="attachments" &&
+        lv_obj_get_parent(attachments_)==lv_obj_get_parent(editorRoot_) && lv_obj_get_index(attachments_)>lv_obj_get_index(editorRoot_))},
       {"popup", popupKind_},
       {"popup_bounds",attachmentPanel_?bounds(attachmentPanel_):Json()},
       {"context_menu",{{"kind",contextMenuKind_},{"bounds",contextMenuPanel_?bounds(contextMenuPanel_):Json()},

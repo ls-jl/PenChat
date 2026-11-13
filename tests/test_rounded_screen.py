@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-rounded-') as directory:
    if not a.diag()['editor']['active']:break
    a.editor_action('done');time.sleep(.15)
   a.open_navigation();shot(a,'history');a.to_chat();a.open_settings();shot(a,'settings')
-  a.setting('models');activate(a,'provider-edit:p');shot(a,'provider');a.to_chat()
+  a.setting('models');activate(a,'provider-open:p');shot(a,'provider');a.to_chat()
   d=a.diag();a.tap(d['composer_bounds'][0]+46,d['send_center_y2']//2);time.sleep(.25);a.tapb(a.diag()['attachment_actions']['camera']);t.wait_for(lambda:a.diag()['view']=='camera');time.sleep(.3)
   if a.diag()['modal']:a.tap(W//2,H-a.diag()['safe_insets'][3]-22)
   d=a.diag()

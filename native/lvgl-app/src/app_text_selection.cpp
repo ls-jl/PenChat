@@ -245,7 +245,7 @@ void App::readWord(ReadRegion &region, int x, int y) {
   readWordStart_ = range.first;
   readWordEnd_ = range.second;
   readPreview_ = true;
-  if (view_ == "chat")
+  if (view_ == "chat" && body_ && inside(region.root,body_))
     chatFollowing_ = false;
   resetPull();
   input_.cancel();
@@ -664,7 +664,7 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
       if (readOverlay_)
         readDraw(false);
       input_.touch(readGesture_.x, readGesture_.y, true);
-      if (view_ == "chat")
+      if (view_ == "chat" && !modal_ && !attachments_)
         chatTouch(readGesture_.x, readGesture_.y, true);
       readPreview_ = true;
     }

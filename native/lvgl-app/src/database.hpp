@@ -108,6 +108,7 @@ public:
   std::string saveProvider(const Json &form, const std::vector<std::string> &names,
                            bool replaceModels = true);
   void addProviderModels(const std::string &id, const std::vector<std::string> &names);
+  Json saveProviderWorkspace(const Json &form, const Json &models);
   void selectModel(const std::string &id);
   Json responseInput(const std::string &session, const std::string &beforeMessage,
                      const Json &model = Json::object());

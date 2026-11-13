@@ -2,10 +2,24 @@
 #include "editor_layout.hpp"
 #include "native_touch.hpp"
 #include "candidate_rows.hpp"
+#include "attachment_layout.hpp"
 #include <cassert>
 #include <iostream>
 using namespace penchat;
 int main() {
+  for(const auto size:{std::make_pair(960,266),std::make_pair(640,260),std::make_pair(568,1210)})
+    for(bool docked:{false,true})for(int rows:{1,3,8,9}) {
+      const AppLayout layout{size.first,size.second};
+      LayoutRect composer{layout.composerX(),docked?size.second/2:layout.composerY(),layout.composerWidth(),layout.composerHeight()};
+      if(docked)composer.y-=composer.height;
+      const auto menu=attachmentMenuArea(layout,composer,316,rows*44+8);
+      assert(menu.x==composer.x && menu.y>=0 && menu.x+menu.width<=layout.width && menu.y+menu.height<=layout.height);
+      assert(menu.y+menu.height>=composer.y+composer.height+10);
+      assert(menu.height==std::min(rows*44+8,layout.height-8));
+      assert(menu.width==316);
+      const int desired=(layout.height-menu.height)/2;
+      assert(menu.y==std::max(8,std::max(desired,composer.y+composer.height+10-menu.height)));
+    }
   for(int width:{321,432,632})for(bool expanded:{false,true}) {
     const std::vector<int> natural={64,64,52,78,300,52,64,52,78,52,52,52,64,52};
     const auto cells=candidateRows(natural,width,expanded);

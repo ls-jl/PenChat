@@ -22,6 +22,7 @@ def chat(a):
     # Portrait headings scroll with the form. Reveal navigation before tapping it.
     for _ in range(24):
         d=a.diag()
+        if d['context_menu']['kind']=='choice:provider_exit':select(a,'discard');continue
         if d['view']=='chat':return
         if d['height']>d['width'] and d['scroll_y']>0:
             a.settings_swipe(min(500,d['height']//2));time.sleep(.2)
@@ -47,7 +48,7 @@ for w,h in [(640,260),(960,266),(568,1210)]:
                 a.setting(row);select(a,value);assert stored(key)==value
                 assert a.diag()['scroll_y']==before
                 a.setting(row);assert menu(a,kind,w,h)['choices'][value]['selected'];dismiss(a)
-            a.setting('models');activate(a,'provider-edit:p')
+            a.setting('models');activate(a,'provider-open:p')
             activate(a,'provider-protocol');menu(a,'protocol',w,h);select(a,'chat')
             assert a.diag()['provider_protocol']=='chat'
             activate(a,'balance_vendor');menu(a,'balance_vendor',w,h);select(a,'deepseek')

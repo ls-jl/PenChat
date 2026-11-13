@@ -85,9 +85,12 @@ class App {
   bool balanceDirty_ = false;
   int64_t balanceLastRender_ = 0;
   lv_obj_t *balanceShortcut_ = nullptr;
+  lv_obj_t *balanceRefresh_ = nullptr;
+  std::map<std::string,lv_obj_t *> balanceDetailActions_;
+  void balanceButton(lv_obj_t *parent, int x, int y, uint32_t background);
   void openBalances();
   void balancePage();
-  void refreshBalances(const std::string &id = "");
+  void refreshBalances();
   void cancelBalances();
   void balanceEvent(const Event &event);
   void balanceVendorPicker();
@@ -162,6 +165,14 @@ class App {
   std::string workspace_, dataDir_, view_ = "chat", session_, draft_,
                                     assistant_, output_, reasoning_, notice_;
   Json providerForm_, rows_ = Json::array();
+  Json providerDraftModels_ = Json::array(), providerOriginal_ = Json::object(), modelEditOriginal_ = Json::object();
+  std::string providerWorkspaceId_, providerFetchIdentity_;
+  bool providerDirty() const;
+  void beginProvider(const std::string &id = "");
+  void leaveProvider();
+  void returnProvider();
+  Json draftModel(const Json &model) const;
+  void providerModelsSection(int y, int width);
   bool providerAdvanced_=false;
   std::string providerModelsId_,providerModelFilter_,providerManualModels_;
   std::set<std::string> providerModelSelection_;
@@ -806,7 +817,7 @@ class App {
                     const std::string &draft,Json prepared=Json::object(),Json checkpoint=Json::object());
   void stopNetwork();
   void fetchModels();
-  void saveProvider();
+  void saveProvider(bool returnToList = false);
   void show(const std::string &view);
   void error(const std::string &message);
   void modal(const std::string &title, const std::string &text);

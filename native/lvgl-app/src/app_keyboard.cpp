@@ -443,6 +443,7 @@ void App::editorBuild() {
   if (previousRoot) lv_obj_delete(previousRoot);
   lv_obj_update_layout(editorRoot_);
   lv_obj_move_foreground(editorRoot_);
+  if(attachments_&&popupKind_=="attachments")lv_obj_move_foreground(attachments_);
   editorSyncText();editorViewport();
   if((preserveTextScroll||viewScroll)&&editorText_) {
     // Textarea SIZE_CHANGED starts an animated scroll-to-caret while the new

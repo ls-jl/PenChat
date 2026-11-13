@@ -1,5 +1,6 @@
 #include "app.hpp"
 #include "context.hpp"
+#include "model_catalog.hpp"
 namespace penchat {
 void App::protocolPicker() {
   choiceMenu("protocol", {{"responses","Responses"},{"chat","Chat Completions"},{"anthropic","Anthropic Messages"}},
@@ -10,7 +11,14 @@ void App::protocolPicker() {
           (previous == "anthropic" && address == "https://api.anthropic.com/v1"))
         providerForm_["baseURL"] = key == "anthropic" ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1";
       if (providerForm_.value("name", std::string()) == "OpenAI" && key == "anthropic") providerForm_["name"] = "Anthropic";
-      providerForm_["api"] = key; build();
+      providerForm_["api"] = key;
+      if(previous!=key)for(auto &model:providerDraftModels_)if(model.value("workspace_new",false)&&!model.value("workspace_caps_edited",false)) {
+        auto source=draftModel(model);source.erase("capabilities_json");
+        auto caps=initialModelCapabilities(source);
+        if(key=="anthropic")caps["max_output_tokens"]=providerForm_.value("max_output_tokens",16384);
+        model["capabilities_json"]=caps;
+      }
+      build();
     });
 }
 void App::anthropicConnectionPage() {
@@ -52,10 +60,10 @@ void App::anthropicModelPage() {
   const int width = layout().contentWidth(), column = (width - 16) / 2;
   auto &caps = modelForm_["reasoning"];
   const auto mode = caps.value("mode", std::string("off"));
-  auto save = pageAction("保存", 24, 130, [this] {
+  auto save = pageAction("完成", 24, 130, [this] {
     try {
       saveModelForm();
-      show("provider");
+      returnProvider();
     } catch (const std::exception &e) { modal("模型设置未保存", e.what()); }
   });
   primary(save);

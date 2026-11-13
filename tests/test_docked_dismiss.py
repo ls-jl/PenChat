@@ -60,19 +60,20 @@ for w,h in [(568,1210),(600,1280)]:
    assert e()['active'];capture(a,OUT/f'{w}-full-push.png')
    touch(edge+threshold+20,False);t.wait_for(lambda:not e()['active'])
    assert a.diag()['draft_length']==5 and a.read_messages()==before
-   # The plus menu grows upward from the current composer's top, capped to five rows.
+   # The plus menu follows capsule edges, may overlap keys, and retains the docked editor.
    for state in ['closed-keyboard','open-keyboard']:
     if state=='open-keyboard':open_input()
     b=a.diag()['composer_bounds'];a.tap(b[0]+34,b[3]-34)
-    t.wait_for(lambda:a.diag()['attachments'] and not e()['active'])
-    t.wait_for(lambda:a.diag()['attachment_viewport'][3]-a.diag()['attachment_viewport'][1]+1==228)
-    d=a.diag();v=d['attachment_viewport'];assert v[1]>h//3 and v[3]==d['composer_bounds'][1]-5,(v,d['composer_bounds'])
+    t.wait_for(lambda:a.diag()['attachments'])
+    t.wait_for(lambda:a.diag()['attachment_viewport'][3]-a.diag()['attachment_viewport'][1]+1==min(len(a.diag()['attachment_actions'])*44+8,h-8))
+    d=a.diag();v=d['attachment_viewport'];assert v[0]==d['composer_bounds'][0] and v[3]>=d['composer_bounds'][3]+10,(v,d['composer_bounds'])
     capture(a,OUT/f'{w}-attachments-{state}.png')
     if state=='closed-keyboard':
      a.attachment_action('session_info');t.wait_for(lambda:a.diag()['view']=='session_info')
      a.to_chat()
     else:a.tap(w-12,100)
     assert not a.diag()['attachments'] and a.diag()['draft_length']==5
+   if e()['active']:a.editor_action('done');t.wait_for(lambda:not e()['active'])
    # A form uses the same page-origin gesture, committing only its in-memory field.
    a.open_settings();a.setting('models');a.page_action('添加 Provider')
    b=next(b for k,b in e()['targets'].items() if k.startswith('field:名称:'))

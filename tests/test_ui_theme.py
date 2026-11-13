@@ -96,7 +96,7 @@ def run(w,h):
    assert a.diag()['editor']['length']>0
    a.editor_action('cancel' if 'cancel' in a.diag()['editor']['actions'] else 'done');a.to_chat()
    a.open_settings();a.shot('settings');a.setting('font_size');a.shot('font-size');a.to_chat();a.open_settings();a.setting('models');a.shot('providers')
-   activate(a,'provider-edit:p');a.shot('provider-form');a.to_chat()
+   activate(a,'provider-open:p');a.shot('provider-form');a.to_chat()
    if h>w:
     a.tapb(a.diag()['composer_text_bounds']);t.wait_for(lambda:a.diag()['editor']['active']);a.key('n');a.key('i');t.wait_for(lambda:not a.diag()['editor']['pending'])
     before=a.diag()['editor'];session=before['session'];preedit=before['preedit_length'];keys=before['keys'];ocr=before['ocr_request'];builds=before['build_count']
@@ -104,7 +104,7 @@ def run(w,h):
     d=a.diag();assert d['editor']['active'] and d['editor']['session']==session and d['editor']['preedit_length']==preedit
     assert d['editor']['keys']==keys and d['editor']['ocr_request']==ocr and d['editor']['build_count']==builds
     a.shot('keyboard-plus')
-    a.key('h');assert not a.diag()['attachments'] and a.diag()['editor']['preedit_length']==preedit
+    a.tap(w-4,h-4);assert not a.diag()['attachments'] and a.diag()['editor']['preedit_length']==preedit
     a.key('h');assert a.diag()['editor']['preedit_length']==preedit+1
     # Picker choices must keep composition and the exact keyboard session.
     d=a.diag();a.tap(d['composer_bounds'][0]+46,d['send_center_y2']//2);time.sleep(.23);a.tapb(a.diag()['attachment_actions']['models']);t.wait_for(lambda:a.diag()['popup']=='models')

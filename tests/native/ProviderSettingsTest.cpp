@@ -96,6 +96,56 @@ int main() {
     auto added =
         db.query("SELECT capabilities_json FROM model_configs WHERE provider_id=?", {other})[0];
     assert(objectField(added, "capabilities_json")["max_output_tokens"] == 8192);
+    // One workspace commit owns connection changes and every model mutation.
+    auto workspace=db.providerForm(provider);
+    auto drafts=Json::array();
+    for(const auto &m:db.models())if(m["provider_id"]==provider)drafts.push_back(m);
+    const auto defaultId=db.activeModel()["id"];
+    const auto stable=drafts[0]["id"].get<std::string>();
+    drafts[0]["name"]="workspace-renamed";
+    auto custom=objectField(drafts[0],"capabilities_json");custom["workspace_test"]=true;
+    drafts[0]["capabilities_json"]=custom;
+    drafts.push_back({{"id","workspace-new-id"},{"name","workspace-added"},{"display_name","Added"},
+      {"workspace_new",true},{"capabilities_json",Json::object()}});
+    workspace["baseURL"]="https://workspace.invalid/v1";
+    std::cerr << "workspace commit\n";
+    auto saved=db.saveProviderWorkspace(workspace,drafts);
+    assert(saved["provider_id"]==provider && db.providerForm(provider)["baseURL"]==workspace["baseURL"]);
+    assert(db.query("SELECT name FROM model_configs WHERE id=?",{stable})[0]["name"]=="workspace-renamed");
+    assert(db.activeModel()["id"]==defaultId); // No model-default option in this UI.
+    assert(db.query("SELECT default_model_config_id FROM chat_sessions WHERE id='history'")[0]["default_model_config_id"]==bid);
+    drafts=Json::array();for(const auto &m:db.models())if(m["provider_id"]==provider)drafts.push_back(m);
+    for(auto &m:drafts)if(m["id"]=="workspace-new-id")m["workspace_deleted"]=true;
+    std::cerr << "workspace deletion\n";
+    db.saveProviderWorkspace(db.providerForm(provider),drafts);
+    assert(db.query("SELECT enabled FROM model_configs WHERE id='workspace-new-id'")[0]["enabled"]==0);
+    drafts=Json::array();for(const auto &m:db.models())if(m["provider_id"]==provider)drafts.push_back(m);
+    drafts.push_back({{"id","replacement-draft"},{"name","workspace-added"},{"display_name","Restored"},
+      {"workspace_new",true},{"capabilities_json",custom}});
+    std::cerr << "workspace restoration\n";
+    saved=db.saveProviderWorkspace(db.providerForm(provider),drafts);
+    assert(saved["model_ids"]["replacement-draft"]=="workspace-new-id");
+    assert(objectField(db.query("SELECT capabilities_json FROM model_configs WHERE id='workspace-new-id'")[0],"capabilities_json")==custom);
+    auto beforeProviders=db.query("SELECT * FROM providers ORDER BY id");
+    auto beforeModels=db.query("SELECT * FROM model_configs ORDER BY id");
+    workspace=db.providerForm(provider);workspace["apiKey"]="not-committed-fake";
+    drafts=Json::array();for(const auto &m:db.models())if(m["provider_id"]==provider)drafts.push_back(m);
+    drafts[0]["display_name"]="also-not-committed";
+    drafts.push_back({{"id","faulted-id"},{"name","fail"},{"workspace_new",true},{"capabilities_json",Json::object()}});
+    failed=false;try{db.saveProviderWorkspace(workspace,drafts);}catch(...){failed=true;}
+    assert(failed && db.query("SELECT * FROM providers ORDER BY id")==beforeProviders && db.query("SELECT * FROM model_configs ORDER BY id")==beforeModels);
+    drafts.erase(drafts.end()-1);drafts[1]["name"]=drafts[0]["name"];
+    failed=false;try{db.saveProviderWorkspace(workspace,drafts);}catch(...){failed=true;}
+    assert(failed && db.query("SELECT * FROM providers ORDER BY id")==beforeProviders);
+    drafts=Json::array();for(const auto &m:db.models())if(m["provider_id"]==other)drafts.push_back(m);
+    failed=false;try{db.saveProviderWorkspace(workspace,drafts);}catch(...){failed=true;}
+    assert(failed && db.query("SELECT * FROM model_configs ORDER BY id")==beforeModels);
+    Json fresh={{"name","Unsaved new provider"},{"baseURL","https://fresh.invalid/v1"},{"apiKey","fake"},{"api","chat"}};
+    std::cerr << "workspace new provider\n";
+    auto created=db.saveProviderWorkspace(fresh,Json::array({{{"id","fresh-model-id"},{"name","fresh-model"},
+      {"workspace_new",true},{"capabilities_json",Json::object()}}}));
+    assert(db.query("SELECT provider_id FROM model_configs WHERE id='fresh-model-id'")[0]["provider_id"]==created["provider_id"]);
+
   }
   std::remove((std::string(directory) + "/penchat.db").c_str());
   rmdir(directory);

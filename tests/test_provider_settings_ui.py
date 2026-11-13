@@ -1,99 +1,117 @@
 #!/usr/bin/env python3
-"""Provider changes and additive model CRUD with the actual LVGL process."""
+"""Provider-only index and transactional connection/model workspace in real LVGL."""
 import http.server,json,os,pathlib,sqlite3,tempfile,threading,time
 import test_lvgl_app as ui
 from test_reasoning_ui import seed
-from provider_ui import activate,enter,field,back,capture
+from provider_ui import activate,enter,field,capture
+from choice_ui import select,dismiss
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ui.ROOT/'build/host/penchat-lvgl'))
 OUT=ui.ROOT/'.work/providers';OUT.mkdir(parents=True,exist_ok=True)
 class Models(http.server.BaseHTTPRequestHandler):
     requests=[]
-    ports=[]
+    delay=0
     protocol_version='HTTP/1.1'
     def log_message(self,*args):pass
     def do_GET(self):
-        type(self).requests.append(self.path)
-        type(self).ports.append(self.client_address[1])
+        type(self).requests.append((self.path,self.headers.get('Authorization')))
+        time.sleep(type(self).delay)
         payload=json.dumps({'data':[{'id':n} for n in ['a','b','new-model','long-provider/model-with-a-very-long-version-and-capability-name-2026-11-10']]}).encode()
-        self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        try:
+            self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        except (BrokenPipeError,ConnectionResetError):pass
 
+def back(a):
+    d=a.diag()
+    if d['height']>d['width']:
+        for _ in range(30):
+            if a.diag()['scroll_y']<=0:break
+            a.settings_swipe(min(500,d['height']//2));time.sleep(.12)
+        a.tap(48,48)
+    else:a.tap(40,32)
 
-def run(width,height,port):
-    with tempfile.TemporaryDirectory(prefix='penchat-provider-ui-') as folder:
+def run(w,h,port):
+    with tempfile.TemporaryDirectory(prefix='penchat-provider-workspace-') as folder:
         p=pathlib.Path(folder);seed(p,port);ui.port=port
         def rows(sql,args=()):
             with sqlite3.connect(p/'penchat.db') as db:return db.execute(sql,args).fetchall()
-        provider=rows('select provider_id from model_configs where id=?',('a',))[0][0]
-        before=rows('select id,name,capabilities_json from model_configs order by id')
-        app=ui.Native(BINARY,p,screen={'width':width,'height':height,'direction':0})
+        def business():return [rows('select * from '+t+' order by id') for t in ['providers','model_configs']]
+        provider='p';a=ui.Native(BINARY,p,screen={'width':w,'height':h,'direction':0})
+        def models():return a.diag()['provider_workspace']['models']
+        def mid(name):return next(m['id'] for m in models() if m['name']==name)
         try:
-            app.open_settings();app.setting('models');capture(app,OUT,f'{width}-list-after')
-            activate(app,'provider-edit:'+provider);capture(app,OUT,f'{width}-connection-after')
-            b=app.diag()['page']['actions']['field:baseURL'];assert b[2]-b[0]+1>=44
-            if height>width or width<height*3:assert b[2]-b[0]+1>=width//2
-            base=f'http://127.0.0.1:{port}/custom/v1'
-            field(app,'baseURL',base);field(app,'apiKey','changed-fake-only')
-            activate(app,'provider_advanced');activate(app,'api_compatibility')
-            capture(app,OUT,f'{width}-compatibility')
-            back(app)
-            activate(app,'保存');assert app.diag()['view']=='provider'
-            assert rows('select id,name,capabilities_json from model_configs order by id')==before
-            assert rows('select base_url,api_key from providers where id=?',(provider,))[0]==(base,'changed-fake-only')
-            activate(app,'provider-add:'+provider);assert app.diag()['view']=='provider_models'
-            requests=len(Models.requests);activate(app,'models-fetch')
-            ui.wait_for(lambda:'model-option:new-model' in app.diag()['page']['actions'])
-            assert len(Models.requests)==requests+1 and Models.requests[-1]=='/custom/v1/models'
-            capture(app,OUT,f'{width}-choose-models')
-            activate(app,'model-option:new-model')
-            activate(app,'models-manual');enter(app,'manual-added')
-            activate(app,'models-fetch')
-            ui.wait_for(lambda:'model-option:manual-added' in app.diag()['page']['actions'])
-            assert rows('select count(*) from model_configs')[0][0]==2
-            activate(app,'models-filter');enter(app,'new-')
-            assert 'model-option:new-model' in app.diag()['page']['actions']
-            assert 'model-option:a' not in app.diag()['page']['actions']
-            activate(app,'添加选中')
-            assert rows('select name from model_configs where enabled=1 order by name')==[('a',),('b',),('manual-added',),('new-model',)]
+            a.open_settings();a.setting('models');d=a.diag()
+            assert 'provider-open:p' in d['page']['actions']
+            assert not any(k.startswith(('model-','provider-add:','provider-edit:')) for k in d['page']['actions'])
+            capture(a,OUT,f'{w}-provider-index')
+            activate(a,'provider-open:p');before=business();capture(a,OUT,f'{w}-workspace-top')
+            assert not any(k.startswith('model-use:') for k in a.diag()['page']['actions'])
+            base=f'http://127.0.0.1:{port}/edited/v1'
+            field(a,'baseURL',base);field(a,'apiKey','changed-fake-only')
+            activate(a,'provider-protocol');select(a,'chat')
+            assert business()==before and a.diag()['provider_workspace']['dirty']
+            activate(a,'provider-add-models');n=len(Models.requests);activate(a,'models-fetch')
+            ui.wait_for(lambda:'model-option:new-model' in a.diag()['page']['actions'])
+            assert len(Models.requests)==n+1 and Models.requests[-1]==('/edited/v1/models','Bearer changed-fake-only')
+            capture(a,OUT,f'{w}-model-selector')
+            activate(a,'model-option:new-model');activate(a,'models-manual');enter(a,'manual-added')
+            activate(a,'加入草稿');assert a.diag()['view']=='provider' and len(models())==4
+            assert business()==before
+            capture(a,OUT,f'{w}-workspace-models')
+            activate(a,'model-edit:a');activate(a,'model_identity');enter(a,'renamed-a')
+            activate(a,'model_display_name');enter(a,'Friendly model')
+            activate(a,'完成');assert mid('renamed-a')=='a' and business()==before
+            activate(a,'model-edit:a');activate(a,'model_identity');enter(a,'cancelled-rename');back(a)
+            assert mid('renamed-a')=='a' and all(m['name']!='cancelled-rename' for m in models())
+            activate(a,'model-delete:b');select(a,'delete');assert a.diag()['provider_workspace']['deleted_count']==1
+            assert business()==before;capture(a,OUT,f'{w}-pending-delete')
+            activate(a,'model-delete:b');assert a.diag()['provider_workspace']['deleted_count']==0
+            activate(a,'model-delete:b');select(a,'delete')
+            activate(a,'provider-save-bottom');assert a.diag()['view']=='provider' and not a.diag()['provider_workspace']['dirty']
+            assert rows("select base_url,api_key from providers where id='p'")[0]==(base,'changed-fake-only')
+            assert rows("select name,display_name from model_configs where id='a'")[0]==('renamed-a','Friendly model')
+            assert rows("select enabled from model_configs where id='b'")[0][0]==0
             assert rows('select id from model_configs where is_default=1')[0][0]=='a'
-            # Adding only models must keep this Provider's existing HTTP pool.
-            previous_port=Models.ports[-1]
-            activate(app,'provider-add:'+provider);activate(app,'models-fetch')
-            ui.wait_for(lambda:'model-option:new-model' in app.diag()['page']['actions'])
-            assert Models.ports[-1]==previous_port,(previous_port,Models.ports)
-            back(app)
-            mid=rows("select id from model_configs where name='new-model'")[0][0]
-            original=json.loads(rows('select capabilities_json from model_configs where id=?',(mid,))[0][0])
-            activate(app,'model-edit:'+mid);capture(app,OUT,f'{width}-model-edit')
-            fields=app.diag()['settings']['rows'];a=fields['model_identity']['bounds'];b=fields['model_display_name']['bounds']
-            if height>width or width<height*3:assert a[0]==b[0] and b[1]>a[3],(a,b)
-            else:assert a[1]==b[1] and b[0]>a[2],(a,b)
-            activate(app,'model_identity');enter(app,'discarded-change');back(app)
-            assert rows('select name from model_configs where id=?',(mid,))[0][0]=='new-model'
-            activate(app,'model-edit:'+mid);activate(app,'model_identity');enter(app,'new-renamed')
-            activate(app,'model_display_name');enter(app,'Friendly name');activate(app,'保存')
-            assert rows('select name,display_name from model_configs where id=?',(mid,))[0]==('new-renamed','Friendly name')
-            saved=json.loads(rows('select capabilities_json from model_configs where id=?',(mid,))[0][0]);assert saved['reasoning']==original['reasoning']
-            activate(app,'model-use:'+mid);assert rows('select id from model_configs where is_default=1')[0][0]==mid
-            activate(app,'model-delete:'+mid);assert app.diag()['modal'];capture(app,OUT,f'{width}-delete-confirm')
-            app.tap(width-74,height-44);assert rows('select enabled from model_configs where id=?',(mid,))[0][0]==1
-            activate(app,'model-delete:'+mid);app.tap((12 if height>width else 84)+62,height-(96 if height>width else 44))
-            assert rows('select enabled from model_configs where id=?',(mid,))[0][0]==0
-            activate(app,'provider-add:'+provider);activate(app,'models-manual');enter(app,'new-renamed');activate(app,'添加选中')
-            restored=rows("select id,display_name,capabilities_json from model_configs where name='new-renamed'")[0]
-            assert restored[:2]==(mid,'Friendly name') and json.loads(restored[2])==saved
-            activate(app,'添加 Provider');field(app,'name','Another provider');field(app,'apiKey','fixture-key');field(app,'baseURL',base)
-            activate(app,'provider-protocol');capture(app,OUT,f'{width}-protocols')
-            from choice_ui import select
-            select(app,'anthropic');assert app.diag()['provider_protocol']=='anthropic'
-            activate(app,'provider_advanced');activate(app,'anthropic_connection');capture(app,OUT,f'{width}-messages-connection');back(app)
-            activate(app,'保存');assert app.diag()['view']=='provider_models';capture(app,OUT,f'{width}-empty-provider')
-            other=rows("select id from providers where name='Another provider'")[0][0]
-            assert rows('select count(*) from model_configs where provider_id=?',(other,))[0][0]==0
-            back(app);assert app.diag()['view']=='provider';assert 'provider-add:'+other in app.diag()['page']['actions']
-            print('Provider connection/model CRUD and layout:',width,height,'passed',flush=True)
-        finally:app.close()
-
+            assert len(rows('select id from model_configs where enabled=1'))==3
+            # Restore the soft-deleted model through a draft, retaining its stable ID/caps.
+            original=rows("select capabilities_json from model_configs where id='b'")[0][0]
+            activate(a,'provider-add-models');activate(a,'models-manual');enter(a,'b');activate(a,'加入草稿')
+            assert mid('b')=='b' and rows("select enabled from model_configs where id='b'")[0][0]==0
+            activate(a,'provider-save-bottom')
+            assert rows("select enabled,capabilities_json from model_configs where id='b'")[0]==(1,original)
+            saved=business();field(a,'name','Discarded name');back(a)
+            assert a.diag()['context_menu']['kind']=='choice:provider_exit';capture(a,OUT,f'{w}-discard-menu')
+            select(a,'edit');assert a.diag()['provider_workspace']['active']
+            back(a);select(a,'discard');assert not a.diag()['provider_workspace']['active'] and business()==saved
+            # New Provider: models can be added and edited before any connection save.
+            activate(a,'添加 Provider');activate(a,'provider-add-models');activate(a,'models-manual');enter(a,'fresh-model');activate(a,'加入草稿')
+            assert len(models())==1 and len(rows('select id from providers'))==1
+            fresh=mid('fresh-model');activate(a,'model-edit:'+fresh);activate(a,'model_display_name');enter(a,'Fresh display');activate(a,'完成')
+            field(a,'name','Another provider');field(a,'baseURL',base);field(a,'apiKey','fake-new')
+            activate(a,'provider-protocol');select(a,'anthropic');capture(a,OUT,f'{w}-new-provider')
+            # The pre-existing manually configured model is not silently remapped.
+            activate(a,'provider-save-bottom');assert len(rows('select id from providers'))==2
+            assert a.diag()['provider_workspace']['active'] and not a.diag()['provider_workspace']['dirty']
+            assert rows('select name,display_name from model_configs where id=?',(fresh,))[0]==('fresh-model','Fresh display')
+            # Empty key blocks the single commit but keeps the whole draft.
+            saved=business();field(a,'apiKey','');activate(a,'provider-save-bottom');assert a.diag()['modal']
+            capture(a,OUT,f'{w}-failed-save');a.tap(w//2 if h>w else w-70,h-44)
+            ui.wait_for(lambda:not a.diag()['modal'])
+            assert business()==saved and a.diag()['provider_workspace']['dirty']
+            back(a);select(a,'discard')
+            activate(a,'provider-open:p');field(a,'name','Saved from exit menu');back(a);select(a,'save')
+            assert not a.diag()['provider_workspace']['active'] and rows("select name from providers where id='p'")[0][0]=='Saved from exit menu'
+            # A cancelled/late list cannot repopulate another workspace.
+            if w==640:
+                activate(a,'provider-open:p');activate(a,'provider-add-models');Models.delay=.5
+                n=len(Models.requests);activate(a,'models-fetch');ui.wait_for(lambda:len(Models.requests)>n)
+                back(a);back(a);assert not a.diag()['provider_workspace']['active']
+                activate(a,'添加 Provider');time.sleep(.7);Models.delay=0
+                assert len(models())==0 and a.diag()['view']=='provider'
+            print('Provider draft workspace passed:',w,h,flush=True)
+        finally:Models.delay=0;a.close()
 if __name__=='__main__':
     with http.server.ThreadingHTTPServer(('127.0.0.1',0),Models) as server:
         threading.Thread(target=server.serve_forever,daemon=True).start()
-        for size in [(640,360),(960,266),(568,1210)]:run(*size,server.server_port)
+        sizes=[(640,260),(960,266),(568,1210)]
+        if os.environ.get('PENCHAT_PROVIDER_SIZE'):sizes=[tuple(map(int,os.environ['PENCHAT_PROVIDER_SIZE'].split('x')))]
+        for size in sizes:run(*size,server.server_port)

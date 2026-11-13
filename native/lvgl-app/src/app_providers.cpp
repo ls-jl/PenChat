@@ -3,6 +3,7 @@
 #include "chat_text.hpp"
 #include "icons.hpp"
 #include "reasoning.hpp"
+#include "model_catalog.hpp"
 #include <cctype>
 namespace penchat {
 namespace {
@@ -44,76 +45,18 @@ void App::providerPage() {
                                             : "添加服务商",
              8);
   if (providerForm_.empty()) {
-    pageAction("添加 Provider", 17, 168, [this] {
-      providerForm_ = {{"name", "OpenAI"},
-                       {"baseURL", "https://api.openai.com/v1"},
-                       {"apiKey", ""},
-                       {"api", "responses"}};
-      providerAdvanced_ = false;
-      modelNames_.clear();
-      ++modelGeneration_;
-      modelCancel_ = true;
-      build();
-    });
-    int y = 5;
-    const auto models = db_.models(), providers = db_.providers();
-    const auto selected = currentModel().value("id", std::string());
-    for (const auto &provider : providers) {
-      const auto id = provider.at("id").get<std::string>();
-      int count = 0;
-      for (const auto &model : models)
-        if (model.at("provider_id") == id)
-          ++count;
-      const bool narrow = width < 420;
-      const int captionWidth = narrow ? width - 20 : width - 253, controlY = y + (narrow ? 52 : 4);
-      auto caption = label(pageContent_, provider.value("name", std::string("服务商")), 10, y,
-                           captionWidth, 21);
-      lv_label_set_long_mode(caption, LV_LABEL_LONG_MODE_DOTS);
-      lv_obj_set_height(caption, font(21)->line_height);
-      label(pageContent_, std::to_string(count) + " 个模型", 10, y + 27, captionWidth, 16,
-            theme::muted);
-      pageActions_["provider-add:" + id] =
-          button(pageContent_, "添加模型", narrow ? 10 : width - 234, controlY,
-                 narrow ? (width - 32) / 2 : 104, 44, [this, id] { openProviderModels(id); });
-      pageActions_["provider-edit:" + id] =
-          button(pageContent_, "连接设置", narrow ? 22 + (width - 32) / 2 : width - 118, controlY,
-                 narrow ? (width - 32) / 2 : 108, 44, [this, id] { editProvider(id); });
-      y += narrow ? 108 : 60;
-      for (const auto &model : models) {
-        if (model.at("provider_id") != id)
-          continue;
-        const auto modelId = model.at("id").get<std::string>();
-        const auto name = model.value("display_name", model.value("name", std::string()));
-        auto choose = button(
-            pageContent_, std::string(modelId == selected ? "● " : "○ ") + name, 10, y,
-            narrow ? width - 20 : width - 185, 48,
-            [this, modelId] {
-              chooseModel(modelId);
-              build();
-            },
-            theme::surface, LV_TEXT_ALIGN_LEFT);
-        pageActions_["model-use:" + modelId] = choose;
-        pageActions_["model-delete:" + modelId] =
-            icon(pageContent_, "trash", narrow ? width - 54 : width - 165, y + (narrow ? 54 : 2),
-                 44, 44, [this, model] { removeModel(model); });
-        pageActions_["model-edit:" + modelId] =
-            button(pageContent_, "编辑", narrow ? 10 : width - 105, y + (narrow ? 54 : 2), 95, 44,
-                   [this, model] { editModel(model); });
-        y += narrow ? 106 : 56;
-      }
-      if (!count) {
-        auto hint = readableLabel(pageContent_, "尚未添加模型，连接设置已保存。", 10, y, width - 20,
-                                  18, theme::muted);
-        lv_obj_update_layout(hint);
-        y += lv_obj_get_height(hint) + 12;
-      }
-      y += 16;
+    pageAction("添加 Provider",17,168,[this]{beginProvider();});
+    const auto providers=db_.providers();
+    int y=4;
+    for(const auto &provider:providers) {
+      const auto id=provider.at("id").get<std::string>();
+      const auto meta=objectField(provider,"metadata_json");
+      settingsRow("provider-open:"+id,provider.value("name",std::string("Provider")),protocolName(meta),
+                  10,y,width-20,[this,id]{editProvider(id);});
+      pageActions_["provider-open:"+id]=settingsControls_.at("provider-open:"+id).row;
+      y+=64;
     }
-    if (!providers.empty())
-      readableLabel(pageContent_, "点击模型名称，切换当前聊天并设为新聊天默认。", 10, y, width - 20,
-                    16, theme::muted);
-    if (providers.empty())
-      emptyState("还没有服务商", "先保存服务地址与密钥，再选择或填写模型。可随时修改连接设置。");
+    if(providers.empty())emptyState("还没有服务商","填写连接信息并添加模型，最后统一保存。");
     return;
   }
   primary(pageAction("保存", 24, 130, [this] { saveProvider(); }));
@@ -217,21 +160,70 @@ void App::providerPage() {
       y += 64;
     }
   }
-  readableLabel(pageContent_,
-                providerForm_.contains("id") ? "保存连接设置不会添加、删除或重新选择模型。"
-                                             : "可以先保存服务商，稍后再添加模型。",
-                10, y, width - 20, 17, theme::muted);
+  auto hint=readableLabel(pageContent_,"连接与模型修改均在点击本页保存后生效。",10,y,width-20,17,theme::muted);
+  lv_obj_update_layout(hint);
+  providerModelsSection(y+lv_obj_get_height(hint)+16,width);
 }
-void App::editProvider(const std::string &id) {
-  ++modelGeneration_;
-  modelCancel_ = true;
-  providerForm_ = db_.providerForm(id);
-  providerAdvanced_ = false;
-  modelNames_.clear();
-  notice_.clear();
-  build();
+bool App::providerDirty() const {
+  return !providerForm_.empty() && (providerForm_!=providerOriginal_.value("form",Json::object()) ||
+    providerDraftModels_!=providerOriginal_.value("models",Json::array()));
 }
-void App::saveProvider() {
+void App::beginProvider(const std::string &id) {
+  ++modelGeneration_;modelCancel_=true;
+  providerWorkspaceId_=uid("provider-workspace");
+  providerDraftModels_=Json::array();
+  providerForm_=id.empty()?Json({{"name","OpenAI"},{"baseURL","https://api.openai.com/v1"},{"apiKey",""},{"api","responses"}}):db_.providerForm(id);
+  if(!id.empty())for(const auto &model:db_.models())if(model.at("provider_id")==id)providerDraftModels_.push_back(model);
+  providerOriginal_={{"form",providerForm_},{"models",providerDraftModels_}};
+  providerAdvanced_=false;providerScroll_=0;modelNames_.clear();notice_.clear();
+  build();lv_obj_scroll_to_y(body_,0,LV_ANIM_OFF);
+}
+void App::editProvider(const std::string &id) { beginProvider(id); }
+void App::leaveProvider() {
+  providerForm_=Json::object();providerDraftModels_=Json::array();providerOriginal_=Json::object();
+  providerWorkspaceId_.clear();modelNames_.clear();providerModelsId_.clear();
+  ++modelGeneration_;modelCancel_=true;build();
+}
+void App::returnProvider() {
+  show("provider");lv_obj_scroll_to_y(body_,providerScroll_,LV_ANIM_OFF);
+}
+Json App::draftModel(const Json &source) const {
+  auto model=source;
+  model["base_url"]=providerForm_.value("baseURL",std::string());
+  model["provider_metadata"]={{"api",providerForm_.value("api",std::string("responses"))},
+    {"model_adapter",providerForm_.value("model_adapter",std::string("auto"))}};
+  return model;
+}
+void App::providerModelsSection(int y,int width) {
+  auto list=box(pageContent_,10,y,width,LV_SIZE_CONTENT);
+  lv_obj_set_scrollable(list,false);
+  auto title=label(list,"模型",10,10,width-180,20);
+  lv_obj_set_height(title,font(20)->line_height);
+  pageActions_["provider-add-models"]=button(list,"添加模型",width-160,0,140,44,[this]{openProviderModels(providerForm_.value("id",providerWorkspaceId_));});
+  int top=56;
+  for(const auto &model:providerDraftModels_) {
+    const auto id=model.at("id").get<std::string>();const bool deleted=model.value("workspace_deleted",false);
+    const int nameWidth=width-80;
+    auto edit=button(list,model.value("display_name",model.value("name",std::string())),10,top,nameWidth,48,
+      [this,model]{editModel(model);},theme::surface,LV_TEXT_ALIGN_LEFT);
+    pageActions_["model-edit:"+id]=edit;if(deleted)lv_obj_add_state(edit,LV_STATE_DISABLED);
+    lv_obj_t *remove;
+    if(deleted)remove=icon(list,"retry",width-64,top+2,44,44,[this,id]{for(auto &m:providerDraftModels_)if(m.at("id")==id)m["workspace_deleted"]=false;build();});
+    else remove=icon(list,"trash",width-64,top+2,44,44,[this,model]{removeModel(model);});
+    pageActions_["model-delete:"+id]=remove;
+    const auto state=deleted?"待删除 · 点击回转箭头撤销":model.value("workspace_new",false)?"新增待保存":"模型配置随本页统一保存";
+    auto status=label(list,state,12,top+50,nameWidth-12,16,deleted?theme::danger:theme::muted);
+    lv_label_set_long_mode(status,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(status,font(16)->line_height);
+    top+=80;
+  }
+  if(providerDraftModels_.empty()) {
+    auto hint=label(list,"尚未添加模型。可先获取列表或手动填写，最后统一保存。",10,top,width-20,17,theme::muted);
+    lv_obj_update_layout(hint);top+=lv_obj_get_height(hint)+16;
+  }
+  auto save=button(list,"保存",10,top,width-20,48,[this]{saveProvider();});primary(save);
+  pageActions_["provider-save-bottom"]=save;
+}
+void App::saveProvider(bool returnToList) {
   const auto name = providerForm_.value("name", std::string()),
              base = providerForm_.value("baseURL", std::string()),
              key = providerForm_.value("apiKey", std::string());
@@ -248,34 +240,25 @@ void App::saveProvider() {
                     {"anthropic", objectField(providerForm_, "anthropic")}}}};
     apiRoot(model);
     apiHeaders(model);
-    const bool fresh = !providerForm_.contains("id");
-    const auto id = db_.saveProvider(providerForm_, {}, false);
-    ++modelGeneration_;
-    modelCancel_ = true;
-    providerForm_ = Json::object();
-    if (fresh)
-      openProviderModels(id);
-    else
-      show("provider");
+    const int scroll=lv_obj_get_scroll_y(body_);const bool expanded=providerAdvanced_;
+    const auto result=db_.saveProviderWorkspace(providerForm_,providerDraftModels_);
+    if(returnToList){leaveProvider();return;}
+    editProvider(result.at("provider_id"));
+    if(expanded){providerAdvanced_=true;build();}
+    lv_obj_scroll_to_y(body_,scroll,LV_ANIM_OFF);
   } catch (const std::exception &error) {
     modal("服务商未保存", error.what());
   }
 }
 void App::openProviderModels(const std::string &id) {
-  ++modelGeneration_;
-  modelCancel_ = true;
-  providerModelsId_ = id;
-  providerForm_ = db_.providerForm(id);
-  providerManualModels_.clear();
-  providerModelFilter_.clear();
-  providerModelSelection_.clear();
-  providerModelPage_ = 0;
-  modelNames_.clear();
-  show("provider_models");
+  providerScroll_=lv_obj_get_scroll_y(body_);
+  ++modelGeneration_;modelCancel_=true;providerModelsId_=id;
+  providerManualModels_.clear();providerModelFilter_.clear();providerModelSelection_.clear();providerModelPage_=0;
+  modelNames_.clear();show("provider_models");
 }
 void App::providerModelsPage() {
   pageHeader("添加模型");
-  auto add = pageAction("添加选中", 24, 140, [this] { addProviderModels(); });
+  auto add = pageAction("加入草稿", 24, 140, [this] { addProviderModels(); });
   primary(add);
   if (providerModelSelection_.empty())
     lv_obj_add_state(add, LV_STATE_DISABLED);
@@ -301,8 +284,8 @@ void App::providerModelsPage() {
                 if (std::find(ids.begin(), ids.end(), id) == ids.end())
                   providerModelSelection_.erase(id);
               std::vector<std::string> existing;
-              for (const auto &model : db_.models())
-                if (model.at("provider_id") == providerModelsId_)
+              for (const auto &model : providerDraftModels_)
+                if (!model.value("workspace_deleted",false))
                   existing.push_back(model.at("name").get<std::string>());
               for (const auto &id : ids) {
                 if (std::find(modelNames_.begin(), modelNames_.end(), id) == modelNames_.end())
@@ -342,8 +325,8 @@ void App::providerModelsPage() {
   lv_obj_update_layout(status);
   int y = 154 + lv_obj_get_height(status) + 12;
   std::vector<std::string> active;
-  for (const auto &model : db_.models())
-    if (model.at("provider_id") == providerModelsId_)
+  for (const auto &model : providerDraftModels_)
+    if (!model.value("workspace_deleted",false))
       active.push_back(model.at("name").get<std::string>());
   std::vector<std::string> names;
   const auto needle = folded(providerModelFilter_);
@@ -425,20 +408,32 @@ void App::providerModelsPage() {
 }
 void App::addProviderModels() {
   try {
-    std::vector<std::string> names(providerModelSelection_.begin(), providerModelSelection_.end());
-    db_.addProviderModels(providerModelsId_, names);
-    ++modelGeneration_;
-    modelCancel_ = true;
-    providerForm_ = Json::object();
-    providerModelsId_.clear();
-    modelNames_.clear();
-    providerModelSelection_.clear();
-    show("provider");
-  } catch (const std::exception &error) {
-    modal("模型未添加", error.what());
-  }
+    for(const auto &name:providerModelSelection_) {
+      bool found=false;
+      for(auto &model:providerDraftModels_)if(model.at("name")==name){model["workspace_deleted"]=false;found=true;break;}
+      if(found)continue;
+      Json model;
+      const auto provider=providerForm_.value("id",std::string());
+      if(!provider.empty()) {
+        const auto old=db_.query("SELECT * FROM model_configs WHERE provider_id=? AND name=? AND enabled=0",{provider,name});
+        if(!old.empty())model=old[0];
+      }
+      if(model.is_null()) {
+        model={{"id",uid("model")},{"provider_id",provider.empty()?providerWorkspaceId_:provider},{"name",name},{"display_name",name},{"workspace_new",true}};
+        auto caps=initialModelCapabilities(draftModel(model));
+        if(providerForm_.value("api",std::string())=="anthropic")caps["max_output_tokens"]=providerForm_.value("max_output_tokens",16384);
+        model["capabilities_json"]=caps;
+      }
+      model["workspace_deleted"]=false;providerDraftModels_.push_back(model);
+    }
+    ++modelGeneration_;modelCancel_=true;modelNames_.clear();providerModelSelection_.clear();
+    returnProvider();
+  } catch(const std::exception &e){modal("模型未加入草稿",e.what());}
 }
 void App::fetchModels() {
+  if(!hasChatText(providerForm_.value("baseURL",std::string())) || !hasChatText(providerForm_.value("apiKey",std::string()))) {
+    modal("请填写连接信息","填写服务地址与 API Key 后即可获取模型，无需先保存。");return;
+  }
   if (modelsBusy_.exchange(true))
     return;
   if (modelWorker_.joinable())
@@ -453,12 +448,14 @@ void App::fetchModels() {
                                   {"compatibility", objectField(providerForm_, "compatibility")},
                                   {"anthropic", objectField(providerForm_, "anthropic")}})
                                 .dump()}};
+  providerFetchIdentity_=providerForm_.dump();
   notice_ = "正在拉取模型…";
   build();
   modelCancel_ = false;
   const int generation = ++modelGeneration_;
-  modelWorker_ = std::thread([this, model, generation] {
-    Json data = {{"generation", generation}};
+  const auto workspace=providerWorkspaceId_;
+  modelWorker_ = std::thread([this, model, generation, workspace] {
+    Json data = {{"generation", generation},{"workspace",workspace}};
     try {
       data["body"] = fetchModelList(model, modelCancel_);
       data["status"] = 200;
@@ -471,8 +468,8 @@ void App::fetchModels() {
   });
 }
 void App::providerModelsResult(const Event &event) {
-  if (view_ != "provider_models")
-    return;
+  if (view_ != "provider_models" || event.data.value("workspace",std::string())!=providerWorkspaceId_ ||
+      providerFetchIdentity_!=providerForm_.dump())return;
   if (event.data.value("generation", -1) != modelGeneration_) {
     if (!modelsBusy_)
       build();
@@ -497,12 +494,13 @@ void App::providerModelsResult(const Event &event) {
   build();
 }
 void App::editModel(const Json &model) {
-  modelForm_ = model;
+  providerScroll_=lv_obj_get_scroll_y(body_);
+  modelForm_ = draftModel(model);
   const auto saved = objectField(model, "capabilities_json");
   modelForm_["reasoning"] = saved.contains("reasoning") && saved.at("reasoning").is_object()
                                 ? saved.at("reasoning")
-                                : reasoningCapabilities(model);
-  modelAdvanced_ = false;
+                                : reasoningCapabilities(modelForm_);
+  modelAdvanced_ = false;modelEditOriginal_=modelForm_;
   show("model");
 }
 int App::modelIdentityFields() {
@@ -552,23 +550,11 @@ int App::modelIdentityFields() {
   return 64;
 }
 void App::removeModel(const Json &model) {
-  const auto id = model.at("id").get<std::string>();
-  modal("删除模型", model.value("display_name", model.value("name", std::string())) +
-                        "\n\n只从可用模型列表移除，聊天记录保留。使用此模型的会话需要重新选择；之后"
-                        "再次添加相同 ID 可恢复其原设置。");
-  lv_obj_update_layout(modal_);
-  const int width = lv_obj_get_width(modal_);
-  auto cancel = lv_obj_get_child(modal_, -1);
-  lv_obj_set_pos(cancel, width - 112, screen_.height - 66);
-  lv_label_set_text(lv_obj_get_child(cancel, 0), "取消");
-  auto confirm = button(modal_, "删除", 12, screen_.height - 66, 100, 44, [this, id] {
-    try {
-      db_.removeModel(id);
-      build();
-    } catch (const std::exception &error) {
-      modal("模型未删除", error.what());
-    }
+  const auto id=model.at("id").get<std::string>();
+  choiceMenu("model_delete",{{"cancel","取消"},{"delete","标记删除，保存后生效"}},"cancel",[this,id](const std::string &key){
+    if(key!="delete")return;
+    for(auto &m:providerDraftModels_)if(m.at("id")==id)m["workspace_deleted"]=true;
+    build();
   });
-  lv_obj_set_style_bg_color(confirm, lv_color_hex(theme::danger), 0);
 }
 } // namespace penchat

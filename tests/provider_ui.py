@@ -36,3 +36,14 @@ def capture(app,out,name):
     if shot.exists():shot.unlink()
     app.process.send_signal(signal.SIGUSR1);ui.wait_for(shot.exists)
     (out/(name+'.png')).write_bytes(shot.read_bytes())
+
+
+def open_model(app,model_id,provider_id='p'):
+    if not app.diag()['provider_workspace']['active']:
+        activate(app,'provider-open:'+provider_id)
+    activate(app,'model-edit:'+model_id)
+
+
+def commit_model(app):
+    activate(app,'完成')
+    activate(app,'provider-save-bottom')

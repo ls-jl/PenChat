@@ -17,7 +17,6 @@ void App::arrangeModal() {
 }
 void App::portraitPage() {
   if (view_ == "settings") return; // Own section flow preserves row and group spacing in all layouts.
-  if (view_ == "balances") return; // The balance reader measures full-width rows itself.
   // Short landscape has too little label width for the wide-screen two-column
   // forms (especially after reserving switches and arrows). Reuse the measured
   // single-column flow, not smaller type or clipped captions. Readers/grids keep

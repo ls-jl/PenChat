@@ -15,13 +15,34 @@ void App::cancelBalances() {
   balancePending_.clear();
   balanceDirty_ = false;
 }
+void App::balanceButton(lv_obj_t *parent,int x,int y,uint32_t background) {
+  auto held=std::make_shared<bool>(false);
+  auto wallet=icon(parent,"wallet",x,y,48,48,[this,held]{if(!*held)openBalances();},background);
+  balanceShortcut_=wallet;
+  struct Press {App *app;std::shared_ptr<bool> held;};
+  auto press=new Press{this,held};
+  lv_obj_add_event_cb(wallet,[](lv_event_t *event){
+    auto p=static_cast<Press *>(lv_event_get_user_data(event));
+    const auto code=lv_event_get_code(event);
+    if(code==LV_EVENT_DELETE){if(p->app->balanceShortcut_==lv_event_get_target_obj(event))p->app->balanceShortcut_=nullptr;delete p;return;}
+    if(code==LV_EVENT_PRESSED)*p->held=false;
+    if(code==LV_EVENT_LONG_PRESSED){*p->held=true;p->app->events_.push("balance_hint");}
+  },LV_EVENT_ALL,press);
+}
 void App::openBalances() {
   if (navigationList_) navigationScroll_ = std::max(0, int(lv_obj_get_scroll_y(navigationList_)));
-  show("balances");
+  closeNavigation(false);
+  auto list=contextMenu("balances",layout().portrait()?8:4,layout().portrait()?440:520);
+  const int padding=layout().portrait()?8:4;
+  const int width=lv_obj_get_width(contextMenuPanel_);
+  auto title=label(contextMenuPanel_,"账户余额",padding+12,padding+10,width-152,21);
+  lv_obj_set_height(title,font(21)->line_height);
+  balanceRefresh_=button(contextMenuPanel_,"刷新",width-padding-112,padding,112,44,[this]{refreshBalances();},theme::popup);
+  lv_obj_set_y(list,padding+52);lv_obj_set_height(list,lv_obj_get_height(contextMenuPanel_)-2*padding-52);
   refreshBalances();
 }
-void App::refreshBalances(const std::string &id) {
-  if (view_ != "balances" || !visible_ || !balancePending_.empty()) return;
+void App::refreshBalances() {
+  if (contextMenuKind_ != "balances" || !visible_ || !balancePending_.empty()) return;
   Json selected = Json::array();
   auto providers = db_.providers();
   std::set<std::string> existing;
@@ -33,7 +54,7 @@ void App::refreshBalances(const std::string &id) {
     auto old = balanceResults_.find(key);
     if (old != balanceResults_.end() && old->second.value("identity", std::string()) != balanceIdentity(provider))
       balanceResults_.erase(old);
-    if (id.empty() || key == id) { selected.push_back(provider); balancePending_.insert(key); }
+    selected.push_back(provider); balancePending_.insert(key);
   }
   for (auto it = balanceResults_.begin(); it != balanceResults_.end();)
     if (!existing.count(it->first)) it = balanceResults_.erase(it); else ++it;
@@ -59,10 +80,10 @@ void App::refreshBalances(const std::string &id) {
     }
     balanceService_->request(selected, ++balanceGeneration_);
   }
-  build();
+  balancePage();
 }
 void App::balanceEvent(const Event &event) {
-  if (view_ != "balances" || !visible_ || event.data.value("generation", uint64_t(0)) != balanceGeneration_) return;
+  if (contextMenuKind_ != "balances" || !visible_ || event.data.value("generation", uint64_t(0)) != balanceGeneration_) return;
   const auto id = event.data.value("id", std::string());
   bool valid = false;
   for (const auto &p : db_.providers())
@@ -81,15 +102,20 @@ void App::balanceEvent(const Event &event) {
   balanceDirty_ = true;
 }
 void App::balancePage() {
-  pageHeader("账户余额");
-  auto all = pageAction(balancePending_.empty() ? "全部刷新" : "正在刷新…", 10, 136,
-                        [this] { refreshBalances(); });
-  lv_obj_set_disabled(all, !balancePending_.empty());
-  const int left = layout().portrait() ? layout().safeSide() : 10;
-  const int width = layout().bodyWidth() - 2 * left;
+  if(contextMenuKind_!="balances"||!contextMenuList_)return;
+  auto reader=contextMenuList_;
+  const int scroll=lv_obj_get_scroll_y(reader);
+  lv_obj_clean(reader);
+  if(balanceRefresh_) {
+    lv_label_set_text(lv_obj_get_child(balanceRefresh_,0),balancePending_.empty()?"刷新":"刷新中…");
+    lv_obj_set_disabled(balanceRefresh_,!balancePending_.empty());
+  }
+  const int left=10;
+  const int width=lv_obj_get_width(reader)-2*left;
+  balanceDetailActions_.clear();
   int y = 4, count = 0;
   auto text = [&](const std::string &value, int size, uint32_t color) {
-    auto line = readableLabel(pageContent_, value, left, y, width, size, color);
+    auto line = readableLabel(reader, value, left, y, width, size, color);
     lv_obj_update_layout(line); y += lv_obj_get_height(line) + 8;
   };
   for (const auto &provider : db_.providers()) {
@@ -100,14 +126,10 @@ void App::balancePage() {
     auto found = balanceResults_.find(id);
     const bool have = found != balanceResults_.end() && found->second.value("identity", std::string()) == balanceIdentity(provider);
     const Json result = have ? found->second : Json::object();
-    auto caption = label(pageContent_, provider.value("name", std::string("服务商")), left, y, width - 84, 21);
+    auto caption = label(reader, provider.value("name", std::string("服务商")), left, y, width, 21);
     lv_label_set_long_mode(caption, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_height(caption, font(21)->line_height);
-    auto refresh = button(pageContent_, "刷新", left + width - 72, y, 72, 48, [this, id] { refreshBalances(id); });
-    pageActions_["balance-refresh:" + id] = refresh;
-    lv_obj_set_disabled(refresh, !balancePending_.empty());
-    label(pageContent_, balanceVendorName(vendor), left, y + font(21)->line_height + 4, width - 84, 16, theme::muted);
-    y += std::max(60, font(21)->line_height + font(16)->line_height + 12);
+    y+=font(21)->line_height+8;
     const auto balances = result.value("balances", Json::array());
     const bool pending = balancePending_.count(id);
     if (pending) text(balances.empty() ? "正在查询…" : "正在刷新，以下为上次结果", 17, theme::muted);
@@ -134,21 +156,27 @@ void App::balancePage() {
     bool details = false;
     for (const auto &money : balances) details = details || !money.at("details").empty();
     if (details) {
-      auto toggle = button(pageContent_, balanceExpanded_.count(id) ? "收起明细" : "余额明细", left, y, width, 48, [this, id] {
+      auto toggle = button(reader, balanceExpanded_.count(id) ? "收起明细" : "余额明细", left, y, width, 48, [this, id] {
         if (balanceExpanded_.count(id)) balanceExpanded_.erase(id); else balanceExpanded_.insert(id);
-        build();
+        balancePage();
       });
-      pageActions_["balance-detail:" + id] = toggle; y += 56;
+      balanceDetailActions_[id] = toggle; y += 56;
     }
     y += 20;
   }
-  if (!count) text("尚未启用余额查询。请在模型管理 → Provider连接设置中选择“余额查询厂商”，保存后返回。", 20, theme::muted);
+  if (!count) text("尚未启用余额查询。请在模型管理 → Provider详情中选择“余额查询厂商”，保存后返回。", 20, theme::muted);
+  lv_obj_update_layout(reader);lv_obj_scroll_to_y(reader,scroll,LV_ANIM_OFF);
 }
 Json App::balanceDiagnostic() const {
   Json rows = Json::object();
   for (const auto &p : balanceResults_) rows[p.first] = p.second.value("status", std::string());
   Json shortcut;
   if (balanceShortcut_) { lv_area_t a; lv_obj_get_coords(balanceShortcut_, &a); shortcut = Json::array({a.x1,a.y1,a.x2,a.y2}); }
-  return {{"pending", balancePending_.size()}, {"states", rows}, {"shortcut", shortcut}};
+  auto bounds=[](lv_obj_t *o)->Json{if(!o)return Json();lv_area_t r;lv_obj_get_coords(o,&r);return Json::array({r.x1,r.y1,r.x2,r.y2});};
+  Json actions=Json::object();if(balanceRefresh_)actions["refresh"]=bounds(balanceRefresh_);
+  for(const auto &entry:balanceDetailActions_)actions["detail:"+entry.first]=bounds(entry.second);
+  return {{"pending",balancePending_.size()},{"states",rows},{"shortcut",shortcut},{"open",contextMenuKind_=="balances"},
+    {"bounds",contextMenuKind_=="balances"?bounds(contextMenuPanel_):Json()},
+    {"list",contextMenuKind_=="balances"?bounds(contextMenuList_):Json()},{"actions",actions}};
 }
 } // namespace penchat

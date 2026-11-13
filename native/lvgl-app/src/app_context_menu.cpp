@@ -70,6 +70,8 @@ lv_obj_t *App::contextMenu(const std::string &kind,int rows,int width) {
   lv_obj_add_event_cb(layer,[](lv_event_t *event){
     auto self=static_cast<App *>(lv_event_get_user_data(event));
     if(lv_event_get_code(event)==LV_EVENT_DELETE && lv_event_get_target_obj(event)==lv_event_get_current_target_obj(event)) {
+      if(self->contextMenuKind_=="balances"){self->readReset();self->cancelBalances();}
+      self->balanceRefresh_=nullptr;self->balanceDetailActions_.clear();
       self->modal_=self->modalScroll_=self->contextMenuPanel_=self->contextMenuList_=nullptr;
       self->contextMenuKind_.clear();self->contextMenuOpening_=false;
       self->choiceActions_.clear();
@@ -104,8 +106,14 @@ bool App::popupTouch(const Json &message) {
     if(!down){popupConsumeTouch_=contextMenuOpening_=false;input_.cancel();}
     return true;
   }
-  auto panel=contextMenuPanel_?contextMenuPanel_:(keepChatEditor()?attachmentPanel_:nullptr);
+  if(contextMenuKind_=="balances" && readTouch(message.value("x",0),message.value("y",0),down,message.value("cancelled",false)))return true;
+  auto panel=contextMenuPanel_?contextMenuPanel_:((keepChatEditor()||popupKind_=="attachments")?attachmentPanel_:nullptr);
   if(!panel)return false;
+  if(message.contains("points")&&message.at("points").is_array()&&message.at("points").size()>1) {
+    popupConsumeTouch_=true;editorCancelKeys();input_.cancel();
+    if(contextMenuKind_=="balances")readTouch(message.value("x",0),message.value("y",0),false,true);
+    return true;
+  }
   lv_area_t bounds;lv_obj_get_coords(panel,&bounds);
   const int x=message.value("x",0),y=message.value("y",0);
   const bool inside=x>=bounds.x1&&x<=bounds.x2&&y>=bounds.y1&&y<=bounds.y2;
