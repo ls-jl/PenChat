@@ -186,12 +186,14 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
       },
       id == session_ ? theme::surface : theme::sidebar, LV_TEXT_ALIGN_LEFT);
   auto caption = lv_obj_get_child(row, 0);
+  if(id==session_)lv_obj_add_state(row,LV_STATE_CHECKED);
   lv_obj_set_hidden(caption,true);
   const bool pinned=objectField(session,"metadata_json").value("pinned_at",int64_t(0))>0;
   historyCaption(row,session,24,9,width-48-(pinned?28:0));
   if (pinned) {
-    icon(row, "pin", width - 34, 8, 28, 28, {},
+    auto pin=icon(row, "pin", width - 34, 8, 28, 28, {},
          id == session_ ? theme::surface : theme::sidebar, theme::muted);
+    lv_obj_set_style_bg_opa(pin,LV_OPA_TRANSP,0);
   }
   historyRows_.push_back({id, row});
   struct Press {
@@ -233,11 +235,22 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
       LV_EVENT_ALL, data);
   return row;
 }
+void App::refreshHistoryHighlight() {
+  if(!navigationOpen_)return;
+  const auto &selected=historyContextId_.empty()?session_:historyContextId_;
+  for(const auto &entry:historyRows_) {
+    const bool active=entry.first==selected;
+    lv_obj_set_style_bg_color(entry.second,lv_color_hex(active?theme::surface:theme::sidebar),0);
+    if(active)lv_obj_add_state(entry.second,LV_STATE_CHECKED);
+    else lv_obj_remove_state(entry.second,LV_STATE_CHECKED);
+  }
+}
 void App::closeHistoryContext() {
   auto object = modal_;
   modal_ = nullptr;
-  historyFullTitle_=historyFullTime_=nullptr;historyActions_.clear();
+  historyActions_.clear();
   historyContextId_.clear();
+  refreshHistoryHighlight();
   navigationPointerDown_ = navigationBackdrop_ = false;
   if (object)
     lv_obj_delete(object);
@@ -247,18 +260,11 @@ void App::historyContext(const std::string &id) {
   if (session.empty())
     return;
   closeHistoryContext();
-  const auto stamp=historyTime(sessionChatTime(session),nowMs(),true);
-  auto actionRail=contextMenu("history",5,session.value("title",std::string()),
-                               stamp.empty()?"没有已记录的时间":stamp);
+  auto actionRail=contextMenu("history",5);
   historyContextId_=id;
+  refreshHistoryHighlight();
   const int actionWidth=lv_obj_get_width(actionRail);
   const int rowHeight=layout().portrait()?theme::portraitPopupRowHeight:theme::popupRowHeight;
-  auto heading=lv_obj_get_parent(historyFullTitle_);
-  auto details=button(heading,"",0,0,lv_obj_get_width(heading),48,[this,id]{
-    const auto info=db_.sessionInfo(id);const auto time=historyTime(sessionChatTime(info),nowMs(),true);
-    closeHistoryContext();modal("会话详情",info.value("title",std::string())+"\n\n"+(time.empty()?"没有已记录的聊天时间":"最后聊天："+time));
-  },theme::popup);
-  lv_obj_move_background(details);historyActions_["details"]=details;
   historyActions_["rename"]=button(actionRail, "重命名", 0, 0, actionWidth, rowHeight-4, [this, id, session] {
     closeHistoryContext();
     if(layout().portrait()) {
@@ -311,7 +317,7 @@ void App::historyContext(const std::string &id) {
   historyActions_["export"]=button(actionRail, "导出", 0, 4*rowHeight, actionWidth, rowHeight-4, [this, id] {
     events_.push("transfer_open_session", {{"id", id}});
   });
-  for(const auto &entry:historyActions_)if(entry.first!="details")stylePopupRow(entry.second);
+  for(const auto &entry:historyActions_)stylePopupRow(entry.second);
 }
 void App::retireSession(const std::string &id, bool archive) {
   if(!archive)sessionDrafts_.erase(id);

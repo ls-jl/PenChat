@@ -32,8 +32,7 @@ void App::selected(lv_obj_t *object,bool value) {
     attachIcon(mark,"check",theme::accent);
   }
 }
-lv_obj_t *App::contextMenu(const std::string &kind,int rows,const std::string &title,
-                           const std::string &subtitle) {
+lv_obj_t *App::contextMenu(const std::string &kind,int rows) {
   readReset();closeAttachments();resetPull();
   if(modal_)lv_obj_delete(modal_);
   contextMenuKind_=kind;
@@ -49,35 +48,27 @@ lv_obj_t *App::contextMenu(const std::string &kind,int rows,const std::string &t
       self->modal_=self->modalScroll_=self->contextMenuPanel_=self->contextMenuList_=nullptr;
       self->contextMenuKind_.clear();self->contextMenuOpening_=false;
       self->historyActions_.clear();self->historyContextId_.clear();
-      self->historyFullTitle_=self->historyFullTime_=nullptr;
+      self->refreshHistoryHighlight();
       self->messageActions_.clear();self->messageContextId_.clear();self->messageContextText_.clear();
     }
   },LV_EVENT_DELETE,this);
   const bool portrait=layout().portrait();
   const int rowHeight=portrait?theme::portraitPopupRowHeight:theme::popupRowHeight;
-  const int padding=portrait?8:4,header=title.empty()?0:56;
+  const int padding=portrait?8:4;
   const int availableHeight=keepChatEditor()?editorLayout().panelTop:screen_.height;
   const LayoutRect anchor{lastTouch_.value("x",screen_.width/2),lastTouch_.value("y",screen_.height/2),1,1};
   const auto area=placeContextPopup(screen_.width,availableHeight,roundedDisplay_,anchor,
-                                   portrait?320:224,header+rows*rowHeight+2*padding);
+                                   portrait?320:224,rows*rowHeight+2*padding);
   auto panel=box(layer,area.x,area.y,area.width,area.height,theme::popup);
   contextMenuPanel_=panel;stylePopupPanel(panel,portrait);lv_obj_set_scrollable(panel,false);
-  if(!title.empty()) {
-    auto heading=box(panel,padding,padding,area.width-2*padding,48,theme::popup);
-    lv_obj_set_scrollable(heading,false);
-    historyFullTitle_=label(heading,title,12,0,area.width-2*padding-24,19);
-    lv_obj_set_height(historyFullTitle_,24);lv_label_set_long_mode(historyFullTitle_,LV_LABEL_LONG_MODE_DOTS);
-    historyFullTime_=label(heading,subtitle,12,26,area.width-2*padding-24,14,theme::muted);
-    lv_obj_set_height(historyFullTime_,20);lv_label_set_long_mode(historyFullTime_,LV_LABEL_LONG_MODE_DOTS);
-  }
-  auto list=box(panel,padding,padding+header,area.width-2*padding,
-                std::max(44,area.height-2*padding-header),theme::popup);
+  auto list=box(panel,padding,padding,area.width-2*padding,
+                std::max(44,area.height-2*padding),theme::popup);
   contextMenuList_=list;lv_obj_set_scroll_dir(list,LV_DIR_VER);
   lv_obj_set_style_width(list,3,LV_PART_SCROLLBAR);
   lv_obj_set_style_bg_color(list,lv_color_hex(theme::border),LV_PART_SCROLLBAR);
   lv_obj_set_scroll_elastic(list,false);lv_obj_set_scroll_chain_ver(list,false);
   // Callers size their rows from this reader immediately. Resolve percentage
-  // and content geometry before they inspect its width or the title header.
+  // and content geometry before they inspect its width.
   lv_obj_update_layout(layer);
   return list;
 }

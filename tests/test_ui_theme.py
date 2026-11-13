@@ -47,6 +47,8 @@ def fixture(p):
   db.execute("insert or replace into app_settings values('active_session_id','\"s\"',1)")
   for i,(id,role,text) in enumerate([('u','user','hello 世界'),('a','assistant','收到。')],1):
    db.execute("insert into chat_messages(id,session_id,seq,role,status,message_type,output_text,created_at,updated_at) values(?,'s',?,?,'complete','text',?,1,1)",(id,i,role,text))
+  db.execute("insert into chat_sessions(id,title,status,created_at,updated_at,last_message_at) values('other','另一条历史会话','active',1,0,0)")
+  db.execute("insert into chat_messages(id,session_id,seq,role,status,message_type,output_text,created_at,updated_at) values('other-a','other',1,'assistant','complete','text','参考',1,1)")
 
 def run(w,h):
  with tempfile.TemporaryDirectory(prefix='penchat-theme-') as folder:
@@ -76,7 +78,13 @@ def run(w,h):
     a.send('touch',x=x,y=end,pressed=False);time.sleep(.15)
    else:raise AssertionError('Last history action unreachable')
    a.shot('history-menu-bottom');a.tap(w-4,h-4);assert not a.diag()['modal'];a.to_chat()
-   a.open_navigation();row=next(r for r in a.diag()['history_rows'] if r['id']=='s');a.long_press(row['x'],row['y']);a.history_action('details');t.wait_for(lambda:a.diag()['modal'] and not a.diag()['context_menu']['kind']);a.shot('history-details');a.tap(w-65,h-44);a.to_chat()
+   a.open_navigation();row=next(r for r in a.diag()['history_rows'] if r['id']=='other');a.long_press(row['x'],row['y'])
+   d=a.diag();assert d['session']=='s' and d['history_context']=='other'
+   assert {r['id'] for r in d['history_rows'] if r['highlighted']}=={'other'}
+   assert set(d['history_actions'])=={'rename','pin','archive','delete','export'}
+   a.shot('history-target-highlight');a.tap(w-4,h-4)
+   assert {r['id'] for r in a.diag()['history_rows'] if r['highlighted']}=={'s'}
+   a.to_chat()
    a.open_navigation();row=next(r for r in a.diag()['history_rows'] if r['id']=='s');a.long_press(row['x'],row['y']);t.wait_for(lambda:a.diag()['context_menu']['kind']=='history')
    a.history_action('rename');t.wait_for(lambda:a.diag()['editor']['active']);a.shot('history-rename')
    assert a.diag()['editor']['length']>0

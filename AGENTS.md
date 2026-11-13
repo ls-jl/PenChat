@@ -224,8 +224,9 @@ respect shared references and never follow symlinks or delete system album origi
 Device tests that swap databases must isolate assets/backup files as well and use
 SQLite backup snapshots for online reads. Shared icon geometry lives in icons.cpp;
 use it for keyboard symbols too. History long-press actions use a content-sized vertical popup with at least
-44px touch targets; overflow scrolls inside that popup. Full title/time are
-available from its heading. Text-selection actions retain their horizontal row. Nonempty chat content has 8px top padding.
+44px touch targets; overflow scrolls inside that popup. Highlight the target
+history row while its menu is open; the menu has no title/time header.
+Text-selection actions retain their horizontal row. Nonempty chat content has 8px top padding.
 
 Transfer jobs run outside LVGL. Production transfer root is /userdisk/Favorite/PenChat;
 host tests use a private data directory (PENCHAT_TRANSFER_ROOT is host-only).

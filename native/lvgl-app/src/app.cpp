@@ -1009,7 +1009,7 @@ void App::clear() {
   scanWarning_ = scanHolder_ = scanImage_ = scanLabel_ = scanUse_ = scanHint_ = nullptr;
   chatHeader_ = chatTitle_ = nullptr;
   historyRows_.clear();
-  historyCaptions_.clear();historyActions_.clear();historyFullTitle_=historyFullTime_=nullptr;
+  historyCaptions_.clear();historyActions_.clear();
   historyContextId_.clear();
   reasoningHeaders_.clear();
   if (navigationList_)
@@ -3846,6 +3846,7 @@ Json App::diagnostics() const {
     lv_area_t area;
     lv_obj_get_coords(entry.second, &area);
     historyRows.push_back({{"id", entry.first},
+                           {"highlighted",lv_obj_has_state(entry.second,LV_STATE_CHECKED)},
                            {"x", (area.x1 + area.x2) / 2},
                            {"y", (area.y1 + area.y2) / 2}});
   }
@@ -3872,7 +3873,6 @@ Json App::diagnostics() const {
       {"diagnostic_time", ticks()},
       {"history_rows", historyRows},
       {"history_captions",historyCaptions},{"history_actions",historyActions},
-      {"history_details",{{"title_length",historyFullTitle_?editLength(lv_label_get_text(historyFullTitle_)):0},{"time",historyFullTime_?lv_label_get_text(historyFullTime_):""}}},
       {"history_context", historyContextId_},
       {"title_busy", titleBusy_.load()},
       {"title_pending", titleJobs_.size()},

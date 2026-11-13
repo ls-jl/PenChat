@@ -46,8 +46,7 @@ class App {
   lv_obj_t *contextMenuPanel_ = nullptr, *contextMenuList_ = nullptr;
   std::string contextMenuKind_;
   lv_obj_t *attachmentPanel_ = nullptr;
-  lv_obj_t *contextMenu(const std::string &kind, int rows, const std::string &title = "",
-                        const std::string &subtitle = "");
+  lv_obj_t *contextMenu(const std::string &kind, int rows);
   void selected(lv_obj_t *object, bool value);
   bool popupTouch(const Json &message);
   bool keepChatEditor() const;
@@ -294,7 +293,6 @@ class App {
   void historyCaption(lv_obj_t *,const Json &,int,int,int);
   struct HistoryCaption {lv_obj_t *title,*time;};
   std::map<std::string,HistoryCaption> historyCaptions_;
-  lv_obj_t *historyFullTitle_=nullptr,*historyFullTime_=nullptr;
   std::map<std::string,lv_obj_t *> historyActions_;
   int archiveOffset_ = 0;
   std::string archiveHighlight_;
@@ -314,6 +312,7 @@ class App {
   std::map<std::string,lv_obj_t *> archiveViewButtons_;
   void historyContext(const std::string &id);
   void closeHistoryContext();
+  void refreshHistoryHighlight();
   void retireSession(const std::string &id, bool archive);
   lv_obj_t *historyRow(lv_obj_t *parent, const Json &session, int y, int width);
   int messageOffset_ = 0, historyOffset_ = 0, networkGeneration_ = 0;
