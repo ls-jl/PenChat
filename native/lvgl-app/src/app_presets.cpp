@@ -27,7 +27,9 @@ void App::applyPreset(const Json &preset) {
 void App::presetPicker() {
   closeAttachments();
   resetPull();
-  attachments_ = box(screenObj_,layout().gutter(),0,screen_.width-layout().gutter(),screen_.height);
+  const bool portrait=layout().portrait();
+  const auto presets=presetList(db_.settings());
+  attachments_ = box(portrait?lv_screen_active():screenObj_,layout().gutter(),0,screen_.width-layout().gutter(),screen_.height);
   popupKind_ = "presets";
   lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::scrim), 0);
   lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
@@ -35,25 +37,37 @@ void App::presetPicker() {
   auto backdrop = button(attachments_, "", 0, 0, screen_.width-layout().gutter(), screen_.height,
                          [this] { closeAttachments(); });
   lv_obj_set_style_bg_opa(backdrop, LV_OPA_TRANSP, 0);
-  const auto area=pickerArea(screen_.width-(layout().portrait()?32:130));
+  int naturalWidth=288;
+  if(portrait)for(const auto &preset:presets) {
+    lv_point_t measured{};
+    const auto title=preset.value("name",std::string())+" · 已调整";
+    lv_text_get_size(&measured,title.c_str(),font(20),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+    naturalWidth=std::max(naturalWidth,int(measured.x)+68);
+  }
+  const auto area=portrait?placeContextPopup(screen_.width,screen_.height,roundedDisplay_,
+      {layout().safeSide(),chatComposerY(),1,1},std::min(440,naturalWidth),
+      std::min(360,32+int(presets.size())*72+4),keepChatEditor()?editorLayout().panelTop:0):
+      pickerArea(screen_.width-130);
   const int panelWidth=area.width;
   auto panel=box(attachments_,area.x,area.y,panelWidth,area.height,theme::popup);
   attachmentPanel_=panel;stylePopupPanel(panel,layout().portrait());
   lv_obj_set_scroll_dir(panel, LV_DIR_VER);
   lv_obj_set_scroll_elastic(panel, false);
   lv_obj_set_scroll_momentum(panel, false);
+  lv_obj_set_scroll_chain_ver(panel, false);
   auto current = sessionPreferences_.value("preset_name", std::string("未选择预设"));
   if (sessionPreferences_.value("preset_adjusted", false)) current += " · 已调整";
   auto heading = label(panel, "当前：" + current, 14, 4, panelWidth-38, 17, theme::muted);
   lv_label_set_long_mode(heading, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(heading, 24);
   int y = 32;
-  for (const auto &p : presetList(db_.settings())) {
-    bool selected = p["id"] == sessionPreferences_.value("preset_id", std::string());
-    auto title = (selected ? "● " : "○ ") + p.value("name", std::string());
-    if (selected && sessionPreferences_.value("preset_adjusted", false)) title += " · 已调整";
-    button(panel, title, 8, y, panelWidth-24, 44,
+  for (const auto &p : presets) {
+    const bool active = p["id"] == sessionPreferences_.value("preset_id", std::string());
+    auto title = (portrait?std::string():active?"● ":"○ ") + p.value("name", std::string());
+    if (active && sessionPreferences_.value("preset_adjusted", false)) title += " · 已调整";
+    auto item=button(panel, title, 8, y, panelWidth-24, 44,
            [this, p] { applyPreset(p); }, theme::surface, LV_TEXT_ALIGN_LEFT);
+    if(portrait){selected(item,active);stylePopupRow(item);}
     auto caption = label(panel, presetSummary(p), 22, y + 44, panelWidth-50, 16, theme::muted);
     lv_label_set_long_mode(caption, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_height(caption, 22);
