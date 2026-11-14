@@ -5,22 +5,22 @@ struct SelectionMenu {
   enum Position { Above, Below, LowerLeft } position = Above;
   LayoutRect bounds{};
 };
-inline LayoutRect selectionMenuSafeArea(int width, int height, bool rounded=false) {
-  const AppLayout layout{width, height,rounded};
-  const int side = std::max(8, layout.safeSide()), top = std::max(4, layout.safeTop());
+inline LayoutRect selectionMenuSafeArea(int width, int height, bool rounded=false,const UiMetrics &metrics=UiMetrics()) {
+  const AppLayout layout{width, height,rounded,metrics};
+  const int side = std::max(metrics.dp(8), layout.safeSide()), top = std::max(metrics.dp(4), layout.safeTop());
   return {side, top, std::max(1, width - 2 * side),
-          std::max(1, height - top - std::max(4, layout.safeBottom()))};
+          std::max(1, height - top - std::max(metrics.dp(4), layout.safeBottom()))};
 }
 inline SelectionMenu placeSelectionMenu(LayoutRect selected, LayoutRect safe, int width,
-                                        int height, int belowClearance=0,ScreenSafety shape={}) {
+                                        int height, int belowClearance=0,ScreenSafety shape={},const UiMetrics &metrics=UiMetrics()) {
   width = std::min(width, safe.width);
   height = std::min(height, safe.height);
   const int x = std::max(
       safe.x, std::min(safe.x + safe.width - width, selected.x + (selected.width - width) / 2));
-  if (selected.y - 8 - height >= safe.y)
-    return {SelectionMenu::Above, shape.fit({x, selected.y - 8 - height, width, height})};
-  if (selected.y + selected.height + belowClearance + 8 + height <= safe.y + safe.height)
-    return {SelectionMenu::Below, shape.fit({x, selected.y + selected.height + belowClearance + 8, width, height})};
+  if (selected.y - metrics.dp(8) - height >= safe.y)
+    return {SelectionMenu::Above, shape.fit({x, selected.y - metrics.dp(8) - height, width, height})};
+  if (selected.y + selected.height + belowClearance + metrics.dp(8) + height <= safe.y + safe.height)
+    return {SelectionMenu::Below, shape.fit({x, selected.y + selected.height + belowClearance + metrics.dp(8), width, height})};
   return {SelectionMenu::LowerLeft, shape.fit({safe.x, safe.y + safe.height - height, width, height})};
 }
 inline int selectionMenuClearance(LayoutRect selected,const SelectionMenu &menu,LayoutRect grip) {

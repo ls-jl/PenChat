@@ -7,7 +7,7 @@
 namespace penchat {
 // These are design dimensions, not Falcon coordinates, image pixels or LVGL
 // encoded sizes. Convert once, then pass the resolved logical pixels unchanged.
-enum class UiFont { Body, Button, PageTitle, FieldTitle, FieldValue, SettingsTitle, Detail, Composer, FormHint, FormNote, FormCaption, EmptyTitle };
+enum class UiFont { Body, Button, PageTitle, FieldTitle, FieldValue, SettingsTitle, Detail, Composer, FormHint, FormNote, FormCaption, EmptyTitle, Tiny, Small, Badge, LargeCaption, Heading, Display, Hero, HeroLarge };
 class UiMetrics {
 public:
   explicit UiMetrics(int densityPercent = 100, int scalePercent = 100)
@@ -40,9 +40,29 @@ public:
     case UiFont::FormNote: size = 18; break;
     case UiFont::FormCaption: size = 19; break;
     case UiFont::EmptyTitle: size = 23; break;
+    case UiFont::Tiny: size = 12; break;
+    case UiFont::Small: size = 13; break;
+    case UiFont::Badge: size = 14; break;
+    case UiFont::LargeCaption: size = 22; break;
+    case UiFont::Heading: size = 24; break;
+    case UiFont::Display: size = 28; break;
+    case UiFont::Hero: size = 30; break;
+    case UiFont::HeroLarge: size = 32; break;
     }
     return std::max(1, dp(size));
   }
+  int readingFontSize(int percent) const {
+    const int64_t value=int64_t(21)*density_*scale_*percent;
+    return std::max(1,int((value+500000)/1000000));
+  }
+  double factor() const { return double(density_)*scale_/10000.; }
+  struct Gesture {
+    int tap, drag, key;
+    int64_t tapSquared() const { return int64_t(tap)*tap; }
+  };
+  Gesture gestures() const { return {dp(12),dp(12),dp(12)}; }
+  struct Popup { int margin, gap, minimum, row, portraitRow, padding, portraitPadding, width, portraitWidth; };
+  Popup popup() const { return {dp(8),dp(8),dp(44),dp(48),dp(64),dp(4),dp(8),dp(224),dp(320)}; }
   struct Button { int radius, captionPadding; };
   Button button() const { return {dp(10), dp(24)}; }
   struct Field { int height, inset, top, captionHeight, valueHeight, valueTop, gap; };

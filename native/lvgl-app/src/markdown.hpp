@@ -1,4 +1,5 @@
 #pragma once
+#include "ui_metrics.hpp"
 #include "common.hpp"
 #include <cairo.h>
 namespace penchat {
@@ -59,7 +60,7 @@ class RichText {
   std::unique_ptr<Impl> p_;
 
 public:
-  RichText(const std::string &fontPath, const std::string &resourcePath, const std::string &fallbackPath = "");
+  RichText(const std::string &fontPath, const std::string &resourcePath, const std::string &fallbackPath = "", const UiMetrics &metrics = UiMetrics());
   ~RichText();
   Bitmap formula(const std::string &text, int size);
   void prepare(Document &document, int width, int size = 21);

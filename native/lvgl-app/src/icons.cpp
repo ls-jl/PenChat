@@ -2,12 +2,17 @@
 #include <algorithm>
 #include <cmath>
 #include <vector>
+#include <memory>
 namespace penchat {
 namespace {
+struct GearMask;
 struct Icon {
   std::string name;
   uint32_t ink;
   float scale = 1.f;
+  UiMetrics metrics;
+  std::shared_ptr<GearMask> gear;
+  float gearScale=0;
   int stemTop = 0;
   int cornerY = 0,cornerX = 0;
   int diameterX=24,diameterY=24,side=0;
@@ -22,7 +27,7 @@ struct Icon {
 struct GearMask {
   std::vector<uint8_t> alpha;
   lv_image_dsc_t image{};
-  GearMask(int size, double scale) : alpha(size * size) {
+  GearMask(int size, double scale, double stroke = 2.) : alpha(size * size) {
     struct Point { double x, y; } points[36];
     const double angles[] = {-30, -19, -10, 10, 19, 30};
     const double radii[] = {8, 8, 11, 11, 8, 8};
@@ -42,8 +47,8 @@ struct GearMask {
             const double px = x + (sx + .5) / samples - center;
             const double py = y + (sy + .5) / samples - center;
             const double r2 = px * px + py * py;
-            bool hit = r2 >= (inner - 1) * (inner - 1) &&
-                       r2 <= (inner + 1) * (inner + 1);
+            bool hit = r2 >= (inner - stroke/2) * (inner - stroke/2) &&
+                       r2 <= (inner + stroke/2) * (inner + stroke/2);
             for (int i = 0; !hit && i < 36; ++i) {
               const auto a = points[i], b = points[(i + 1) % 36];
               const double dx = b.x - a.x, dy = b.y - a.y;
@@ -52,7 +57,7 @@ struct GearMask {
               const double t = std::max(0., std::min(1.,
                   ((px - a.x) * dx + (py - a.y) * dy) / length2));
               const double ex = px - a.x - t * dx, ey = py - a.y - t * dy;
-              hit = ex * ex + ey * ey <= 1.; // 2px stroke at both icon sizes
+              hit = ex * ex + ey * ey <= stroke*stroke/4.; // 2px stroke at both icon sizes
             }
             covered += hit;
           }
@@ -80,8 +85,8 @@ void paint(lv_event_t *event) {
   const float cx = icon->customStem?bounds.x1+icon->cornerX:(bounds.x1+bounds.x2)*.5f;
   const float cy = icon->customStem?bounds.y1+icon->cornerY:(bounds.y1+bounds.y2)*.5f;
   const float scale =
-      (std::min(lv_obj_get_width(object), lv_obj_get_height(object)) <= 30 ? 0.75f : 1.f) *
-      (icon->name=="globe-large"?1.5f:1.f) * icon->scale;
+      (std::min(lv_obj_get_width(object), lv_obj_get_height(object)) <= icon->metrics.dp(30) ? 0.75f : 1.f) *
+      (icon->name=="globe-large"?1.5f:1.f) * icon->scale * icon->metrics.factor();
   const auto ink = lv_color_hex(icon->ink);
   lv_draw_line_dsc_t visual;
   lv_draw_line_dsc_init(&visual);
@@ -92,7 +97,7 @@ void paint(lv_event_t *event) {
     lv_draw_line_dsc_init(&d);
     d.color = ink;
     d.opa = opacity;
-    d.width = 2;
+    d.width = icon->metrics.dp(2);
     d.round_start = d.round_end = 1;
     d.p1 = {int32_t(std::lround(cx + x * scale)), int32_t(std::lround(cy + y * scale))};
     d.p2 = {int32_t(std::lround(cx + u * scale)), int32_t(std::lround(cy + v * scale))};
@@ -101,11 +106,11 @@ void paint(lv_event_t *event) {
   auto rect = [&](float x, float y, float w, float h, int radius, bool fill = false) {
     lv_draw_rect_dsc_t d;
     lv_draw_rect_dsc_init(&d);
-    d.radius = radius;
+    d.radius = radius==LV_RADIUS_CIRCLE?radius:icon->metrics.dp(radius);
     d.bg_color = d.border_color = ink;
     d.bg_opa = fill ? opacity : lv_opa_t(LV_OPA_TRANSP);
     d.border_opa = fill ? lv_opa_t(LV_OPA_TRANSP) : opacity;
-    d.border_width = 2;
+    d.border_width = icon->metrics.dp(2);
     lv_area_t a{int32_t(std::lround(cx + x * scale)),
                 int32_t(std::lround(cy + y * scale)),
                 int32_t(std::lround(cx + (x + w) * scale)),
@@ -120,7 +125,7 @@ void paint(lv_event_t *event) {
     lv_draw_arc_dsc_init(&d);
     d.color = ink;
     d.opa = opacity;
-    d.width = 2;
+    d.width = icon->metrics.dp(2);
     d.rounded = 1;
     d.center = {int32_t(std::lround(cx + x * scale)), int32_t(std::lround(cy + y * scale))};
     d.radius = std::lround(radius * scale);
@@ -257,7 +262,11 @@ void paint(lv_event_t *event) {
     line(0, 0, 4, 3);
   } else if (k == "settings") {
     static const GearMask regular(26, 1.), small(20, .75);
-    const auto &mask = scale < 1 ? small.image : regular.image;
+    if(!icon->metrics.identity() && (!icon->gear || icon->gearScale!=scale)) {
+      icon->gear=std::make_shared<GearMask>(std::max(1,int(std::ceil(26*scale))),scale,icon->metrics.dp(2));
+      icon->gearScale=scale;
+    }
+    const auto &mask = !icon->metrics.identity()?icon->gear->image:scale < 1 ? small.image : regular.image;
     lv_draw_image_dsc_t d;
     lv_draw_image_dsc_init(&d);
     d.src = &mask;
@@ -359,8 +368,8 @@ void paint(lv_event_t *event) {
   }
 }
 } // namespace
-void attachIcon(lv_obj_t *object, const std::string &name, uint32_t ink, float scale) {
-  auto data = new Icon{name, ink};data->scale=scale;
+void attachIcon(lv_obj_t *object, const std::string &name, uint32_t ink, float scale, const UiMetrics &metrics) {
+  auto data = new Icon{name, ink};data->scale=scale;data->metrics=metrics;
   lv_obj_add_event_cb(object, paint, LV_EVENT_DRAW_MAIN, data);
   if (name=="selection-start" || name=="selection-end")
     lv_obj_add_event_cb(object, [](lv_event_t *event) {
@@ -378,17 +387,17 @@ void attachIcon(lv_obj_t *object, const std::string &name, uint32_t ink, float s
       [](lv_event_t *e) { delete static_cast<Icon *>(lv_event_get_user_data(e)); },
       LV_EVENT_DELETE, data);
 }
-void setIcon(lv_obj_t *object, const std::string &name, uint32_t ink, float scale) {
+void setIcon(lv_obj_t *object, const std::string &name, uint32_t ink, float scale, const UiMetrics &metrics) {
   for(uint32_t i=0;i<lv_obj_get_event_count(object);++i) {
     auto event=lv_obj_get_event_dsc(object,i);
     if(lv_event_dsc_get_cb(event)!=paint)continue;
     auto data=static_cast<Icon *>(lv_event_dsc_get_user_data(event));
-    if(data->name!=name||data->ink!=ink||data->scale!=scale) {
-      data->name=name;data->ink=ink;data->scale=scale;lv_obj_invalidate(object);
+    if(data->name!=name||data->ink!=ink||data->scale!=scale||data->metrics.factor()!=metrics.factor()) {
+      data->name=name;data->ink=ink;data->scale=scale;data->metrics=metrics;lv_obj_invalidate(object);
     }
     return;
   }
-  attachIcon(object,name,ink,scale);lv_obj_invalidate(object);
+  attachIcon(object,name,ink,scale,metrics);lv_obj_invalidate(object);
 }
 void setSelectionHandleTop(lv_obj_t *object, int top, int corner, int x, int diameterX, int diameterY) {
   for (uint32_t i=0;i<lv_obj_get_event_count(object);++i) {

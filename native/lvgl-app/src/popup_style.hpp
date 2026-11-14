@@ -4,11 +4,11 @@
 #include <cmath>
 #include <lvgl.h>
 namespace penchat {
-inline void stylePopupPanel(lv_obj_t *object, bool portrait = false) {
+inline void stylePopupPanel(lv_obj_t *object, bool portrait = false, const UiMetrics &metrics = UiMetrics()) {
   lv_obj_set_style_bg_color(object, lv_color_hex(theme::popup), 0);
   lv_obj_set_style_bg_opa(object, LV_OPA_COVER, 0);
-  lv_obj_set_style_radius(object, portrait ? theme::portraitPopupRadius : theme::popupRadius, 0);
-  lv_obj_set_style_border_width(object, theme::popupBorder, 0);
+  lv_obj_set_style_radius(object, metrics.dp(portrait ? theme::portraitPopupRadius : theme::popupRadius), 0);
+  lv_obj_set_style_border_width(object, metrics.dp(theme::popupBorder), 0);
   lv_obj_set_style_border_color(object, lv_color_hex(theme::border), 0);
 }
 inline void styleDisabledButton(lv_obj_t *object) {
@@ -47,23 +47,23 @@ inline void stylePopupRow(lv_obj_t *object) {
 }
 // Pure logical geometry. Rounded mask is an explicit Y07 capability, never
 // inferred from aspect ratio; host tests can exercise both masks independently.
-inline LayoutRect popupSafeArea(int width, int height, bool rounded) {
-  const AppLayout layout{width,height,rounded};
-  const int margin = rounded ? int(std::ceil(std::min(width,height)*.015)) : 8;
+inline LayoutRect popupSafeArea(int width, int height, bool rounded, const UiMetrics &metrics = UiMetrics()) {
+  const AppLayout layout{width,height,rounded,metrics};
+  const int margin = rounded ? int(std::ceil(std::min(width,height)*.015)) : metrics.dp(8);
   return {std::max(margin,layout.safeSide()), std::max(margin,layout.safeTop()),
           width-2*std::max(margin,layout.safeSide()),
           height-std::max(margin,layout.safeTop())-std::max(margin,layout.safeBottom())};
 }
 inline LayoutRect placeContextPopup(int width,int height,bool rounded,
-                                     LayoutRect anchor,int desiredWidth,int desiredHeight,int bottomLimit=0) {
-  const auto safe=popupSafeArea(width,height,rounded);
+                                     LayoutRect anchor,int desiredWidth,int desiredHeight,int bottomLimit=0, const UiMetrics &metrics = UiMetrics()) {
+  const auto safe=popupSafeArea(width,height,rounded,metrics);
   const int bottom=bottomLimit>0?std::min(safe.y+safe.height,bottomLimit):safe.y+safe.height;
-  const int h=std::min(desiredHeight,std::max(44,(bottom-safe.y)*4/5));
-  int y=anchor.y+anchor.height+8;
-  if(y+h>bottom)y=anchor.y-h-8;
+  const int h=std::min(desiredHeight,std::max(metrics.dp(44),(bottom-safe.y)*4/5));
+  int y=anchor.y+anchor.height+metrics.dp(8);
+  if(y+h>bottom)y=anchor.y-h-metrics.dp(8);
   y=std::max(safe.y,std::min(bottom-h,y));
   const int side=std::max(safe.x,ScreenSafety{width,height,rounded}.sideInset(y,h));
-  const int w=std::min(desiredWidth,std::max(44,width-2*side));
+  const int w=std::min(desiredWidth,std::max(metrics.dp(44),width-2*side));
   const int x=std::max(side,std::min(width-side-w,anchor.x));
   return {x,y,w,h};
 }

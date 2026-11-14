@@ -7,6 +7,11 @@
 using namespace penchat;
 int main() {
   const UiMetrics identity;
+  assert(UiMetrics(100,125).readingFontSize(80)==21);
+  assert(UiMetrics(100,150).readingFontSize(150)==47);
+  assert(UiMetrics(100,75).gestures().tap==9);
+  assert(UiMetrics(100,150).gestures().tapSquared()==324);
+  assert(UiMetrics(100,125).popup().row==60);
   assert(identity.identity() && UiMetrics(200,50).identity());
   assert(!UiMetrics(100,125).identity());
   assert(identity.fontSize(UiFont::FormHint)==17);
