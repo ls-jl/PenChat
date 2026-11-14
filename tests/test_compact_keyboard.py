@@ -157,8 +157,7 @@ for width, height in [(640, 260), (720, 280)]:
             action('cancel')
             # Left/right preference applies to the optional split editor too.
             a.to_chat();a.open_settings();a.setting('keyboard')
-            b=a.diag()['settings']['rows']['wide_keyboard_swap']['bounds']
-            a.tap((b[0]+b[2])//2,(b[1]+b[3])//2);a.to_chat();open_editor()
+            a.setting('wide_keyboard_swap');a.to_chat();open_editor()
             assert editor()['compact_full'] and not editor()['keyboard_swapped']
             action('compact-view');e=editor()
             assert e['keyboard_swapped'] and e['text_bounds'][0]==8
@@ -191,8 +190,7 @@ for width, height in [(640, 260), (720, 280)]:
             open_editor();assert editor()['compact_full']
             action('compact-view');assert editor()['keyboard_swapped']
             action('cancel');a.open_settings();a.setting('keyboard')
-            b=a.diag()['settings']['rows']['wide_keyboard_swap']['bounds']
-            a.tap((b[0]+b[2])//2,(b[1]+b[3])//2);a.to_chat();open_editor()
+            a.setting('wide_keyboard_swap');a.to_chat();open_editor()
             action('compact-view');assert not editor()['keyboard_swapped']
             action('cancel')
             assert not a.read_messages(), 'Editor must not send or create chat history'

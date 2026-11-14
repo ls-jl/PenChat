@@ -1,19 +1,26 @@
 """Locate Settings controls through bounded, text-free layout diagnostics."""
 import time
 
+def controls(state):
+    assert state['view'] in ('settings','keyboard_settings'), state['view']
+    panel=dict(state['settings'])
+    if state['view']=='keyboard_settings':
+        panel.update(viewport=state['page']['viewport'],scrolling=state['page']['scrolling'])
+    return panel
+
 def locate(read, swipe, name):
     for _ in range(30):
         state = read()
-        assert state['view'] == 'settings', state['view']
-        if state['settings']['scrolling']:
+        panel=controls(state)
+        if panel['scrolling']:
             time.sleep(.12)
             continue
-        row = state['settings']['rows'][name]
+        row = panel['rows'][name]
         x1, y1, x2, y2 = row['bounds']
-        viewport = state['settings']['viewport']
+        viewport = panel['viewport']
         if y1 >= viewport[1] and y2 <= viewport[3]:
             time.sleep(.12)
-            stable = read()['settings']
+            stable = controls(read())
             settled = stable['rows'][name]
             if not stable['scrolling'] and settled['bounds']==row['bounds']:
                 return settled

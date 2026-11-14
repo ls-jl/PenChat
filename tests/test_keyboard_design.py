@@ -10,7 +10,7 @@ from image_gestures import capture
 t.port = 1
 FIELDS = ('keys', 'text_bounds', 'candidate_y', 'function_y', 'panel_top',
           'keyboard_split', 'keyboard_origin', 'coordinate_space',
-          'composition_bounds', 'candidate_bounds')
+          'composition_bounds', 'candidate_bounds', 'keyboard_swapped')
 
 
 def scenario(binary, output, width, height, split=False, swap=False, scale=100):
@@ -24,8 +24,7 @@ def scenario(binary, output, width, height, split=False, swap=False, scale=100):
             if swap:
                 app.open_settings()
                 app.setting('keyboard')
-                bounds=app.diag()['settings']['rows']['wide_keyboard_swap']['bounds']
-                app.tap((bounds[0]+bounds[2])//2, (bounds[1]+bounds[3])//2)
+                app.setting('wide_keyboard_swap')
                 app.to_chat()
             bounds = app.diag()['composer_text_bounds']
             app.tap((bounds[0]+bounds[2])//2, (bounds[1]+bounds[3])//2)
@@ -49,6 +48,7 @@ def scenario(binary, output, width, height, split=False, swap=False, scale=100):
                 if scale!=100:
                     assert current['requested_scale']==scale
                     assert min(100,scale)<=current['effective_scale']<=scale
+                assert current['keyboard_swapped'] == (swap and not current['compact_full'])
                 assert current['session'] == session
                 result[label] = {k: current[k] for k in FIELDS}
                 for item in current['keys']:
