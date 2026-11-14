@@ -105,6 +105,56 @@ struct MenusMotionTest {
     assert(a.contextMenuList_==choice&&a.contextMenuKind_=="fixture");
     a.closeHistoryContext();motion::finishAll();a.visible_=true;a.clear();
   }
+  static void historyFooter(App &a) {
+    a.view_="chat";a.build();a.historyDrawer();motion::finishAll();
+    lv_obj_update_layout(a.screenObj_);
+    auto newChat=a.navigationFooter_.at("newchat");
+    auto settings=a.navigationFooter_.at("settings");
+    auto panel=lv_obj_get_parent(settings);
+    assert(lv_obj_get_parent(newChat)==panel);
+    lv_area_t panelArea,newArea,settingsArea;
+    lv_obj_get_coords(panel,&panelArea);lv_obj_get_coords(newChat,&newArea);
+    lv_obj_get_coords(settings,&settingsArea);
+    assert(newArea.x1<settingsArea.x1&&newArea.y1==settingsArea.y1);
+    for(auto control:{newChat,settings}) {
+      lv_area_t area;lv_obj_get_coords(control,&area);
+      assert(area.x1>=0&&area.y1>=0&&area.x2<a.screen_.width&&area.y2<a.screen_.height);
+      assert(lv_obj_has_flag(control,LV_OBJ_FLAG_CLICKABLE));
+      // The icon and one-line caption belong to the same action target;
+      // neither child may intercept its pointer events.
+      assert(lv_obj_get_child_count(control)==2);
+      auto caption=lv_obj_get_child(control,0),glyph=lv_obj_get_child(control,1);
+      assert(lv_obj_check_type(caption,&lv_label_class));
+      const std::string text=lv_label_get_text(caption);
+      assert(!text.empty());
+      if(!a.layout().portrait())assert(text==(control==newChat?"新建聊天":"设置"));
+      assert(lv_label_get_long_mode(caption)==LV_LABEL_LONG_MODE_DOTS);
+      for(auto child:{caption,glyph}) {
+        assert(!lv_obj_has_flag(child,LV_OBJ_FLAG_CLICKABLE));
+        lv_area_t childArea;lv_obj_get_coords(child,&childArea);
+        if(!a.layout().portrait()) {
+          assert(childArea.x1>=area.x1&&childArea.x2<=area.x2);
+          assert(childArea.y1>=area.y1&&childArea.y2<=area.y2);
+        }
+      }
+    }
+    if(!a.layout().portrait()) {
+      assert(newArea.x1-panelArea.x1==a.uiMetrics_.dp(12));
+      assert(panelArea.x2-settingsArea.x2==a.uiMetrics_.dp(12));
+      assert(newArea.x2<settingsArea.x1);
+      auto caption=lv_obj_get_child(settings,0);
+      lv_point_t text{};
+      lv_text_get_size(&text,"设置",font(a.uiMetrics_.fontSize(UiFont::SettingsTitle)),
+          0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+      // Widening the drawer must leave Settings at its text/icon natural
+      // width, rather than stretching it across the spare footer space.
+      assert(lv_obj_get_width(caption)==text.x);
+      assert(lv_obj_get_width(settings)==text.x+a.uiMetrics_.dp(56));
+      if(lv_obj_get_width(panel)>2*lv_obj_get_width(settings))
+        assert(2*lv_obj_get_width(settings)<lv_obj_get_width(panel));
+    }
+    a.clear();
+  }
   static void run(App &a) {
     for(bool portrait:{false,true}) {
       assert(historyTimeDisplay(Json::object(),portrait)==(portrait?"off":"time"));
@@ -112,7 +162,7 @@ struct MenusMotionTest {
       assert(historyTimeDisplay({{"history_time_display","invalid"}},portrait)==(portrait?"off":"time"));
       for(const auto &mode:{"off","time","title"})assert(historyTimeDisplay({{"history_time_display",mode}},portrait)==mode);
     }
-    components(a);balances(a);
+    components(a);balances(a);historyFooter(a);
   }
 };
 uint32_t MenusMotionTest::clock=1000;

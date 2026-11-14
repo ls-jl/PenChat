@@ -3,6 +3,9 @@ import time
 from test_lvgl_app import wait_for
 
 def select(app,key):
+    # Bounds reach their final coordinates before the popup's 150ms entrance
+    # animation stops intercepting hits at the previous position.
+    time.sleep(.16)
     for _ in range(50):
         state=app.diag()['context_menu'];row=state['choices'][key]['bounds'];v=state['list']
         if row[1]>=v[1] and row[3]<=v[3]:

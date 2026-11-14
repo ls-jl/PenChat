@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "empty_state.hpp"
 #include "usage.hpp"
 #include <iomanip>
 #include <sstream>
@@ -125,8 +126,12 @@ void App::sessionInfoPage() {
   const int width = layout().contentWidth(), column = (width - uiMetrics_.dp(16)) / 2;
   const auto data = sessionInfoData_;
   if (data.empty() || data.contains("error")) {
-    readableLabel(pageContent_, data.empty() ? "正在读取会话信息…" : data["error"].get<std::string>(),
-          uiMetrics_.dp(10), uiMetrics_.dp(12), width, uiMetrics_.fontSize(UiFont::SettingsTitle), theme::palette().muted);
+    statusState(pageContent_,{data.empty()?StatusKind::Loading:StatusKind::Error,
+                data.empty()?"正在读取会话信息":"会话信息读取失败",
+                data.empty()?"正在准备当前会话的用量与上下文快照。":data["error"].get<std::string>()+"；请点击“刷新”重试。","info"},uiMetrics_,
+                font(uiMetrics_.fontSize(UiFont::EmptyTitle)),font(uiMetrics_.fontSize(UiFont::FormNote)),
+                uiMetrics_.dp(10),0,width,
+                std::max(1,int(lv_obj_get_height(body_))-int(lv_obj_get_y(pageContent_))-uiMetrics_.dp(8)));
     return;
   }
   auto single = [this](const std::string &text, int x, int y, int width, int size, uint32_t color) {

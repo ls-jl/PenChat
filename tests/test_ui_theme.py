@@ -7,7 +7,7 @@ from image_gestures import capture
 from provider_ui import activate
 ROOT=t.ROOT;t.port=1
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ROOT/'build/host/penchat-lvgl'))
-OUT=ROOT/'.work/ui-unification-20261113/screens';OUT.mkdir(parents=True,exist_ok=True)
+OUT=ROOT/'.work/ui-unification/theme/legacy';OUT.mkdir(parents=True,exist_ok=True)
 class App(t.Native):
  def __init__(self,p,w,h,binary=BINARY,onboarding=False):
   self.w=w;self.h=h

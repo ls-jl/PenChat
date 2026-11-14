@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "empty_state.hpp"
 #include "tools.hpp"
 #include <ctime>
 namespace penchat {
@@ -43,7 +44,7 @@ void App::webDetailsPage() {
       auto error = record.value("result", Json::object()).value("error", std::string("工具失败"));
       auto item = readableLabel(pageContent_, error, uiMetrics_.dp(10), y, w - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::FormHint), theme::palette().danger);
       lv_obj_update_layout(item);
-      y += lv_obj_get_height(item) + 12;
+      y += lv_obj_get_height(item) + uiMetrics_.dp(12);
     }
   }
   for (const auto &source : webDetails_.value("web_sources", Json::array())) {
@@ -55,7 +56,10 @@ void App::webDetailsPage() {
     y += uiMetrics_.dp(56);
   }
   if (!y)
-    readableLabel(pageContent_, "还没有可查看的检索记录", uiMetrics_.dp(10), uiMetrics_.dp(8), w - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::SettingsTitle), theme::palette().muted);
+    statusState(pageContent_,{StatusKind::Empty,"还没有检索记录","模型在回复中使用联网检索后，搜索过程与网页来源会出现在这里。","globe"},uiMetrics_,
+                font(uiMetrics_.fontSize(UiFont::EmptyTitle)),font(uiMetrics_.fontSize(UiFont::FormNote)),
+                uiMetrics_.dp(10),0,w-uiMetrics_.dp(20),
+                std::max(1,int(lv_obj_get_height(body_))-int(lv_obj_get_y(pageContent_))-uiMetrics_.dp(8)));
 }
 void App::openWebSource(Json source) {
   if (view_ != "web_details" && view_ != "web_source") {
@@ -73,7 +77,7 @@ void App::webSourcePage() {
   auto address =
       readableLabel(pageContent_, webSource_.value("url", std::string()), uiMetrics_.dp(10), y, w - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
   lv_obj_update_layout(address);
-  y += lv_obj_get_height(address) + 8;
+  y += lv_obj_get_height(address) + uiMetrics_.dp(8);
   const auto stamp = webSource_.value("fetched_at", int64_t(0));
   if (stamp) {
     time_t seconds = stamp / 1000;
@@ -92,7 +96,8 @@ void App::webSourcePage() {
   lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
   const auto text = webSource_.value("text", std::string());
   if (text.empty())
-    readableLabel(content, "暂无正文快照，点击重新获取；网页不执行脚本。", 0, 0, w - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::FormNote), theme::palette().muted);
+    statusState(content,{StatusKind::Empty,"尚无正文快照","点击上方“重新获取网页”保存可阅读的正文；网页不会执行脚本。","globe"},uiMetrics_,
+                font(uiMetrics_.fontSize(UiFont::FormCaption)),font(uiMetrics_.fontSize(UiFont::FormNote)),0,0,w-uiMetrics_.dp(20));
   else {
     auto begin = std::min(webSourceOffset_, text.size());
     while (begin && begin < text.size() && (static_cast<unsigned char>(text[begin]) & 0xc0) == 0x80)

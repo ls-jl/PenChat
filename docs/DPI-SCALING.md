@@ -193,3 +193,19 @@ test_ui_scale_attachment.py，以及真实 LVGL 度量/控件测试。设备验�
 再次核对运行 ELF 哈希并恢复原数据/倍率，MiniApp 宿主保持不变。请求 150%
 时本次设备字体和屏幕条件下的有效键盘倍率为：Y02 119%、Y07 128%、S6 135%、
 ORANGE 123%；应用界面仍保持用户选择的 150%，键盘保留完整按键。
+
+## 主题、排版与菜单统一入口
+
+主题使用 `ThemePalette`，度量继续由 `UiMetrics` 唯一解析。设计值通过 dp；
+字体排版的 em 以最终字号计算，实际 LVGL/Falcon/图片坐标不重复转换。
+`minimumTouchTarget()` 表示历史动作和圆角边缘的 44 logical 触摸下限，
+`touchTarget()` 将该下限与已解析设计值合并；不对全部控件透明扩大点击范围。
+
+详见 [单位边界与审计清单](UI-UNITS.txt)、[主题](UI-THEME.md)、
+[Markdown 排版](MARKDOWN-TYPOGRAPHY.md)、[空状态清单](UI-EMPTY-STATES.txt)
+及 [菜单过渡与强度、余额](UI-MOTION.md)。
+
+本轮以 `ac977ec` 为兼容基线，保留界面缩放 75%–150%、独立阅读字号及完整
+按键适配。改动按度量/主题基础、Markdown 排版、菜单交互、空状态集成拆分。
+完整开发包、截图、基线比较和本地测试记录留在 `.work/ui-unification`。
+这是开发验证；不改变应用版本，不等同于生产发布或全量回归。

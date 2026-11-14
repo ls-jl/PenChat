@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "empty_state.hpp"
 #include "icons.hpp"
 #include "text_selection_geometry.hpp"
 #include "editor_layout.hpp"
@@ -407,7 +408,10 @@ void App::editorBuild() {
     if(editorClipboard_.sensitiveCurrent) {
       editorButton(list,"临时复制内容 · 点击粘贴",0,cy,width-editorMetrics().dp(8),editorMetrics().dp(44),[action]{action("paste");},KeyboardRole::Auxiliary,KeyboardFont::Editor,KeyboardVariant::SolidControl,false,LV_TEXT_ALIGN_LEFT);cy+=editorMetrics().dp(50);
     }
-    if(editorClipboard_.records.empty()&&!editorClipboard_.sensitiveCurrent) label(list,"暂无记录",editorMetrics().dp(8),editorMetrics().dp(12),width-editorMetrics().dp(30),editorFontSize(KeyboardFont::Hint),theme::palette().muted);
+    if(editorClipboard_.records.empty()&&!editorClipboard_.sensitiveCurrent)
+      statusState(list,{StatusKind::Empty,"剪贴板还没有文字","在 PenChat 内长按文字并选择“复制”，之后可在这里点击记录粘贴。","clipboard"},
+                  editorMetrics(),font(editorFontSize(KeyboardFont::Heading)),font(editorFontSize(KeyboardFont::Hint)),
+                  0,0,width,listHeight);
     for(size_t i=0;i<editorClipboard_.records.size();++i) {
       auto item=editorClipboard_.records[i];std::replace(item.begin(),item.end(),'\n',' ');
       editorLocalActions_["clip-paste:"+std::to_string(i)]=editorButton(list,item,0,cy,width-editorMetrics().dp(58),editorMetrics().dp(44),[action,i]{action("clip-paste:"+std::to_string(i));},KeyboardRole::Auxiliary,KeyboardFont::Editor,KeyboardVariant::SolidControl,false,LV_TEXT_ALIGN_LEFT);
@@ -423,7 +427,7 @@ void App::editorBuild() {
       app->events_.push("editor_action",{{"id",app->editor_.id},{"action","layout-close"}});
     },LV_EVENT_CLICKED,this);
     const bool layouts=editorLayoutMenu_;
-    auto popup=layout.floatingPopup(layout.keyInset+100,layout.bottomY-160,304,156);
+    auto popup=layout.floatingPopup(layout.keyInset+editorMetrics().dp(100),layout.bottomY-editorMetrics().dp(160),editorMetrics().dp(304),editorMetrics().dp(156));
     const auto &popupStyle=editorDesign().popups;
     const int rowHeight=layout.portrait?popupStyle.portraitMenuRow:popupStyle.menuRow,padding=layout.portrait?popupStyle.portraitMenuPadding:popupStyle.menuPadding;
     if(layouts) {
@@ -791,7 +795,7 @@ void App::editorViewport() {
     chatControlsTarget_=target;
   }
   if(toBottom_)lv_obj_set_y(toBottom_,composerY-composerMetrics.returnOffset());
-  if(view_=="chat"&&messageContent_)lv_obj_set_style_pad_bottom(messageContent_,docked?composerMetrics.messageBottom:composerHeight+composerMetrics.messageBottom+this->layout().safeBottom(),0);
+  syncChatBottomPadding();
   const int top=view_=="chat"?lv_obj_get_y(body_):0;
   const int height=docked?(view_=="chat"?composerY-composerMetrics.readerGap-top:l.panelTop)+editorDismissOffset_:screen_.height-top;
   const bool previous=chatLayout_;chatLayout_=true;
@@ -799,19 +803,19 @@ void App::editorViewport() {
   lv_obj_set_height(body_,height);
   const auto target=inputTargets_.find(editorTarget_);bool fieldResized=false;
   if(docked&&target!=inputTargets_.end()&&editor_.multiline&&!editorInlineChat_&&
-     target->second.style!=3&&lv_obj_get_height(editorTarget_)<144) {
-    lv_obj_set_height(editorTarget_,144);
+     target->second.style!=3&&lv_obj_get_height(editorTarget_)<editorMetrics().dp(144)) {
+    lv_obj_set_height(editorTarget_,editorMetrics().dp(144));
     fieldResized=true;
   }
   if(pageContent_&&this->layout().portrait()&&(resized||fieldResized)) {
-    lv_obj_set_style_min_height(pageContent_,std::max(0,height-int(lv_obj_get_y(pageContent_))-12),0);
+    lv_obj_set_style_min_height(pageContent_,std::max(0,height-int(lv_obj_get_y(pageContent_))-uiMetrics_.dp(12)),0);
     portraitPage();
   }
   lv_obj_update_layout(body_);
   if(docked&&editorTarget_&&view_!="chat"&&!modal_) {
     lv_area_t area,viewport;lv_obj_get_coords(editorTarget_,&area);lv_obj_get_coords(body_,&viewport);
-    int offset=std::max(0,int(area.y2-viewport.y2+8));
-    if(area.y1<viewport.y1+8)offset=area.y1-viewport.y1-8;
+    int offset=std::max(0,int(area.y2-viewport.y2+editorMetrics().dp(8)));
+    if(area.y1<viewport.y1+editorMetrics().dp(8))offset=area.y1-viewport.y1-editorMetrics().dp(8);
     if(offset)lv_obj_scroll_to_y(body_,scroll+offset,LV_ANIM_OFF);
   } else if(resized) {
     if(view_=="chat"&&chatFollowing_)lv_obj_scroll_to_y(body_,scroll+lv_obj_get_scroll_bottom(body_),LV_ANIM_OFF);
@@ -1228,7 +1232,7 @@ void App::editorMagnify(bool show) {
       lv_draw_buf_destroy(static_cast<lv_draw_buf_t *>(lv_event_get_user_data(e)));
     },LV_EVENT_DELETE,buffer);
     lv_image_set_pivot(editorMagnifierImage_,0,0);lv_image_set_scale(editorMagnifierImage_,editorDesign().popups.lensScale);
-    editorMagnifierCaret_=box(editorMagnifier_,popup.width/2-1,0,editorMetrics().dp(2),editorTextFont()->line_height*editorDesign().popups.lensScale/256,editorDesign().caret);
+    editorMagnifierCaret_=box(editorMagnifier_,popup.width/2-editorMetrics().dp(1),0,editorMetrics().dp(2),editorTextFont()->line_height*editorDesign().popups.lensScale/256,editorDesign().caret);
     lv_obj_set_scrollable(editorMagnifierCaret_,false);lv_obj_set_clickable(editorMagnifierCaret_,false);
   }
   if(lv_snapshot_take_to_draw_buf(editorText_,LV_COLOR_FORMAT_ARGB8888,editorMagnifierBuffer_)!=LV_RESULT_OK) {
@@ -1240,9 +1244,9 @@ void App::editorMagnify(bool show) {
   const int ext=(int(editorMagnifierBuffer_->header.w)-lv_obj_get_width(editorText_))/2;
   const int lensX=popup.width/2,lensY=popup.height/2;
   lv_obj_set_pos(editorMagnifierImage_,lensX-(point.x-a.x1+ext)*editorDesign().popups.lensScale/256,lensY-(point.y-a.y1+ext)*editorDesign().popups.lensScale/256);
-  lv_obj_set_width(editorMagnifierCaret_,std::min(2,popup.width));
+  lv_obj_set_width(editorMagnifierCaret_,std::min(editorMetrics().dp(2),popup.width));
   lv_obj_set_height(editorMagnifierCaret_,std::max(1,std::min(editorTextFont()->line_height*editorDesign().popups.lensScale/256,popup.height-editorMetrics().dp(4))));
-  lv_obj_set_pos(editorMagnifierCaret_,std::max(0,lensX-1),(popup.height-lv_obj_get_height(editorMagnifierCaret_))/2);
+  lv_obj_set_pos(editorMagnifierCaret_,std::max(0,lensX-editorMetrics().dp(1)),(popup.height-lv_obj_get_height(editorMagnifierCaret_))/2);
   lv_obj_set_pos(editorMagnifier_,popup.x,popup.y);
   lv_obj_move_foreground(editorMagnifier_);
 }
@@ -1304,7 +1308,7 @@ void App::editorSyncSelectionMenu() {
     std::max(1,int(std::ceil((selected.y+selected.height)*sy))-int(std::floor(selected.y*sy)))};
   const int buttonWidth=layout.selectionButtonWidth(),buttonHeight=layout.selectionButtonHeight();
   const auto candidate=placeSelectionMenu(native,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_,editorMetrics()),
-    int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+4)+4)*sx)),int(std::ceil((buttonHeight+8)*sy)),0,this->layout().safety(),editorMetrics());
+    int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+editorMetrics().dp(4))+editorMetrics().dp(4))*sx)),int(std::ceil((buttonHeight+editorMetrics().dp(8))*sy)),0,this->layout().safety(),editorMetrics());
   int clearance=0;
   if(editor_.selected())for(auto handle:editorHandles_)if(handle&&!lv_obj_is_hidden(handle)) {
     const auto shape=selectionHandleShape(handle);
@@ -1314,7 +1318,7 @@ void App::editorSyncSelectionMenu() {
     clearance=std::max(clearance,selectionMenuClearance(native,candidate,grip));
   }
   const auto placed=placeSelectionMenu(native,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_,editorMetrics()),
-    int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+4)+4)*sx)),int(std::ceil((buttonHeight+8)*sy)),clearance,this->layout().safety(),editorMetrics());
+    int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+editorMetrics().dp(4))+editorMetrics().dp(4))*sx)),int(std::ceil((buttonHeight+editorMetrics().dp(8))*sy)),clearance,this->layout().safety(),editorMetrics());
   const auto &p=placed.bounds;
   if(!editorSelectionMenu_) {
     editorSelectionMenu_=box(editorRoot_,0,0,editorMetrics().dp(1),editorMetrics().dp(1),theme::palette().sidebar);

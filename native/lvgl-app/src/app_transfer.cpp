@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "empty_state.hpp"
 #include "transfer_format.hpp"
 namespace penchat {
 void App::openTransfer(const std::string &screen, const std::string &session) {
@@ -505,8 +506,20 @@ void App::transferPage() {
     y += uiMetrics_.dp(56);
   }
   if (rows.empty()) {
-    readableLabel(pageContent_, "暂无可选内容", uiMetrics_.dp(12), y + uiMetrics_.dp(8), width, uiMetrics_.fontSize(UiFont::LargeCaption), theme::palette().muted);
-    y += uiMetrics_.dp(48);
+    const std::string title=!exporting?"导入目录中还没有文件":transferKind_=="presets"?"还没有可导出的预设":
+      transferArchived_?"还没有归档会话":"还没有可导出的会话";
+    const std::string detail=!exporting?"将支持的文件放入对应导入目录，再点击“刷新文件列表”；可点“目录说明”查看位置。":
+      transferKind_=="presets"?"先在设置的“会话预设”中添加并保存预设，再回到这里导出。":
+      transferArchived_?"在历史记录中长按会话并选择归档后，这里会列出可导出的归档会话。":
+      "发送第一条消息后会保存会话，这里即可选择导出；未发送的草稿不会出现在列表中。";
+    auto empty=statusState(pageContent_,{transferError_.empty()?StatusKind::Empty:StatusKind::Error,
+                           transferError_.empty()?title:"列表读取未完成",
+                           transferError_.empty()?detail:"查看上方原因；处理后返回并重新选择导入或导出，也可手动刷新导入文件列表。",
+                           transferError_.empty()?(!exporting?"clipboard":"history"):"info"},uiMetrics_,
+                           font(uiMetrics_.fontSize(UiFont::EmptyTitle)),font(uiMetrics_.fontSize(UiFont::FormNote)),
+                           uiMetrics_.dp(10),y,width,
+                           std::max(1,int(lv_obj_get_height(body_))-int(lv_obj_get_y(pageContent_))-y-uiMetrics_.dp(8)));
+    y += lv_obj_get_height(empty)+uiMetrics_.dp(8);
   }
   for (const auto &row : rows) {
     auto id = row.at(exporting ? "id" : "name").get<std::string>();

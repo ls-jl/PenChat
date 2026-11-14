@@ -76,8 +76,9 @@ src/launcher/LauncherPage.vue
 - app_image_touch裁剪最小框已解析dp(44)，pinch测量稳定性下限8 logical
   已命名minimumPinchDistanceLogical；keyboard_design的两处触摸floor已使用
   touchTarget，富文本最小宽度44已明确为dp设计宽度。
-- 本次完成静态复核、C++14独立头文件语法检查、43项launcher测试；
-  不将设备上100/75/125/150%视觉人工验收描述成已通过。
+- 静态复核、C++14独立头文件语法检查及43项launcher测试用于单位契约；
+  完整host矩阵、100%基线及四台隔离设备结果另见.work/ui-unification/validation.json。
+  系统IME只验证打开协议与存活，native缓冲截图不代表系统合成面板。
 
 全目录检索覆盖清单
 以下文件检查UI调用、尺寸运算、颜色入口和手势常量；业务/协议文件即使没有

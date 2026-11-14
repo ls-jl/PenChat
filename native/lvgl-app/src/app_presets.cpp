@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "empty_state.hpp"
 namespace penchat {
 static bool presetHasText(const std::string &text) {
   return text.find_first_not_of(" \t\r\n") != std::string::npos;
@@ -90,7 +91,13 @@ void App::presetsPage() {
   primary(add);
   label(pageContent_, "关闭只隐藏入口\n已有会话配置继续生效", uiMetrics_.dp(24) + column, uiMetrics_.dp(7), column, uiMetrics_.fontSize(UiFont::FormHint), theme::palette().muted);
   int y = uiMetrics_.dp(64);
-  for (const auto &p : presetList(db_.settings())) {
+  const auto presets=presetList(db_.settings());
+  if(presets.empty())
+    statusState(pageContent_,{StatusKind::Empty,"还没有会话预设","点击“新增预设”保存常用提示词、模型或推理强度；开启入口后可从聊天加号选择。","settings"},uiMetrics_,
+                font(uiMetrics_.fontSize(UiFont::EmptyTitle)),font(uiMetrics_.fontSize(UiFont::FormNote)),
+                uiMetrics_.dp(10),y,width,
+                std::max(1,int(lv_obj_get_height(body_))-int(lv_obj_get_y(pageContent_))-y-uiMetrics_.dp(8)));
+  for (const auto &p : presets) {
     auto row = button(pageContent_, p.value("name", std::string()), uiMetrics_.dp(10), y, width, uiMetrics_.dp(64),
                       [this, p] { presetForm_ = p; show("preset_edit"); }, theme::palette().surface, LV_TEXT_ALIGN_LEFT);
     lv_obj_align(lv_obj_get_child(row, 0), LV_ALIGN_TOP_LEFT, uiMetrics_.dp(12), uiMetrics_.dp(6));
@@ -190,7 +197,7 @@ void App::presetEditor() {
     label(pageContent_, "应用时机", x, uiMetrics_.dp(120), column, uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
     for (int i = 0; i < 2; ++i) {
       const std::string value = i ? "always" : "empty";
-      const int segment = (column - 8) / 2;
+      const int segment = (column - uiMetrics_.dp(8)) / 2;
       auto choice = button(pageContent_, ((always == bool(i)) ? "● " : "○ ") + std::string(i ? "每次切换" : "仅空白会话"),
                            x + i * (segment + uiMetrics_.dp(8)), uiMetrics_.dp(144), segment, uiMetrics_.dp(44),
                            [this, field, value] { presetForm_[field] = value; build(); }, theme::palette().surface);

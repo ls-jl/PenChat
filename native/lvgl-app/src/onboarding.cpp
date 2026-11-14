@@ -43,7 +43,7 @@ lv_obj_t *Onboarding::text(lv_obj_t *p,const std::string &s,int x,int y,int w,in
   lv_label_set_text(o,s.c_str());lv_obj_set_clickable(o,false);return o;
 }
 lv_obj_t *Onboarding::control(const std::string &id,const std::string &s,int x,int y,int w,bool primary) {
-  const auto area=safety_.fit({x,y,w,std::max(44,metrics_.dp(44))});
+  const auto area=safety_.fit({x,y,w,metrics_.touchTarget(44)});
   auto o=rect(root_,area.x,area.y,area.width,area.height,primary?theme::palette().text:theme::palette().surface,metrics_.dp(8));
   auto l=text(o,s,0,0,area.width-metrics_.dp(8),18,primary?theme::palette().primaryText:theme::palette().text);
   lv_label_set_long_mode(l,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(l,font(metrics_.dp(18))->line_height);lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(l);
@@ -53,18 +53,18 @@ lv_obj_t *Onboarding::control(const std::string &id,const std::string &s,int x,i
 }
 // These are illustration design units, never physical display coordinates.
 lv_obj_t *Onboarding::part(lv_obj_t *p,int x,int y,int w,int h,uint32_t c,int r) {
-  return rect(p,x*sceneWidth_/400,y*sceneHeight_/150,w*sceneWidth_/400,h*sceneHeight_/150,c,r);
+  return rect(p,x*sceneWidth_/400,y*sceneHeight_/150,w*sceneWidth_/400,h*sceneHeight_/150,c,r*std::min(sceneWidth_/400.,sceneHeight_/150.));
 }
 void Onboarding::words(lv_obj_t *p,const std::string &s,int x,int y,int w,int size,uint32_t ink) {
   auto o=text(p,s,x*sceneWidth_/400,y*sceneHeight_/150,w*sceneWidth_/400,size,ink);
   lv_label_set_long_mode(o,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(o,font(metrics_.dp(size))->line_height);
 }
 void Onboarding::symbol(lv_obj_t *p,const std::string &s,int x,int y,int size,uint32_t ink) {
-  auto o=part(p,x,y,size,size,theme::palette().sidebar,0);lv_obj_set_style_bg_opa(o,LV_OPA_TRANSP,0);attachIcon(o,s,ink);
+  auto o=part(p,x,y,size,size,theme::palette().sidebar,0);lv_obj_set_style_bg_opa(o,LV_OPA_TRANSP,0);attachIcon(o,s,ink,float(size*std::min(sceneWidth_/400.,sceneHeight_/150.))/std::max(1,metrics_.dp(24)),metrics_);
 }
 void Onboarding::paper(lv_obj_t *p,int x,int y,int w,int h) {
   auto o=part(p,x,y,w,h,theme::palette().text,5);
-  for(int n=0;n<3;++n)rect(o,12,10+n*12,std::max(10,w*sceneWidth_/400-28-(n==2?30:0)),3,theme::palette().border,1);
+  for(int n=0;n<3;++n)part(o,12,10+n*12,std::max(10,w-28-(n==2?30:0)),3,theme::palette().border,1);
 }
 void Onboarding::chat(lv_obj_t *p,bool image) {
   symbol(p,"menu",10,5);words(p,"PenChat",46,4,200,17);
@@ -132,7 +132,7 @@ void Onboarding::scene(int phase,lv_obj_t *p) {
     else {part(p,12,43,376,48,theme::palette().border);words(p,"答题助手 · 示例",25,52,330,18);words(p,phase==2?"点击选择预设":"模型、强度：沿用会话",25,105,340,17,phase==2?theme::palette().muted:theme::palette().link);symbol(p,"chevron-down",350,57);}
   } else if(s==4) {
     if(phase==0){part(p,0,0,268,150,theme::palette().sidebar);part(p,12,8,244,35);words(p,"刚才的问题",24,12,215,17);words(p,"另一段聊天",24,62,215,17);words(p,"新建聊天       设置",16,118,245,16);}
-    else if(phase==1){chat(p);auto arc=lv_arc_create(p);lv_obj_set_size(arc,42,42);lv_obj_set_pos(arc,sceneWidth_/2-21,sceneHeight_/2-20);lv_arc_set_range(arc,0,100);lv_arc_set_bg_angles(arc,0,360);lv_arc_set_rotation(arc,270);lv_obj_set_style_bg_opa(arc,LV_OPA_TRANSP,LV_PART_KNOB);lv_arc_set_value(arc,100);lv_obj_remove_style(arc,nullptr,LV_PART_KNOB);lv_obj_set_style_arc_color(arc,lv_color_hex(theme::palette().accent),LV_PART_INDICATOR);lv_obj_set_clickable(arc,false);words(p,"松开新建",151,93,170,16);}
+    else if(phase==1){chat(p);auto arc=lv_arc_create(p);lv_obj_set_size(arc,42*sceneWidth_/400,42*sceneHeight_/150);lv_obj_set_pos(arc,179*sceneWidth_/400,55*sceneHeight_/150);lv_arc_set_range(arc,0,100);lv_arc_set_bg_angles(arc,0,360);lv_arc_set_rotation(arc,270);lv_obj_set_style_bg_opa(arc,LV_OPA_TRANSP,LV_PART_KNOB);lv_arc_set_value(arc,100);lv_obj_remove_style(arc,nullptr,LV_PART_KNOB);lv_obj_set_style_arc_color(arc,lv_color_hex(theme::palette().accent),LV_PART_INDICATOR);lv_obj_set_clickable(arc,false);words(p,"松开新建",151,93,170,16);}
     else if(phase==2){chat(p);part(p,45,64,310,43,theme::palette().border);words(p,"复制   选择文本   编辑",60,77,285,17);}
     else{words(p,"这是 AI 的示例回复。",20,35,360,19);symbol(p,"copy",20,87,34);symbol(p,"retry",85,87,34);symbol(p,"branch",150,87,34);words(p,"复制    重试    创建分支",15,123,370,16,theme::palette().muted);}
   } else if(s==5) {
@@ -143,7 +143,7 @@ void Onboarding::scene(int phase,lv_obj_t *p) {
   } else {
     words(p,phase==3?"导入与导出":"上下文与归档",16,6,365,20);
     if(phase==3){part(p,12,43,182,40);part(p,204,43,182,40);words(p,"聊天导入 / 导出",21,52,171,15);words(p,"预设导入 / 导出",214,52,171,15);words(p,"Favorite / PenChat",24,103,355,17,theme::palette().link);}
-    else {auto arc=lv_arc_create(p);lv_obj_set_size(arc,66,66);lv_obj_set_pos(arc,25,45);lv_arc_set_range(arc,0,100);lv_arc_set_bg_angles(arc,0,360);lv_arc_set_rotation(arc,270);lv_obj_set_style_bg_opa(arc,LV_OPA_TRANSP,LV_PART_KNOB);lv_arc_set_value(arc,phase==2?35:78);lv_obj_remove_style(arc,nullptr,LV_PART_KNOB);lv_obj_set_style_arc_color(arc,lv_color_hex(theme::palette().accent),LV_PART_INDICATOR);lv_obj_set_clickable(arc,false);words(p,phase==2?"占用 35%":"占用 78%",119,49,250,20);words(p,phase==1?"保存压缩前副本":phase==2?"原消息和图片仍保留":"加号 → 压缩上下文",119,89,260,16,theme::palette().muted);}
+    else {auto arc=lv_arc_create(p);lv_obj_set_size(arc,66*sceneWidth_/400,66*sceneHeight_/150);lv_obj_set_pos(arc,25*sceneWidth_/400,45*sceneHeight_/150);lv_arc_set_range(arc,0,100);lv_arc_set_bg_angles(arc,0,360);lv_arc_set_rotation(arc,270);lv_obj_set_style_bg_opa(arc,LV_OPA_TRANSP,LV_PART_KNOB);lv_arc_set_value(arc,phase==2?35:78);lv_obj_remove_style(arc,nullptr,LV_PART_KNOB);lv_obj_set_style_arc_color(arc,lv_color_hex(theme::palette().accent),LV_PART_INDICATOR);lv_obj_set_clickable(arc,false);words(p,phase==2?"占用 35%":"占用 78%",119,49,250,20);words(p,phase==1?"保存压缩前副本":phase==2?"原消息和图片仍保留":"加号 → 压缩上下文",119,89,260,16,theme::palette().muted);}
   }
   // A single moving touch indicator makes the demonstrated path visible.
   if(motions_[phase].empty() && !(step_<2 && phase==1)) {
@@ -188,25 +188,25 @@ Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool repla
     renderFailed_=true;
   }
   const int top=portrait?demoH+metrics_.dp(92)+demoY-metrics_.dp(12):metrics_.dp(13);
-  const int end=safety_.enabled()?layout.edgeSide(footer,std::max(44,metrics_.dp(44))):metrics_.dp(20);
+  const int end=safety_.enabled()?layout.edgeSide(footer,metrics_.touchTarget(44)):metrics_.dp(20);
   std::vector<std::pair<std::string,std::string>> navigation;
   if(step>0)navigation.push_back({"back","上一步"});
   navigation.push_back({"next",step==6?"开始使用":"下一步"});
   if(step==2)navigation.push_back({"configure","去配置"});
   else if(step>=3||replaying)navigation.push_back({"finish",replaying?"关闭引导":"结束引导"});
   const int navWidth=width-right-end,navGap=metrics_.dp(8);
-  int naturalWidth=std::max(44,metrics_.dp(44));
+  int naturalWidth=metrics_.touchTarget(44);
   for(const auto &item:navigation) {
     lv_point_t textSize{};lv_text_get_size(&textSize,item.second.c_str(),font(metrics_.dp(18)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
     naturalWidth=std::max(naturalWidth,int(textSize.x)+metrics_.dp(16));
   }
   const bool twoRows=!metrics_.identity()&&navigation.size()>2&&
     int(navigation.size())*naturalWidth+int(navigation.size()-1)*navGap>navWidth;
-  const int footerTop=footer-(twoRows?std::max(44,metrics_.dp(44))+navGap:0);
+  const int footerTop=footer-(twoRows?metrics_.touchTarget(44)+navGap:0);
   auto reader=root_;
   int textX=right,textY=top;
   if(!metrics_.identity()) {
-    reader=rect(root_,right,top,measure,std::max(std::max(44,metrics_.dp(44)),footerTop-top-metrics_.dp(12)),theme::palette().background,0);
+    reader=rect(root_,right,top,measure,std::max(metrics_.touchTarget(44),footerTop-top-metrics_.dp(12)),theme::palette().background,0);
     lv_obj_set_scrollable(reader,true);lv_obj_set_scroll_dir(reader,LV_DIR_VER);
     textX=textY=0;
   }
@@ -282,7 +282,7 @@ void Onboarding::tick(bool visible) {
   const double t=double(elapsed_%1600)/1600;
   bool changed=false;
   for(const auto &m:motions_[phase]) {
-    const int x=m.x+int(m.dx*t),y=m.y+int(m.dy*t);
+    const int x=m.x+int(m.dx*sceneWidth_/400.*t),y=m.y+int(m.dy*sceneHeight_/150.*t);
     if(lv_obj_get_x(m.object)!=x || lv_obj_get_y(m.object)!=y) {
       lv_obj_set_pos(m.object,x,y);changed=true;
     }

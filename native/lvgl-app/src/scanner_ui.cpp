@@ -81,8 +81,8 @@ void App::scanPage() {
   if (auto frame = scanner_.preview(scanId_)) {
     texture(scanImage_, frame);
     lv_image_set_scale(scanImage_,
-                       std::min(256, std::min((lv_obj_get_width(holder)-8) * 256 / frame->width,
-                                              (lv_obj_get_height(holder)-8) * 256 / frame->height)));
+                       std::min(256, std::min((lv_obj_get_width(holder)-uiMetrics_.dp(8)) * 256 / frame->width,
+                                              (lv_obj_get_height(holder)-uiMetrics_.dp(8)) * 256 / frame->height)));
   }
   lv_obj_center(scanImage_);
   bool usable = scanResult_.value("usable", false);
@@ -138,19 +138,19 @@ void App::updateScanWarning(const Json &counts) {
   const auto lost=counts.value("dropped_raw",uint64_t(0));
   const auto workspace=layout().scanWorkspace();
   lv_obj_update_layout(scanLabel_);
-  const int top=std::max(workspace.captionFloor,int(lv_obj_get_y(scanLabel_)+lv_obj_get_height(scanLabel_)+8));
+  const int top=std::max(workspace.captionFloor,int(lv_obj_get_y(scanLabel_)+lv_obj_get_height(scanLabel_)+uiMetrics_.dp(8)));
   lv_obj_set_pos(scanWarning_,workspace.warning.x,top);
   lv_obj_set_width(scanWarning_,workspace.warning.width);
   lv_label_set_long_mode(scanWarning_,LV_LABEL_LONG_MODE_WRAP);
   lv_label_set_text(scanWarning_,("本次漏采"+std::to_string(lost)+"帧，请放大检查是否有缺字、重影或错位。").c_str());
   lv_obj_set_hidden(scanWarning_,!lost);lv_obj_update_layout(scanWarning_);
-  const int extra=lost?lv_obj_get_height(scanWarning_)+8:0;
-  const int holderTop=top+extra+4;
+  const int extra=lost?lv_obj_get_height(scanWarning_)+uiMetrics_.dp(8):0;
+  const int holderTop=top+extra+uiMetrics_.dp(4);
   lv_obj_set_y(scanHolder_,holderTop);
   lv_obj_set_height(scanHolder_,std::max(uiMetrics_.dp(24),workspace.previewBottom-holderTop));
   if(auto frame=scanner_.preview(scanId_)) {
-    lv_image_set_scale(scanImage_,std::min(256,std::min((lv_obj_get_width(scanHolder_)-8)*256/frame->width,
-      (lv_obj_get_height(scanHolder_)-8)*256/frame->height)));lv_obj_center(scanImage_);
+    lv_image_set_scale(scanImage_,std::min(256,std::min((lv_obj_get_width(scanHolder_)-uiMetrics_.dp(8))*256/frame->width,
+      (lv_obj_get_height(scanHolder_)-uiMetrics_.dp(8))*256/frame->height)));lv_obj_center(scanImage_);
   }
 }
 void App::viewScanResult() {
@@ -227,8 +227,8 @@ void App::scanEvent(const Event &event) {
     if (auto frame = scanner_.preview(scanId_)) {
       texture(scanImage_, frame);
       lv_image_set_scale(scanImage_,
-                         std::min(256, std::min((lv_obj_get_width(lv_obj_get_parent(scanImage_))-8) * 256 / frame->width,
-                                                (lv_obj_get_height(lv_obj_get_parent(scanImage_))-8) * 256 / frame->height)));
+                         std::min(256, std::min((lv_obj_get_width(lv_obj_get_parent(scanImage_))-uiMetrics_.dp(8)) * 256 / frame->width,
+                                                (lv_obj_get_height(lv_obj_get_parent(scanImage_))-uiMetrics_.dp(8)) * 256 / frame->height)));
       lv_obj_center(scanImage_);
     }
   } else if (event.type == "scan_progress" && scanLabel_) {

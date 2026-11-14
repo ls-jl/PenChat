@@ -84,7 +84,7 @@ void App::updateCrop() {
   }
 }
 int App::cropEdges(double x,double y) const {
-  const double hx=std::min(22.,cropW_/3),hy=std::min(22.,cropH_/3);
+  const double hx=std::min(double(uiMetrics_.dp(22)),cropW_/3),hy=std::min(double(uiMetrics_.dp(22)),cropH_/3);
   if(x<cropX_-hx || x>cropX_+cropW_+hx || y<cropY_-hy || y>cropY_+cropH_+hy)return 0;
   int edges=0;
   if(std::abs(x-cropX_)<=hx)edges|=1;else if(std::abs(x-cropX_-cropW_)<=hx)edges|=2;
@@ -128,7 +128,7 @@ void App::cropPage() {
   lv_obj_set_style_bg_opa(overlay,LV_OPA_TRANSP,0);
   lv_obj_set_scrollable(overlay,false); lv_obj_set_clickable(overlay,false);
   for (auto &shade:cropShades_) {
-    shade=box(overlay,0,0,0,0,0x000000);
+    shade=box(overlay,0,0,0,0,theme::palette().scrim);
     lv_obj_set_style_bg_opa(shade,LV_OPA_60,0); lv_obj_set_clickable(shade,false); lv_obj_set_scrollable(shade,false);
   }
   cropSelection_=box(overlay,0,0,uiMetrics_.dp(1),uiMetrics_.dp(1));

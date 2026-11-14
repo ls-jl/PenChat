@@ -98,13 +98,15 @@ bool App::imageTouch(const Json &m) {
     if(points[0].id==g.second && points[1].id==g.first)std::swap(points[0],points[1]);
     const double x=(points[0].x+points[1].x)/2,y=(points[0].y+points[1].y)/2;
     const double distance=std::hypot(points[1].x-points[0].x,points[1].y-points[0].y);
+    // Numerical stability floor in measured logical touch coordinates, not a design size.
+    constexpr double minimumPinchDistanceLogical=8.;
     if(g.mode!=3 || g.first!=points[0].id || g.second!=points[1].id) {
-      snapshot(x,y);g.distance=std::max(8.,distance);g.mode=3;g.multi=true;
+      snapshot(x,y);g.distance=std::max(minimumPinchDistanceLogical,distance);g.mode=3;g.multi=true;
       g.first=points[0].id;g.second=points[1].id;g.count=2;
       return true;
     }
     const double maximum=std::max(1.,std::min(16.,255./(viewer?imageViewerFit():cropBaseScale_)));
-    const double zoom=std::max(viewer?.75:1.,std::min(maximum,g.zoom*std::max(8.,distance)/g.distance));
+    const double zoom=std::max(viewer?.75:1.,std::min(maximum,g.zoom*std::max(minimumPinchDistanceLogical,distance)/g.distance));
     const double ratio=zoom/g.zoom;
     if(viewer){viewerZoom_=zoom;viewerPanX_=x-(g.x-g.panX)*ratio;viewerPanY_=y-(g.y-g.panY)*ratio;updateImageViewer();}
     else {cropZoom_=zoom;cropPanX_=x-(g.x-g.panX)*ratio;cropPanY_=y-(g.y-g.panY)*ratio;updateCrop();}
@@ -127,7 +129,7 @@ bool App::imageTouch(const Json &m) {
   if(g.mode==2) {
     double l=g.left,t=g.top,r=g.right,b=g.bottom;
     const double imageRight=cropPanX_+cropPreviewW_*cropZoom_, imageBottom=cropPanY_+cropPreviewH_*cropZoom_;
-    const double minW=std::min(44.,cropPreviewW_*cropZoom_),minH=std::min(44.,cropPreviewH_*cropZoom_);
+    const double minW=std::min(double(uiMetrics_.dp(44)),cropPreviewW_*cropZoom_),minH=std::min(double(uiMetrics_.dp(44)),cropPreviewH_*cropZoom_);
     if(g.edges&1)l=std::max(std::max(0.,cropPanX_),std::min(r-minW,g.left+dx));
     if(g.edges&2)r=std::min(std::min(double(cropViewportW_),imageRight),std::max(l+minW,g.right+dx));
     if(g.edges&4)t=std::max(std::max(0.,cropPanY_),std::min(b-minH,g.top+dy));

@@ -305,22 +305,22 @@ void App::readDraw(bool menu) {
         },
         LV_EVENT_DELETE, this);
     for (int i = 0; i < 2; ++i) {
-      readHandles_[i] = box(readOverlay_, 0, 0, uiMetrics_.dp(44), uiMetrics_.dp(44));
+      readHandles_[i] = box(readOverlay_, 0, 0, uiMetrics_.touchTarget(), uiMetrics_.touchTarget());
       lv_obj_set_style_bg_opa(readHandles_[i], LV_OPA_TRANSP, 0);
       lv_obj_set_clickable(readHandles_[i], false);
       lv_obj_set_scrollable(readHandles_[i], false);
       attachIcon(readHandles_[i], i ? "selection-end" : "selection-start", theme::palette().accent, 1.f, uiMetrics_);
     }
-    readMenu_ = box(readOverlay_, 0, 0, uiMetrics_.dp(188), uiMetrics_.dp(52), theme::palette().sidebar);
+    readMenu_ = box(readOverlay_, 0, 0, uiMetrics_.dp(188), uiMetrics_.touchTarget()+uiMetrics_.dp(8), theme::palette().sidebar);
     stylePopupPanel(readMenu_,false,uiMetrics_);
     lv_obj_set_scrollable(readMenu_, false);
-    auto all=button(readMenu_, "全选", uiMetrics_.dp(4), uiMetrics_.dp(4), uiMetrics_.dp(88), uiMetrics_.dp(44), [this] {
+    auto all=button(readMenu_, "全选", uiMetrics_.dp(4), uiMetrics_.dp(4), uiMetrics_.dp(88), uiMetrics_.touchTarget(), [this] {
       if (!readRegion(readActive_))
         return;
       readSelection_.select(0, editLength(readSelection_.text));
       readDraw(true);
     });
-    auto copy=button(readMenu_, "复制", uiMetrics_.dp(96), uiMetrics_.dp(4), uiMetrics_.dp(88), uiMetrics_.dp(44), [this] {
+    auto copy=button(readMenu_, "复制", uiMetrics_.dp(96), uiMetrics_.dp(4), uiMetrics_.dp(88), uiMetrics_.touchTarget(), [this] {
       if (!readRegion(readActive_))
         return;
       if (editorClipboard_.copy(readSelection_.selection()))
@@ -445,31 +445,31 @@ void App::readDraw(bool menu) {
       lv_obj_set_size(readMarks_[i], r.x2 - r.x1 + 1, r.y2 - r.y1 + 1);
     }
   }
-  const int side = layout().portrait() ? layout().safeSide() : 8,
-            top = layout().portrait() ? layout().safeTop() : 4, bottom = layout().safeBottom();
+  const int side = layout().portrait() ? layout().safeSide() : uiMetrics_.dp(8),
+            top = layout().portrait() ? layout().safeTop() : uiMetrics_.dp(4), bottom = layout().safeBottom();
   for (int i = 0; i < 2; ++i) {
     lv_obj_set_hidden(readHandles_[i], !found[i] || !readSelection_.selected());
     if (found[i]) {
-      const int y = std::max(top, std::min(screen_.height - bottom - 44, int(endpoints[i].y) - 8));
-      const int x = std::max(side, std::min(screen_.width - side - 44, int(endpoints[i].x) - 22));
+      const int y = std::max(top, std::min(screen_.height - bottom - uiMetrics_.touchTarget(), int(endpoints[i].y) - uiMetrics_.dp(8)));
+      const int x = std::max(side, std::min(screen_.width - side - uiMetrics_.touchTarget(), int(endpoints[i].x) - uiMetrics_.touchTarget()/2));
       lv_obj_set_pos(readHandles_[i], x, y);
       setSelectionHandleTop(
           readHandles_[i], endpointTops[i] - y,
-          std::max(top, std::min(int(endpoints[i].y), screen_.height - 8)) - y,
+          std::max(top, std::min(int(endpoints[i].y), screen_.height - uiMetrics_.dp(8))) - y,
           int(endpoints[i].x) - x,endpointSizes[i],endpointSizes[i]);
     }
     lv_obj_move_foreground(readHandles_[i]);
   }
   readSelectionBounds_ = selectedBounds;
   const auto candidate = placeSelectionMenu(
-      selectedBounds, selectionMenuSafeArea(screen_.width, screen_.height,roundedDisplay_,uiMetrics_), uiMetrics_.dp(188), uiMetrics_.dp(52),0,layout().safety(),uiMetrics_);
+      selectedBounds, selectionMenuSafeArea(screen_.width, screen_.height,roundedDisplay_,uiMetrics_), uiMetrics_.dp(188), uiMetrics_.touchTarget()+uiMetrics_.dp(8),0,layout().safety(),uiMetrics_);
   int clearance=0;
   for(auto handle:readHandles_)if(!lv_obj_is_hidden(handle)) {
     const auto shape=selectionHandleShape(handle);
     clearance=std::max(clearance,selectionMenuClearance(selectedBounds,candidate,
       {shape.x1,shape.y1,shape.x2-shape.x1+1,shape.y2-shape.y1+1}));
   }
-  const auto placement=placeSelectionMenu(selectedBounds,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_,uiMetrics_),uiMetrics_.dp(188),uiMetrics_.dp(52),clearance,layout().safety(),uiMetrics_);
+  const auto placement=placeSelectionMenu(selectedBounds,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_,uiMetrics_),uiMetrics_.dp(188),uiMetrics_.touchTarget()+uiMetrics_.dp(8),clearance,layout().safety(),uiMetrics_);
   const auto &popup = placement.bounds;
   lv_obj_set_pos(readMenu_, popup.x, popup.y);
   lv_obj_set_size(readMenu_, popup.width, popup.height);
@@ -482,8 +482,8 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
   // The floating root navigation button is above the portrait reader. Its
   // hit area must win over a full-width selectable message underneath it.
   if (view_ == "chat" && layout().portrait() && !editor_.active && !navigationOpen_ &&
-      !readGesture_.active() && !readMenuPointer_ && !readSelection_.selected() && !modal_ && !attachments_ && x >= layout().safeSide() && x < layout().safeSide() + 48 &&
-      y >= layout().safeTop() && y < layout().safeTop() + 48) {
+      !readGesture_.active() && !readMenuPointer_ && !readSelection_.selected() && !modal_ && !attachments_ && x >= layout().safeSide() && x < layout().safeSide() + uiMetrics_.touchTarget(48) &&
+      y >= layout().safeTop() && y < layout().safeTop() + uiMetrics_.touchTarget(48)) {
     if (began) readReset();
     return false;
   }
@@ -761,8 +761,8 @@ void App::readTick() {
           if (lv_obj_is_scrollable(p)) {
             auto clip = readClip(p);
             const int targetY=readGesture_.lastY-(readGesture_.mode==TextGesture::Handle?readHandleOffsetY_:0);
-            int step = targetY < clip.y1 + 14   ? -8
-                       : targetY > clip.y2 - 14 ? 8
+            int step = targetY < clip.y1 + uiMetrics_.dp(14)   ? -uiMetrics_.dp(8)
+                       : targetY > clip.y2 - uiMetrics_.dp(14) ? uiMetrics_.dp(8)
                                                            : 0;
             if (step) {
               const int before = lv_obj_get_scroll_y(p);

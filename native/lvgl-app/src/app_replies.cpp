@@ -41,7 +41,7 @@ void App::replyBar(lv_obj_t *parent,const Json &message,int width,bool question)
     auto state=std::make_shared<Press>();
     const std::string action=names[i],title=titles[i];
     buttons[i]=icon(bar,action,i*uiMetrics_.dp(48),uiMetrics_.dp(4),uiMetrics_.dp(44),uiMetrics_.dp(44),[this,state,session,id,action]{
-      if(!state->held&&state->distance<=144)events_.push("reply_action",{{"session",session},{"id",id},{"action",action}});
+      if(!state->held&&state->distance<=uiMetrics_.gestures().tapSquared())events_.push("reply_action",{{"session",session},{"id",id},{"action",action}});
     },theme::palette().background,theme::palette().muted);
     struct Handler {App *app;std::shared_ptr<Press> press;std::string session,id,title;};
     auto handler=new Handler{this,state,session,id,title};
@@ -53,7 +53,7 @@ void App::replyBar(lv_obj_t *parent,const Json &message,int width,bool question)
       if(code==LV_EVENT_PRESSED){h->press->start=p;h->press->distance=0;h->press->held=false;}
       const int dx=p.x-h->press->start.x,dy=p.y-h->press->start.y;
       h->press->distance=std::max(h->press->distance,dx*dx+dy*dy);
-      if(code==LV_EVENT_LONG_PRESSED&&h->press->distance<=144) {
+      if(code==LV_EVENT_LONG_PRESSED&&h->press->distance<=h->app->uiMetrics_.gestures().tapSquared()) {
         h->press->held=true;h->app->events_.push("reply_hint",{{"session",h->session},{"id",h->id},{"text",h->title}});
       }
     },LV_EVENT_ALL,handler);

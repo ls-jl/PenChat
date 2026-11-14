@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "empty_state.hpp"
 namespace penchat {
 void App::arrangeModal() {
   if(!modal_||!layout().portrait())return;
@@ -47,6 +48,8 @@ void App::portraitPage() {
     auto o=item.o;const int rowWidth=width-(anchors.count(o)?form.actionReserve:0);
     lv_obj_set_x(o,form.inset);lv_obj_set_width(o,rowWidth);
     if(anchors.count(o))lv_obj_set_size(anchors.at(o),form.actionSize,form.actionSize);
+    if(arrangeStatusState(o,rowWidth))continue;
+    if(lv_obj_has_flag(o,LV_OBJ_FLAG_USER_1))continue;
     if(lv_obj_check_type(o,&lv_label_class)) {
       lv_label_set_long_mode(o,LV_LABEL_LONG_MODE_WRAP);lv_obj_set_height(o,LV_SIZE_CONTENT);
     } else {
@@ -68,13 +71,16 @@ void App::portraitPage() {
   }
   lv_obj_update_layout(pageContent_);++formLayoutBatches_;
   int y=form.top;
+  const int viewport=std::max(0,int(lv_obj_get_height(body_))-int(lv_obj_get_y(pageContent_))-form.bottom);
   for(const auto &item:items) {
     auto o=item.o;lv_obj_set_y(o,y);
     if(anchors.count(o))lv_obj_set_pos(anchors.at(o),form.inset+width-form.actionSize,y+form.actionTop);
-    y+=std::max(form.minimumItemHeight,int(lv_obj_get_height(o)))+form.gap;
+    if(statusStateFillsViewport(o))arrangeStatusState(o,lv_obj_get_width(o),std::max(1,viewport-y));
+    const int height=lv_obj_get_height(o);
+    if(lv_obj_has_flag(o,LV_OBJ_FLAG_USER_1)) { if(height>0)y+=height+form.gap; }
+    else y+=std::max(form.minimumItemHeight,height)+form.gap;
     ++formLayoutRows_;
   }
-  const int viewport=std::max(0,int(lv_obj_get_height(body_))-int(lv_obj_get_y(pageContent_))-form.bottom);
   lv_obj_set_style_min_height(pageContent_,viewport,0);
   lv_obj_set_height(pageContent_,std::max(y,viewport));
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The same 24 settings form four measured sections in all layout classes."""
+"""The same 25 settings form four measured sections in all layout classes."""
 import json,pathlib,sqlite3,tempfile,time
 import test_lvgl_app as ui
 from test_reasoning_ui import seed
@@ -11,12 +11,12 @@ OUT=ui.ROOT/'.work/settings-groups';OUT.mkdir(parents=True,exist_ok=True)
 GROUPS=[('models',['models']),('tools',['web_policy']),
  ('chat',['presets','reasoning','auto_title','title_model','auto_context','compression_threshold',
           'image_auto_send','history_time','message_edit','retry_archive_prompt','archives','pull_sensitivity','composer_shortcut']),
- ('app',['ui_scale','font_size','keyboard','transfer','persistent_exports','http_idle','update','feedback','about'])]
+ ('app',['theme','ui_scale','font_size','keyboard','transfer','persistent_exports','http_idle','update','feedback','about'])]
 FULL={'models','web_policy','composer_shortcut','feedback','about'}
 
 def geometry(a,w,h):
     s=a.diag()['settings'];rows=s['rows'];groups=s['groups']
-    assert set(rows)=={k for _,items in GROUPS for k in items} and len(rows)==24
+    assert set(rows)=={k for _,items in GROUPS for k in items} and len(rows)==25
     assert [g['id'] for g in groups]==[g for g,_ in GROUPS]
     full_width=w-(32 if h>w else 118);wide=w>=3*h
     previous=None
@@ -37,7 +37,7 @@ def geometry(a,w,h):
     if wide:
         for left,right in [('presets','reasoning'),('auto_title','title_model'),('auto_context','compression_threshold'),
           ('image_auto_send','history_time'),('message_edit','retry_archive_prompt'),('archives','pull_sensitivity'),
-          ('ui_scale','font_size'),('keyboard','transfer'),('persistent_exports','http_idle')]:
+          ('theme','ui_scale'),('font_size','keyboard'),('transfer','persistent_exports'),('http_idle','update')]:
             l=rows[left]['bounds'];r=rows[right]['bounds'];assert l[1]==r[1] and r[0]-l[2]-1==16,(left,right)
     return s
 
@@ -79,4 +79,4 @@ for w,h in [(960,266),(640,260),(568,1210)]:
                 assert json.loads(db.execute("select value_json from app_settings where key='reasoning_display'").fetchone()[0])=='during'
         finally:a.close()
         print('Four settings groups passed:',w,h,flush=True)
-print('FOUR_GROUPS_24_CONTROLS_GEOMETRY_REACHABILITY_SCROLL_AND_PERSISTENCE_OK')
+print('FOUR_GROUPS_25_CONTROLS_GEOMETRY_REACHABILITY_SCROLL_AND_PERSISTENCE_OK')

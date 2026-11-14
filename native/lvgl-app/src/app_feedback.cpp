@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "empty_state.hpp"
 namespace penchat {
 void App::feedbackRequest(const std::string &op, Json args) {
   if (!feedback_ || feedbackBusy_) return;
@@ -70,15 +71,22 @@ void App::feedbackPage() {
     pageHeader("反馈记录");
     int y = uiMetrics_.dp(4);
     const auto records = state.value("records", Json::array());
-    if (records.empty()) y += description("没有待处理反馈。发送成功后仅保留编号与时间，报告正文会清除。",y)+16;
+    const auto receipts=state.value("receipts",Json::array());
+    if (records.empty()&&receipts.empty()) {
+      auto empty=statusState(pageContent_,{StatusKind::Empty,"还没有反馈记录","在问题反馈页预览并发送诊断后，这里会显示待处理报告或已发送编号；发送成功后清除报告正文。","info"},uiMetrics_,
+                             font(uiMetrics_.fontSize(UiFont::EmptyTitle)),font(uiMetrics_.fontSize(UiFont::FormNote)),
+                             uiMetrics_.dp(10),y,width,
+                             std::max(1,int(lv_obj_get_height(body_))-int(lv_obj_get_y(pageContent_))-y-uiMetrics_.dp(8)));
+      y+=lv_obj_get_height(empty)+uiMetrics_.dp(16);
+    } else if(records.empty()) y+=description("没有待处理反馈。以下保留已发送编号，报告正文已清除。",y)+uiMetrics_.dp(16);
     for (const auto &record : records) {
       const auto id = record.value("id",std::string());
-      y += description(id.substr(0,8) + " · " + record.value("reason",std::string()),y,theme::palette().text)+4;
+      y += description(id.substr(0,8) + " · " + record.value("reason",std::string()),y,theme::palette().text)+uiMetrics_.dp(4);
       const auto due = record.value("due_ms",int64_t(0));
       y += description("已尝试 " + std::to_string(record.value("attempts",0)) + " 次 · " +
                        std::to_string(record.value("bytes",size_t(0))) + " 字节" +
-                       (record.value("auto",false)?" · 自动重试等待 "+std::to_string(std::max<int64_t>(0,(due-nowMs()+999)/1000))+" 秒":" · 等待手动处理"),y)+8;
-      const int third = (width-16)/3;
+                       (record.value("auto",false)?" · 自动重试等待 "+std::to_string(std::max<int64_t>(0,(due-nowMs()+999)/1000))+" 秒":" · 等待手动处理"),y)+uiMetrics_.dp(8);
+      const int third = (width-uiMetrics_.dp(16))/3;
       auto retry=control("retry_"+id,"重试",uiMetrics_.dp(10),y,third,[this,id]{feedbackRequest("retry",{{"id",id}});});
       if(record.value("state",std::string())=="sending" || record.value("state",std::string())=="invalid")lv_obj_add_state(retry,LV_STATE_DISABLED);
       control("stop_"+id,"停止自动重试",uiMetrics_.dp(18)+third,y,third,[this,id]{feedbackRequest("stop_auto",{{"id",id}});});
@@ -91,11 +99,11 @@ void App::feedbackPage() {
       y += uiMetrics_.dp(68);
     }
     for (const auto &receipt : state.value("receipts",Json::array()))
-      y += description("已发送 · "+receipt.value("id",std::string()).substr(0,8),y)+10;
+      y += description("已发送 · "+receipt.value("id",std::string()).substr(0,8),y)+uiMetrics_.dp(10);
   } else if (feedbackView_ == "adapt") {
     pageHeader("机型适配信息");
     int y=uiMetrics_.dp(4);
-    y+=description("采样期间临时屏蔽物理按键功能，最长30秒；完成后立即恢复。触摸不受影响。",y)+12;
+    y+=description("采样期间临时屏蔽物理按键功能，最长30秒；完成后立即恢复。触摸不受影响。",y)+uiMetrics_.dp(12);
     const auto steps=state.value("steps",Json::object());
     const bool collecting=state.value("collecting",false);
     const std::string current=state.value("key_step",std::string());
@@ -108,17 +116,17 @@ void App::feedbackPage() {
         status=="ambiguous"?"检测到多个候选，请核对":status=="grab_failed"?"无法屏蔽按键，请结束其他占用后重试":
         status=="key_held"?"按键尚未松开，请松开后重试":status=="unavailable"?"设备不可读或权限不足，未开始采样":
         status=="events_lost"?"事件丢失，请重新采集":status=="cancelled"?(result.value("release_missing",false)?"已取消 · 缺少松开事件":"已取消"):"尚未采集";
-      y+=description(std::string(title)+" · "+(collecting&&current==step?(status=="listening"||status=="pressed"?"按键功能已屏蔽，请按下并松开按钮":"正在准备监听，请稍候"):meaning),y,theme::palette().text)+8;
+      y+=description(std::string(title)+" · "+(collecting&&current==step?(status=="listening"||status=="pressed"?"按键功能已屏蔽，请按下并松开按钮":"正在准备监听，请稍候"):meaning),y,theme::palette().text)+uiMetrics_.dp(8);
       auto start=control("start_"+step,status.empty()?"开始采集":"重新采集",uiMetrics_.dp(10),y,column,[this,step]{feedbackStartKeys(step);});
       auto skip=control("skip_"+step,"跳过",uiMetrics_.dp(26)+column,y,column,[this,step]{feedbackRequest("keys.skip",{{"step",step}});});
       if(collecting || (step=="home"&&!steps.count("scan"))) lv_obj_add_state(start,LV_STATE_DISABLED);
       if((collecting && current!=step) || (step=="home"&&!steps.count("scan"))) lv_obj_add_state(skip,LV_STATE_DISABLED);
       y += uiMetrics_.dp(60);
-      if(step=="home")y+=description("仅采样时屏蔽Home功能，完成、停止或超时后恢复。请按下并松开Home键。",y)+12;
-      else y+=description("仅采样时屏蔽扫描键功能；请等待提示就绪后按下并松开扫描键。",y)+12;
+      if(step=="home")y+=description("仅采样时屏蔽Home功能，完成、停止或超时后恢复。请按下并松开Home键。",y)+uiMetrics_.dp(12);
+      else y+=description("仅采样时屏蔽扫描键功能；请等待提示就绪后按下并松开扫描键。",y)+uiMetrics_.dp(12);
       for(const auto &event:result.value("events",Json::array())) {
         y+=description(event.value("device",std::string())+" · 键码 "+std::to_string(event.value("code",0))+" · "+
-          std::to_string(event.value("value",0))+" · "+std::to_string(event.value("relative_ms",int64_t(0)))+"ms",y)+4;
+          std::to_string(event.value("value",0))+" · "+std::to_string(event.value("relative_ms",int64_t(0)))+"ms",y)+uiMetrics_.dp(4);
       }
     }
     control("stop_keys","停止采集",uiMetrics_.dp(10),y,column,[this]{feedbackRequest("keys.cancel");});
@@ -141,7 +149,7 @@ void App::feedbackPage() {
     });
     control("records","反馈记录（"+std::to_string(state.value("pending",size_t(0)))+"）",uiMetrics_.dp(26)+column,y,column,[this]{feedbackView_="records";build();});
     y += uiMetrics_.dp(64);
-    if(!state.value("enabled",false))y+=description("此构建未配置上传服务；可预览诊断，不能发送。",y)+12;
+    if(!state.value("enabled",false))y+=description("此构建未配置上传服务；可预览诊断，不能发送。",y)+uiMetrics_.dp(12);
     description("仅主动发送白名单诊断与本次描述，不包含聊天、图片和凭据。失败报告只保存在应用私有目录。",y);
   }
   const auto message=state.value("error",std::string()).empty()?state.value("notice",std::string()):state.value("error",std::string());
