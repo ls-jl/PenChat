@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Actual LVGL reading scale: layout, slider, cancellation and persistence."""
+"""Actual LVGL text scale: layout, slider, cancellation and persistence."""
 import http.server, json, os, pathlib, sqlite3, tempfile, threading, time
 import test_lvgl_app as t
 from test_reasoning_ui import seed
@@ -26,6 +26,8 @@ def fixture(folder):
                            (session+str(seq),session,seq,role,text,reason))
 
 def slider(a, percent, drag=False):
+    from ui_scale_ui import reveal
+    reveal(a,lambda d:d['reading_font']['slider'])
     x1,y1,x2,y2 = a.diag()['reading_font']['slider']
     x = x1 + round((percent-75)/75 * (x2-x1)); y=(y1+y2)//2
     if drag:
@@ -51,7 +53,8 @@ def run(w,h):
                 capture(a, OUT/f'{w}-preview-{percent}.png')
                 assert a.diag()['reading_font']['percent']==(100 if not heights else list(heights)[-1])
                 a.page_action('保存');t.wait_for(lambda:a.diag()['view']=='settings')
-                assert a.diag()['scroll_y']==scroll
+                row=a.diag()['settings']['rows']['font_size']['bounds']
+                assert 0<=row[1]<=row[3]<h,row
                 a.to_chat();state=a.diag()
                 assert state['draft_length']==len('字号调整时保留草稿')
                 assert state['reading_font']['percent']==percent

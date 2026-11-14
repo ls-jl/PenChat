@@ -25,7 +25,7 @@ for width,height in [(960,266),(936,280),(568,1210)]:
                 t.wait_for(lambda:e()['active'] and bool(e()['keys']))
                 if height>width:
                     b=a.diag()['composer_bounds']
-                    assert b[3]-b[1]+1==(resting_height*7+2)//4
+                    assert b[3]-b[1]+1==min(3*base,max(resting_height,(base*7+2)//4))
             def key(value):
                 k=next(k for k in e()['keys'] if k['key']==value);a.tap(k['x'],k['y'])
             d=a.diag();b=d['composer_bounds'];base=b[3]-b[1]+1

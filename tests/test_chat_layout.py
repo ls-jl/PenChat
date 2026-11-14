@@ -4,6 +4,7 @@ from test_lvgl_app import Native,ROOT,wait_for
 import test_lvgl_app as transport
 from test_chat_style import seed,snapshot
 from test_reasoning_ui import Server,seed as seed_model
+from choice_ui import select
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ROOT/'build/host/penchat-lvgl'))
 transport.port=1
 with tempfile.TemporaryDirectory(prefix='penchat-thought-collapse-') as directory:
@@ -16,10 +17,12 @@ with tempfile.TemporaryDirectory(prefix='penchat-thought-collapse-') as director
             d=app.diag();app.tap(d['reasoning_header_x'],d['reasoning_header_y'])
             assert app.diag()['reasoning_expanded_count']==1
             d=app.diag();app.tap(d['reasoning_header_x'],d['reasoning_header_y'])
+            wait_for(lambda:app.diag()['reasoning_controls'][0]['angle']==0)
+            wait_for(lambda:app.diag()['reasoning_expanded_count']==0 and app.diag()['scroll_y']==0 and app.diag()['following_latest'])
             d=app.diag();assert d['reasoning_expanded_count']==0 and d['scroll_y']==0 and d['following_latest']
         app.edit('收起后仍可正常输入')
         app.open_settings();app.setting("reasoning");assert app.diag()['modal'];snapshot(app,'thought-display-options')
-        app.tap(800,96);assert not app.diag()['modal']
+        select(app,'always');assert not app.diag()['modal']
         with sqlite3.connect(pathlib.Path(directory)/'penchat.db') as db:assert json.loads(db.execute("select value_json from app_settings where key='reasoning_display'").fetchone()[0])=='always'
         app.to_chat();assert app.diag()['reasoning_expanded_count']==1
     finally:app.close()

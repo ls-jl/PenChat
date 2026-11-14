@@ -52,15 +52,19 @@ def run():
                 assert asset[2]=='scan' and json.loads(asset[3])['counts']['committed']==33
                 assert pathlib.Path(asset[1]).stat().st_size<1024*1024
                 # A second confirm tap can land on the newly attached photo.
-                # Viewing it must release capture, and closing must rearm it;
-                # neither tap may append the scan twice.
+                # Viewing retains the healthy capture lease but gates pen
+                # presses; neither tap may append the scan twice.
                 if not app.diag()['image_viewer']['open']:
                     state=app.diag()
                     photo=next(i for i in state['chat_images'] if 0<=i['y'] and i['y']+i['height']<=state['height'])
                     app.tap(photo['x']+photo['width']//2,photo['y']+photo['height']//2)
                 wait_for(lambda:app.diag()['image_viewer']['open'])
-                wait_for(lambda:app.diag()['scan_released'])
+                assert not app.diag()['scan_released']
                 assert app.diag()['scanner']['worker_pid']==worker and pathlib.Path(f'/proc/{worker}').exists()
+                app.send('scanner.test',command='test.press',pressed=True);time.sleep(.15)
+                app.send('scanner.test',command='test.press',pressed=False);time.sleep(.15)
+                assert app.diag()['view']=='chat' and app.diag()['image_viewer']['open']
+                assert len(app.read_messages())==1
                 app.tap(922,30)
                 wait_for(lambda:not app.diag()['image_viewer']['open'])
                 assert len(app.read_messages())==1

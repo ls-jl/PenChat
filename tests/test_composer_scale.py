@@ -45,8 +45,7 @@ def run(binary, output, scales, baseline=None):
                         assert b[0]<=entry[0]<entry[2]<=b[2] and b[1]<=entry[1]<entry[3]<=b[3]
                         assert base<=height<=base*(3 if h>w else 2),(scale,w,name,height,base)
                         assert d['composer_radius']==base//2
-                        control=(44*scale+50)//100;gap=(12*scale+50)//100
-                        assert d['to_bottom_y']==b[1]-control-gap
+                        assert not d['to_bottom_visible'],'An unsent draft has no reading position to return from'
                         assert not a.read_messages(),'Editing/scale must not send or persist drafts'
                         key=f'{w}x{h}-{scale}-{name}'
                         state={k:d[k] for k in FIELDS}

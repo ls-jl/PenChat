@@ -34,19 +34,19 @@ std::string keyboardPunctuation(const std::string &key,bool chinese,int mode) {
 }
 const EditorLayout &App::editorLayout() const {
   const int official=officialDocked_&&keyboard_?officialHeight_:0;
-  const std::array<int,11> key{{screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,
+  const std::array<int,12> key{{screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,
     editorSwapSides_,editorCompactExpanded_,editor_.secret,roundedDisplay_,official,
-    uiMetrics_.densityPercent(),uiMetrics_.scalePercent()}};
+    uiMetrics_.densityPercent(),uiMetrics_.scalePercent(),uiMetrics_.textPercent()}};
   if(editorLayoutCache_&&key==editorLayoutKey_){++editorLayoutCacheHits_;return *editorLayoutCache_;}
   const int requested=int(std::lround(uiMetrics_.factor()*100));
   for(int percent=requested;percent>=std::min(100,requested);--percent) {
-    const UiMetrics metrics(100,percent);
+    const UiMetrics metrics(100,percent,uiMetrics_.textPercent());
     auto design=resolveKeyboardDesign(keyboardDesign(),metrics);
     auto candidate=std::unique_ptr<EditorLayout>(new EditorLayout(screen_.width,screen_.height,
       editorSelectionOnly_,editorInlineChat_,editorSwapSides_,editorCompactExpanded_,editor_.secret,
       design,roundedDisplay_,metrics));
     bool fits=true;
-    if(percent!=100 && !editorSelectionOnly_) {
+    if((percent!=100 || uiMetrics_.textPercent()!=100) && !editorSelectionOnly_) {
       fits=candidate->keyTop>=0 && candidate->rowHeight>0 && candidate->bottomHeight>0 &&
         (!candidate->docked || candidate->panelTop>layout().chatReaderTop()+uiMetrics_.composer().control);
       try {
@@ -55,10 +55,20 @@ const EditorLayout &App::editorLayout() const {
             const auto &cap=placed.cap;
             fits &= cap.x>=0&&cap.y>=0&&cap.x+cap.width<=candidate->width&&cap.y+cap.height<=candidate->height;
             if(placed.spec.icon.empty()) {
-              auto f=font(design.font(placed.spec.role==KeyboardRole::Character?KeyboardFont::Character:KeyboardFont::KeyFunction,candidate->view()));
+              const auto role=placed.spec.role==KeyboardRole::Character?KeyboardFont::Character:KeyboardFont::KeyFunction;
+              auto f=font(design.font(role,candidate->view()));
               lv_point_t ink{};
-              const auto text=placed.spec.action=="space"?std::string("English"):placed.spec.caption;
+              const auto plain=placed.spec.action=="space"?std::string("English"):placed.spec.caption;
+              const auto punctuated=keyboardPunctuation(plain,true,mode);
+              const auto text=punctuated.size()>plain.size()?punctuated:plain;
               lv_text_get_size(&ink,text.c_str(),f,0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+              if(uiMetrics_.textPercent()!=100) {
+                int size=design.font(role,candidate->view());
+                while(size>1&&(cap.height<f->line_height||cap.width<ink.x)) {
+                  f=font(--size);lv_text_get_size(&ink,text.c_str(),f,0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+                }
+                design.profiles[size_t(candidate->view())].fonts[size_t(role)]=size;
+              }
               fits &= cap.height>=f->line_height && cap.width>=ink.x;
             }
           }
@@ -162,9 +172,9 @@ void App::edit(const std::string &text, const std::string &placeholder,
     editorPlaceCursor_=inputSource_!=nullptr;editorInitialPoint_=inputSourcePoint_;
     editorSendAssets_=false;
     if(editorInlineChat_) {
-      // Freeze the measured resting capsule once, before activating editing.
-      // Rebuilds and incoming candidate results must never multiply it again.
-      editorComposerOpenHeight_=(lv_obj_get_height(chatControls_)*7+2)/4;
+      // A retained draft may already have expanded the resting capsule. Use
+      // its single-row design height so reopening never multiplies that draft.
+      editorComposerOpenHeight_=(this->layout().composerHeight()*7+2)/4;
       if(!messageEdit_.empty())editorSendAssets_=!messageEditImages_.empty();
       else {
         const auto latest=db_.messages(session_,0,1);
@@ -349,10 +359,14 @@ void App::editorBuild() {
   }
   editorPreeditViewport_=box(editorRoot_,row.x,row.y,row.width,layout.candidateMetrics.height,theme::palette().keyboardCanvas);
   keyboardStyle::composition(editorPreeditViewport_,editorDesign());
+  if(layout.floatingComposition()) {
+    lv_obj_set_clickable(editorPreeditViewport_,false);
+    lv_obj_set_scrollable(editorPreeditViewport_,false);
+  }
   lv_obj_set_scroll_dir(editorPreeditViewport_,LV_DIR_HOR);
   lv_obj_set_scrollbar_mode(editorPreeditViewport_,LV_SCROLLBAR_MODE_OFF);
   lv_obj_set_scroll_elastic(editorPreeditViewport_,false);
-  editorPreeditLabel_=label(editorPreeditViewport_,editorCompositionText(),editorDesign().composition.labelX,editorDesign().composition.labelY,LV_SIZE_CONTENT,editorFontSize(KeyboardFont::Composition),editorDesign().compositionText);
+  editorPreeditLabel_=label(editorPreeditViewport_,editorCompositionText(),editorDesign().composition.labelX,layout.floatingComposition()?layout.compositionMetrics.gap:editorDesign().composition.labelY,LV_SIZE_CONTENT,editorFontSize(KeyboardFont::Composition),editorDesign().compositionText);
   const auto area=layout.compositionCandidates(editorExpanded_,12);
   editorChoices_=box(editorRoot_,area.x,area.y,area.width,area.height,theme::palette().keyboardCanvas);
   keyboardStyle::candidates(editorChoices_,editorDesign());
@@ -547,7 +561,11 @@ void App::editorRefreshCompositionRow() {
       if(changed)lv_label_set_text(editorPreeditLabel_,text.c_str());
       lv_obj_update_layout(editorPreeditLabel_);
       const int textPixels=lv_obj_get_width(editorPreeditLabel_);
-      const int preeditWidth=geometry.compactFull&&editorExpanded_?geometry.compositionRow().width:geometry.compositionPreeditWidth(textPixels);
+      auto preedit=geometry.compositionPreedit(textPixels,font(editorFontSize(KeyboardFont::Composition))->line_height);
+      if(geometry.compactFull&&editorExpanded_)preedit.width=geometry.compositionRow().width;
+      const int preeditWidth=preedit.width;
+      lv_obj_set_pos(editorPreeditViewport_,preedit.x,preedit.y);
+      lv_obj_set_height(editorPreeditViewport_,preedit.height);
       const bool resized=lv_obj_get_width(editorPreeditViewport_)!=preeditWidth;
       lv_obj_set_width(editorPreeditViewport_,preeditWidth);
       lv_obj_update_layout(editorPreeditViewport_);
@@ -739,7 +757,7 @@ void App::editorRefreshCandidates() {
 }
 void App::editorMoveDismiss(int offset) {
   editorDismissOffset_=std::max(0,offset);
-  if(editorRoot_)lv_obj_set_style_translate_y(editorRoot_,editorDismissOffset_,0);
+  if(editorRoot_&&!surfaceEntering(editorRoot_))lv_obj_set_style_translate_y(editorRoot_,editorDismissOffset_,0);
   if(editorInlineChat_&&chatControls_)lv_obj_set_style_translate_y(chatControls_,editorDismissOffset_,0);
   if(view_=="chat"&&toBottom_)lv_obj_set_style_translate_y(toBottom_,editorDismissOffset_,0);
   if(body_&&editor_.active&&editorLayout().docked) {
@@ -827,7 +845,7 @@ void App::editorViewport() {
   if(lv_obj_get_scroll_y(body_)>maximum)lv_obj_scroll_to_y(body_,maximum,LV_ANIM_OFF);
   chatLayout_=previous;
   if(docked)editorAttachTarget();
-  if(editorRoot_)lv_obj_set_style_translate_y(editorRoot_,editorDismissOffset_,0);
+  if(editorRoot_&&!surfaceEntering(editorRoot_))lv_obj_set_style_translate_y(editorRoot_,editorDismissOffset_,0);
   if(editorInlineChat_&&chatControls_)lv_obj_set_style_translate_y(chatControls_,editorDismissOffset_,0);
   if(view_=="chat"&&toBottom_)lv_obj_set_style_translate_y(toBottom_,editorDismissOffset_,0);
   if(resized){paintVisible();lv_obj_invalidate(screenObj_);}
@@ -1657,7 +1675,8 @@ void App::editorTick() {
   if(editorInlineChat_&&chatControls_) {
     auto send=lv_obj_get_child(chatControls_,-1);
     const bool enabled=generating_||contextBusy_||hasChatText(editor_.text)||editorSendAssets_;
-    lv_obj_set_clickable(send,enabled);
+    if(enabled)lv_obj_remove_state(send,LV_STATE_DISABLED);
+    else lv_obj_add_state(send,LV_STATE_DISABLED);
     const auto color=lv_color_hex(enabled?theme::palette().text:theme::palette().border);
     lv_style_value_t current;
     if(lv_obj_get_local_style_prop(send,LV_STYLE_BG_COLOR,&current,LV_PART_MAIN)!=LV_STYLE_RES_FOUND||
@@ -1720,9 +1739,18 @@ Json App::editorDiagnostic() const {
   auto bounds=[](lv_obj_t *object) {lv_area_t area;lv_obj_get_coords(object,&area);return Json::array({area.x1,area.y1,area.x2,area.y2});};
   const Json preeditBounds=editorRoot_&&editorPreeditViewport_?bounds(editorPreeditViewport_):Json::array();
   const Json candidateBounds=editorRoot_&&editorChoices_?bounds(editorChoices_):Json::array();
-  Json keys=Json::array(); for(const auto &k:editorKeys_) keys.push_back({{"key",k.value},{"x",k.x+k.w/2},{"y",k.y+k.h/2},
+  Json keys=Json::array(); for(const auto &k:editorKeys_) {
+    Json item={{"key",k.value},{"x",k.x+k.w/2},{"y",k.y+k.h/2},
       {"bounds",{k.x,k.y,k.x+k.w,k.y+k.h}},
-      {"hit_bounds",{k.hit.x,k.hit.y,k.hit.x+k.hit.width,k.hit.y+k.hit.height}}});
+      {"hit_bounds",{k.hit.x,k.hit.y,k.hit.x+k.hit.width,k.hit.y+k.hit.height}}};
+    auto caption=lv_obj_get_child(k.object,0);
+    if(caption&&lv_obj_check_type(caption,&lv_label_class)) {
+      const auto f=lv_obj_get_style_text_font(caption,LV_PART_MAIN);lv_point_t ink{};
+      lv_text_get_size(&ink,lv_label_get_text(caption),f,0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+      item["ink_width"]=ink.x;item["font_height"]=f->line_height;
+    }
+    keys.push_back(std::move(item));
+  }
   Json actions=Json::object();
   for(const auto &entry:editorLocalActions_)if(!lv_obj_is_hidden(entry.second)){lv_area_t a;lv_obj_get_coords(entry.second,&a);actions[entry.first]={a.x1,a.y1,a.x2,a.y2};}
   if(editorSelectionMenu_&&!lv_obj_is_hidden(editorSelectionMenu_))
@@ -1780,7 +1808,7 @@ Json App::editorDiagnostic() const {
     {"selection_start",editor_.range().first},{"selection_end",editor_.range().second},{"selected",editor_.selected()},
     {"clipboard_count",editorClipboard_.records.size()},{"clipboard_open",editorClipboardOpen_},{"menu",editorSelectionMenu_&&!lv_obj_is_hidden(editorSelectionMenu_)},{"undo_menu",false},{"undo_popup",undoPopup},{"text_bounds",textBounds},
     {"composition_bounds",editorRoot_&&editorPreeditViewport_&&!lv_obj_is_hidden(editorPreeditViewport_)?preeditBounds:Json::array()},
-    {"composition_floating",false},{"candidate_bounds",editorRoot_&&editorChoices_&&!lv_obj_is_hidden(editorChoices_)?candidateBounds:Json::array()},
+    {"composition_floating",editorLayout().floatingComposition()},{"font_sizes",{{"character",editorFontSize(KeyboardFont::Character)},{"candidate",editorFontSize(KeyboardFont::Candidate)},{"composition",editorFontSize(KeyboardFont::Composition)},{"menu",editorFontSize(KeyboardFont::Menu)}}},{"candidate_bounds",editorRoot_&&editorChoices_&&!lv_obj_is_hidden(editorChoices_)?candidateBounds:Json::array()},
     {"composition_visible",editorRoot_&&editorPreeditViewport_&&!lv_obj_is_hidden(editorPreeditViewport_)},
     {"composition_scroll",editorRoot_&&editorPreeditViewport_?lv_obj_get_scroll_x(editorPreeditViewport_):0},
     {"compact_preedit_bounds",preeditBounds},{"compact_candidate_bounds",candidateBounds},

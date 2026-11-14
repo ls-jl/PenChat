@@ -30,6 +30,11 @@ void App::presetPicker() {
   resetPull();
   const bool portrait=layout().portrait();
   const auto presets=presetList(db_.settings());
+  const int headingHeight=std::max(uiMetrics_.dp(24),int(font(uiMetrics_.fontSize(UiFont::FormHint))->line_height));
+  const int firstRow=std::max(uiMetrics_.dp(32),uiMetrics_.dp(4)+headingHeight+uiMetrics_.dp(4));
+  const int buttonHeight=std::max(uiMetrics_.dp(44),int(font(uiMetrics_.fontSize(UiFont::Button))->line_height)+uiMetrics_.dp(8));
+  const int detailHeight=std::max(uiMetrics_.dp(22),int(font(uiMetrics_.fontSize(UiFont::Detail))->line_height));
+  const int rowPitch=std::max(uiMetrics_.dp(72),buttonHeight+detailHeight+uiMetrics_.dp(6));
   attachments_ = box(portrait?lv_screen_active():screenObj_,layout().gutter(),0,screen_.width-layout().gutter(),screen_.height);
   popupKind_ = "presets";
   lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::palette().scrim), 0);
@@ -47,7 +52,7 @@ void App::presetPicker() {
   }
   const auto area=portrait?placeContextPopup(screen_.width,screen_.height,roundedDisplay_,
       {layout().safeSide(),chatComposerY(),1,1},std::min(uiMetrics_.dp(440),naturalWidth),
-      std::min(uiMetrics_.dp(360),uiMetrics_.dp(32)+int(presets.size())*uiMetrics_.dp(72)+uiMetrics_.dp(4)),keepChatEditor()?editorLayout().panelTop:0,uiMetrics_):
+      std::min(uiMetrics_.dp(360),firstRow+int(presets.size())*rowPitch+uiMetrics_.dp(4)),keepChatEditor()?editorLayout().panelTop:0,uiMetrics_):
       pickerArea(screen_.width-uiMetrics_.dp(130));
   const int panelWidth=area.width;
   auto panel=box(attachments_,area.x,area.y,panelWidth,area.height,theme::palette().popup);
@@ -60,20 +65,20 @@ void App::presetPicker() {
   if (sessionPreferences_.value("preset_adjusted", false)) current += " · 已调整";
   auto heading = label(panel, "当前：" + current, uiMetrics_.dp(14), uiMetrics_.dp(4), panelWidth-uiMetrics_.dp(38), uiMetrics_.fontSize(UiFont::FormHint), theme::palette().muted);
   lv_label_set_long_mode(heading, LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(heading, uiMetrics_.dp(24));
-  int y = uiMetrics_.dp(32);
+  lv_obj_set_height(heading,headingHeight);
+  int y=firstRow;
   for (const auto &p : presets) {
     const bool active = p["id"] == sessionPreferences_.value("preset_id", std::string());
     auto title = (portrait?std::string():active?"● ":"○ ") + p.value("name", std::string());
     if (active && sessionPreferences_.value("preset_adjusted", false)) title += " · 已调整";
-    auto item=button(panel, title, uiMetrics_.dp(8), y, panelWidth-uiMetrics_.dp(24), uiMetrics_.dp(44),
+    auto item=button(panel, title, uiMetrics_.dp(8), y, panelWidth-uiMetrics_.dp(24),buttonHeight,
            [this, p] { applyPreset(p); }, theme::palette().surface, LV_TEXT_ALIGN_LEFT);
     if(portrait){selected(item,active);stylePopupRow(item);}
-    auto caption = label(panel, presetSummary(p), uiMetrics_.dp(22), y + uiMetrics_.dp(44), panelWidth-uiMetrics_.dp(50), uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
+    auto caption = label(panel, presetSummary(p), uiMetrics_.dp(22), y+buttonHeight,panelWidth-uiMetrics_.dp(50), uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
     lv_label_set_long_mode(caption, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_height(caption, uiMetrics_.dp(22));
+    lv_obj_set_height(caption,detailHeight);
     lv_obj_set_clickable(caption, false);
-    y += uiMetrics_.dp(72);
+    y+=rowPitch;
   }
 }
 void App::presetsPage() {
@@ -97,16 +102,51 @@ void App::presetsPage() {
                 font(uiMetrics_.fontSize(UiFont::EmptyTitle)),font(uiMetrics_.fontSize(UiFont::FormNote)),
                 uiMetrics_.dp(10),y,width,
                 std::max(1,int(lv_obj_get_height(body_))-int(lv_obj_get_y(pageContent_))-y-uiMetrics_.dp(8)));
+  const int titleHeight=int(font(uiMetrics_.fontSize(UiFont::Button))->line_height);
+  const int detailTop=std::max(uiMetrics_.dp(36),uiMetrics_.dp(6)+titleHeight+uiMetrics_.dp(4));
+  const int detailHeight=std::max(uiMetrics_.dp(21),int(font(uiMetrics_.fontSize(UiFont::Detail))->line_height));
+  const int rowHeight=std::max(uiMetrics_.dp(64),detailTop+detailHeight+uiMetrics_.dp(7));
   for (const auto &p : presets) {
-    auto row = button(pageContent_, p.value("name", std::string()), uiMetrics_.dp(10), y, width, uiMetrics_.dp(64),
+    auto row = button(pageContent_, p.value("name", std::string()), uiMetrics_.dp(10), y,width,rowHeight,
                       [this, p] { presetForm_ = p; show("preset_edit"); }, theme::palette().surface, LV_TEXT_ALIGN_LEFT);
     lv_obj_align(lv_obj_get_child(row, 0), LV_ALIGN_TOP_LEFT, uiMetrics_.dp(12), uiMetrics_.dp(6));
-    auto detail = label(row, presetSummary(p), uiMetrics_.dp(12), uiMetrics_.dp(36), width - uiMetrics_.dp(24), uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
+    auto detail = label(row, presetSummary(p), uiMetrics_.dp(12),detailTop,width-uiMetrics_.dp(24), uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
     lv_label_set_long_mode(detail, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_height(detail, uiMetrics_.dp(21));
+    lv_obj_set_height(detail,detailHeight);
     lv_obj_set_clickable(detail, false);
-    y += uiMetrics_.dp(72);
+    y+=rowHeight+uiMetrics_.dp(8);
   }
+}
+Json App::presetsDiagnostic() const {
+  const bool menu=popupKind_=="presets"&&attachmentPanel_;
+  auto parent=menu?attachmentPanel_:view_=="presets"?pageContent_:nullptr;
+  if(!parent)return Json();
+  auto bounds=[](lv_obj_t *object) {
+    lv_area_t a;lv_obj_get_coords(object,&a);return Json::array({a.x1,a.y1,a.x2,a.y2});
+  };
+  Json labels=Json::array();int row=-1;lv_obj_t *lastRow=nullptr;
+  auto append=[&](lv_obj_t *label,const char *role,lv_obj_t *owner) {
+    labels.push_back({{"role",role},{"index",row},{"bounds",bounds(label)},
+      {"parent_bounds",bounds(lv_obj_get_parent(label))},{"row_bounds",owner?bounds(owner):Json()},
+      {"line_height",lv_obj_get_style_text_font(label,LV_PART_MAIN)->line_height},
+      {"text_length",editLength(lv_label_get_text(label))}});
+  };
+  for(unsigned i=0;i<lv_obj_get_child_count(parent);++i) {
+    auto object=lv_obj_get_child(parent,i);
+    if(!lv_obj_check_type(object,&lv_label_class)&&lv_obj_get_child_count(object)>0&&
+        lv_obj_check_type(lv_obj_get_child(object,0),&lv_label_class)) {
+      // The settings page also has an enable button before its preset rows.
+      if(!menu&&lv_obj_get_child_count(object)<2)continue;
+      ++row;lastRow=object;
+      for(unsigned j=0;j<lv_obj_get_child_count(object);++j) {
+        auto child=lv_obj_get_child(object,j);
+        if(lv_obj_check_type(child,&lv_label_class))append(child,j==0?"title":"detail",object);
+      }
+    } else if(menu&&lv_obj_check_type(object,&lv_label_class)) {
+      append(object,row<0?"heading":"detail",lastRow);
+    }
+  }
+  return {{"kind",menu?"menu":"page"},{"bounds",bounds(parent)},{"labels",labels}};
 }
 void App::presetChoices(const std::string &field) {
   const bool modelField = field == "model_id" || field == "compression_model_id";

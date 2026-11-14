@@ -218,12 +218,50 @@ def collapsed_thought_at_bottom():
             a.settings_swipe(140);t.wait_for(lambda:not a.diag()['reader_interacting'] and not a.diag()['following_latest'])
             text='\n\n'.join('answer '+str(i) for i in range(12));Stream.commands.put(('text',text))
             t.wait_for(lambda:a.diag()['output_length']==len(text) and not a.diag()['chat_render_pending'])
-            s=a.diag();assert s['at_latest_bottom'] and not s['to_bottom_visible']
+            # Reflow reaches the measured bottom before the shared visual
+            # bottom state completes its 120ms stabilization interval.
+            t.wait_for(lambda:a.diag()['at_latest_bottom'] and not a.diag()['to_bottom_visible'])
             t.wait_for(lambda:a.diag()['toolbar_y']==208)
             shot(a,'auto-collapse-composer-reachable')
             Stream.commands.put(('done',''));t.wait_for(lambda:not a.diag()['generating'])
         finally:Stream.commands.put(('cut',''));a.close()
     print('Automatic thought collapse landing at the latest bottom leaves the composer reachable.',flush=True)
+
+def manual_collapse_retains_reader_drag():
+    t.port=1
+    with tempfile.TemporaryDirectory(prefix='penchat-collapse-reader-drag-') as tmp:
+        p=pathlib.Path(tmp);seed(p,1)
+        with sqlite3.connect(p/'penchat.db') as db:
+            db.execute("insert into chat_sessions(id,title,status,created_at,updated_at,last_message_at) values('s','Collapse reader fixture','active',1,1,1)")
+            db.execute("insert or replace into app_settings values('active_session_id','\"s\"',1)")
+            db.execute("insert or replace into app_settings values('auto_title_enabled','false',1)")
+            db.execute("insert into chat_messages(id,session_id,seq,role,status,message_type,output_text,created_at,updated_at) values('older','s',1,'assistant','complete','text',?,1,1)",('\n\n'.join('Historical paragraph '+str(i) for i in range(40)),))
+            db.execute("insert into chat_messages(id,session_id,seq,role,status,message_type,output_text,reasoning_text,created_at,updated_at) values('latest','s',2,'assistant','complete','text','Latest short answer.','Short public thought.',1,1)")
+        a=t.Native(BINARY,p,seed_model=False,official_adapter=False)
+        try:
+            def control():return next(c for c in a.diag()['reasoning_controls'] if c['id']=='latest')
+            c=control();a.tap((c['arrow'][0]+c['arrow'][2])//2,(c['arrow'][1]+c['arrow'][3])//2)
+            t.wait_for(lambda:control()['expanded'] and control()['angle']==900)
+            t.wait_for(lambda:a.diag()['to_bottom_visible'])
+            d=a.diag();a.tap(d['to_bottom_x']+22,d['to_bottom_y']+22)
+            t.wait_for(lambda:a.diag()['at_latest_bottom'] and a.diag()['following_latest'] and not a.diag()['composer_hidden'])
+            c=control();b=c['arrow'];assert 0<=b[1]<b[3]<208,b
+            x,y=(b[0]+b[2])//2,(b[1]+b[3])//2
+            a.send('touch',x=x,y=y,pressed=True);time.sleep(.03)
+            a.send('touch',x=x,y=y,pressed=False)
+            t.wait_for(lambda:not control()['expanded'])
+            for y in [20,80,140,200]:
+                a.send('touch',x=500,y=y,pressed=True);time.sleep(.025)
+            time.sleep(.25) # Hold through disclosure completion, then release without inertia.
+            held=a.diag();assert held['reader_interacting'] and held['scroll_bottom']>10 and not held['following_latest'],held
+            a.send('touch',x=500,y=200,pressed=False)
+            t.wait_for(lambda:not a.diag()['reader_interacting'])
+            time.sleep(.2)
+            d=a.diag();assert not control()['expanded'] and control()['angle']==0
+            assert d['scroll_bottom']>10 and not d['at_latest_bottom'] and not d['following_latest'] and d['to_bottom_visible'],d
+            shot(a,'manual-collapse-reader-drag')
+        finally:a.close()
+    print('Reader drag during disclosure completion stays detached from the latest bottom.',flush=True)
 
 if __name__=='__main__':
     run(960,266,'responses');run(936,280,'chat',True)
@@ -232,3 +270,4 @@ if __name__=='__main__':
     older_copy_and_horizontal()
     end_during_bottom_click()
     collapsed_thought_at_bottom()
+    manual_collapse_retains_reader_drag()

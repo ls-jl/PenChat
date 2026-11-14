@@ -105,6 +105,14 @@ struct KeyboardDesign {
   } popups;
 
   KeyboardDesign() {
+    if(theme::mode()==theme::Mode::Light) {
+      // Opaque bright caps stay distinct from the light keyboard background.
+      for(auto role:{KeyboardRole::Character,KeyboardRole::Function}) {
+        auto &cap=roles[size_t(role)];
+        cap.background=theme::palette().background;
+        cap.opacity=cap.pressedOpacity=255;
+      }
+    }
     auto &primary=roles[size_t(KeyboardRole::Primary)];
     primary.background=theme::palette().text;primary.foreground=theme::palette().primaryText;
     primary.pressedBackground=theme::palette().muted;primary.radius=10;
@@ -160,8 +168,8 @@ inline KeyboardDesign resolveKeyboardDesign(const KeyboardDesign &base,const UiM
   result.base.radius=metrics.dp(base.base.radius);
   for(auto &patch:result.roles)if(patch.radius>=0)patch.radius=metrics.dp(patch.radius);
   for(auto &patch:result.variants)if(patch.radius>=0)patch.radius=metrics.dp(patch.radius);
-  for(auto &size:result.typography.sizes)size=std::max(1,metrics.dp(size));
-  for(auto &profile:result.profiles)for(auto &size:profile.fonts)if(size>0)size=std::max(1,metrics.dp(size));
+  for(auto &size:result.typography.sizes)size=std::max(1,metrics.sp(size));
+  for(auto &profile:result.profiles)for(auto &size:profile.fonts)if(size>0)size=std::max(1,metrics.sp(size));
   result.keys.gap=metrics.dp(base.keys.gap);
   result.keys.rowGap=metrics.dp(base.keys.rowGap);
   result.keys.margin=metrics.dp(base.keys.margin);

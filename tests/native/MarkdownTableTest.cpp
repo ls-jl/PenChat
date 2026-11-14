@@ -19,6 +19,10 @@ static void check(const std::string &source,size_t expected) {
   }
 }
 int main(int argc,char **argv) {
+  assert(argc>=3);
+  // markdown.cpp also links MicroTeX's process-wide macro registry. Mirror
+  // the app's renderer lifetime so that registry is released at test exit.
+  RichText rich(argv[1],argv[2]);
   const std::string table="| Name | Purpose | Language |\n|---|:---|---:|\n| [demo](https://example.invalid) | useful | C++ |\n";
   check("**Projects**\n"+table,1);
   check("A preceding paragraph.\n"+table,1);
@@ -73,8 +77,8 @@ int main(int argc,char **argv) {
     const auto source="Summary\n"+table.substr(0,n);
     const auto doc=parseMarkdown(source,true);assert(doc.source==source);
   }
-  if(argc>1) {
-    std::ifstream file(argv[1]);const std::string source((std::istreambuf_iterator<char>(file)),{});
+  if(argc>3) {
+    std::ifstream file(argv[3]);const std::string source((std::istreambuf_iterator<char>(file)),{});
     assert(file.good()||file.eof());
     std::cout<<"Private reproduction tables="<<tables(parseMarkdown(source))<<"\n";
   }

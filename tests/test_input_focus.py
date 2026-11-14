@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Actual LVGL process: overlays cancel clicks without destroying page state."""
 import os, pathlib, tempfile, time
-from test_lvgl_app import Native, ROOT
+from test_lvgl_app import Native, ROOT, wait_for
 binary=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ROOT/'build/host/penchat-lvgl'))
 with tempfile.TemporaryDirectory(prefix='penchat-focus-') as directory:
     app=Native(binary,directory,seed_model=False,official_adapter=False)
@@ -28,7 +28,30 @@ with tempfile.TemporaryDirectory(prefix='penchat-focus-') as directory:
         state=app.diag();assert not state['navigation_open'] and not state['input_focused']
         assert state['visible'] and state['display_visible']
         time.sleep(1.3);assert not app.diag()['display_visible']
-        focus(True);app.tap(40,32);assert app.diag()['navigation_open']
+        focus(True);wait_for(lambda:app.diag()['input_focused'] and app.diag()['display_visible'])
+        app.tap(40,32);assert app.diag()['navigation_open']
+    finally:app.close()
+# A raw contact beginning during popup retirement is absorbed until release.
+# Focus loss must cancel that absorption even when the old up is rejected.
+with tempfile.TemporaryDirectory(prefix='penchat-focus-retiring-') as directory:
+    app=Native(binary,directory,seed_model=False,official_adapter=False)
+    sequence=0
+    try:
+        focus(True);app.tap(40,32)
+        assert app.diag()['navigation_open']
+        wait_for(lambda:not app.diag()['surface_motion'])
+        focus(True)
+        app.send('touch',x=800,y=120,pressed=True)
+        app.send('touch',x=800,y=120,pressed=False)
+        wait_for(lambda:not app.diag()['navigation_open'])
+        assert app.diag()['surface_motion'],'Fixture must catch the retiring drawer'
+        app.send('touch',x=40,y=32,pressed=True)
+        focus(False)
+        app.send('touch',x=40,y=32,pressed=False)
+        assert not app.diag()['input_focused'] and not app.diag()['navigation_open']
+        focus(True)
+        app.tap(40,32)
+        assert app.diag()['navigation_open'],'First new contact after cancelled retirement was absorbed'
     finally:app.close()
 print('Actual LVGL focus: overlay, stale messages, cancelled release, expiry and recovery passed.')
 # A system window can take focus while LVGL is elastically pulled, before release.
@@ -39,7 +62,9 @@ for width,height in [(640,260),(960,266)]:
                    screen={'width':width,'height':height,'direction':0})
         sequence=0
         try:
-            focus(True);app.open_settings()
+            # Build the fixture before enabling the expiring focus lease.
+            # Drawer entry plus Settings navigation can exceed its 300ms TTL.
+            app.open_settings();focus(True)
             for cycle in range(3):
                 focus(True)
                 app.send('touch',x=width//2,y=5,pressed=True)

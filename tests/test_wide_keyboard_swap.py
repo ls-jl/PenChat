@@ -3,6 +3,7 @@
 import os,pathlib,tempfile,time
 import test_lvgl_app as t
 from image_gestures import capture
+from provider_ui import activate
 
 t.port=1
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
@@ -26,7 +27,9 @@ def run(w,h):
                 b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
                 t.wait_for(lambda:e()['active'] and bool(e()['keys']))
                 if e().get('compact_full'):a.editor_action('compact-view')
+                t.wait_for(lambda:not a.diag().get('surface_motion',False))
             def menu():
+                t.wait_for(lambda:not a.diag().get('surface_motion',False))
                 k=next(k for k in e()['keys'] if k['key']=='language');x,y=point(k['x'],k['y'])
                 a.send('touch',x=x,y=y,pressed=True);time.sleep(.57)
                 assert e()['layout_menu'],'500ms globe hold must open before release'
@@ -36,8 +39,7 @@ def run(w,h):
                 assert b[0]>=0 and b[1]>=0 and b[2]<space['width'] and b[3]<space['height']
             def change_setting():
                 a.open_settings();a.setting('keyboard')
-                b=a.diag()['settings']['rows']['wide_keyboard_swap']['bounds']
-                a.tap((b[0]+b[2])//2,(b[1]+b[3])//2);a.to_chat()
+                a.setting('wide_keyboard_swap');a.to_chat()
             def close_editor():a.editor_action('cancel' if 'cancel' in e()['actions'] else 'done')
             wide=w>=h
             open_editor();assert not e()['keyboard_swapped'] and 'official' not in e()['actions']
@@ -117,7 +119,7 @@ def details():
                 k=next(k for k in e()['keys'] if k['key']=='language');a.long_press(k['x'],k['y'],.58)
                 a.editor_action('layout:'+str(name))
             a.open_settings();a.setting('keyboard')
-            b=a.diag()['settings']['rows']['wide_keyboard_swap']['bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+            a.setting('wide_keyboard_swap')
             a.to_chat();open_editor();layout(1)
             key('mode');assert e()['mode']==1;key('1');capture(a,OUT/'960-numbers.png')
             key('symbols');assert e()['mode']==2;key('[');capture(a,OUT/'960-symbols.png')
@@ -150,11 +152,13 @@ def details():
             t.wait_for(lambda:(e()['selection_start'],e()['selection_end'])!=before)
             assert e()['active'] and e()['selected'] and e()['magnifier']
             a.send('touch',x=b[2]+80,y=handle['y']+8,pressed=False);time.sleep(.1)
-            a.editor_action('cancel');a.open_settings();a.setting('models');a.page_action('添加 Provider');a.tap(250,120)
+            a.editor_action('cancel');a.open_settings();a.setting('models');a.page_action('添加 Provider');activate(a,'field:apiKey')
             t.wait_for(lambda:e()['active'] and e()['secret'])
+            t.wait_for(lambda:not a.diag().get('surface_motion',False))
             assert e()['keyboard_swapped'] and e()['text_bounds'][0]==8
             # The password eye moves with the editor; no old right-side target.
             revealX=e()['text_bounds'][2]+1-102;reveal=[revealX,6,revealX+43,49]
+            t.wait_for(lambda:any(c['bounds']==reveal for c in e()['controls']))
             assert any(c['bounds']==reveal for c in e()['controls'])
             a.tap(revealX+22,28);key('a');capture(a,OUT/'960-secret.png')
             a.editor_action('official');request=a.receive('keyboard.open')

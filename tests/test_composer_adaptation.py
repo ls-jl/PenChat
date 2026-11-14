@@ -46,7 +46,9 @@ for w,h in [(640,260),(960,266),(936,280),(568,1210)]:
                 a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
                 t.wait_for(lambda:a.diag()['editor']['active'])
                 for _ in range(3):swipe(a,w//2,500,-360)
-                d=a.diag();assert d['scroll_y']+d['scroll_bottom']<120,d
+                t.wait_for(lambda:not a.diag()['page']['scrolling'])
+                d=a.diag();last_action=max(b[3] for b in d['page']['actions'].values())
+                assert 0<=d['reader_height']-1-last_action<=44,d
                 assert d['page_content_height']<d['reader_height']+120
                 globe=next(k for k in d['editor']['keys'] if k['key']=='language')
                 comma=next(k for k in d['editor']['keys'] if k['key']==',')

@@ -10,19 +10,28 @@ namespace penchat {
 enum class UiFont { Body, Button, PageTitle, FieldTitle, FieldValue, SettingsTitle, Detail, Composer, FormHint, FormNote, FormCaption, EmptyTitle, Tiny, Small, Badge, LargeCaption, Heading, Display, Hero, HeroLarge };
 class UiMetrics {
 public:
-  explicit UiMetrics(int densityPercent = 100, int scalePercent = 100)
-      : density_(densityPercent), scale_(scalePercent) {
-    if (density_ < 1 || density_ > 1000 || scale_ < 1 || scale_ > 1000)
+  explicit UiMetrics(int densityPercent = 100, int scalePercent = 100, int textPercent = 100)
+      : density_(densityPercent), scale_(scalePercent), text_(textPercent) {
+    if (density_ < 1 || density_ > 1000 || scale_ < 1 || scale_ > 1000 || text_ < 1 || text_ > 1000)
       throw std::invalid_argument("UI metric percentages must be between 1 and 1000");
   }
   int densityPercent() const { return density_; }
   int scalePercent() const { return scale_; }
+  int textPercent() const { return text_; }
   bool identity() const { return density_ * scale_ == 10000; }
   int dp(int designPixels) const {
     const int64_t product = int64_t(designPixels) * density_ * scale_;
     const int64_t rounded = product < 0 ? -((-product + 5000) / 10000) : (product + 5000) / 10000;
     if (rounded < std::numeric_limits<int>::min() || rounded > std::numeric_limits<int>::max())
       throw std::overflow_error("UI dimension exceeds logical pixel range");
+    return int(rounded);
+  }
+  // Text composes all preferences before rounding. Geometry stays on dp().
+  int sp(int designPixels) const {
+    const int64_t product = int64_t(designPixels) * density_ * scale_ * text_;
+    const int64_t rounded = product < 0 ? -((-product + 500000) / 1000000) : (product + 500000) / 1000000;
+    if (rounded < std::numeric_limits<int>::min() || rounded > std::numeric_limits<int>::max())
+      throw std::overflow_error("UI text size exceeds logical pixel range");
     return int(rounded);
   }
   // Accessibility floor is already a logical coordinate, independent of UI scale.
@@ -53,11 +62,11 @@ public:
     case UiFont::Hero: size = 30; break;
     case UiFont::HeroLarge: size = 32; break;
     }
-    return std::max(1, dp(size));
+    return std::max(1, sp(size));
   }
   int readingFontSize(int percent) const {
-    const int64_t value=int64_t(21)*density_*scale_*percent;
-    return std::max(1,int((value+500000)/1000000));
+    // An explicit preview replaces the saved text percentage, never stacks it.
+    return UiMetrics(density_, scale_, percent).fontSize(UiFont::Body);
   }
   double factor() const { return double(density_)*scale_/10000.; }
   struct Gesture {
@@ -111,6 +120,6 @@ public:
             dp(4), dp(8), dp(16), dp(12), dp(2), dp(8), 2*control+dp(8), 2*control+dp(12), control+dp(6), dp(2), dp(1)};
   }
 private:
-  int density_, scale_;
+  int density_, scale_, text_;
 };
 } // namespace penchat

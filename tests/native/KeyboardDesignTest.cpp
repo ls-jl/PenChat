@@ -12,7 +12,29 @@ static const KeyPlacement &find(const std::vector<KeyPlacement> &keys,const std:
 }
 int main(int argc,char **argv) {
   assert(argc==3);
+  for(auto mode:{theme::Mode::Dark,theme::Mode::Light,theme::Mode::Dark}) {
+    theme::setMode(mode);
+    const auto &palette=theme::palette();
+    for(auto role:{KeyboardRole::Character,KeyboardRole::Function}) {
+      const auto normal=keyboardDesign().resolve(role);
+      const auto pressed=keyboardDesign().resolve(role,{}, {true,false,false});
+      assert(normal.foreground==palette.text);
+      assert(normal.background==(mode==theme::Mode::Light?palette.background:palette.surface));
+      assert(normal.backgroundOpacity==(mode==theme::Mode::Light?255:153));
+      assert(pressed.background==palette.border);
+      assert(pressed.backgroundOpacity==(mode==theme::Mode::Light?255:153));
+      assert(pressed.background!=normal.background);
+    }
+  }
   const auto &defaults=keyboardDesign();
+  for(int percent:{75,100,125,150}) {
+    const UiMetrics metrics(100,100,percent);
+    const auto scaled=resolveKeyboardDesign(defaults,metrics);
+    assert(scaled.keys.gap==defaults.keys.gap);
+    for(auto view:{KeyboardView::Wide,KeyboardView::Compact,KeyboardView::CompactExpanded,KeyboardView::Portrait})
+      for(size_t role=0;role<size_t(KeyboardFont::Count);++role)
+        assert(scaled.font(KeyboardFont(role),view)==metrics.sp(defaults.font(KeyboardFont(role),view)));
+  }
   KeyboardDesign design=defaults;
   design.base.radius=13;
   design.roles[size_t(KeyboardRole::Function)].background=theme::palette().accent;
@@ -60,7 +82,7 @@ int main(int argc,char **argv) {
     }
   // Layouts own resolved geometry; a temporary design never leaves a dangling reference.
   auto temporary=[] {KeyboardDesign d;d.composition.gap=7;return EditorLayout(960,266,false,false,false,false,false,d); }();
-  assert(temporary.compositionCandidates(false,30).x==temporary.textX+37);
+  assert(temporary.compositionCandidates(false,30).x==temporary.textX);
   const EditorLayout wide(960,266);
   auto impossible=keyboardKeys(0,false,wide.view());impossible.bottom.keys.front().width=KeyWidth::fixed(2000);
   bool rejected=false;try {wide.placeKeys(impossible);}catch(const std::invalid_argument &){rejected=true;}assert(rejected);
@@ -80,6 +102,16 @@ int main(int argc,char **argv) {
   // The same role resolver used by widgets applies to real LVGL styles.
   auto display=lv_display_create(960,266);
   auto object=lv_obj_create(lv_screen_active());
+  for(auto mode:{theme::Mode::Light,theme::Mode::Dark}) {
+    theme::setMode(mode);
+    keyboardStyle::apply(object,KeyboardRole::Character);
+    assert(lv_color_eq(lv_obj_get_style_bg_color(object,LV_PART_MAIN),
+                      lv_color_hex(mode==theme::Mode::Light?theme::palette().background:theme::palette().surface)));
+    assert(lv_obj_get_style_bg_opa(object,LV_PART_MAIN)==(mode==theme::Mode::Light?255:153));
+    lv_obj_add_state(object,LV_STATE_PRESSED);
+    assert(lv_color_eq(lv_obj_get_style_bg_color(object,LV_PART_MAIN),lv_color_hex(theme::palette().border)));
+    lv_obj_remove_state(object,LV_STATE_PRESSED);
+  }
   keyboardStyle::apply(object,KeyboardRole::Function,KeyboardVariant::DeleteKey,false,design);
   assert(lv_obj_get_style_radius(object,LV_PART_MAIN)==13);
   lv_obj_add_state(object,LV_STATE_DISABLED);

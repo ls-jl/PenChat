@@ -107,6 +107,7 @@ def run(width,height):
             ui.wait_for(lambda:bool(app.diag()['message_interactions']['actions']))
             actions=app.diag()['message_interactions']['actions'];assert set(actions)=={'copy','select','edit'}
             bounds_tap(app,actions['select']);ui.wait_for(lambda:editor(app)['selection_only'])
+            ui.wait_for(lambda:not app.diag().get('surface_motion',False))
             b=editor(app)['text_bounds'];space=editor(app)['coordinate_space']
             tx=b[0]+20;ty=b[1]+17
             if space['scaled']:
@@ -123,6 +124,7 @@ def run(width,height):
             app.editor_action('official');request=app.receive('keyboard.open')
             app.send('keyboard.result',requestId=request['requestId'],confirmed=True,text='Alpha bravo 中文 👩‍💻')
             ui.wait_for(lambda:not editor(app)['active']);bounds_tap(app,app.diag()['composer_bounds']);ui.wait_for(lambda:editor(app)['active'])
+            ui.wait_for(lambda:not app.diag().get('surface_motion',False))
             e=editor(app);b=e['text_bounds'];space=e['coordinate_space'];tx=b[0]+22;ty=b[1]+17
             if space['scaled']:
                 tx=round(tx*space['native_width']/space['width']);ty=round(ty*space['native_height']/space['height'])

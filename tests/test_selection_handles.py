@@ -38,6 +38,7 @@ def run(width,height,code=False):
                 app.send('keyboard.result',requestId=request['requestId'],confirmed=True,text='Alpha bravo')
                 ui.wait_for(lambda:not editor(app)['active'])
                 bounds_tap(app,app.diag()['composer_bounds']);ui.wait_for(lambda:editor(app)['active'])
+                ui.wait_for(lambda:not app.diag().get('surface_motion',False))
                 e=editor(app);b=e['text_bounds'];space=e['coordinate_space']
                 def native(x,y):
                     if not space['scaled']:return x,y

@@ -16,6 +16,7 @@ try:
    a=t.Native(pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl')),folder,model='scroll',official_adapter=False)
    # Use the visible official fallback solely to seed the draft.
    a.tap(500,232)
+   t.wait_for(lambda:not a.diag().get('surface_motion',False))
    # Read button geometry before the DB lock; diagnostics must not be included
    # in the measured input interaction while the DB worker waits for SQLite.
    editor=a.diag()['editor'];globe=next(k for k in editor['keys'] if k['key']=='language')
@@ -28,7 +29,9 @@ try:
    lock=sqlite3.connect(a.directory/'penchat.db');lock.execute('BEGIN IMMEDIATE')
    time.sleep(.65) # first 500ms checkpoint is now waiting for the write lock
    started=time.monotonic()
-   a.tap(500,232);a.long_press(globe['x'],globe['y'],.58);a.tap((x1+x2)//2,(y1+y2)//2);request=a.receive('keyboard.open')
+   a.tap(500,232,wait_motion=False)
+   time.sleep(.22) # Let the ordinary 180ms entry finish without a DB diagnostic.
+   a.long_press(globe['x'],globe['y'],.58,wait_motion=False);a.tap((x1+x2)//2,(y1+y2)//2,wait_motion=False);request=a.receive('keyboard.open')
    latency=time.monotonic()-started
    assert latency<1.5,latency  # SQLite busy timeout is 3s; UI must not await it.
    lock.rollback();lock.close();lock=None

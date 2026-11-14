@@ -62,6 +62,7 @@ def run(width, height, capabilities):
             assert_toolbar(True)
             session = state()['session']
             # A late capability update cannot delete held key objects or lose a key.
+            t.wait_for(lambda:not a.diag().get('surface_motion',False))
             key = next(k for k in state()['keys'] if k['key'] == 'a')
             a.send('touch', x=key['x'], y=key['y'], pressed=True,
                    points=[{'id': 'held', 'x': key['x'], 'y': key['y']}])

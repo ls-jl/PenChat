@@ -39,14 +39,14 @@ lv_obj_t *Onboarding::rect(lv_obj_t *p,int x,int y,int w,int h,uint32_t c,int ra
 }
 lv_obj_t *Onboarding::text(lv_obj_t *p,const std::string &s,int x,int y,int w,int size,uint32_t ink) {
   auto o=lv_label_create(p);lv_obj_set_pos(o,x,y);lv_obj_set_width(o,w);
-  lv_obj_set_style_text_font(o,font(metrics_.dp(size)),0);lv_obj_set_style_text_color(o,lv_color_hex(ink),0);
+  lv_obj_set_style_text_font(o,font(metrics_.sp(size)),0);lv_obj_set_style_text_color(o,lv_color_hex(ink),0);
   lv_label_set_text(o,s.c_str());lv_obj_set_clickable(o,false);return o;
 }
 lv_obj_t *Onboarding::control(const std::string &id,const std::string &s,int x,int y,int w,bool primary) {
   const auto area=safety_.fit({x,y,w,metrics_.touchTarget(44)});
   auto o=rect(root_,area.x,area.y,area.width,area.height,primary?theme::palette().text:theme::palette().surface,metrics_.dp(8));
   auto l=text(o,s,0,0,area.width-metrics_.dp(8),18,primary?theme::palette().primaryText:theme::palette().text);
-  lv_label_set_long_mode(l,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(l,font(metrics_.dp(18))->line_height);lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(l);
+  lv_label_set_long_mode(l,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(l,font(metrics_.sp(18))->line_height);lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(l);
   lv_obj_set_style_bg_color(o,lv_color_hex(theme::palette().border),LV_STATE_PRESSED);
   lv_obj_set_style_opa(o,LV_OPA_50,LV_STATE_DISABLED);
   click(o,[this,id]{if(!busy_)action_(id);});actions_[id]=o;return o;
@@ -57,7 +57,7 @@ lv_obj_t *Onboarding::part(lv_obj_t *p,int x,int y,int w,int h,uint32_t c,int r)
 }
 void Onboarding::words(lv_obj_t *p,const std::string &s,int x,int y,int w,int size,uint32_t ink) {
   auto o=text(p,s,x*sceneWidth_/400,y*sceneHeight_/150,w*sceneWidth_/400,size,ink);
-  lv_label_set_long_mode(o,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(o,font(metrics_.dp(size))->line_height);
+  lv_label_set_long_mode(o,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(o,font(metrics_.sp(size))->line_height);
 }
 void Onboarding::symbol(lv_obj_t *p,const std::string &s,int x,int y,int size,uint32_t ink) {
   auto o=part(p,x,y,size,size,theme::palette().sidebar,0);lv_obj_set_style_bg_opa(o,LV_OPA_TRANSP,0);attachIcon(o,s,ink,float(size*std::min(sceneWidth_/400.,sceneHeight_/150.))/std::max(1,metrics_.dp(24)),metrics_);
@@ -197,15 +197,15 @@ Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool repla
   const int navWidth=width-right-end,navGap=metrics_.dp(8);
   int naturalWidth=metrics_.touchTarget(44);
   for(const auto &item:navigation) {
-    lv_point_t textSize{};lv_text_get_size(&textSize,item.second.c_str(),font(metrics_.dp(18)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+    lv_point_t textSize{};lv_text_get_size(&textSize,item.second.c_str(),font(metrics_.sp(18)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
     naturalWidth=std::max(naturalWidth,int(textSize.x)+metrics_.dp(16));
   }
-  const bool twoRows=!metrics_.identity()&&navigation.size()>2&&
+  const bool twoRows=(!metrics_.identity()||metrics_.textPercent()!=100)&&navigation.size()>2&&
     int(navigation.size())*naturalWidth+int(navigation.size()-1)*navGap>navWidth;
   const int footerTop=footer-(twoRows?metrics_.touchTarget(44)+navGap:0);
   auto reader=root_;
   int textX=right,textY=top;
-  if(!metrics_.identity()) {
+  if(!metrics_.identity()||metrics_.textPercent()!=100) {
     reader=rect(root_,right,top,measure,std::max(metrics_.touchTarget(44),footerTop-top-metrics_.dp(12)),theme::palette().background,0);
     lv_obj_set_scrollable(reader,true);lv_obj_set_scroll_dir(reader,LV_DIR_VER);
     textX=textY=0;
@@ -213,20 +213,20 @@ Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool repla
   text(reader,std::to_string(step+1)+" / 7"+(step<3?" · 必看":" · 功能介绍"),textX,textY,measure,16,theme::palette().muted);
   auto heading=text(reader,titles[step],textX,textY+metrics_.dp(30),measure,portrait?28:24);
   int descriptionY=textY+metrics_.dp(70);
-  if(!metrics_.identity()) {
+  if(!metrics_.identity()||metrics_.textPercent()!=100) {
     lv_obj_update_layout(heading);
     descriptionY=std::max(descriptionY,int(lv_obj_get_y(heading)+lv_obj_get_height(heading))+metrics_.dp(8));
   }
   auto description=text(reader,copy[step],textX,descriptionY,measure,portrait?21:(measure<metrics_.dp(340)?16:18));
   lv_obj_set_style_text_line_space(description,measure<metrics_.dp(340)&&!portrait?metrics_.dp(3):metrics_.dp(5),0);
   int hintY=portrait?textY+metrics_.dp(176):174;
-  if(!metrics_.identity()) {lv_obj_update_layout(description);hintY=descriptionY+lv_obj_get_height(description)+metrics_.dp(12);}
+  if(!metrics_.identity()||metrics_.textPercent()!=100) {lv_obj_update_layout(description);hintY=descriptionY+lv_obj_get_height(description)+metrics_.dp(12);}
   if(step==2&&configured)text(reader,"已配置模型，可直接继续",textX,hintY,measure,16,theme::palette().link);
   if(step==6)text(reader,"可在“关于 PenChat”中重看引导",textX,hintY,measure,16,theme::palette().muted);
   const int playbackY=portrait?demoH+metrics_.dp(28)+demoY-metrics_.dp(12):footer;
   pause_=control("pause","暂停",metrics_.dp(16),playbackY,metrics_.dp(80));control("replay","重播",metrics_.dp(104),playbackY,metrics_.dp(80));
   auto phaseCaption=text(demo,captions[step][0],metrics_.dp(126),metrics_.dp(8),safety_.enabled()?demoWidth-metrics_.dp(158):portrait?width-metrics_.dp(190):split-metrics_.dp(166),16,theme::palette().link);actions_["caption"]=phaseCaption;
-  if(metrics_.identity()) {
+  if(metrics_.identity()&&metrics_.textPercent()==100) {
   if(step>0)control("back","上一步",width-end-metrics_.dp(200),footer,metrics_.dp(92));
   control("next",step==6?"开始使用":"下一步",width-end-metrics_.dp(100),footer,metrics_.dp(100),true);
   if(step==2)control("configure","去配置",right,footer,metrics_.dp(100));

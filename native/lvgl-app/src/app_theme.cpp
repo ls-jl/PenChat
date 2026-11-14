@@ -10,8 +10,8 @@ void App::sendAppearance() {
   bridge_.send("appearance",{{"mode",theme::name(theme::mode())},{"scale",uiMetrics_.scalePercent()},
     {"colors",{{"background",hex(p.background)},{"text",hex(p.text)},{"muted",hex(p.muted)},
       {"surface",hex(p.surface)},{"primaryText",hex(p.primaryText)},{"caret",hex(p.caret)}}},
-    {"metrics",{{"title",uiMetrics_.dp(28)},{"body",uiMetrics_.fontSize(UiFont::Body)},
-      {"caption",uiMetrics_.dp(20)},{"gap",uiMetrics_.dp(14)},{"inset",uiMetrics_.dp(32)},
+    {"metrics",{{"title",uiMetrics_.fontSize(UiFont::Display)},{"body",uiMetrics_.fontSize(UiFont::Body)},
+      {"caption",uiMetrics_.fontSize(UiFont::Button)},{"gap",uiMetrics_.dp(14)},{"inset",uiMetrics_.dp(32)},
       {"top",uiMetrics_.dp(20)},{"bottom",uiMetrics_.dp(25)},{"retryWidth",uiMetrics_.dp(180)},
       {"leaveX",uiMetrics_.dp(235)},{"leaveWidth",uiMetrics_.dp(120)},
       {"controlHeight",uiMetrics_.touchTarget(45)},{"radius",uiMetrics_.dp(12)}}}});

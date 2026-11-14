@@ -568,7 +568,10 @@ bool Overlay::commitPlacedBgra(const uint8_t* bgra, int cw, int ch, int cx, int 
         if (!allocBuf(buf, hw, hh)) return false;
     }
     uint8_t* dst = static_cast<uint8_t*>(buf->map);
-    memset(dst, 0, buf->size);
+    // The native full-hole upload covers every visible pixel. Partial images
+    // and padded rows still clear their uncovered bytes before submission.
+    if (cx != hx || cy != hy || cw != hw || ch != hh || buf->pitch != unsigned(hw) * 4)
+        memset(dst, 0, buf->size);
     const int x0 = std::max(hx, cx);
     const int y0 = std::max(hy, cy);
     const int x1 = std::min(hx + hw, cx + cw);

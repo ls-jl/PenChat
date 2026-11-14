@@ -50,7 +50,8 @@ def run(width,height,scene,percent=100):
         app=ui.Native(BINARY,folder,official_adapter=False,screen={'width':width,'height':height,'direction':0})
         try:
             if scene=='full':
-                press(app,width//2,40);press(app,width//2,115);press(app,width//2,115,False);time.sleep(.2)
+                press(app,width//2,40);press(app,width//2,115);time.sleep(.2)
+                press(app,width//2,115,False);time.sleep(.2)
             r=next(r for r in ro(app)['regions'] if r['key']=='a')
             visible=[p for p in r['parts'] if p[1]>=0 and p[3]>p[1] and p[3]<app.diag()['reader_height']-8]
             b=visible[len(visible)//2] if scene=='full' else visible[0]
@@ -79,6 +80,7 @@ def empty_editor(width,height):
         app=ui.Native(BINARY,pathlib.Path(tmp),official_adapter=False,screen={'width':width,'height':height,'direction':0})
         try:
             bounds_tap(app,app.diag()['composer_bounds']);ui.wait_for(lambda:editor(app)['active'])
+            ui.wait_for(lambda:not app.diag().get('surface_motion',False))
             e=editor(app);space=e['coordinate_space'];b=e['text_bounds'];before=e['build_count']
             def native(x,y):
                 if not space['scaled']:return x,y

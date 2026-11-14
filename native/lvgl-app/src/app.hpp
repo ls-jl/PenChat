@@ -408,6 +408,9 @@ class App {
   Json systemOverlayStatus_=Json::object();
   bool systemEdgeDown_=false, systemEdgeGesture_=false;
   InputFocus inputFocus_;
+  InputFocusTrace inputFocusTrace_;
+  void recordInputFocus(InputFocusTrace::Reason reason, bool value, uint64_t sequence=0);
+  Json inputFocusDiagnostics() const;
   bool inputFocused_ = false, startupReadyPending_ = false;
   bool touchLeaseActive_ = false;
   void cancelNativeInteraction();
@@ -459,10 +462,19 @@ class App {
   std::string builtView_;
   int settingsScroll_ = 0;
   int readingFontPercent_ = 100, readingFontDraft_ = 100;
-  int readingFontSize() const { return uiMetrics_.readingFontSize(readingFontPercent_); }
+  int readingFontSize() const { return uiMetrics_.fontSize(UiFont::Body); }
   void fontSizePage();
   void updateFontPreview(int percent);
-  lv_obj_t *fontSlider_ = nullptr, *fontPercentLabel_ = nullptr, *fontPreview_ = nullptr;
+  void saveFontSize();
+  void fontSizeSaved(const Event &event);
+  void fontSizeTick();
+  void fontSizeBusy(bool busy);
+  std::string fontRequest_,fontError_;
+  bool fontReady_ = false;
+  uint64_t fontChanges_ = 0;
+  std::vector<lv_obj_t *> fontControls_;
+  lv_obj_t *fontSlider_ = nullptr, *fontPercentLabel_ = nullptr, *fontPreview_ = nullptr, *fontStatus_ = nullptr;
+  int settingsRowHeight() const;
   lv_obj_t *settingsHeading_ = nullptr;
   lv_obj_t *pageHeading_ = nullptr, *pageHeader_ = nullptr, *pageContent_ = nullptr;
   std::string builtPageKey_;
@@ -733,7 +745,7 @@ class App {
   const EditorLayout &editorLayout() const;
   const KeyboardDesign &editorDesign() const { editorLayout();return editorDesignCache_; }
   const UiMetrics &editorMetrics() const { editorLayout();return editorMetricsCache_; }
-  mutable std::array<int,11> editorLayoutKey_{};
+  mutable std::array<int,12> editorLayoutKey_{};
   mutable std::unique_ptr<EditorLayout> editorLayoutCache_;
   mutable KeyboardDesign editorDesignCache_;
   mutable UiMetrics editorMetricsCache_;
@@ -859,6 +871,7 @@ class App {
   void newChat(bool inherit = false);
   Json presetForm_ = Json::object();
   void presetsPage();
+  Json presetsDiagnostic() const;
   void presetEditor();
   void presetPicker();
   void presetChoices(const std::string &field);

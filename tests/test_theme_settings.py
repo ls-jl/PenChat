@@ -172,10 +172,10 @@ def deferred():
                 b = a.diag()['context_menu']['choices']['light']['bounds']
                 lock = sqlite3.connect(folder/'penchat.db')
                 lock.execute('begin immediate')
-                tap(a, b)
+                tap(a, b, wait_motion=False)
                 # A repeated physical submission during the pending write must
                 # neither queue another update nor navigate into another row.
-                tap(a, b)
+                tap(a, b, wait_motion=False)
                 if lifecycle == 'focus':
                     a.send('window.focus', sequence=1, focused=False)
                 else:

@@ -4,6 +4,7 @@ import json,os,pathlib,signal,sqlite3,struct,tempfile,time,zlib
 import test_lvgl_app as t
 from test_reasoning_ui import seed
 from provider_ui import activate as provider_action,open_model
+from choice_ui import select
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
 OUT=t.ROOT/'.work/page-flow';OUT.mkdir(parents=True,exist_ok=True)
 t.port=1
@@ -40,7 +41,7 @@ def run(w,h):
             raise AssertionError('Cannot return to title')
         def inspect(name,scroll=True):
             d=a.diag();page=d['page'];assert page and page['viewport'][1:4:2]==[0,h-1],name
-            assert page['heading'][1]==(15 if name=='provider-list' else 7),name
+            assert page['heading'][1]==(15 if name in ('provider-list','provider-form') else 7),name
             headingY=page['heading'][1];actionsY={k:v[1] for k,v in page['actions'].items()}
             if name=='provider-list':assert page['actions']['添加 Provider'][1]==10
             for bounds in page['actions'].values():
@@ -63,10 +64,11 @@ def run(w,h):
             a.page_action('完成');assert a.diag()['view']=='provider'
             a.tap(40,32)
             a.page_action('添加 Provider');inspect('provider-form')
-            a.settings_swipe(-100);t.wait_for(lambda:not a.diag()["page"]["scrolling"]);before=a.diag()['scroll_y']
+            a.settings_swipe(-100);t.wait_for(lambda:not a.diag()["page"]["scrolling"])
+            provider_action(a,'provider-protocol',tap=False);before=a.diag()['scroll_y']
             # A same-form rebuild must preserve the reading position and keep
             # the title/actions in the flow, rather than jumping to a pinned bar.
-            a.tap(w-180,238-before);time.sleep(.15)
+            provider_action(a,'provider-protocol');select(a,'chat')
             assert a.diag()['view']=='provider' and a.diag()['scroll_y']==before
             a.to_chat();a.open_settings();a.setting('presets');inspect('presets')
             a.tap(300,140);assert a.diag()['view']=='preset_edit';inspect('preset-editor')

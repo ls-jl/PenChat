@@ -14,6 +14,7 @@ for width,height in [(960,266),(568,1210)]:
             def open_input():
                 s=a.diag();a.tap(250 if height>width else 500,s['toolbar_y']+30 if height>width else 232)
                 t.wait_for(lambda:editor()['active'] and bool(editor()['keys']))
+                t.wait_for(lambda:not a.diag().get('surface_motion',False))
             open_input();a.editor_action('official');r=a.receive('keyboard.open')
             a.send('keyboard.result',requestId=r['requestId'],confirmed=True,text='Edge one: abcdefghijklmnopqrstuvwxyz\n'+'More text for cursor dragging.\n'*12)
             t.wait_for(lambda:not editor()['active']);open_input()
@@ -39,6 +40,7 @@ for width,height in [(960,266),(568,1210)]:
                 # preserve the whole bubble even though the raised offset cannot fit.
                 a.open_settings();a.setting('models');a.page_action('添加 Provider');a.tap(220,110)
                 t.wait_for(lambda:editor()['active'] and editor()['text_in_target'])
+                t.wait_for(lambda:not a.diag().get('surface_motion',False))
                 b=editor()['text_bounds'];x,y=b[0]+12,b[1]+16
                 a.send('touch',x=x,y=y,pressed=True);time.sleep(.52)
                 a.send('touch',x=x+20,y=y,pressed=True);t.wait_for(lambda:editor()['magnifier'])

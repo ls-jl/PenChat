@@ -11,6 +11,7 @@ def check(a,w,h,name):
     before=a.diag();active=before['editor']['active'];preedit=before['editor']['preedit_length'];draft=before['draft_length']
     tap_bounds(a,before['attachment_button'])
     t.wait_for(lambda:a.diag()['attachments'])
+    time.sleep(.18) # Measure the resting viewport after its 150ms entry.
     d=a.diag();menu=d['attachment_viewport'];composer=d['composer_bounds'];count=len(d['attachment_actions'])
     assert menu[0]==composer[0] and menu[3]>=composer[3]+10,(menu,composer)
     assert 0<=menu[0]<menu[2]<w and 0<=menu[1]<menu[3]<h,menu

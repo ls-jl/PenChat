@@ -1,5 +1,6 @@
 #include "attachment_layout.hpp"
 #include "app.hpp"
+#include "back_geometry.hpp"
 #include "surface_motion.hpp"
 #include "refresh_settings.hpp"
 #include "empty_state.hpp"
@@ -91,6 +92,9 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   clearCrop();
   auto config = db_.settings();
   uiScaleSaved_=savedUiScale(config);uiScaleDraft_=uiMetrics_.scalePercent();
+  readingFontPercent_=savedTextScale(config);readingFontDraft_=readingFontPercent_;
+  uiMetrics_=UiMetrics(uiMetrics_.densityPercent(),uiMetrics_.scalePercent(),readingFontPercent_);
+  rich_.setMetrics(uiMetrics_);
   refreshSaved_=configuredRefreshRate(config);
   display_.setRefreshRate(savedRefreshRate(config,screen_.width,screen_.height));
   composerShortcut_.configure(stringValue(config, "landscape_composer_shortcut", "auto"));
@@ -102,9 +106,6 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   const auto savedPull = config.value("pull_sensitivity_offset", Json());
   if (savedPull.is_number_integer())
     pullSensitivityOffset_ = int(std::max(-25.0, std::min(25.0, savedPull.get<double>())));
-  const auto savedFont = config.value("reading_font_percent", Json());
-  if (savedFont.is_number_integer())
-    readingFontPercent_ = int(std::max<int64_t>(75, std::min<int64_t>(150, savedFont.get<int64_t>())));
   cameraAngle_ = config.value("camera_orientation",0);
   if (cameraAngle_!=0 && cameraAngle_!=90 && cameraAngle_!=180 && cameraAngle_!=270) cameraAngle_=0;
   cameraAutomatic_ = config.value("camera_auto_orientation",true);
@@ -192,6 +193,8 @@ lv_obj_t *App::button(lv_obj_t *parent, const std::string &text, int x, int y,
     }
   }
   const auto captionFont = font(metrics.fontSize(UiFont::Button));
+  if(!keyboard&&metrics.textPercent()!=100)
+    lv_obj_set_height(o,std::max(h,int(captionFont->line_height)+2*metrics.dp(4)));
   auto l = label(o, caption, 0, 0, std::max(1, w - style.captionPadding), metrics.fontSize(UiFont::Button));
   // A fixed-height action must never center an arbitrarily tall wrapped label.
   lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
@@ -219,7 +222,7 @@ UiMetrics::Field App::fieldMetrics(const UiMetrics &metrics) const {
   auto field = metrics.field();
   // Preserve the established identity-scale frames, including compact's
   // measured two-line fields. Scaled forms must fit the real font line boxes.
-  if (layout().compact() || !metrics.identity()) {
+  if (layout().compact() || !metrics.identity() || metrics.textPercent()!=100) {
     field.captionHeight = font(metrics.fontSize(UiFont::FieldTitle))->line_height;
     field.valueHeight = font(metrics.fontSize(UiFont::FieldValue))->line_height;
     field.valueTop = field.top + field.captionHeight + field.gap;
@@ -709,7 +712,7 @@ void App::clear() {
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
   chatRenderPending_ = chatRefreshPending_ = chatImagesPending_ = false;
   chatFinishPending_ = Json::object();
-  fontSlider_ = fontPercentLabel_ = fontPreview_ = nullptr;
+  fontSlider_ = fontPercentLabel_ = fontPreview_ = fontStatus_ = nullptr;fontControls_.clear();
   uiScaleSlider_=uiScaleCaption_=uiScalePreview_=uiScaleStatus_=nullptr;uiScaleControls_.clear();
   scaleMessageRows_.clear();
   cropActions_.clear();cropViewport_=cropBitmap_=cropSelection_=nullptr;
@@ -873,7 +876,7 @@ void App::build() {
     const bool portrait = layout().portrait();
     auto hint = box(portrait?chatHeader_:screenObj_, portrait?screen_.width-layout().navigationX()-uiMetrics_.dp(88):uiMetrics_.dp(12), portrait?layout().safeTop():uiMetrics_.dp(60), portrait?uiMetrics_.dp(88):uiMetrics_.dp(64), portrait?uiMetrics_.touchTarget(48):uiMetrics_.dp(64));
     lv_obj_set_scrollable(hint, false);
-    scanHint_ = label(hint, portrait?"扫描准备中":"扫描\n准备中", uiMetrics_.dp(4), portrait?uiMetrics_.dp(14):uiMetrics_.dp(5), portrait?uiMetrics_.dp(80):uiMetrics_.dp(60), uiMetrics_.dp(portrait?16:14), theme::palette().muted);
+    scanHint_ = label(hint, portrait?"扫描准备中":"扫描\n准备中", uiMetrics_.dp(4), portrait?uiMetrics_.dp(14):uiMetrics_.dp(5), portrait?uiMetrics_.dp(80):uiMetrics_.dp(60), uiMetrics_.sp(portrait?16:14), theme::palette().muted);
     lv_label_set_long_mode(scanHint_, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_height(scanHint_, portrait?font(uiMetrics_.fontSize(UiFont::Detail))->line_height:font(uiMetrics_.fontSize(UiFont::Badge))->line_height*2);
     onClick(hint, [this] {
@@ -1093,8 +1096,10 @@ void App::rebuildChatControls() {
       sendEnabled ? theme::palette().text : theme::palette().border, theme::palette().primaryText);
   // Grow the portrait circle equally around its existing center.
   lv_obj_align(send, LV_ALIGN_RIGHT_MID, -geometry.composerInset() + (sendDiameter - c.control) / 2, 0);
+  // Keep the disabled circle as the hit target so its press cannot fall
+  // through to the capsule's blank-space editor shortcut.
   if (!sendEnabled)
-    lv_obj_set_clickable(send, false);
+    lv_obj_add_state(send, LV_STATE_DISABLED);
   toBottom_ = icon(
       screenObj_, "down", geometry.composerX() + (composerWidth - c.control) / 2, chatComposerY() - c.returnOffset(), c.control, c.control,
       [this] { jumpToBottom(); }, theme::palette().surface);
@@ -1729,6 +1734,10 @@ void App::animateDisclosure(ReasoningControl &control, bool expanded) {
         chatLayout_ = previous;
         if (view_ == "chat") {
           chatScroll_ = lv_obj_get_scroll_y(body_);
+          // The height animation can reach the real bottom after the tap's
+          // original settle pass. Reuse normal reader settling so an active
+          // drag or inertia still owns its position and follow state.
+          readerSettle_ = true;
           updateChatControls(true);
         }
         paintVisible();
@@ -2032,7 +2041,10 @@ void App::pageHeader(const std::string &title, int top) {
   const auto metrics = uiMetrics_.page();
   const int width = layout().bodyWidth();
   top+=layout().safeTop();
-  pageHeader_ = box(body_, 0, top, width, metrics.headerHeight);
+  const int titleHeight=font(uiMetrics_.fontSize(UiFont::PageTitle))->line_height;
+  const int headerHeight=uiMetrics_.textPercent()==100?metrics.headerHeight:
+      std::max(metrics.headerHeight,metrics.titleTop+titleHeight+uiMetrics_.dp(4));
+  pageHeader_ = box(body_, 0, top, width, headerHeight);
   lv_obj_set_scrollable(pageHeader_, false);
   if(layout().portrait())icon(pageHeader_,"back",layout().navigationX(),metrics.actionTop,metrics.actionHeight,metrics.actionHeight,[this]{if(editor_.active){editorAccept();return;}goBack();});
   const int titleX=layout().portrait()?layout().navigationX()+metrics.navigationGap:metrics.titleInset;
@@ -2041,7 +2053,7 @@ void App::pageHeader(const std::string &title, int top) {
   readLabel(pageHeading_,title);
   lv_label_set_long_mode(pageHeading_, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(pageHeading_,font(uiMetrics_.fontSize(UiFont::PageTitle))->line_height);
-  pageContent_ = box(body_, 0, top + metrics.headerHeight, width, LV_SIZE_CONTENT);
+  pageContent_ = box(body_, 0, top + headerHeight, width, LV_SIZE_CONTENT);
   lv_obj_set_scrollable(pageContent_, false);
   lv_obj_set_style_min_height(pageContent_, screen_.height - top - metrics.minimumTail, 0);
   lv_obj_set_style_pad_bottom(body_, layout().readerBottomSpace(), 0);
@@ -2074,12 +2086,15 @@ void App::settingsRow(const std::string &id, const std::string &title,
                       const std::string &detail, int x, int y, int width,
                       std::function<void()> action, int checked, bool unavailable) {
   const auto metrics = uiMetrics_.settings();
-  auto row = box(pageContent_, x, y, width, metrics.height, theme::palette().surface);
+  const int rowHeight=settingsRowHeight();
+  const int detailTop=uiMetrics_.textPercent()==100?metrics.detailTop:
+      std::max(metrics.detailTop,metrics.titleTop+int(font(uiMetrics_.fontSize(UiFont::SettingsTitle))->line_height)+uiMetrics_.dp(4));
+  auto row = box(pageContent_, x, y, width, rowHeight, theme::palette().surface);
   lv_obj_set_scrollable(row, false);
   lv_obj_set_style_radius(row, metrics.radius, 0);
   lv_obj_set_style_bg_color(row, lv_color_hex(theme::palette().border), LV_STATE_PRESSED);
   auto caption = label(row, title, metrics.inset, metrics.titleTop, std::max(1, width - metrics.textTrailing), UiFont::SettingsTitle);
-  auto value = label(row, detail, metrics.inset, metrics.detailTop, std::max(1, width - metrics.textTrailing), UiFont::Detail,
+  auto value = label(row, detail, metrics.inset, detailTop, std::max(1, width - metrics.textTrailing), UiFont::Detail,
                      unavailable ? theme::palette().danger : theme::palette().muted);
   for (auto text : {caption, value}) {
     lv_label_set_long_mode(text, LV_LABEL_LONG_MODE_DOTS);
@@ -2089,7 +2104,7 @@ void App::settingsRow(const std::string &id, const std::string &title,
   lv_obj_t *indicator;
   if (checked >= 0) {
     indicator = lv_switch_create(row);
-    lv_obj_set_pos(indicator, width - metrics.toggleTrailing, metrics.toggleTop);
+    lv_obj_set_pos(indicator, width - metrics.toggleTrailing, metrics.toggleTop+(rowHeight-metrics.height)/2);
     lv_obj_set_size(indicator, metrics.toggleWidth, metrics.toggleHeight);
     lv_obj_set_style_bg_color(indicator, lv_color_hex(theme::palette().border), 0);
     lv_obj_set_style_bg_color(indicator, lv_color_hex(theme::palette().border), LV_PART_INDICATOR);
@@ -2098,7 +2113,7 @@ void App::settingsRow(const std::string &id, const std::string &title,
     lv_obj_set_style_pad_all(indicator, metrics.knobPadding, LV_PART_KNOB);
     if (checked) lv_obj_add_state(indicator, LV_STATE_CHECKED);
   } else {
-    indicator = box(row, width - metrics.arrowTrailing, metrics.arrowTop, metrics.arrowSize, metrics.arrowSize, theme::palette().surface);
+    indicator = box(row, width - metrics.arrowTrailing, metrics.arrowTop+(rowHeight-metrics.height)/2, metrics.arrowSize, metrics.arrowSize, theme::palette().surface);
     lv_obj_set_style_bg_opa(indicator, LV_OPA_TRANSP, 0);
     lv_obj_set_scrollable(indicator, false);
     attachIcon(indicator, "chevron-right", theme::palette().muted, 1.f, uiMetrics_);
@@ -2110,6 +2125,13 @@ void App::settingsRow(const std::string &id, const std::string &title,
     onClick(row,[this,row,action]{inputAction(row,action);});
   } else onClick(row,std::move(action));
   settingsControls_[id] = {row, caption, value, indicator, checked >= 0};
+}
+int App::settingsRowHeight() const {
+  const auto metrics=uiMetrics_.settings();
+  if(uiMetrics_.textPercent()==100)return metrics.height;
+  const int detailTop=std::max(metrics.detailTop,metrics.titleTop+
+      int(font(uiMetrics_.fontSize(UiFont::SettingsTitle))->line_height)+uiMetrics_.dp(4));
+  return std::max(metrics.height,detailTop+int(font(uiMetrics_.fontSize(UiFont::Detail))->line_height)+uiMetrics_.dp(6));
 }
 Json App::settingsDiagnostic() const {
   Json rows = Json::object();
@@ -2135,6 +2157,7 @@ Json App::settingsDiagnostic() const {
 void App::settingsPage() {
   pageHeader("设置");
   const auto flow=uiMetrics_.form();
+  const int rowPitch=std::max(flow.settingsPitch,settingsRowHeight()+flow.settingsGap);
   settingsHeading_ = pageHeading_;
   const int width = layout().contentWidth();
   const bool twoColumns = layout().category() == LayoutClass::WideLandscape;
@@ -2142,7 +2165,7 @@ void App::settingsPage() {
   int y = flow.settingsTop;
   bool secondColumn = false;
   auto finishRow = [&] {
-    if (secondColumn) { y += flow.settingsPitch; secondColumn = false; }
+    if (secondColumn) { y += rowPitch; secondColumn = false; }
   };
   auto section = [&](const std::string &id, const std::string &name) {
     finishRow();
@@ -2160,12 +2183,12 @@ void App::settingsPage() {
     if (!twoColumns || fullWidth) {
       finishRow();
       settingsRow(id, title, detail, left, y, width, std::move(action), checked, unavailable);
-      y += flow.settingsPitch;
+      y += rowPitch;
     } else {
       settingsRow(id, title, detail, left + (secondColumn ? column + gap : 0), y, column,
                   std::move(action), checked, unavailable);
       secondColumn = !secondColumn;
-      if (!secondColumn) y += flow.settingsPitch;
+      if (!secondColumn) y += rowPitch;
     }
   };
   const auto config = db_.settings();
@@ -2245,8 +2268,8 @@ void App::settingsPage() {
   row("ui_scale", "界面缩放", std::to_string(uiMetrics_.scalePercent())+"% · 全应用", [this] {
     uiScaleDraft_=uiMetrics_.scalePercent();uiScaleError_.clear();show("ui_scale");
   });
-  row("font_size", "字体大小", std::to_string(readingFontPercent_) + "% · 聊天、思考和公式", [this] {
-    readingFontDraft_ = readingFontPercent_; show("font_size");
+  row("font_size", "字体大小", std::to_string(readingFontPercent_) + "% · 全应用", [this] {
+    readingFontDraft_ = readingFontPercent_;fontError_.clear();show("font_size");
   });
   row("keyboard", "键盘与输入", "独立拼音与学习记忆", [this] { show("keyboard_settings"); });
   row("transfer", "导入与导出", "聊天与预设备份", [this] { openTransfer(); });
@@ -2284,38 +2307,44 @@ void App::updateFontPreview(int percent) {
 }
 void App::fontSizePage() {
   pageHeader("字体大小");
-  pageAction("恢复默认", uiMetrics_.dp(96), uiMetrics_.dp(120), [this] { updateFontPreview(100); });
-  primary(pageAction("保存", 0, uiMetrics_.dp(84), [this] { events_.push("reading_font_apply"); }));
-  const int width = layout().contentWidth();
-  auto description = label(pageContent_, "聊天正文、思考过程与公式同步缩放；不单独调整菜单和键盘；基于界面缩放倍率。",
-        uiMetrics_.dp(10), uiMetrics_.dp(4), width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
+  auto reset=pageAction("恢复默认",uiMetrics_.dp(96),uiMetrics_.dp(120),[this] {
+    if(fontRequest_.empty())updateFontPreview(100);
+  });
+  auto save=pageAction("保存",0,uiMetrics_.dp(84),[this]{events_.push("reading_font_apply");});
+  primary(save);fontControls_.push_back(reset);fontControls_.push_back(save);
+  const int left=uiMetrics_.dp(10),width=std::max(1,layout().contentWidth()-2*left);
+  auto description=label(pageContent_,"调整全应用的文字，包括菜单、输入框、键盘、聊天和公式；界面缩放仍独立控制控件和间距。保存后生效。",
+      left,uiMetrics_.dp(4),width,uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);
   lv_obj_update_layout(description);
-  const int extra = std::max(0,int(lv_obj_get_height(description))-int(font(uiMetrics_.fontSize(UiFont::Detail))->line_height));
-  fontPercentLabel_ = label(pageContent_, "", uiMetrics_.dp(10), uiMetrics_.dp(29)+extra, width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::SettingsTitle));
-  lv_obj_set_style_text_align(fontPercentLabel_, LV_TEXT_ALIGN_CENTER, 0);
-  label(pageContent_, "75%", uiMetrics_.dp(10), uiMetrics_.dp(59)+extra, uiMetrics_.dp(70), uiMetrics_.fontSize(UiFont::FormNote), theme::palette().muted);
-  auto maximum = label(pageContent_, "150%", width - uiMetrics_.dp(80), uiMetrics_.dp(59)+extra, uiMetrics_.dp(70), uiMetrics_.fontSize(UiFont::FormNote), theme::palette().muted);
-  lv_obj_set_style_text_align(maximum, LV_TEXT_ALIGN_RIGHT, 0);
-  fontSlider_ = lv_slider_create(pageContent_);
-  lv_obj_remove_style_all(fontSlider_);
-  lv_obj_set_pos(fontSlider_, uiMetrics_.dp(100), uiMetrics_.dp(64)+extra);
-  lv_obj_set_size(fontSlider_, width - uiMetrics_.dp(200), uiMetrics_.dp(16));
-  lv_obj_set_ext_click_area(fontSlider_, uiMetrics_.dp(16));
-  lv_slider_set_range(fontSlider_, 15, 30);
-  for (auto part : {LV_PART_MAIN, LV_PART_INDICATOR, LV_PART_KNOB}) {
-    lv_obj_set_style_bg_opa(fontSlider_, LV_OPA_COVER, part);
-    lv_obj_set_style_radius(fontSlider_, LV_RADIUS_CIRCLE, part);
-    lv_obj_set_style_bg_color(fontSlider_, lv_color_hex(part == LV_PART_MAIN ? theme::palette().border :
-                                                     part == LV_PART_KNOB ? theme::palette().text : theme::palette().accent), part);
+  int y=lv_obj_get_y(description)+lv_obj_get_height(description)+uiMetrics_.dp(10);
+  fontPercentLabel_=label(pageContent_,"",left,y,width,uiMetrics_.fontSize(UiFont::SettingsTitle));
+  lv_obj_set_style_text_align(fontPercentLabel_,LV_TEXT_ALIGN_CENTER,0);
+  y+=font(uiMetrics_.fontSize(UiFont::SettingsTitle))->line_height+uiMetrics_.dp(16);
+  fontSlider_=lv_slider_create(pageContent_);lv_obj_remove_style_all(fontSlider_);
+  const int inset=uiMetrics_.dp(22);
+  lv_obj_set_pos(fontSlider_,left+inset,y);lv_obj_set_size(fontSlider_,std::max(1,width-2*inset),uiMetrics_.dp(16));
+  lv_obj_set_ext_click_area(fontSlider_,uiMetrics_.dp(16));lv_slider_set_range(fontSlider_,15,30);
+  for(auto part:{LV_PART_MAIN,LV_PART_INDICATOR,LV_PART_KNOB}) {
+    lv_obj_set_style_bg_opa(fontSlider_,LV_OPA_COVER,part);lv_obj_set_style_radius(fontSlider_,LV_RADIUS_CIRCLE,part);
+    lv_obj_set_style_bg_color(fontSlider_,lv_color_hex(part==LV_PART_MAIN?theme::palette().border:
+        part==LV_PART_KNOB?theme::palette().text:theme::palette().accent),part);
   }
-  lv_obj_set_style_pad_all(fontSlider_, uiMetrics_.dp(7), LV_PART_KNOB);
-  lv_obj_add_event_cb(fontSlider_, [](lv_event_t *event) {
-    auto app = static_cast<App *>(lv_event_get_user_data(event));
-    app->updateFontPreview(lv_slider_get_value(app->fontSlider_) * 5);
-  }, LV_EVENT_VALUE_CHANGED, this);
-  fontPreview_ = label(pageContent_, "文字大小预览 Aa 123\n让阅读更轻松，按自己的习惯调整。",
-                        uiMetrics_.dp(10), uiMetrics_.dp(104)+extra, width - uiMetrics_.dp(20), readingFontSize());
-  updateFontPreview(readingFontDraft_);
+  lv_obj_set_style_pad_all(fontSlider_,uiMetrics_.dp(7),LV_PART_KNOB);
+  lv_obj_add_event_cb(fontSlider_,[](lv_event_t *event) {
+    auto app=static_cast<App *>(lv_event_get_user_data(event));
+    if(app->fontRequest_.empty())app->updateFontPreview(lv_slider_get_value(app->fontSlider_)*5);
+  },LV_EVENT_VALUE_CHANGED,this);
+  fontControls_.push_back(fontSlider_);
+  y+=uiMetrics_.dp(30);
+  auto minimum=label(pageContent_,"75%",left,y,width/2,uiMetrics_.fontSize(UiFont::FormNote),theme::palette().muted);
+  auto maximum=label(pageContent_,"150%",left+width/2,y,width/2,uiMetrics_.fontSize(UiFont::FormNote),theme::palette().muted);
+  lv_obj_set_style_text_align(maximum,LV_TEXT_ALIGN_RIGHT,0);
+  y+=font(uiMetrics_.fontSize(UiFont::FormNote))->line_height+uiMetrics_.dp(12);
+  (void)minimum;
+  fontStatus_=label(pageContent_,"",left,y,width,uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);
+  y+=uiMetrics_.dp(24);
+  fontPreview_=label(pageContent_,"文字大小预览 Aa 123\n菜单、输入和阅读使用同一字号偏好。",left,y,width,readingFontSize());
+  updateFontPreview(readingFontDraft_);fontSizeBusy(!fontRequest_.empty());
 }
 void App::reasoningDisplayPicker() {
   choiceMenu("reasoning_display", {{"collapsed","不展开"},{"during","思考完毕后收起"},{"always","始终展开"}},
@@ -2325,6 +2354,7 @@ void App::reasoningDisplayPicker() {
 void App::goBack() {
   if(!themeRequest_.empty()||!refreshRequest_.empty())return;
   if(view_=="ui_scale"&&!uiScaleRequest_.empty())return;
+  if(view_=="font_size"&&!fontRequest_.empty())return;
   if (view_ == "web_source") {
     show("web_details");
     return;
@@ -2461,7 +2491,7 @@ void App::cameraPage() {
     lv_obj_set_style_bg_color(control,lv_color_hex(theme::palette().surface),LV_STATE_PRESSED);
     const bool stacked=area.height>=64;
     auto visual=control;
-    const int visualWidth=layout().portrait()?72:area.width;
+    const int visualWidth=layout().portrait()?uiMetrics_.dp(72):area.width;
     if(layout().portrait()) {
       // Rotate a square visual, never the larger hit area. All four turns stay
       // inside the same safe bottom row, including captions and their baselines.
@@ -2472,9 +2502,11 @@ void App::cameraPage() {
     auto mark=box(visual,stacked?(visualWidth-uiMetrics_.dp(28))/2:uiMetrics_.dp(6),stacked?uiMetrics_.dp(4):(area.height-uiMetrics_.dp(28))/2,uiMetrics_.dp(28),uiMetrics_.dp(28));
     lv_obj_set_style_bg_opa(mark,LV_OPA_TRANSP,0);lv_obj_set_scrollable(mark,false);lv_obj_set_clickable(mark,false);
     attachIcon(mark,name,theme::palette().text, 1.f, uiMetrics_);
-    auto caption=label(visual,title,stacked?uiMetrics_.dp(2):uiMetrics_.dp(36),stacked?uiMetrics_.dp(40):(area.height-uiMetrics_.dp(24))/2,
-      visualWidth-(stacked?uiMetrics_.dp(4):uiMetrics_.dp(40)),uiMetrics_.fontSize(stacked?UiFont::Detail:UiFont::FieldTitle),theme::palette().muted);
-    lv_obj_set_height(caption,uiMetrics_.dp(24));lv_label_set_long_mode(caption,LV_LABEL_LONG_DOT);
+    const int captionSize=uiMetrics_.fontSize(stacked?UiFont::Detail:UiFont::FieldTitle);
+    const int captionHeight=std::max(uiMetrics_.dp(24),int(font(captionSize)->line_height));
+    auto caption=label(visual,title,stacked?uiMetrics_.dp(2):uiMetrics_.dp(36),stacked?uiMetrics_.dp(40):(area.height-captionHeight)/2,
+      visualWidth-(stacked?uiMetrics_.dp(4):uiMetrics_.dp(40)),captionSize,theme::palette().muted);
+    lv_obj_set_height(caption,captionHeight);lv_label_set_long_mode(caption,LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);
     lv_obj_set_clickable(caption,false);
   };
@@ -2754,12 +2786,48 @@ void App::cancelNativeInteraction() {
   systemEdgeDown_=systemEdgeGesture_=false;
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
   navigationBackdrop_ = navigationPointerDown_ = false;
+  // The cancelled contact may have started while a popup snapshot was retiring.
+  // Its release is rejected after focus loss, so do not carry release absorption
+  // into the next independently focused contact.
+  popupConsumeTouch_ = contextMenuOpening_ = false;
   resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
   finishImageGesture(false); nonImageMulti_ = false; viewerLastTap_ = 0;
   if (imageViewer_ || view_ == "crop") imageGesture_.mode = -2;
   // A short input-heartbeat gap cancels fingers/keys, not an OCR stroke.
   // Media has a separate lease and explicit focus loss still revokes it.
   if (editor_.active) editorInterrupt(!inputFocused_);
+}
+void App::recordInputFocus(InputFocusTrace::Reason reason, bool value, uint64_t sequence) {
+  InputFocusTrace::Entry entry;
+  entry.time=ticks();const auto state=inputFocus_.snapshot(entry.time);
+  entry.reason=reason;entry.value=value;entry.eventSequence=sequence;
+  entry.required=state.required;entry.active=state.active;entry.sequence=state.sequence;entry.age=state.age;
+  entry.page=pageVisible_;entry.window=windowFocused_;entry.official=keyboard_;entry.touch=touchLeaseActive_;
+  unsigned bit=1;
+  for(const char *key:{"window_api","window_valid","app_focused","panel_api","panel_available","panel_supported","panel_visible"}) {
+    const auto found=systemOverlayStatus_.find(key);
+    if(found!=systemOverlayStatus_.end()&&found->is_boolean()) {
+      entry.overlayKnown|=bit;if(found->get<bool>())entry.overlayValues|=bit;
+    }
+    bit<<=1;
+  }
+  inputFocusTrace_.record(entry);
+}
+Json App::inputFocusDiagnostics() const {
+  Json rows=Json::array();
+  const char *reasons[]={"input_focus_applied","window_focus_received_before_apply","overlay_status_applied","touch_lease_applied_before_cancel"};
+  for(size_t i=0;i<inputFocusTrace_.size();++i) {
+    const auto &entry=inputFocusTrace_.at(i);
+    Json overlay=Json::object();unsigned bit=1;
+    for(const char *key:{"window_api","window_valid","app_focused","panel_api","panel_available","panel_supported","panel_visible"}) {
+      overlay[key]=(entry.overlayKnown&bit)?Json(bool(entry.overlayValues&bit)):Json();bit<<=1;
+    }
+    rows.push_back({{"time",entry.time},{"reason",reasons[entry.reason]},{"event_value",entry.value},
+      {"event_sequence",entry.eventSequence},{"focus_sequence",entry.sequence},{"lease_age_ms",entry.age},
+      {"focus_required",entry.required},{"focus_active",entry.active},{"page_visible",entry.page},
+      {"window_focused",entry.window},{"official_keyboard",entry.official},{"touch_lease",entry.touch},{"overlay",overlay}});
+  }
+  return {{"capacity",uint64_t(InputFocusTrace::Capacity)},{"total",inputFocusTrace_.total()},{"entries",rows}};
 }
 void App::updateInputFocus() {
   const auto now=ticks();
@@ -2783,6 +2851,7 @@ void App::updateInputFocus() {
   const bool touch=permission.input;
   if(touchLeaseActive_==touch)return;
   touchLeaseActive_=touch;
+  recordInputFocus(InputFocusTrace::TouchApplied,touch);
   if(!touch)cancelNativeInteraction();
   else if(editor_.active){
     editorPolicy(!editorSelectionOnly_);
@@ -3027,7 +3096,7 @@ void App::handle(const Json &m) {
     for (size_t i = 0; i < names.size(); ++i) {
       const int x = 8 + int(i % 11) * 86, y = 8 + int(i / 11) * 126;
       auto object = icon(screenObj_, names[i], x + 19, y, 48, 48, {}, theme::palette().surface);
-      label(screenObj_, names[i], x, y + 53, 84, 12, theme::palette().muted);
+      label(screenObj_, names[i], x, y + 53, 84, uiMetrics_.sp(12), theme::palette().muted);
       auto small =
           icon(screenObj_, names[i], x + 29, y + 76, 28, 28, {}, theme::palette().surface);
       if (i % 3 == 0)
@@ -3056,8 +3125,13 @@ void App::handle(const Json &m) {
   if (m.value("generation", bridge_.generation()) != bridge_.generation())
     return;
   if(type == "input.focus") {
-    if(inputFocus_.update(m.value("sequence",uint64_t(0)),m.value("active",false),ticks()))
+    const auto before=inputFocus_.snapshot(ticks());
+    if(inputFocus_.update(m.value("sequence",uint64_t(0)),m.value("active",false),ticks())) {
+      const auto after=inputFocus_.snapshot(ticks());
+      if(before.required!=after.required||before.active!=after.active)
+        recordInputFocus(InputFocusTrace::InputApplied,after.active,after.sequence);
       updateInputFocus();
+    }
     return;
   }
   if(type=="update.install.result") {updater_->request("install_result",m);return;}
@@ -3106,11 +3180,16 @@ void App::handle(const Json &m) {
     suspend(!m.value("visible", false));
   else if(type=="window.focus") {
     const auto sequence=m.value("sequence",uint64_t(0));
-    if(sequence>windowFocusSequence_){windowFocusSequence_=sequence;windowFocus(m.value("focused",false));}
+    if(sequence>windowFocusSequence_){recordInputFocus(InputFocusTrace::WindowReceived,m.value("focused",false),sequence);windowFocusSequence_=sequence;windowFocus(m.value("focused",false));}
   }
   else if(type=="system.overlay.status") {
+    bool changed=false;
     for(const char *key:{"window_api","window_valid","app_focused","panel_api","panel_available","panel_supported","panel_visible"})
-      if(m.contains(key)&&m[key].is_boolean())systemOverlayStatus_[key]=m[key];
+      if(m.contains(key)&&m[key].is_boolean()) {
+        if(!systemOverlayStatus_.contains(key)||systemOverlayStatus_[key]!=m[key])changed=true;
+        systemOverlayStatus_[key]=m[key];
+      }
+    if(changed)recordInputFocus(InputFocusTrace::OverlayApplied,false);
   }
   else if(type=="keyboard.layout" || type=="keyboard.change") {
     if(!keyboard_||!officialDocked_||m.value("requestId",std::string())!=keyboardId_)return;
@@ -3211,6 +3290,7 @@ void App::tick() {
     if(saved.data.value("key",std::string())=="ui_refresh_hz"){refreshRateSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="theme_mode"){themeSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="ui_scale_percent"){uiScaleSaved(saved);continue;}
+    if(saved.data.value("key",std::string())=="reading_font_percent"){fontSizeSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="onboarding"){onboardingSaved(saved);continue;}
     if (saved.type == "message_saved") {
       const auto session = saved.data.value("session", std::string());
@@ -3247,6 +3327,7 @@ void App::tick() {
   refreshRateTick();
   themeTick();
   uiScaleTick();
+  fontSizeTick();
   editorTick();
   readTick();
   if (afterScanRelease_ && scanner_.released()) {
@@ -3451,12 +3532,7 @@ void App::tick() {
     } else if (e.type == "ui_scale_save") {
       saveUiScale();
     } else if (e.type == "reading_font_apply" && view_ == "font_size") {
-      input_.cancel();
-      db_.setting("reading_font_percent", readingFontDraft_);
-      readingFontPercent_ = readingFontDraft_;
-      rich_.clearCache();
-      tableScrolls_.clear();
-      show("settings");
+      saveFontSize();
     } else if(e.type=="archive_page"&&view_=="archive_chat"&&e.data.value("id",std::string())==archiveReaderId_) {
       input_.cancel();archiveReaderOffset_=std::max(0,e.data.value("offset",0));build();
     } else if(e.type=="archive_open"&&view_=="archives") {
@@ -3683,6 +3759,9 @@ Json App::diagnostics() const {
   for(const auto &entry:historyCaptions_) {
     auto title=entry.second.title;auto time=entry.second.time;
     historyCaptions[entry.first]={{"title_bounds",bounds(title)},{"time_bounds",bounds(time)},
+       {"row_bounds",bounds(lv_obj_get_parent(title))},
+       {"title_line_height",lv_obj_get_style_text_font(title,LV_PART_MAIN)->line_height},
+       {"time_line_height",time?lv_obj_get_style_text_font(time,LV_PART_MAIN)->line_height:0},
        {"title_length",editLength(lv_label_get_text(title))},{"marquee",lv_label_get_long_mode(title)==LV_LABEL_LONG_MODE_SCROLL_CIRCULAR},
        {"time",time?lv_label_get_text(time):""}};
   }
@@ -3712,6 +3791,7 @@ Json App::diagnostics() const {
       {"layout_work",{{"form_batches",formLayoutBatches_},{"form_rows",formLayoutRows_}}},
       {"history_rows", historyRows},
       {"history_captions",historyCaptions},{"history_actions",historyActions},
+      {"presets_layout",presetsDiagnostic()},
       {"history_context", historyContextId_},
       {"title_busy", titleBusy_.load()},
       {"title_pending", titleJobs_.size()},
@@ -3720,6 +3800,7 @@ Json App::diagnostics() const {
       {"generation", bridge_.generation()},
       {"pid", getpid()},
       {"touch", lastTouch_},
+      {"input_focus_trace",inputFocusDiagnostics()},
       {"view", view_},
       {"provider_protocol", providerForm_.is_object() ? providerForm_.value("api", std::string()) : std::string()},
       {"provider_workspace",{{"active",!providerWorkspaceId_.empty()},{"dirty",providerDirty()},
@@ -3910,13 +3991,26 @@ Json App::diagnostics() const {
         {"default_hz",refresh::defaultRate(screen_.width,screen_.height)},
         {"configured",refreshSaved_},{"pending",!refreshRequest_.empty()},
         {"ready",refreshReady_},{"changes",refreshChanges_},{"error",refreshError_}}},
+      {"render_timing",displayTimingInfo()},
+      {"surface_snapshot_timing",{{"count",surfaceSnapshotTiming().count},{"total_us",surfaceSnapshotTiming().totalUs},{"max_us",surfaceSnapshotTiming().maxUs}}},
       {"font_cache",fontCacheInfo()},
       {"reading_font", {{"percent", readingFontPercent_}, {"size", readingFontSize()},
-                        {"draft", readingFontDraft_}, {"slider", bounds(fontSlider_)},
+                        {"draft", readingFontDraft_},{"applied",uiMetrics_.textPercent()},
+                        {"pending",!fontRequest_.empty()},{"ready",fontReady_},{"error",!fontError_.empty()},
+                        {"changes",fontChanges_},
+                        {"roles",{{"body",uiMetrics_.fontSize(UiFont::Body)},
+                          {"button",uiMetrics_.fontSize(UiFont::Button)},
+                          {"title",uiMetrics_.fontSize(UiFont::PageTitle)},
+                          {"field_title",uiMetrics_.fontSize(UiFont::FieldTitle)},
+                          {"field_value",uiMetrics_.fontSize(UiFont::FieldValue)},
+                          {"composer",uiMetrics_.fontSize(UiFont::Composer)},
+                          {"detail",uiMetrics_.fontSize(UiFont::Detail)},
+                          {"tiny",uiMetrics_.fontSize(UiFont::Tiny)}}},
+                        {"slider", bounds(fontSlider_)},
                         {"preview", bounds(fontPreview_)}}},
       {"page", pageDiagnostic()},
       {"image_viewer", imageViewerDiagnostic()},
-      {"back_navigation", {{"root",navigationRoot()},{"sequence",backPolicySequence_},{"policy_ok",backPolicyOk_},{"blocked",backPolicyBlocked_},{"claimed",backClaimed_}}},
+      {"back_navigation", {{"root",navigationRoot()},{"sequence",backPolicySequence_},{"policy_ok",backPolicyOk_},{"blocked",backPolicyBlocked_},{"claimed",backClaimed_},{"edge",backGeometry(screen_.width,uiMetrics_).edge},{"slop",backGeometry(screen_.width,uiMetrics_).slop},{"distance",backGeometry(screen_.width,uiMetrics_).distance}}},
       {"scroll_bottom", body_ ? lv_obj_get_scroll_bottom(body_) : 0},
       {"composer_width", composer_ ? lv_obj_get_width(composer_) : 0},
       {"composer_hidden", !chatComposerVisible()},

@@ -41,7 +41,8 @@ def run(w,h):
             assert with_draft['estimated_tokens']>before['estimated_tokens'] and a.diag()['draft_length']==4
             # The ring itself retains the original 44px compression action.
             r=with_draft['ring'];a.tap((r[0]+r[2])//2,(r[1]+r[3])//2)
-            t.wait_for(lambda:checkpoint(p) is not None);wait_idle(a);a.tap(w-71,h-44)
+            t.wait_for(lambda:checkpoint(p) is not None);wait_idle(a)
+            assert a.diag()['view']=='context_summary' and not a.diag()['modal'];a.to_chat()
             after=menu(a);check(after);assert 0<after['value']<1000 and after['estimated_tokens']<with_draft['estimated_tokens']
             assert a.diag()['draft_length']==4;shot(a,f'context-ring-{w}-compressed')
             a.attachment_action('session_info');t.wait_for(lambda:not a.diag()['session_info_busy'] and a.diag()['session_info'])
@@ -49,8 +50,8 @@ def run(w,h):
             assert len(Server.requests)>=1 and all('PenChat_CONTEXT_COMPRESSION_V1' in json.dumps(r[1]) for r in Server.requests)
             a.tap(40,32)
             a.tap(40,168);assert not a.diag()['modal'] and a.diag()['view']=='chat'
-            a.attachment_action('summary');assert a.diag()['modal'];shot(a,f'context-summary-{w}-menu-only')
-            a.tap(w-71,h-44)
+            a.attachment_action('summary');assert a.diag()['view']=='context_summary' and not a.diag()['modal'];shot(a,f'context-summary-{w}-menu-only')
+            a.to_chat()
             for _ in range(5):
                 a.tap(128,h-34);a.tap(w-40,80);assert not a.diag()['attachments']
             time.sleep(.2);assert a.diag()['view']=='chat' and a.diag()['context_usage'] is None

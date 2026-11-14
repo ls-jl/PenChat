@@ -12,6 +12,12 @@ with tempfile.TemporaryDirectory(prefix='penchat-tables-') as directory:
         rows=app.diag()['table_rows'];assert len(rows)==5
         first=rows[0]['id'];second=rows[-1]['id'];assert first!=second
         assert len(set(r['width'] for r in rows if r['id']==first))==1
+        for _ in range(20):
+            rows=app.diag()['table_rows']
+            if any(r['id']==first and 5<=r['y']<=170 for r in rows):break
+            first_rows=[r for r in rows if r['id']==first]
+            app.settings_swipe(90 if max(r['y'] for r in first_rows)<5 else -90);time.sleep(.2)
+        else:raise AssertionError(('First table is unreachable',rows))
         y=next(r['y']+15 for r in rows if r['id']==first and 5<=r['y']<=170)
         for x in range(720,399,-20):
             app.send('touch',x=x,y=y,pressed=True);time.sleep(.02)

@@ -73,4 +73,6 @@ void shutdownFonts();
 // Call only after the display has finished drawing a frame, never from a glyph callback.
 void trimFontCache();
 Json fontCacheInfo();
+// UI-thread counters; no framebuffer capture or database work.
+Json displayTimingInfo();
 } // namespace penchat

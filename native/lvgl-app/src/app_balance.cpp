@@ -159,7 +159,7 @@ void App::balancePage() {
   const int left=uiMetrics_.dp(10),width=std::max(1,int(lv_obj_get_width(reader))-2*left);
   balanceDetailActions_.clear();
   auto text=[&](lv_obj_t *parent,const std::string &value,int size,uint32_t color) {
-    auto line=readableLabel(parent,value,0,0,width,uiMetrics_.dp(size),color);
+    auto line=readableLabel(parent,value,0,0,width,uiMetrics_.sp(size),color);
     lv_obj_set_style_margin_left(line,left,0);lv_obj_update_layout(line);return line;
   };
   int count=0;

@@ -20,6 +20,7 @@ def run(w,h):
    x=round(b[0]+(value-d['minimum'])*(b[2]-b[0])/(d['maximum']-d['minimum']))
    a.tap(x,(b[1]+b[3])//2);wait_for(lambda:a.diag()['pull_preferences']['draft']==value)
   def distance():
+   wait_for(lambda:not a.diag().get('surface_motion',False))
    a.send('touch',x=500,y=h-34,pressed=True);d=a.diag()
    a.send('touch',x=500,y=h-34,pressed=False,cancelled=True);time.sleep(.2)
    return d['pull_full_distance'],d

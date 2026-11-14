@@ -3,6 +3,7 @@
 import os,pathlib,signal,subprocess,tempfile,time
 import test_lvgl_app as t
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
+BUILD=pathlib.Path(os.environ.get('PENCHAT_TEST_BUILD_DIR',t.ROOT/'build/host'))
 OUT=t.ROOT/'.work/icons';OUT.mkdir(parents=True,exist_ok=True)
 for w,h in ((960,266),(936,280)):
     with tempfile.TemporaryDirectory(prefix='penchat-icon-pixels-') as folder:
@@ -12,6 +13,6 @@ for w,h in ((960,266),(936,280)):
             shot=p/'lvgl-diagnostic.png';t.wait_for(shot.exists)
             target=OUT/(str(w)+'-gear.png');target.write_bytes(shot.read_bytes())
             for x,y,size,dim in ((554,19,26,0),(557,88,20,1)):
-                subprocess.run([str(BINARY.parent/'penchat-icon-pixel-tests'),str(target),str(x),str(y),str(size),str(dim)],check=True)
+                subprocess.run([str(BUILD/'penchat-icon-pixel-tests'),str(target),str(x),str(y),str(size),str(dim)],check=True)
         finally:a.close()
 print('Gear icon: actual rendered normal/small/disabled pixels are symmetric and centered at both device sizes.')

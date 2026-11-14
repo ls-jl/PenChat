@@ -19,10 +19,12 @@ bool App::switchDraft(const std::string &next) {
 }
 void App::replyToast(const std::string &text) {
   const int width=std::min(screen_.width-uiMetrics_.dp(120),std::max(uiMetrics_.dp(140),int(editLength(text))*uiMetrics_.dp(20)+uiMetrics_.dp(32)));
-  auto toast=box(screenObj_,(screen_.width-width)/2,screen_.height-uiMetrics_.dp(116),width,uiMetrics_.dp(44),theme::palette().surface);
+  const int captionHeight=std::max(uiMetrics_.dp(24),int(font(uiMetrics_.fontSize(UiFont::FormNote))->line_height));
+  const int height=std::max(uiMetrics_.dp(44),captionHeight+uiMetrics_.dp(20));
+  auto toast=box(screenObj_,(screen_.width-width)/2,screen_.height-uiMetrics_.dp(72)-height,width,height,theme::palette().surface);
   lv_obj_set_scrollable(toast,false);lv_obj_set_clickable(toast,false);lv_obj_set_style_radius(toast,uiMetrics_.dp(16),0);
   auto caption=label(toast,text,uiMetrics_.dp(8),uiMetrics_.dp(10),width-uiMetrics_.dp(16),uiMetrics_.fontSize(UiFont::FormNote));lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(caption,uiMetrics_.dp(24));lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);lv_obj_delete_delayed(toast,1600);
+  lv_obj_set_height(caption,captionHeight);lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);lv_obj_delete_delayed(toast,1600);
 }
 void App::replyBar(lv_obj_t *parent,const Json &message,int width,bool question) {
   const auto id=message.at("id").get<std::string>(),session=session_;

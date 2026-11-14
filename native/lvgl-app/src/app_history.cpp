@@ -5,6 +5,13 @@
 #include "ui_motion.hpp"
 #include <algorithm>
 namespace penchat {
+namespace {
+int historyHeight(const UiMetrics &metrics) {
+  return std::max(metrics.dp(44),std::max(
+    int(font(metrics.fontSize(UiFont::SettingsTitle))->line_height)+metrics.dp(18),
+    int(font(metrics.fontSize(UiFont::Detail))->line_height)+metrics.dp(22)));
+}
+}
 void App::refreshChatTitle() {
   if (!chatTitle_) return;
   const auto info = db_.sessionInfo(session_);
@@ -139,10 +146,10 @@ void App::historyCaption(lv_obj_t *parent,const Json &session,int x,int y,int wi
   const bool show=!stamp.empty() && (mode!="title" || titleSize.x+uiMetrics_.dp(12)+timeSize.x<=width);
   const int titleWidth=std::max(1,width-(show?timeSize.x+uiMetrics_.dp(12):0));
   auto caption=label(parent,text,x,y,titleWidth,uiMetrics_.fontSize(UiFont::SettingsTitle));
-  lv_obj_set_height(caption,uiMetrics_.dp(26));
+  lv_obj_set_height(caption,std::max(uiMetrics_.dp(26),int(font(uiMetrics_.fontSize(UiFont::SettingsTitle))->line_height)));
   lv_label_set_long_mode(caption,mode=="time"?LV_LABEL_LONG_MODE_SCROLL_CIRCULAR:LV_LABEL_LONG_MODE_DOTS);
   lv_obj_t *time=nullptr;
-  if(show) {time=label(parent,stamp,x+width-timeSize.x,y+uiMetrics_.dp(2),timeSize.x,uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);lv_obj_set_height(time,uiMetrics_.dp(23));}
+  if(show) {time=label(parent,stamp,x+width-timeSize.x,y+uiMetrics_.dp(2),timeSize.x,uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);lv_obj_set_height(time,std::max(uiMetrics_.dp(23),int(font(uiMetrics_.fontSize(UiFont::Detail))->line_height)));}
   historyCaptions_[session["id"].get<std::string>()]={caption,time};
   auto owner=new std::pair<App *,std::string>(this,session["id"].get<std::string>());
   lv_obj_add_event_cb(caption,[](lv_event_t *e) {
@@ -155,7 +162,7 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
   const auto id = session["id"].get<std::string>();
   auto row = button(
       parent, "", 0, y,
-      width, uiMetrics_.dp(44),
+      width, historyHeight(uiMetrics_),
       [this, id] {
         if(replyBusy_||contextRegenerating_)return;
         if (longPressedSession_ == id)
@@ -356,7 +363,9 @@ void App::archivesPage() {
   for (const auto &session : sessions) {
     auto id = session["id"].get<std::string>();
     const int width=layout().contentWidth();
-    auto holder=box(pageContent_,uiMetrics_.dp(10),y,portrait?width:width-uiMetrics_.dp(350),uiMetrics_.dp(44));
+    const int captionHeight=historyHeight(uiMetrics_);
+    const int actionsY=portrait?y+captionHeight+uiMetrics_.dp(4):y;
+    auto holder=box(pageContent_,uiMetrics_.dp(10),y,portrait?width:width-uiMetrics_.dp(350),captionHeight);
     lv_obj_set_scrollable(holder,false);lv_obj_set_clickable(holder,true);
     historyCaption(holder,session,0,uiMetrics_.dp(9),portrait?width:width-uiMetrics_.dp(350));
     auto title=historyCaptions_[id].title;
@@ -372,20 +381,21 @@ void App::archivesPage() {
       if(code==LV_EVENT_LONG_PRESSED&&!p->held&&p->distance<=p->app->uiMetrics_.dp(12)*p->app->uiMetrics_.dp(12)){p->held=true;p->app->events_.push("history_details",{{"id",p->id}});}
       if(code==LV_EVENT_CLICKED&&!p->held&&p->distance<=p->app->uiMetrics_.dp(12)*p->app->uiMetrics_.dp(12))p->app->events_.push("archive_open",{{"id",p->id}});
     },LV_EVENT_ALL,data);
-    archiveViewButtons_[id]=button(pageContent_,"查看",portrait?uiMetrics_.dp(10):width-uiMetrics_.dp(330),portrait?y+uiMetrics_.dp(48):y,portrait?(width-uiMetrics_.dp(16))/3:uiMetrics_.dp(100),uiMetrics_.dp(44),[this,id]{events_.push("archive_open",{{"id",id}});});
+    archiveViewButtons_[id]=button(pageContent_,"查看",portrait?uiMetrics_.dp(10):width-uiMetrics_.dp(330),actionsY,portrait?(width-uiMetrics_.dp(16))/3:uiMetrics_.dp(100),uiMetrics_.dp(44),[this,id]{events_.push("archive_open",{{"id",id}});});
     if (id == archiveHighlight_)
       lv_obj_set_style_text_color(title, lv_color_hex(theme::palette().link), 0);
     historyRows_.push_back({id, title});
-    button(pageContent_, "还原", portrait?uiMetrics_.dp(18)+(width-uiMetrics_.dp(16))/3:width-uiMetrics_.dp(220), portrait?y+uiMetrics_.dp(48):y, portrait?(width-uiMetrics_.dp(16))/3:uiMetrics_.dp(100), uiMetrics_.dp(44), [this, id] {
+    button(pageContent_, "还原", portrait?uiMetrics_.dp(18)+(width-uiMetrics_.dp(16))/3:width-uiMetrics_.dp(220), actionsY, portrait?(width-uiMetrics_.dp(16))/3:uiMetrics_.dp(100), uiMetrics_.dp(44), [this, id] {
       db_.archiveSession(id, false);
       if (archiveOffset_ && db_.sessions(archiveOffset_, true).empty())
         archiveOffset_ = std::max(0, archiveOffset_ - 30);
       build();
     });
-    auto remove = button(pageContent_, "删除", portrait?uiMetrics_.dp(26)+2*((width-uiMetrics_.dp(16))/3):width-uiMetrics_.dp(110), portrait?y+uiMetrics_.dp(48):y, portrait?(width-uiMetrics_.dp(16))/3:uiMetrics_.dp(100), uiMetrics_.dp(44),
+    auto remove = button(pageContent_, "删除", portrait?uiMetrics_.dp(26)+2*((width-uiMetrics_.dp(16))/3):width-uiMetrics_.dp(110), actionsY, portrait?(width-uiMetrics_.dp(16))/3:uiMetrics_.dp(100), uiMetrics_.dp(44),
            [this, id] { retireSession(id, false); });
     lv_obj_set_style_text_color(lv_obj_get_child(remove, 0), lv_color_hex(theme::palette().danger), 0);
-    y += uiMetrics_.dp(portrait?106:52);
+    const int actionHeight=lv_obj_get_style_height(remove,LV_PART_MAIN);
+    y += portrait?captionHeight+actionHeight+uiMetrics_.dp(18):std::max(captionHeight,actionHeight)+uiMetrics_.dp(8);
   }
   if (archiveOffset_)
     button(pageContent_, "上一页", uiMetrics_.dp(10), y, uiMetrics_.dp(180), uiMetrics_.dp(44), [this] {

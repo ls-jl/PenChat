@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Exercise the actual native executable over its inherited launcher transport."""
-import contextlib, http.server, json, os, pathlib, signal, socket, sqlite3, subprocess, tempfile, threading, time
+import contextlib, http.server, json, os, pathlib, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 REPLY = '# 中文回答\n\n**重要**：$\\frac{1}{2}$\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n```cpp\nint answer = 42;\n```\n'
 class Server(http.server.BaseHTTPRequestHandler):
@@ -49,6 +49,10 @@ def wait_for(callback, timeout=10):
 
 class Native:
     def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True, screen=None, bridge_send_buffer=None, onboarding=False, ocr_prepare_adapter=True, ocr_capabilities=None, ui_scale_percent=None):
+        # Route legacy fixture call sites through the requested immutable app
+        # without replacing shared build products or explicit comparison builds.
+        if pathlib.Path(binary).resolve()==(ROOT/'build/host/penchat-lvgl').resolve():
+            binary=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',binary))
         self.pending=[]
         self.ocr_prepare_adapter=ocr_prepare_adapter
         self.official_adapter=official_adapter
@@ -107,11 +111,17 @@ class Native:
             if value.get('type')==kind:return value
             assert value.get('type')!='fatal',value
             self.pending.append(value)
-    def tap(self,x,y):
+    def tap(self,x,y,wait_motion=True):
+        # Normal fixture taps target a settled surface. Tests exercising input
+        # during a transition use raw touch packets; DB-lock fixtures opt out
+        # because diagnostic readers share the deliberately blocked worker.
+        if wait_motion:wait_for(lambda:not self.diag().get('surface_motion',False))
         self.send('touch',x=x,y=y,pressed=True);time.sleep(.06);self.send('touch',x=x,y=y,pressed=False);time.sleep(.08)
     def attachment_action(self,key):
         state=self.diag()
-        if not state['attachments']:self.tap(40 if state['height']>state['width'] else 128,state['height']-34)
+        if not state['attachments']:
+            bounds=state['attachment_button'];self.tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
+        time.sleep(.18) # The popup's 150ms presentation has independent motion.
         for _ in range(15):
             state=self.diag();b=state['attachment_actions'][key];v=state['attachment_viewport']
             if b[1]>=v[1] and b[3]<=v[3]:
@@ -153,24 +163,40 @@ class Native:
                 self.send('touch',x=x,y=start+(end-start)*step//6,pressed=True);time.sleep(.02)
             self.send('touch',x=x,y=end,pressed=False);time.sleep(.15)
         raise AssertionError('History action unreachable: '+key)
-    def long_press(self,x,y,duration=.65):
+    def long_press(self,x,y,duration=.65,wait_motion=True):
+        if wait_motion:wait_for(lambda:not self.diag().get('surface_motion',False))
         self.send('touch',x=x,y=y,pressed=True);time.sleep(duration);self.send('touch',x=x,y=y,pressed=False);time.sleep(.08)
     def diag(self):
         self.send('diagnostic');return self.receive('diagnostic')
     def to_chat(self):
-        for _ in range(8):
+        for _ in range(30):
             state=self.diag()
-            if state['navigation_open']:
+            if state.get('context_menu',{}).get('kind')=='choice:provider_exit':
+                from choice_ui import select
+                select(self,'discard')
+            elif state['navigation_open']:
                 self.tap(state["width"]-20,80)
             elif state['view']=='chat':return
-            else:self.tap(48,48) if state['height']>state['width'] else self.tap(40,32)
+            elif state['height']>state['width'] and state['scroll_y']>0:
+                self.settings_swipe(state['height']//2)
+                wait_for(lambda:not (self.diag().get('page') or {}).get('scrolling',False))
+            else:
+                scale=state.get('ui_scale',{}).get('applied',100)
+                dp=lambda value:(value*scale+50)//100
+                if state['height']>state['width']:
+                    self.tap(state['screen_safety']['navigation_x']+max(44,dp(44))//2,state['safe_insets'][1]+dp(2)+max(44,dp(44))//2)
+                else:self.tap(dp(16)+max(44,dp(48))//2,dp(8)+max(44,dp(48))//2)
         raise AssertionError('Cannot return to chat')
     def open_navigation(self):
-        self.to_chat();wait_for(lambda:not self.diag().get('surface_motion',False));self.tap(40,32)
+        self.to_chat();wait_for(lambda:not self.diag().get('surface_motion',False));state=self.diag()
+        scale=state.get('ui_scale',{}).get('applied',100);dp=lambda value:(value*scale+50)//100
+        if state['height']>state['width']:
+            self.tap(state['screen_safety']['navigation_x']+max(44,dp(48))//2,state['safe_insets'][1]+max(44,dp(48))//2)
+        else:self.tap(dp(16)+max(44,dp(48))//2,dp(8)+max(44,dp(48))//2)
         wait_for(lambda:not self.diag().get('surface_motion',False))
         assert self.diag()['navigation_open']
     def open_settings(self):
-        self.open_navigation();state=self.diag();self.tap(state["width"]*2//3-70,state["height"]-30)
+        self.open_navigation();state=self.diag();bounds=state['navigation_footer']['settings']['bounds'];self.tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
         assert self.diag()['view']=='settings'
     def settings_swipe(self, delta):
         start=220 if delta<0 else 75
@@ -212,6 +238,16 @@ class Native:
         self.send('keyboard.result',requestId=request['requestId'],confirmed=True,text=value)
         wait_for(lambda:not self.diag()['keyboard'])
     def close(self):
+        if sys.exc_info()[0] is not None and self.process.poll() is None:
+            # Keep failed real-process screens outside Git before temporary
+            # fixture directories are removed. Evidence must not mask failure.
+            with contextlib.suppress(Exception):
+                output=ROOT/'.work/test-failures'/pathlib.Path(sys.argv[0]).stem/self.directory.name
+                output.mkdir(parents=True,exist_ok=True)
+                shot=self.directory/'lvgl-diagnostic.png';shot.unlink(missing_ok=True)
+                self.process.send_signal(signal.SIGUSR1);wait_for(shot.exists,timeout=1)
+                (output/'screen.png').write_bytes(shot.read_bytes())
+                (output/'runtime.log').write_bytes((self.directory/'runtime.log').read_bytes())
         self.parent.close()
         assert self.process.wait(timeout=8)==0,(self.process.returncode,self.directory,(self.directory/'runtime.log').read_text(errors='replace')[-12000:])
         self.log.close()
@@ -262,30 +298,32 @@ if __name__ == '__main__':
                 wait_for(lambda:(directory/'lvgl-diagnostic.png').exists())
                 (artifacts/f'{model}-{api}.png').write_bytes((directory/'lvgl-diagnostic.png').read_bytes())
                 if model=='fixture' and api=='responses':
-                    app.open_settings();app.setting("models");app.tap(790,30);app.tap(250,120)
+                    from provider_ui import activate as provider_control, back as provider_back
+                    from choice_ui import select as choose
+                    app.open_settings();app.setting("models");provider_control(app,'添加 Provider');provider_control(app,'field:apiKey')
                     request=app.receive('keyboard.open')
                     assert request['inputType']=='EnUSOnly' and request['maxlength']==4096
                     dummy_key='sk-'+'0123456789abcdef'*2
                     app.send('keyboard.result',requestId=request['requestId'],confirmed=True,text=dummy_key)
                     wait_for(lambda:not app.diag()['keyboard'])
-                    app.tap(250,120);request=app.receive('keyboard.open')
+                    provider_control(app,'field:apiKey');request=app.receive('keyboard.open')
                     assert request['text']==dummy_key
                     app.send('keyboard.result',requestId=request['requestId'],confirmed=False,text='')
                     wait_for(lambda:not app.diag()['keyboard'])
-                    app.tap(40,32)  # discard the unsaved new Provider
+                    provider_back(app);choose(app,'discard')
                     with sqlite3.connect(directory/'penchat.db') as db:
                         original=db.execute('select id,api_key from providers').fetchone()
                         original_model=db.execute('select id from model_configs where is_default=1').fetchone()[0]
-                    app.tap(870,70);app.tap(250,120);request=app.receive('keyboard.open')
+                    provider_control(app,'provider-open:'+original[0]);provider_control(app,'field:apiKey');request=app.receive('keyboard.open')
                     assert request['text']==original[1]
                     app.send('keyboard.result',requestId=request['requestId'],confirmed=True,text=dummy_key)
-                    wait_for(lambda:not app.diag()['keyboard']);app.tap(870,24)
+                    wait_for(lambda:not app.diag()['keyboard']);provider_control(app,'provider-save-bottom')
                     with sqlite3.connect(directory/'penchat.db') as db:
                         assert db.execute('select id,api_key from providers').fetchall()==[(original[0],dummy_key)]
                         assert db.execute('select id from model_configs where is_default=1').fetchone()[0]==original_model
                     # Key OCR is part of the common native editor and still requires Provider Save.
                     app.official_adapter=False
-                    app.tap(870,70);app.tap(250,120)
+                    provider_control(app,'field:apiKey')
                     scan=app.receive('ocr.start')
                     while scan['requestId']!=app.diag()['editor']['ocr_request']:scan=app.receive('ocr.start')
                     app.send('ocr.result',requestId='stale',session=scan['session'],mode='single',capture=1,confirmed=True,text='must-not-arrive')
@@ -293,14 +331,14 @@ if __name__ == '__main__':
                     app.send('ocr.result',requestId=scan['requestId'],session=scan['session'],mode='single',capture=1,confirmed=True,text='-ocr-fixture')
                     wait_for(lambda:app.diag()['editor']['length']==before+12)
                     with sqlite3.connect(directory/'penchat.db') as db:assert db.execute('select api_key from providers').fetchone()[0]==dummy_key
-                    app.tap(880,236)
+                    app.editor_action('done')
                     with sqlite3.connect(directory/'penchat.db') as db:assert db.execute('select api_key from providers').fetchone()[0]==dummy_key
-                    app.tap(870,24)
+                    provider_control(app,'provider-save-bottom')
                     with sqlite3.connect(directory/'penchat.db') as db:assert db.execute('select id,api_key from providers').fetchall()==[(original[0],dummy_key+'-ocr-fixture')]
-                    app.tap(870,70);app.tap(250,120)
+                    provider_control(app,'field:apiKey')
                     scan=app.receive('ocr.start')
                     while scan['requestId']!=app.diag()['editor']['ocr_request']:scan=app.receive('ocr.start')
-                    app.tap(630,236)
+                    app.editor_action('cancel')
                     app.send('ocr.result',requestId=scan['requestId'],session=scan['session'],mode='single',capture=2,confirmed=True,text='late')
                     assert not app.diag()['editor']['active'] and not app.diag()['ocr']
                 results.append({'model':model,'api':api,'status':assistant[1]})

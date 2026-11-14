@@ -26,10 +26,12 @@ def check_reason(a,w,tag):
 
 def history(a):
     d=a.diag()
-    if d['navigation_open']:return
+    if d['navigation_open']:
+        t.wait_for(lambda:not a.diag().get('surface_motion',False));return
     x=d['safe_insets'][0]+24 if d['height']>d['width'] else 40
     y=d['safe_insets'][1]+24 if d['height']>d['width'] else 32
     a.tap(x,y);t.wait_for(lambda:a.diag()['navigation_open'])
+    t.wait_for(lambda:not a.diag().get('surface_motion',False))
 
 for w,h in [(960,266),(640,260),(568,1210)]:
     with tempfile.TemporaryDirectory(prefix='penchat-chat-controls-') as folder:

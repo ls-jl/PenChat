@@ -17,8 +17,7 @@ for w,h in [(640,260),(960,266)]:
                    official_adapter=False,screen={'width':w,'height':h,'direction':0})
         try:
             def action(name):
-                e=a.diag()['editor'];x1,y1,x2,y2=e['actions'][name];c=e['coordinate_space']
-                a.tap(round((x1+x2)*w/(2*c['width'])),round((y1+y2)*h/(2*c['height'])))
+                a.editor_action(name)
             text='\n你好\n\n第二段 text\r\n'
             a.tap(w//2,h-34);t.wait_for(lambda:a.diag()['editor']['active'])
             t.wait_for(lambda:bool(a.diag()['editor']['actions']))

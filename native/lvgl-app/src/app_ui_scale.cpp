@@ -73,7 +73,7 @@ void App::updateUiScalePreview(int percent) {
   if(uiScaleSlider_)lv_slider_set_value(uiScaleSlider_,uiScaleDraft_,LV_ANIM_OFF);
   if(uiScaleCaption_)lv_label_set_text(uiScaleCaption_,(std::to_string(uiScaleDraft_)+"%").c_str());
   if(!uiScalePreview_)return;
-  const UiMetrics preview(100,uiScaleDraft_);
+  const UiMetrics preview(100,uiScaleDraft_,uiMetrics_.textPercent());
   lv_obj_clean(uiScalePreview_);lv_obj_set_style_radius(uiScalePreview_,preview.dp(12),0);
   lv_obj_update_layout(uiScalePreview_);
   const int inset=preview.dp(12),width=std::max(1,int(lv_obj_get_width(uiScalePreview_))-2*inset);
@@ -114,13 +114,59 @@ void App::uiScaleTick() {
   const bool changed=uiMetrics_.scalePercent()!=uiScaleSaved_;
   uiScaleReady_=false;uiScaleRequest_.clear();
   if(changed) {
-    clear();uiMetrics_=UiMetrics(100,uiScaleSaved_);rich_.setMetrics(uiMetrics_);
+    clear();uiMetrics_=UiMetrics(100,uiScaleSaved_,readingFontPercent_);rich_.setMetrics(uiMetrics_);
     editorLayoutCache_.reset();++uiScaleChanges_;
     scaleAnchor_.pending=scaleAnchor_.session==session_&&!scaleAnchor_.following;
   }
   show("settings");sendAppearance();
   auto row=settingsControls_.find("ui_scale");
   if(row!=settingsControls_.end()) {
+    lv_obj_update_layout(screenObj_);
+    lv_area_t item,viewport;lv_obj_get_coords(row->second.row,&item);lv_obj_get_coords(body_,&viewport);
+    const int scroll=lv_obj_get_scroll_y(body_);
+    const int maximum=std::max(0,scroll+int(lv_obj_get_scroll_bottom(body_)));
+    lv_obj_scroll_to_y(body_,std::max(0,std::min(maximum,scroll+item.y1-viewport.y1-uiMetrics_.dp(8))),LV_ANIM_OFF);
+    lv_obj_update_layout(body_);settingsScroll_=lv_obj_get_scroll_y(body_);
+  }
+}
+void App::fontSizeBusy(bool busy) {
+  for(auto object:fontControls_) {
+    if(busy)lv_obj_add_state(object,LV_STATE_DISABLED);else lv_obj_remove_state(object,LV_STATE_DISABLED);
+  }
+  if(fontStatus_) {
+    lv_label_set_text(fontStatus_,busy?"正在保存…":fontError_.c_str());
+    lv_obj_update_layout(fontStatus_);
+    if(fontPreview_)lv_obj_set_y(fontPreview_,lv_obj_get_y(fontStatus_)+
+        std::max(uiMetrics_.dp(24),int(lv_obj_get_height(fontStatus_))+uiMetrics_.dp(10)));
+  }
+}
+void App::saveFontSize() {
+  if(view_!="font_size"||!visible_||!inputFocused_||!fontRequest_.empty()||editor_.active||keyboard_)return;
+  input_.cancel();touchDown_=false;
+  fontError_.clear();fontRequest_=uid("font-size");fontSizeBusy(true);
+  db_.queueSetting("reading_font_percent",readingFontDraft_,fontRequest_);
+}
+void App::fontSizeSaved(const Event &event) {
+  if(fontRequest_.empty()||event.data.value("request",std::string())!=fontRequest_)return;
+  if(event.type=="setting_error") {
+    fontRequest_.clear();fontError_="未能保存，本次调整未生效。请检查存储空间后重试。";fontSizeBusy(false);return;
+  }
+  if(event.type=="setting_saved")fontReady_=true;
+}
+void App::fontSizeTick() {
+  if(!fontReady_||!visible_||!inputFocused_||!inputFocus_.allowed(ticks())||keyboard_||editor_.active||touchDown_)return;
+  input_.cancel();resetBack();resetPull();readReset();composerShortcut_.pause();
+  composerTapAllowed_=pullTrackActivity_=false;
+  const bool changed=uiMetrics_.textPercent()!=readingFontDraft_;
+  fontReady_=false;fontRequest_.clear();readingFontPercent_=readingFontDraft_;
+  if(changed) {
+    clear();uiMetrics_=UiMetrics(uiMetrics_.densityPercent(),uiMetrics_.scalePercent(),readingFontPercent_);
+    rich_.setMetrics(uiMetrics_);tableScrolls_.clear();editorLayoutCache_.reset();++fontChanges_;
+    scaleAnchor_.pending=scaleAnchor_.session==session_&&!scaleAnchor_.following;
+  }
+  show("settings");sendAppearance();
+  auto row=settingsControls_.find("font_size");
+  if(changed&&row!=settingsControls_.end()) {
     lv_obj_update_layout(screenObj_);
     lv_area_t item,viewport;lv_obj_get_coords(row->second.row,&item);lv_obj_get_coords(body_,&viewport);
     const int scroll=lv_obj_get_scroll_y(body_);

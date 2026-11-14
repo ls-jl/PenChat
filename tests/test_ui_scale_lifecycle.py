@@ -6,11 +6,12 @@ from test_chat_style import seed
 from ui_scale_ui import open_settings,back,choose,save,tap
 
 t.port=1
+BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
 for w,h in [(960,266),(640,260),(568,1210)]:
     with tempfile.TemporaryDirectory(prefix='penchat-scale-anchor-') as folder:
         folder=pathlib.Path(folder)
         seed(folder,'\n\n'.join(f'第 {i} 段阅读锚点。中文和 English words 保持在同一阅读段落。'*4 for i in range(60)))
-        a=t.Native(t.ROOT/'build/host/penchat-lvgl',folder,official_adapter=False,screen={'width':w,'height':h})
+        a=t.Native(BINARY,folder,official_adapter=False,screen={'width':w,'height':h})
         try:
             # Move up from the actual bottom without entering pull-to-create.
             for _ in range(max(3,h//90+3) if h>w else 3):
@@ -34,7 +35,7 @@ for w,h in [(960,266),(640,260),(568,1210)]:
 # Hold the worker's write using a real SQLite lock, then hide the app before its
 # acknowledgement. No production test command or synthetic save event is needed.
 with tempfile.TemporaryDirectory(prefix='penchat-scale-focus-') as folder:
-    folder=pathlib.Path(folder);a=t.Native(t.ROOT/'build/host/penchat-lvgl',folder,seed_model=False)
+    folder=pathlib.Path(folder);a=t.Native(BINARY,folder,seed_model=False)
     try:
         open_settings(a);a.setting('ui_scale');choose(a,125)
         # Reveal Save before locking (page navigation is independent of storage).
@@ -43,7 +44,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-scale-focus-') as folder:
             a.settings_swipe(120)
         button=a.diag()['page']['actions']['保存']
         lock=sqlite3.connect(folder/'penchat.db');lock.execute('begin immediate')
-        tap(a,button);tap(a,button)
+        tap(a,button,wait_motion=False);tap(a,button,wait_motion=False)
         # Diagnostic includes DB queries; do not put it ahead of releasing the
         # real SQLite lock, otherwise the test itself would wait on the worker.
         a.send('window.focus',sequence=1,focused=False);time.sleep(.1)
@@ -72,7 +73,7 @@ class Stream(http.server.BaseHTTPRequestHandler):
         self.close_connection=True
 with http.server.ThreadingHTTPServer(('127.0.0.1',0),Stream) as server,tempfile.TemporaryDirectory(prefix='penchat-scale-stream-') as folder:
     threading.Thread(target=server.serve_forever,daemon=True).start();t.port=server.server_port
-    a=t.Native(t.ROOT/'build/host/penchat-lvgl',folder)
+    a=t.Native(BINARY,folder)
     try:
         a.edit('开始流式测试');a.tap(908,232);t.wait_for(lambda:a.diag()['generating'])
         a.edit('保留后续草稿')

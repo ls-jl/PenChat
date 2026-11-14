@@ -1,8 +1,24 @@
 #pragma once
 #include "ui_motion.hpp"
+#include <chrono>
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "src/core/lv_obj_draw_private.h"
 namespace penchat {
+struct SurfaceSnapshotTiming { uint64_t count=0,totalUs=0,maxUs=0; };
+inline SurfaceSnapshotTiming &surfaceSnapshotTiming() {static SurfaceSnapshotTiming value;return value;}
+
+// The viewport must not overwrite an entrance translation with dismissal=0.
+inline bool surfaceEntering(lv_obj_t *object) {
+  if(!object)return false;
+  for(uint32_t i=0;i<lv_obj_get_event_count(object);++i) {
+    auto event=lv_obj_get_event_dsc(object,i);
+    if(lv_event_dsc_get_cb(event)==motion::owner) {
+      auto state=static_cast<motion::State *>(lv_event_dsc_get_user_data(event));
+      return state->closing;
+    }
+  }
+  return false;
+}
 // Slide detached pixels on exit; never retain editor callbacks or field pointers.
 class SurfaceSnapshot {
   lv_draw_buf_t *buffer_=nullptr;
@@ -22,7 +38,10 @@ public:
     pivotY_=lv_obj_get_style_transform_pivot_y(object,LV_PART_MAIN)+extra;
     lv_obj_get_coords(object,&area_);
     area_.x1-=extra+x_;area_.y1-=extra+y_;
+    const auto started=std::chrono::steady_clock::now();
     buffer_=lv_snapshot_take(object,LV_COLOR_FORMAT_ARGB8888);
+    const auto elapsed=uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-started).count());
+    auto &timing=surfaceSnapshotTiming();++timing.count;timing.totalUs+=elapsed;timing.maxUs=std::max(timing.maxUs,elapsed);
   }
   ~SurfaceSnapshot(){if(buffer_)lv_draw_buf_destroy(buffer_);}
   SurfaceSnapshot(const SurfaceSnapshot &)=delete;

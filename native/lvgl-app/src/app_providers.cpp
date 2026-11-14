@@ -85,7 +85,7 @@ void App::providerPage() {
                               });
     pageActions_["field:" + key] = object;
   };
-  const int connectionHeight = uiMetrics_.identity()?uiMetrics_.dp(48):fieldMetrics(uiMetrics_).height;
+  const int connectionHeight = (uiMetrics_.identity()&&uiMetrics_.textPercent()==100)?uiMetrics_.dp(48):fieldMetrics(uiMetrics_).height;
   const int secondY = uiMetrics_.dp(4)+connectionHeight+uiMetrics_.dp(6);
   const int optionsY = secondY+connectionHeight+uiMetrics_.dp(16);
   field("name", "名称", uiMetrics_.dp(10), uiMetrics_.dp(4), column);
@@ -100,21 +100,22 @@ void App::providerPage() {
               uiMetrics_.dp(10), optionsY, width - uiMetrics_.dp(20), [this] { balanceVendorPicker(); });
   struct AdvancedSection { lv_obj_t *panel=nullptr, *footer=nullptr, *arrow=nullptr, *detail=nullptr; int top=0, expandedHeight=0; };
   auto section=std::make_shared<AdvancedSection>();
-  const bool singleColumn=layout().portrait()||layout().compact();
+  const bool singleColumn=layout().portrait()||layout().compact()||uiMetrics_.textPercent()>100;
   const int sectionInset=singleColumn?0:uiMetrics_.dp(10);
   const int sectionWidth=singleColumn?width:width-uiMetrics_.dp(20);
-  const int sectionPitch=singleColumn?uiMetrics_.settings().height+uiMetrics_.form().gap:uiMetrics_.form().settingsPitch;
+  const int sectionPitch=singleColumn?settingsRowHeight()+uiMetrics_.form().gap:uiMetrics_.form().settingsPitch;
+  const int settingsPitch=std::max(uiMetrics_.form().settingsPitch,settingsRowHeight()+uiMetrics_.form().settingsGap);
   settingsRow("provider_advanced", "更多连接选项",
               providerAdvanced_ ? "已展开 · 返回此页后仍需保存"
                                 : "默认推理强度、兼容模式与厂商适配",
-              uiMetrics_.dp(10), optionsY+uiMetrics_.form().settingsPitch, width - uiMetrics_.dp(20), [this,section] {
+              uiMetrics_.dp(10), optionsY+settingsPitch, width - uiMetrics_.dp(20), [this,section] {
                 providerAdvanced_ = !providerAdvanced_;
                 lv_label_set_text(section->detail,providerAdvanced_?"已展开 · 返回此页后仍需保存":"默认推理强度、兼容模式与厂商适配");
                 const bool expanded=providerAdvanced_;
                 motion::animate(section->panel,lv_obj_get_height(section->panel),expanded?section->expandedHeight:0,180,
                   [this,section](int height) {
                     lv_obj_set_height(section->panel,height);
-                    if(layout().portrait()||layout().compact())portraitPage();
+                    if(layout().portrait()||layout().compact()||uiMetrics_.textPercent()>100)portraitPage();
                     else lv_obj_set_y(section->footer,section->top+height);
                   });
                 if(section->arrow)motion::animate(section->arrow,disclosureProgress(section->arrow),expanded?1000:0,180,
@@ -122,7 +123,7 @@ void App::providerPage() {
               });
   section->detail=settingsControls_.at("provider_advanced").detail;
   section->arrow=settingsControls_.at("provider_advanced").indicator;
-  section->top=optionsY+2*uiMetrics_.form().settingsPitch;
+  section->top=optionsY+2*settingsPitch;
   auto originalContent=pageContent_;
   section->panel=box(originalContent,0,section->top,width,0);
   lv_obj_set_scrollable(section->panel,false);
@@ -237,7 +238,7 @@ Json App::draftModel(const Json &source) const {
   return model;
 }
 void App::providerModelsSection(int y,int width) {
-  const bool groupedColumn=lv_obj_has_flag(pageContent_,LV_OBJ_FLAG_USER_1)&&(layout().portrait()||layout().compact());
+  const bool groupedColumn=lv_obj_has_flag(pageContent_,LV_OBJ_FLAG_USER_1)&&(layout().portrait()||layout().compact()||uiMetrics_.textPercent()>100);
   auto list=box(pageContent_,groupedColumn?0:uiMetrics_.dp(10),y,width,LV_SIZE_CONTENT);
   lv_obj_set_scrollable(list,false);
   auto title=label(list,"模型",uiMetrics_.dp(10),uiMetrics_.dp(10),width-uiMetrics_.dp(180),uiMetrics_.fontSize(UiFont::SettingsTitle));
@@ -345,11 +346,11 @@ void App::providerModelsPage() {
       });
   pageActions_["models-manual"] = manual;
   const int fieldHeight = fieldMetrics(uiMetrics_).height;
-  const int fetchY = uiMetrics_.identity()?uiMetrics_.dp(94):uiMetrics_.dp(36)+fieldHeight+uiMetrics_.dp(10);
-  const int statusY = uiMetrics_.identity()?uiMetrics_.dp(154):fetchY+fieldHeight+uiMetrics_.dp(12);
+  const int fetchY = (uiMetrics_.identity()&&uiMetrics_.textPercent()==100)?uiMetrics_.dp(94):uiMetrics_.dp(36)+fieldHeight+uiMetrics_.dp(10);
+  const int statusY = (uiMetrics_.identity()&&uiMetrics_.textPercent()==100)?uiMetrics_.dp(154):fetchY+fieldHeight+uiMetrics_.dp(12);
   const int fetchWidth = std::min(uiMetrics_.dp(180), width);
   auto fetch = button(pageContent_, modelsBusy_ ? "正在获取…" : "获取模型列表", left, fetchY,
-                      fetchWidth, uiMetrics_.identity()?uiMetrics_.dp(48):fieldHeight, [this] { fetchModels(); });
+                      fetchWidth, (uiMetrics_.identity()&&uiMetrics_.textPercent()==100)?uiMetrics_.dp(48):fieldHeight, [this] { fetchModels(); });
   pageActions_["models-fetch"] = fetch;
   if (modelsBusy_)
     lv_obj_add_state(fetch, LV_STATE_DISABLED);
@@ -597,7 +598,7 @@ int App::modelIdentityFields() {
     build();
   };
   const auto geometry = layout();
-  const bool crowdedHeader = !uiMetrics_.identity() && geometry.portrait() &&
+  const bool crowdedHeader = (!uiMetrics_.identity()||uiMetrics_.textPercent()!=100) && geometry.portrait() &&
       geometry.bodyWidth()-uiMetrics_.dp(170)-uiMetrics_.dp(140)-geometry.navigationX() <
           geometry.navigationX()+uiMetrics_.page().navigationGap+uiMetrics_.page().minimumTitle;
   if (geometry.compact() || crowdedHeader) {

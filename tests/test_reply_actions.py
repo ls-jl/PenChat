@@ -52,15 +52,26 @@ def select_history(a,id):
 
 def read_clipboard(a):
     bottom(a);s=a.diag();w,h=s['width'],s['height'];a.tap(w//2,h-34)
-    t.wait_for(lambda:a.diag()['editor']['active']);a.tap(w-30,h-30)
-    t.wait_for(lambda:a.diag()['editor']['clipboard_open']);a.tap(w-240,100)
+    t.wait_for(lambda:a.diag()['editor']['active']);a.editor_action('clipboard')
+    t.wait_for(lambda:a.diag()['editor']['clipboard_open']);a.editor_action('clip-paste:0')
+    t.wait_for(lambda:not a.diag()['editor']['clipboard_open'])
     r=a.receive('keyboard.open');value=r['text']
     a.send('keyboard.result',requestId=r['requestId'],confirmed=False,text='')
-    t.wait_for(lambda:not a.diag()['editor']['active']);return value
+    # The caller may immediately send raw scroll packets. Let the closing
+    # editor's blocking pixel snapshot retire before those gestures begin.
+    t.wait_for(lambda:not a.diag()['editor']['active'] and not a.diag()['surface_motion']);return value
 
 def run_retry(w,h,api):
     from test_reply_choices import run
-    run(w,h,api)
+    # The themed fixture owns temporary feedback/update configuration files.
+    # Do not leave later Native instances pointing at its deleted directory.
+    keys=('PENCHAT_TEST_Y07_ROUNDED','PENCHAT_TEST_FEEDBACK_CONFIG','PENCHAT_TEST_UPDATE_CONFIG')
+    previous={key:os.environ.get(key) for key in keys}
+    try:run(w,h,api)
+    finally:
+        for key,value in previous.items():
+            if value is None:os.environ.pop(key,None)
+            else:os.environ[key]=value
 
 def run_branch(w,h):
     with http.server.ThreadingHTTPServer(('127.0.0.1',0),Server) as server,tempfile.TemporaryDirectory(prefix='penchat-branch-ui-') as tmp:

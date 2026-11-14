@@ -2,16 +2,10 @@
 import time
 import test_lvgl_app as t
 
-def tap(a,b):a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+def tap(a,b,wait_motion=True):a.tap((b[0]+b[2])//2,(b[1]+b[3])//2,wait_motion=wait_motion)
 def open_settings(a):
     d=a.diag();assert d['view']=='chat'
-    scale=d.get('ui_scale',{}).get('applied',100)
-    dp=lambda n:(n*scale+50)//100
-    x=d['screen_safety']['navigation_x'] if d['height']>d['width'] else dp(16)
-    y=d['safe_insets'][1] if d['height']>d['width'] else dp(8)
-    a.tap(x+max(44,dp(48))//2,y+max(44,dp(48))//2)
-    t.wait_for(lambda:a.diag()['navigation_open'])
-    tap(a,a.diag()['navigation_footer']['settings']['bounds'])
+    a.open_settings()
     t.wait_for(lambda:a.diag()['view']=='settings')
 def back(a):
     for _ in range(30):

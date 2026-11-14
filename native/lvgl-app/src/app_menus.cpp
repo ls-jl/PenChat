@@ -350,7 +350,7 @@ void App::historyDrawer() {
     auto row = historyRow(navigationList_, s, y, listWidth);
     if (id == session_)
       navigationActive_ = row;
-    y += uiMetrics_.dp(50);
+    y += lv_obj_get_style_height(row,LV_PART_MAIN)+uiMetrics_.dp(6);
   }
   if (historyOffset_ > 0)
     button(navigationList_, "上一页", 0, y, uiMetrics_.dp(160), uiMetrics_.dp(44), [this] {

@@ -12,7 +12,9 @@ def key(a,name):
     k=next(k for k in editor(a)['keys'] if k['key']==name);a.tap(k['x'],k['y'])
 def open_editor(a):
     s=a.diag();a.tap(s['width']//2,s['height']-34);t.wait_for(lambda:editor(a)['active'])
+    t.wait_for(lambda:not a.diag().get('surface_motion',False))
 def layout(a,name):
+    t.wait_for(lambda:not a.diag().get('surface_motion',False))
     k=next(k for k in editor(a)['keys'] if k['key']=='language')
     a.send('touch',x=k['x'],y=k['y'],pressed=True);time.sleep(.82)
     a.send('touch',x=k['x'],y=k['y'],pressed=False)

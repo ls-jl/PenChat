@@ -16,6 +16,25 @@ static std::vector<uint8_t> pixels(int w, int h) {
   return p;
 }
 static void regression() {
+  for (const auto size : {std::pair<int,int>{1,1},{3,5},{73,41},{568,1210}}) {
+    const int width=size.first,height=size.second;
+    const auto source=pixels(width,height);
+    // Deliberately unaligned input/output: copying four-byte pixels must not
+    // assume that caller-owned byte buffers are uint32_t aligned.
+    std::vector<uint8_t> input(source.size()+2,0x91), output(source.size()+2,0x63);
+    std::copy(source.begin(),source.end(),input.begin()+1);
+    for(int rotation:{0,180,-180,360,540}) {
+      require(camera::resampleRgbaViewport(input.data()+1,width,height,output.data()+1,
+        width,height,0,0,width,height,rotation),"exact viewport upload");
+      const bool reversed=((rotation%360+360)%360)==180;
+      for(int y=0;y<height;++y)for(int x=0;x<width;++x)for(int channel=0;channel<4;++channel) {
+        const int sx=reversed?width-1-x:x,sy=reversed?height-1-y:y;
+        require(output[1+(size_t(y)*width+x)*4+channel]==source[(size_t(sy)*width+sx)*4+channel],
+          "exact viewport rotation/color/alpha regression");
+      }
+      require(output.front()==0x63&&output.back()==0x63,"viewport guard bytes changed");
+    }
+  }
   const int w = 73, h = 41, dw = 101, dh = 89;
   const auto bgra = pixels(w, h);
   std::vector<uint8_t> rgba(bgra.size()), oldPath(dw*dh*4), direct(oldPath.size());

@@ -19,7 +19,9 @@ def layout(a,value):
 def official(a,confirmed=False,text=''):
  a.editor_action('official');r=a.receive('keyboard.open');a.send('keyboard.result',requestId=r['requestId'],confirmed=confirmed,text=text);time.sleep(.1);return r
 def export_text(a):return official(a)['text']
-def hold(a,x,y,duration=.52):a.send('touch',x=x,y=y,pressed=True);time.sleep(duration);a.send('touch',x=x,y=y,pressed=False);time.sleep(.12)
+def hold(a,x,y,duration=.52):
+ t.wait_for(lambda:not a.diag().get('surface_motion',False))
+ a.send('touch',x=x,y=y,pressed=True);time.sleep(duration);a.send('touch',x=x,y=y,pressed=False);time.sleep(.12)
 def double(a,x,y):a.tap(x,y);a.tap(x,y)
 def open_input(a):
  d=a.diag()
@@ -32,6 +34,7 @@ def open_input(a):
  t.wait_for(settled)
  b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
  t.wait_for(lambda:state(a)['active'] and bool(state(a)['keys']))
+ t.wait_for(lambda:not a.diag().get('surface_motion',False))
 def seed(a,text):
  official(a,True,text);open_input(a)
  layout(a,'en26')

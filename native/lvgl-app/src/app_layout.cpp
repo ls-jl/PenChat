@@ -17,12 +17,12 @@ void App::arrangeModal() {
     buttonTop-bounds.y1-int(lv_obj_get_y(modalScroll_))-uiMetrics_.dp(10):screen_.height-uiMetrics_.dp(76)-int(modalButtons_.size())*uiMetrics_.dp(52)));
 }
 void App::portraitPage() {
-  if (view_ == "settings" || view_ == "context_summary" || view_ == "ui_scale") return; // Own section flow preserves row and group spacing in all layouts.
+  if (view_ == "settings" || view_ == "context_summary" || view_ == "ui_scale" || view_ == "font_size") return; // Own section flow preserves row and group spacing in all layouts.
   // Short landscape has too little label width for the wide-screen two-column
   // forms (especially after reserving switches and arrows). Reuse the measured
   // single-column flow, not smaller type or clipped captions. Readers/grids keep
   // their own layout; the font slider also keeps its endpoint labels together.
-  const bool compactForm=layout().compact() &&
+  const bool compactForm=(layout().compact() || uiMetrics_.textPercent()>100) &&
       (view_=="presets" || view_=="preset_edit" ||
        view_=="keyboard_settings" || view_=="http_settings" ||
        view_=="feedback" || view_=="update" || view_=="transfer" ||

@@ -155,10 +155,18 @@ def compare(before, after, baseline, current):
     left, right = baseline / (name + '.png'), current / (name + '.png')
     with Image.open(left) as a, Image.open(right) as b:
       assert a.size == b.size and a.mode == b.mode, (left, right)
-      diff = ImageChops.difference(a, b)
-      bounds = diff.getbbox()
-      if bounds:
-        diff.save(current / (name + '-difference.png'))
+      # RGBA getbbox() defaults to alpha only. Equal opaque alpha must not
+      # conceal changed RGB pixels in this exact-render regression check.
+      if a.tobytes() != b.tobytes():
+        diff = ImageChops.difference(a, b)
+        boxes = [box for box in (band.getbbox() for band in diff.split()) if box]
+        bounds = (min(box[0] for box in boxes), min(box[1] for box in boxes),
+                  max(box[2] for box in boxes), max(box[3] for box in boxes))
+        visible = diff.convert('RGB')
+        if 'A' in diff.getbands():
+          alpha = diff.getchannel('A')
+          visible = ImageChops.lighter(visible, Image.merge('RGB', (alpha, alpha, alpha)))
+        visible.save(current / (name + '-difference.png'))
         raise AssertionError('Pixels differ at %s (%s)' % (bounds, right))
       records.append({'state': name, 'size': list(a.size),
                       'pixel_sha256': hashlib.sha256(a.tobytes()).hexdigest()})

@@ -29,7 +29,7 @@ def setup(folder, lines=80):
     return file,fixtures
 
 def open_drawer(a):
-    a.to_chat();d=a.diag();a.tap(d['safe_insets'][0]+24,d['safe_insets'][1]+24) if d['height']>d['width'] else a.tap(40,32)
+    a.open_navigation()
     assert a.diag()['navigation_open']
 
 def open_balances(a):

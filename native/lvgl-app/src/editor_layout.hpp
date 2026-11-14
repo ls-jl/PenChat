@@ -96,10 +96,14 @@ struct EditorLayout {
     if(docked) {
       // The keyboard has no dedicated editor. Text remains in the focused
       // page control; only composition/candidates/actions live above the keys.
-      panelTop=compositionY-design.portrait.panelInset;
+      panelTop=compositionY-design.portrait.panelInset-metrics.sp(32)-2*compositionMetrics.gap;
       textHeight=design.controls.height;textY=panelTop-textHeight-design.portrait.editorGap;
     }
     if (selectionOnly) { split=metrics.dp(86);textX=metrics.dp(96);textWidth=w-metrics.dp(106);textY=metrics.dp(56);textHeight=h-metrics.dp(66);if(portrait){const AppLayout safe{w,h,false,metrics};split=w;textX=safe.safeSide();textWidth=w-2*textX;textY=metrics.dp(56)+safe.safeTop();textHeight=h-textY-safe.safeBottom();} }
+    if(!selectionOnly&&!portrait&&!compactFull) {
+      const int top=std::max(textY,candidateY+candidateMetrics.height+metrics.sp(32)+2*compositionMetrics.gap);
+      textHeight-=top-textY;textY=top;
+    }
     textAreaWidth=textWidth;
     if(compactFull&&inlineReveal)textAreaWidth=std::max(1,textWidth-design.controls.height-design.controls.gap);
     (void)chatComposer;
@@ -190,12 +194,22 @@ struct EditorLayout {
     const auto &c=compositionMetrics;
     return std::max(c.minimum,std::min(std::min(c.maximum,std::max(c.minimum,available/c.widthDivisor)),textPixels+c.padding));
   }
+  bool floatingComposition() const { return !compactFull; }
+  Popup compositionPreedit(int textPixels,int lineHeight) const {
+    const auto row=compositionRow();
+    if(!floatingComposition())return {row.x,row.y,compositionPreeditWidth(textPixels),candidateMetrics.height};
+    const int h=lineHeight+2*compositionMetrics.gap;
+    return {row.x,portrait?row.y-h-compositionMetrics.gap:row.y+row.height+compositionMetrics.gap,
+      std::min(row.width,textPixels+compositionMetrics.padding),h};
+  }
   Popup compositionCandidates(bool expanded,int preeditWidth) const {
     const auto row=compositionRow();const int gap=compositionMetrics.gap;
-    if(!expanded)return {row.x+preeditWidth+gap,row.y,std::max(1,row.width-preeditWidth-gap),candidateMetrics.height};
+    if(!expanded)return floatingComposition()?row:Popup{row.x+preeditWidth+gap,row.y,std::max(1,row.width-preeditWidth-gap),candidateMetrics.height};
     if(compactFull)return {gap,keyTop,width-2*gap,height-keyTop-gap};
     if(portrait)return {0,keyTop+gap,width,bottomY+bottomHeight-keyTop-2*gap};
-    return {textX,textY,textWidth,textHeight};
+    const int top=std::max(textY,row.y+row.height+compositionMetrics.gap+
+        metrics.sp(32)+compositionMetrics.gap);
+    return {textX,top,textWidth,std::max(1,textY+textHeight-top)};
   }
   Popup candidateCover() const {
     if(portrait)return {0,keyTop,width,bottomY+bottomHeight-keyTop};

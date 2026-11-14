@@ -39,9 +39,15 @@ for width,height,split in [(640,260,False),(640,260,True),(960,266,False),(568,1
             def row_check():
                 state=e();p=state['composition_bounds'];c=state['candidate_bounds']
                 # Bounds share EditorLayout logical coordinates, including the split canvas.
-                assert p[1]==c[1] and p[3]-p[1]+1>=42,(name,p,c)
-                assert 2<=c[0]-p[2]-1<=5,(name,p,c)
-                assert p[2]-p[0]+1<=145 and c[2]>c[0],(name,p,c)
+                if state['composition_floating']:
+                    assert not state['compact_full'] and p[0]==c[0] and p[2]<=c[2],(name,p,c)
+                    gap=c[1]-p[3]-1 if height>width else p[1]-c[3]-1
+                    assert gap==4 and p[3]-p[1]+1>=state['font_sizes']['composition']+8,(name,p,c)
+                else:
+                    assert state['compact_full'] and p[1]==c[1] and p[3]-p[1]+1>=42,(name,p,c)
+                    assert 2<=c[0]-p[2]-1<=5,(name,p,c)
+                    assert p[2]-p[0]+1<=145,(name,p,c)
+                assert c[2]>c[0],(name,p,c)
                 if state['preedit_length']<=5:assert state['composition_scroll']==0,(name,state)
                 return p[2]-p[0]+1,c[2]-c[0]+1
             def expansion():

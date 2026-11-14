@@ -151,6 +151,7 @@ int main(int argc, char **argv) {
     if (!uiScaleSpecified)
 #endif
       uiMetrics = UiMetrics(100, savedUiScale(db.settings()));
+    uiMetrics = UiMetrics(uiMetrics.densityPercent(), uiMetrics.scalePercent(), savedTextScale(db.settings()));
     const auto appearance=db.settings().value("theme_mode",Json());
     theme::setMode(appearance.is_string()?theme::parse(appearance.get<std::string>()):theme::Mode::Dark);
     startup("interface");

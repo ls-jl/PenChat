@@ -170,8 +170,8 @@ def deferred():
                 b = a.diag()['context_menu']['choices']['60']['bounds']
                 lock = sqlite3.connect(folder/'penchat.db')
                 lock.execute('begin immediate')
-                tap(a, b)
-                tap(a, b)
+                tap(a, b, wait_motion=False)
+                tap(a, b, wait_motion=False)
                 # A diagnostic also reads credential-free model/settings data
                 # on the DB worker. Do not queue that synchronous reader behind
                 # the deliberately blocked write before releasing this lock.

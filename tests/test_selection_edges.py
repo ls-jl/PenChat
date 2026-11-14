@@ -46,6 +46,7 @@ def run(width,height):
             app.send('keyboard.result',requestId=request['requestId'],confirmed=True,text=first+'\n'+second)
             ui.wait_for(lambda:not editor(app)['active'])
             bounds_tap(app,app.diag()['composer_bounds']);ui.wait_for(lambda:editor(app)['active'])
+            ui.wait_for(lambda:not app.diag().get('surface_motion',False))
             e=editor(app);b=e['text_bounds'];space=e['coordinate_space']
             sx=round(256*space['native_width']/space['width'])/256 if space['scaled'] else 1
             sy=round(256*space['native_height']/space['height'])/256 if space['scaled'] else 1

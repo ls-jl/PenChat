@@ -89,7 +89,7 @@ int App::chatComposerHeight() const {
   lv_point_t size{};lv_text_get_size(&size,text.c_str(),textFont,0,0,width,LV_TEXT_FLAG_NONE);
   const int minimum=std::max(topPad+textFont->line_height+c.textToolsGap+toolsTop,
                              editing?editorComposerOpenHeight_:0);
-  return std::min(std::max(minimum,base*3),
+  return std::min(base*3,
                   std::max(minimum,topPad+std::max(int(textFont->line_height),int(size.y))+c.textToolsGap+toolsTop));
 }
 int App::chatComposerY() const {

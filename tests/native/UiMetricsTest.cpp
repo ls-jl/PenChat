@@ -2,6 +2,7 @@
 #include "ui_scale_settings.hpp"
 #include "layout.hpp"
 #include "pull_geometry.hpp"
+#include "back_geometry.hpp"
 #include <cassert>
 #include <iostream>
 #include <limits>
@@ -18,6 +19,36 @@ int main() {
     assert(ui.popup().row-ui.dp(4)>=44 && ui.popup().portraitRow-ui.dp(4)>=44);
   }
   const UiMetrics identity;
+  for(int width:{568,640,936,960})for(int scale:{75,100,125,150}) {
+    const UiMetrics metrics(100,scale);
+    const auto back=backGeometry(width,metrics);
+    assert(back.edge>=44);
+    assert(back.edge==std::max(metrics.touchTarget(20),int(std::lround(width*.046))));
+    assert(back.slop==std::max(metrics.dp(8),int(std::lround(width*.0125))));
+    assert(back.distance==std::max(metrics.dp(44),int(std::lround(width*.10))));
+    const int oldEdge=std::max(metrics.dp(20),int(std::lround(width*.046)));
+    if(oldEdge>=44)assert(back.edge==oldEdge);
+    else assert(back.edge==44);
+  }
+  assert(savedTextScale(Json::object())==100);
+  for(const auto &bad:{Json(),Json(true),Json("125"),Json(125.5)})assert(savedTextScale({{"reading_font_percent",bad}})==100);
+  assert(savedTextScale({{"reading_font_percent",-300}})==75);
+  assert(savedTextScale({{"reading_font_percent",uint64_t(-1)}})==150);
+  const UiMetrics enlargedText(100,100,150);
+  assert(enlargedText.identity() && enlargedText.dp(44)==44);
+  assert(enlargedText.textPercent()==150 && enlargedText.fontSize(UiFont::Body)==32);
+  assert(enlargedText.fontSize(UiFont::PageTitle)==39);
+  assert(enlargedText.readingFontSize(100)==21); // preview replaces the saved text factor
+  assert(UiMetrics(125,125,125).sp(1)==2); // compose three factors before rounding
+  assert(UiMetrics(100,150,150).fontSize(UiFont::Body)==47);
+  assert(enlargedText.sp(-21)==-32);
+  for(int text:{75,100,125,150})for(int scale:{75,100,125,150}) {
+    const UiMetrics combined(100,scale,text);
+    assert(combined.dp(44)==UiMetrics(100,scale).dp(44));
+    for(auto role:{UiFont::Body,UiFont::Button,UiFont::PageTitle,UiFont::FieldTitle,
+        UiFont::FieldValue,UiFont::Composer,UiFont::FormNote,UiFont::Tiny})
+      assert(combined.fontSize(role)==(int64_t(identity.fontSize(role))*scale*text+5000)/10000);
+  }
   assert(UiMetrics(100,125).readingFontSize(80)==21);
   assert(UiMetrics(100,150).readingFontSize(150)==47);
   assert(UiMetrics(100,75).gestures().tap==9);

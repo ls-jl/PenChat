@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Rounded-corner safe areas and original-widget native input. Host only, no devices."""
-import http.server,json,os,pathlib,sqlite3,struct,tempfile,threading,time,zlib
+import http.server,json,os,pathlib,sqlite3,struct,sys,tempfile,threading,time,zlib
 import test_lvgl_app as t
 from test_reasoning_ui import seed
 from image_gestures import capture
+from choice_ui import select
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
-OUT=t.ROOT/'.work/portrait-input';OUT.mkdir(parents=True,exist_ok=True)
+OUT=pathlib.Path(os.environ.get('PENCHAT_PORTRAIT_OUTPUT',t.ROOT/'.work/portrait-input'));OUT.mkdir(parents=True,exist_ok=True)
 def root_chat(a):
     for _ in range(12):
         d=a.diag()
+        if d.get('context_menu',{}).get('kind')=='choice:provider_exit':
+            select(a,'discard');continue
         if d['view']=='chat':
             if d['navigation_open']:a.tap(548,100)
             return
@@ -24,6 +27,7 @@ def focus(a,anchor):
     a.tap((x+r)//2,(y+b)//2)
     t.wait_for(lambda:a.diag()['editor']['active'] and a.diag()['editor']['input_anchor']==identity)
 def key(a,value):
+    t.wait_for(lambda:not a.diag().get('surface_motion',False))
     k=next(k for k in a.diag()['editor']['keys'] if k['key']==value)
     a.tap(k['x'],k['y'])
 def swipe(a,dy):
@@ -56,6 +60,42 @@ def shot(a,name):
             previous=row
         assert white>100, 'Original form heading disappeared under input panel'
 
+def composer_reopen():
+    """A retained multiline draft must not compound the keyboard-opening height."""
+    results=[]
+    for theme in ('dark','light'):
+        with tempfile.TemporaryDirectory(prefix='penchat-composer-reopen-') as directory:
+            folder=pathlib.Path(directory)
+            schema=(t.ROOT/'native/lvgl-app/src/schema.hpp').read_text().split('R"SQL(')[1].split(')SQL"')[0]
+            with sqlite3.connect(folder/'penchat.db') as db:
+                db.executescript(schema)
+                db.execute("insert into app_settings values('theme_mode',?,1)",(json.dumps(theme),))
+            a=t.Native(BINARY,folder,seed_model=False,official_adapter=False,screen={'width':568,'height':1210})
+            try:
+                a.tap(280,1155);t.wait_for(lambda:a.diag()['editor']['active'])
+                key(a,'language');key(a,'a')
+                for _ in range(12):key(a,'enter');key(a,'a')
+                state=a.diag();bounds=state['composer_bounds']
+                assert bounds[3]-bounds[1]+1==282
+                length=state['editor']['length'];assert length>20
+                a.editor_action('done');t.wait_for(lambda:not a.diag()['editor']['active'] and not a.diag().get('surface_motion',False))
+                for cycle in range(3):
+                    bounds=a.diag()['composer_text_bounds']
+                    a.tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
+                    t.wait_for(lambda:a.diag()['editor']['active'] and not a.diag().get('surface_motion',False))
+                    state=a.diag();bounds=state['composer_bounds'];height=bounds[3]-bounds[1]+1
+                    entry={'theme':theme,'cycle':cycle+1,'height':height,'text_length':state['editor']['length']}
+                    results.append(entry)
+                    shot(a,f'{theme}-composer-reopen-{cycle+1}')
+                    (OUT/'composer-reopen.json').write_text(json.dumps(results,ensure_ascii=False,indent=2)+'\n')
+                    assert height==282,entry
+                    assert state['editor']['length']==length and state['editor']['text_in_target'],entry
+                    assert state['reader_height']>0 and bounds[3]<state['editor']['panel_top'],state
+                    a.editor_action('done');t.wait_for(lambda:not a.diag()['editor']['active'] and not a.diag().get('surface_motion',False))
+                    assert a.diag()['draft_length']==length and not a.read_messages()
+            finally:a.close()
+    print('PORTRAIT_MULTILINE_DRAFT_THREE_REOPENS_BOTH_THEMES_OK')
+
 def run():
     server=http.server.ThreadingHTTPServer(('127.0.0.1',0),t.Server)
     t.port=server.server_port;threading.Thread(target=server.serve_forever,daemon=True).start()
@@ -75,7 +115,7 @@ def run():
                 assert state['toolbar_y']==1088
                 shot(a,'chat-safe')
                 a.tap(280,1158);t.wait_for(lambda:a.diag()['editor']['active'])
-                state=a.diag();e=state['editor'];assert e['docked'] and e['inline_chat'] and e['panel_top']==e['candidate_y']-4
+                state=a.diag();e=state['editor'];assert e['docked'] and e['inline_chat'] and e['composition_floating'] and e['panel_top']==e['candidate_y']-44
                 assert e['in_place'] and e['text_in_target'] and e['input_anchor']=='chat-composer'
                 assert e['target_bounds'][0]<=e['text_bounds'][0]<e['text_bounds'][2]<=e['target_bounds'][2]
                 assert e['target_bounds'][1]<=e['text_bounds'][1]<e['text_bounds'][3]<=e['target_bounds'][3]
@@ -92,8 +132,12 @@ def run():
                 for c in 'test':key(a,c)
                 assert a.diag()['editor']['length']==4
                 bounds=a.diag()['editor']['text_bounds'];tx,ty=bounds[0]+12,bounds[1]+18
-                a.long_press(tx,ty);t.wait_for(lambda:a.diag()['editor']['undo_menu'])
-                bubble=a.diag()['editor']['undo_popup'];assert bubble[3]<=ty-60,bubble
+                a.long_press(tx,ty);t.wait_for(lambda:a.diag()['editor']['menu'])
+                selected=a.diag()['editor'];bubble=selected['selection_popup'];highlight=selected['selection_bounds']
+                assert selected['selected'] and bubble[3]<=highlight[1]-8,(bubble,highlight)
+                commands=[selected['actions'][name] for name in ['all','copy','paste','cut','undo']]
+                assert all(b[3]-b[1]+1>=44 for b in commands)
+                assert len({b[1] for b in commands})==1 and [b[0] for b in commands]==sorted(b[0] for b in commands)
                 shot(a,'long-press-bubble');a.tap(tx,ty)
                 a.send('touch',x=tx,y=ty,pressed=True);time.sleep(.52)
                 a.send('touch',x=tx+60,y=ty,pressed=True)
@@ -179,7 +223,8 @@ def run():
                 t.wait_for(lambda:a.diag()['editor']['candidate_count']>0)
                 e=a.diag()['editor'];assert e['shared_candidate_row'] and e['candidate_y']==e['function_y']
                 assert 'official' not in e['actions'] and 'ocr-mode' not in e['actions'] and 'clipboard' not in e['actions']
-                assert e['panel_top']==e['candidate_y']-4
+                assert e['composition_floating'] and e['panel_top']==e['candidate_y']-44
+                assert e['composition_bounds'][3]<e['candidate_y']-4
                 shot(a,'shared-candidates')
                 a.editor_action('expand');shot(a,'expanded-candidates')
                 a.editor_action('expand');key(a,'space');t.wait_for(lambda:a.diag()['editor']['length']>0)
@@ -228,7 +273,7 @@ def run():
                     key(a,'enter');key(a,'a');d=a.diag();b=d['composer_bounds'];heights.append(b[3]-b[1]+1)
                     assert b[3]==bottom and 94<heights[-1]<=282
                     arrow=d['editor']['actions']['chat-send']
-                    assert b[2]-arrow[2]==12 and b[3]-arrow[3]==12,(b,arrow)
+                    assert b[2]-arrow[2]==20 and b[3]-arrow[3]==20,(b,arrow)
                     if i==1:shot(a,'composer-three-lines')
                 assert heights==sorted(heights) and heights[-1]==282
                 shot(a,'composer-max-scroll')
@@ -247,10 +292,13 @@ def run():
             try:
                 assert a.diag()['toolbar_y']==208
                 a.tap(350,232);t.wait_for(lambda:a.diag()['editor']['active'])
+                t.wait_for(lambda:not a.diag().get('surface_motion',False))
                 assert not a.diag()['editor']['docked']
-                assert a.diag()['editor']['text_bounds'][1]==78
+                assert a.diag()['editor']['text_bounds'][1]==90,a.diag()['editor']['text_bounds']
                 shot(a,'landscape-unchanged');a.editor_action('cancel')
             finally:a.close()
     finally:server.shutdown();server.server_close()
     print('Portrait original-widget input: chat/forms, field switching/raw preedit, prompt expansion, history rename, streaming completion, cancel/official recovery, send, scroll, candidates, nine-key, clipboard and unchanged landscape passed.')
-if __name__=='__main__':run()
+if __name__=='__main__':
+    if '--composer-reopen-only' in sys.argv:composer_reopen()
+    else:run();composer_reopen()

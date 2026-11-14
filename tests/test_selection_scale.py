@@ -26,6 +26,7 @@ for scale in (75,125,150):
                 t.wait_for(lambda:not a.diag()['editor']['active'])
                 bounds_tap(a,a.diag()['composer_bounds']);t.wait_for(lambda:a.diag()['editor']['active'])
                 if w==640:a.editor_action('compact-view')
+                t.wait_for(lambda:not a.diag().get('surface_motion',False))
                 e=a.diag()['editor'];b=e['text_bounds'];space=e['coordinate_space']
                 sx=round(256*space['native_width']/space['width'])/256 if space['scaled'] else 1
                 sy=round(256*space['native_height']/space['height'])/256 if space['scaled'] else 1

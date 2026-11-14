@@ -50,6 +50,7 @@ for width,height in [(960,266),(568,1210)]:
                 t.wait_for(settled)
                 b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
                 t.wait_for(lambda:e()['active'] and bool(e()['keys']))
+                t.wait_for(lambda:not a.diag().get('surface_motion',False))
             open_input()
             for case,text in [('latin','ABCDE'),('chinese','左右边界'),('emoji','ABC👩‍💻'),('multiline','first line\nsecondM'),
                               ('wrap','M'*90),('wrap-cn','中文输入填满这一行并检查右侧字符边界ABC下一行继续输入。'*3)]:

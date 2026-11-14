@@ -16,11 +16,7 @@ for scale in (75,125,150):
             def focus(key):
                 activate(a,'field:'+key)
                 t.wait_for(lambda:e()['active'] and bool(e()['keys']) and not e()['ocr_preparing'])
-            d=a.diag();nav=d['screen_safety']['navigation_x'];top=d['safe_insets'][1]
-            a.tap(nav+round(24*scale/100),top+round(24*scale/100))
-            t.wait_for(lambda:a.diag()['navigation_open'])
-            b=a.diag()['navigation_footer']['settings']['bounds']
-            a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+            a.open_settings()
             a.setting('models');activate(a,'provider-open:p')
             focus('name');session=e()['keyboard_session']
             key=next(k for k in e()['keys'] if k['key']=='a');a.tap(key['x'],key['y'])

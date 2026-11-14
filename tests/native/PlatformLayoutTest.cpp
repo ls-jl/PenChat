@@ -96,7 +96,11 @@ int main() {
     assert(layout.compositionPreeditWidth(1000)<=row.width/3);
     const int preedit=layout.compositionPreeditWidth(60);
     const auto candidates=layout.compositionCandidates(false,preedit);
-    assert(candidates.x==row.x+preedit+4&&candidates.y==row.y);
+    assert(candidates.x==(layout.compactFull?row.x+preedit+4:row.x)&&candidates.y==row.y);
+    const auto floating=layout.compositionPreedit(60,20);
+    assert(layout.floatingComposition()==!layout.compactFull);
+    if(layout.portrait)assert(floating.y+floating.height<row.y);
+    else if(!layout.compactFull)assert(floating.y>row.y+row.height);
     assert(candidates.x+candidates.width==row.x+row.width);
     const auto panel=layout.compositionCandidates(true,preedit);
     assert(panel.width>0&&panel.height>=44&&panel.y+panel.height<=layout.height);
@@ -106,9 +110,9 @@ int main() {
       assert(expand.width==64&&expand.height==48&&expand.y+expand.height<layout.keyTop);
       assert(cover.y==layout.keyTop&&cover.y+cover.height==layout.bottomY+layout.bottomHeight);
       assert(panel.x==0&&panel.width==layout.width&&panel.y==cover.y+4);
-    } else assert(panel.y==layout.textY&&layout.textY==row.y+row.height+6);
+    } else assert(panel.y>row.y+row.height&&panel.y>=layout.textY);
   }
-  assert(portrait.candidateY==portrait.compositionY&&portrait.panelTop==portrait.candidateY-4);
+  assert(portrait.candidateY==portrait.compositionY&&portrait.panelTop<portrait.candidateY-4);
   // Swapping is a translation of regions, not a mirror of keys or content.
   for(auto size:{std::make_pair(960,266),std::make_pair(936,280)}) {
     const EditorLayout normal(size.first,size.second),swap(size.first,size.second,false,false,true);

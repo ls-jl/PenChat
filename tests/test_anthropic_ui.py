@@ -106,11 +106,11 @@ def chat(w,h):
    with sqlite3.connect(p/'penchat.db') as db:
     checkpoint=json.loads(db.execute('select metadata_json from chat_sessions where id=?',(branch,)).fetchone()[0])['context_compression']
     assert checkpoint['archive_id'] and checkpoint['summary']
-   assert a.diag()['modal'];a.tap(w-70,h-44)
+   assert a.diag()['view']=='context_summary' and not a.diag()['modal'];a.to_chat()
    compressed=Handler.requests[-1][2]
    assert 'PenChat_CONTEXT_COMPRESSION_V1' in compressed.get('system','') and 'CHAT_SYSTEM_ONCE' not in compressed['system']
    assert 'thinking' not in compressed and 'output_config' not in compressed
-   a.attachment_action('summary');shot(a,f'{w}-summary');a.tap(w-70,h-44)
+   a.attachment_action('summary');assert a.diag()['view']=='context_summary' and not a.diag()['modal'];shot(a,f'{w}-summary');a.to_chat()
    a.edit('压缩后继续');a.tap(w-52,h-34);settled(a)
    body=Handler.requests[-1][2];assert SIGNATURE not in json.dumps(body)
    assert '历史参考摘要' in json.dumps(body,ensure_ascii=False)

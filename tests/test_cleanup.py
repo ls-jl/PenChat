@@ -20,7 +20,13 @@ try:
                 db.executescript(schema)
                 db.execute("insert into app_settings values('active_session_id','\"fixture\"',1)")
                 db.execute("insert into chat_sessions(id,title,status,created_at,updated_at,last_message_at) values('fixture','fixture','active',1,1,1)")
-                db.execute("insert into chat_messages(id,session_id,seq,role,status,message_type,output_text,created_at,updated_at) values('image','fixture',0,'assistant','complete','text',?,1,1)",(f'![stalled](http://127.0.0.1:{server.server_port}/image.png)',))
+                # Arbitrary assistant Markdown URLs are intentionally inert.
+                # A fixture attachment exercises the same image worker HTTP
+                # cancellation path through its supported asset reference.
+                url=f'http://127.0.0.1:{server.server_port}/image.png'
+                db.execute("insert into chat_messages(id,session_id,seq,role,status,message_type,output_text,created_at,updated_at) values('image','fixture',0,'user','complete','image','',1,1)")
+                db.execute("insert into message_assets(id,session_id,message_id,kind,source_type,original_path,stored_path,width,height,created_at) values('asset','fixture','image','image','fixture',?,?,32,24,1)",(url,url))
+                db.execute("insert into message_parts(id,session_id,message_id,part_index,part_type,asset_id) values('part','fixture','image',0,'image','asset')")
             started.clear();a=t.Native(BINARY,p,seed_model=False,official_adapter=False)
             try:
                 assert started.wait(3)

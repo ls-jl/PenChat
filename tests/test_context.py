@@ -262,7 +262,11 @@ def run():
                         wait_for(lambda:app.diag()['compressing'])
                         if mode=='cancel':app.tap(140,222)
                         else:
-                            app.tap(890,222);app.open_navigation();app.tap(180,236)
+                            app.tap(890,222);app.open_navigation()
+                            before_session=app.diag()['session']
+                            bounds=app.diag()['navigation_footer']['newchat']['bounds']
+                            app.tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
+                            wait_for(lambda:app.diag()['session']!=before_session)
                     wait_idle(app)
                     assert not checkpoint(p),mode
                     if mode=='http':assert len(Server.requests)==1

@@ -20,6 +20,7 @@ for w,h in [(960,266),(568,1210)]:
     b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
     t.wait_for(lambda:e()['active'] and bool(e()['keys']))
     for index in [1,2,0]:
+     t.wait_for(lambda:not a.diag().get('surface_motion',False))
      k=globe();before=e()['layout'];started=time.monotonic();frame(k['x'],k['y']);time.sleep(.30)
      assert not e()['layout_menu']
      t.wait_for(lambda:e()['layout_menu'] and e()['layout_hold'],timeout=.4)

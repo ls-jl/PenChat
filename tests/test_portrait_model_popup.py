@@ -49,16 +49,12 @@ try:
                     assert a.diag()['active_model']=='m11',a.diag()['active_model']
                 else:
                     a.tap(540,500);assert not a.diag()['attachments']
-                    d=a.diag();a.tap(d['safe_insets'][0]+24,d['safe_insets'][1]+24)
-                    t.wait_for(lambda:a.diag()['navigation_open'])
-                    tap(a,a.diag()['navigation_footer']['settings']['bounds'])
+                    a.open_settings()
                     a.setting('title_model');d=a.diag();b=d['popup_bounds']
                     assert d['popup']=='title_models' and b[3]-b[1]+1<=360
                     capture(a,OUT/'title-models.png')
                     a.tap(b[0]+90,b[1]+24);assert not a.diag()['attachments']
-                    d=a.diag();a.tap(d['safe_insets'][0]+24,d['safe_insets'][1]+24)
-                    t.wait_for(lambda:a.diag()['view']=='chat')
-                    if a.diag()['navigation_open']:a.tap(540,500)
+                    a.to_chat()
                 tap(a,a.diag()['composer_text_bounds']);t.wait_for(lambda:a.diag()['editor']['active'])
                 key(a,'n');key(a,'i');t.wait_for(lambda:not a.diag()['editor']['pending'])
                 before=a.diag()['editor'];b=open_models(a);after=a.diag()['editor']

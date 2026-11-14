@@ -20,6 +20,7 @@ for w,h in [(568,1210),(600,1280)]:
    def open_input():
     b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
     t.wait_for(lambda:e()['active'] and bool(e()['keys']))
+    t.wait_for(lambda:not a.diag().get('surface_motion',False))
    def start_push(offset):
     edge=e()['panel_top']
     for y in [140,240,edge-40,edge,edge+offset]:touch(y)
@@ -78,6 +79,7 @@ for w,h in [(568,1210),(600,1280)]:
    a.open_settings();a.setting('models');a.page_action('添加 Provider')
    b=next(b for k,b in e()['targets'].items() if k.startswith('field:名称:'))
    a.tap((b[0]+b[2])//2,(b[1]+b[3])//2);t.wait_for(lambda:e()['active'])
+   t.wait_for(lambda:not a.diag().get('surface_motion',False))
    edge=start_push(threshold+20);touch(edge+threshold+20,False)
    t.wait_for(lambda:not e()['active']);assert a.diag()['view']=='provider'
    print(f'{w}x{h}: stable portrait composer, interactive push, retreat/cancel/multitouch/background, raw preedit and bounded upward attachment menu passed.',flush=True)

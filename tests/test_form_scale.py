@@ -41,16 +41,7 @@ def run(binary,output,scales,baseline=None):
                         assert (output/(key+'.png')).read_bytes()==(baseline/(key+'.png')).read_bytes(),key
                     return d
                 try:
-                    if scale==100:
-                        a.open_settings()
-                    else:
-                        d=a.diag();x=d['screen_safety']['navigation_x'] if h>w else round(16*scale/100)
-                        y=d['safe_insets'][1] if h>w else round(8*scale/100)
-                        a.tap(x+round(24*scale/100),y+round(24*scale/100))
-                        t.wait_for(lambda:a.diag()['navigation_open'])
-                        b=a.diag()['navigation_footer']['settings']['bounds']
-                        a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
-                        t.wait_for(lambda:a.diag()['view']=='settings')
+                    a.open_settings()
                     d=record('settings')
                     groups=d['settings']['groups'];rows=d['settings']['rows']
                     for row in rows.values():

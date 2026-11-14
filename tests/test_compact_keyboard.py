@@ -48,6 +48,7 @@ for width, height in [(640, 260), (720, 280)]:
                 x1,y1,x2,y2 = s['composer_text_bounds']
                 a.tap((x1+x2)//2, max(0,min(height-1,(y1+y2)//2)))
                 t.wait_for(lambda: editor()['active'] and bool(editor()['keys']))
+                t.wait_for(lambda:not a.diag().get('surface_motion',False))
             def shot(name):
                 capture(a, OUT / f'{width}-{name}.png')
 

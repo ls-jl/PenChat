@@ -9,7 +9,9 @@ def activate(app,key,tap=True):
         v=page['viewport']
         if page['scrolling']:time.sleep(.08);continue
         if bounds[1]>=v[1] and bounds[3]<=v[3]:
-            if tap:app.tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
+            if tap:
+                app.tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
+                if key=='provider_advanced':time.sleep(.20) # The disclosure reveals its child hit targets over 180ms.
             return bounds
         x=(v[0]+v[2])//2;start=v[1]+(v[3]-v[1])*3//4 if bounds[3]>v[3] else v[1]+(v[3]-v[1])//4
         delta=-min(110,(v[3]-v[1])//2) if bounds[3]>v[3] else min(110,(v[3]-v[1])//2)

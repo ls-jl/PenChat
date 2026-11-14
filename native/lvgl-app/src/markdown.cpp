@@ -405,7 +405,7 @@ struct RichText::Impl {
 RichText::RichText(const std::string &fontPath, const std::string &res, const std::string &fallbackPath, const UiMetrics &metrics)
     : p_(new Impl) {
   p_->metrics=metrics;
-  p_->cacheIdentity=std::to_string(metrics.densityPercent())+":"+std::to_string(metrics.scalePercent())+":";
+  p_->cacheIdentity=std::to_string(metrics.densityPercent())+":"+std::to_string(metrics.scalePercent())+":"+std::to_string(metrics.textPercent())+":";
   if (FT_Init_FreeType(&p_->library) ||
       FT_New_Face(p_->library, fontPath.c_str(), 0, &p_->face))
     throw std::runtime_error("Cannot initialize text renderer");
@@ -454,9 +454,10 @@ RichText::~RichText() {
   FT_Done_FreeType(p_->library);
 }
 void RichText::setMetrics(const UiMetrics &metrics) {
-  if(p_->metrics.densityPercent()==metrics.densityPercent() && p_->metrics.scalePercent()==metrics.scalePercent())return;
+  if(p_->metrics.densityPercent()==metrics.densityPercent() && p_->metrics.scalePercent()==metrics.scalePercent() &&
+      p_->metrics.textPercent()==metrics.textPercent())return;
   clearCache();p_->pieces.clear();p_->metrics=metrics;
-  p_->cacheIdentity=std::to_string(metrics.densityPercent())+":"+std::to_string(metrics.scalePercent())+":";
+  p_->cacheIdentity=std::to_string(metrics.densityPercent())+":"+std::to_string(metrics.scalePercent())+":"+std::to_string(metrics.textPercent())+":";
 }
 void RichText::clearCache() {
   p_->cache.clear();

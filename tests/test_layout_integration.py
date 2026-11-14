@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """Real LVGL three-layout integration, without device access or model calls."""
-import pathlib,tempfile,time
+import os,pathlib,tempfile,time
 import test_lvgl_app as t
 from image_gestures import capture
 
 t.port=1
+BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
 OUT=t.ROOT/'.work/layout-integration';OUT.mkdir(parents=True,exist_ok=True)
 for w,h in [(568,1210),(960,266),(936,280),(640,260)]:
     with tempfile.TemporaryDirectory(prefix='penchat-three-layouts-') as directory:
-        a=t.Native(t.ROOT/'build/host/penchat-lvgl',pathlib.Path(directory),seed_model=False,
+        a=t.Native(BINARY,pathlib.Path(directory),seed_model=False,
                    official_adapter=False,screen={'width':w,'height':h,'direction':0})
         try:
             capture(a,OUT/f'{w}-chat.png')
             a.open_settings();capture(a,OUT/f'{w}-settings.png');a.to_chat()
             a.tap(w//2,h-34);t.wait_for(lambda:a.diag()['editor']['active'])
             t.wait_for(lambda:bool(a.diag()['editor']['keys']))
+            t.wait_for(lambda:not a.diag().get('surface_motion',False))
             def e():return a.diag()['editor']
             def point(x,y):
                 c=e()['coordinate_space'];return round(x*w/c['width']),round(y*h/c['height'])
