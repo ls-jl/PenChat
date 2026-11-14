@@ -10,7 +10,7 @@ struct Icon {
   std::string name;
   uint32_t ink;
   float scale = 1.f;
-  UiMetrics metrics;
+  UiMetrics metrics = UiMetrics();
   std::shared_ptr<GearMask> gear;
   float gearScale=0;
   int stemTop = 0;

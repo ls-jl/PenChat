@@ -206,7 +206,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, J
 }
 void App::contextProgress(const std::string &text) {
   modal("上下文压缩", text + "\n完成后保存一份压缩前归档；停止会保留本次输入。");
-  button(modal_, "停止", 16, screen_.height - 66, 120, 44,
+  button(modal_, "停止", uiMetrics_.dp(16), screen_.height - uiMetrics_.dp(66), uiMetrics_.dp(120), uiMetrics_.dp(44),
          [this] { events_.push("context_stop"); });
 }
 void App::contextEvent(Event &event) {
@@ -273,7 +273,7 @@ void App::contextDetails() {
           " 条\n" + stamp + "\n\n" + checkpoint.value("summary", std::string()));
   const auto archive = checkpoint.value("archive_id", std::string());
   if (!archive.empty())
-    button(modal_, "对应归档", 16, screen_.height - 66, 140, 44, [this, archive] {
+    button(modal_, "对应归档", uiMetrics_.dp(16), screen_.height - uiMetrics_.dp(66), uiMetrics_.dp(140), uiMetrics_.dp(44), [this, archive] {
       auto found = db_.sessionInfo(archive);
       if (found.empty()) {
         modal("归档已删除", "摘要仍有效，当前完整历史仍保留。");

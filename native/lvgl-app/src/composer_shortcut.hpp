@@ -19,20 +19,20 @@ public:
   int64_t limit() const { return limit_; }
   void pause() { down_ = moved_ = false; tapAt_ = 0; }
   void reset() { pause(); shown_ = false; distance_ = limit_ = 0; }
-  bool touch(int x, int y, bool pressed, bool cancelled, bool inside, int64_t now, int height) {
+  bool touch(int x, int y, bool pressed, bool cancelled, bool inside, int64_t now, int height, int slop = 12) {
     if (!down_) {
       if (!enabled() || !inside || !pressed || cancelled) return false;
       down_ = true; moved_ = false; startX_ = x; startY_ = y; startAt_ = now;
     }
     const int64_t dx = int64_t(x) - startX_, dy = int64_t(y) - startY_;
-    moved_ = moved_ || dx * dx + dy * dy > 144;
+    moved_ = moved_ || dx * dx + dy * dy > int64_t(slop)*slop;
     if (!pressed || cancelled) {
       down_ = false;
       if (cancelled || moved_ || !inside || now - startAt_ > 450) {
         tapAt_ = 0;
       } else {
         const int64_t tx = int64_t(x) - tapX_, ty = int64_t(y) - tapY_;
-        if (tapAt_ && now - tapAt_ <= 350 && tx * tx + ty * ty <= 144) {
+        if (tapAt_ && now - tapAt_ <= 350 && tx * tx + ty * ty <= int64_t(slop)*slop) {
           shown_ = true; distance_ = 0; limit_ = int64_t(height) * 3 / 2; tapAt_ = 0;
         } else { tapAt_ = now; tapX_ = x; tapY_ = y; }
       }

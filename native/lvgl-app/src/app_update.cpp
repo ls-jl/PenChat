@@ -92,49 +92,49 @@ void App::updateTick() {
   }
 }
 void App::updatePage() {
-  const int width=layout().contentWidth(),column=(width-16)/2;
+  const int width=layout().contentWidth(),column=(width-uiMetrics_.dp(16))/2;
   pageHeader("软件更新");
   auto action=[&](const std::string &key,const std::string &text,int x,int y,int w,std::function<void()> callback) {
-    auto b=button(pageContent_,text,x,y,w,48,std::move(callback));updateActions_[key]=b;return b;
+    auto b=button(pageContent_,text,x,y,w,uiMetrics_.dp(48),std::move(callback));updateActions_[key]=b;return b;
   };
   const auto state=updateState_.value("status",std::string("idle"));const auto release=updateState_.value("release",Json::object());
-  readableLabel(pageContent_,std::string("当前版本 ")+PENCHAT_VERSION+(release.empty()?"":" → "+release.value("version",std::string())),10,4,width,20);
-  auto message=readableLabel(pageContent_,updateState_.value("message",std::string()),10,36,width,18,theme::muted);lv_obj_update_layout(message);
-  int y=44+lv_obj_get_height(message);
+  readableLabel(pageContent_,std::string("当前版本 ")+PENCHAT_VERSION+(release.empty()?"":" → "+release.value("version",std::string())),uiMetrics_.dp(10),uiMetrics_.dp(4),width,uiMetrics_.fontSize(UiFont::SettingsTitle));
+  auto message=readableLabel(pageContent_,updateState_.value("message",std::string()),uiMetrics_.dp(10),uiMetrics_.dp(36),width,uiMetrics_.fontSize(UiFont::FormNote),theme::muted);lv_obj_update_layout(message);
+  int y=uiMetrics_.dp(44)+lv_obj_get_height(message);
   if(state=="downloading"||state=="verifying"||state=="ready"||state=="installing") {
-    updateProgress_=lv_bar_create(pageContent_);lv_obj_set_pos(updateProgress_,10,y+6);lv_obj_set_size(updateProgress_,width,14);
+    updateProgress_=lv_bar_create(pageContent_);lv_obj_set_pos(updateProgress_,uiMetrics_.dp(10),y+uiMetrics_.dp(6));lv_obj_set_size(updateProgress_,width,uiMetrics_.dp(14));
     lv_obj_set_style_bg_color(updateProgress_,lv_color_hex(theme::accent),LV_PART_INDICATOR);lv_bar_set_range(updateProgress_,0,100);
     const auto p=updateState_.value("progress",Json::object());const auto done=p.value("downloaded",uint64_t(0)),total=p.value("total",uint64_t(0));
     lv_bar_set_value(updateProgress_,total?int(std::min<uint64_t>(100,done*100/total)):0,LV_ANIM_OFF);
-    updateProgressText_=readableLabel(pageContent_,std::to_string(total?done*100/total:0)+"% · "+std::to_string(done/1024)+" / "+std::to_string(total/1024)+" KiB",10,y+32,width,20);
-    updateTransferText_=readableLabel(pageContent_,std::to_string(p.value("speed",uint64_t(0))/1024)+" KiB/s · "+std::to_string(p.value("lanes",0))+" 路 · "+std::to_string(p.value("nodes",1))+" 个节点",10,y+62,width,18,theme::muted);
-    if(state=="downloading"||state=="verifying")action("cancel","取消下载",10,y+98,column,[this]{updateBack();});
-    readableLabel(pageContent_,"下载与校验成功后将自动安装。取消后，下一个版本再提醒。",10,y+160,width,16,theme::muted);
+    updateProgressText_=readableLabel(pageContent_,std::to_string(total?done*100/total:0)+"% · "+std::to_string(done/1024)+" / "+std::to_string(total/1024)+" KiB",uiMetrics_.dp(10),y+uiMetrics_.dp(32),width,uiMetrics_.fontSize(UiFont::SettingsTitle));
+    updateTransferText_=readableLabel(pageContent_,std::to_string(p.value("speed",uint64_t(0))/1024)+" KiB/s · "+std::to_string(p.value("lanes",0))+" 路 · "+std::to_string(p.value("nodes",1))+" 个节点",uiMetrics_.dp(10),y+uiMetrics_.dp(62),width,uiMetrics_.fontSize(UiFont::FormNote),theme::muted);
+    if(state=="downloading"||state=="verifying")action("cancel","取消下载",uiMetrics_.dp(10),y+uiMetrics_.dp(98),column,[this]{updateBack();});
+    readableLabel(pageContent_,"下载与校验成功后将自动安装。取消后，下一个版本再提醒。",uiMetrics_.dp(10),y+uiMetrics_.dp(160),width,uiMetrics_.fontSize(UiFont::Detail),theme::muted);
     return;
   }
   if(state=="available"||(state=="error"&&!release.empty())) {
-    action("download",release.value("weak",false)?"仍然下载并更新":"立即下载并更新",10,y,column,[this]{beginUpdate();});
-    action("later","稍后更新",26+column,y,column,[this]{updateBack();});y+=64;
+    action("download",release.value("weak",false)?"仍然下载并更新":"立即下载并更新",uiMetrics_.dp(10),y,column,[this]{beginUpdate();});
+    action("later","稍后更新",uiMetrics_.dp(26)+column,y,column,[this]{updateBack();});y += uiMetrics_.dp(64);
   } else {
-    action("check","重新检查",10,y,column,[this]{updater_->request("check",{{"manual",true}});});
-    action("back","返回",26+column,y,column,[this]{updateBack();});y+=64;
+    action("check","重新检查",uiMetrics_.dp(10),y,column,[this]{updater_->request("check",{{"manual",true}});});
+    action("back","返回",uiMetrics_.dp(26)+column,y,column,[this]{updateBack();});y += uiMetrics_.dp(64);
   }
   if(updateState_.contains("ticket")&&state!="installed") {
-    action("retry_install","重试已下载的安装包",10,y,width,[this]{updater_->request("retry_install",{{"snapshot",updateSnapshot()}});});y+=64;
+    action("retry_install","重试已下载的安装包",uiMetrics_.dp(10),y,width,[this]{updater_->request("retry_install",{{"snapshot",updateSnapshot()}});});y += uiMetrics_.dp(64);
   }
   const auto notes=updateState_.value("notes",Json::array());const auto index=updateState_.value("note_index",size_t(0)),page=updateState_.value("note_page",size_t(0));
   if(!notes.empty()&&index<notes.size()) {
-    readableLabel(pageContent_,notes[index].value("version",std::string())+" 更新说明 · "+std::to_string(index+1)+"/"+std::to_string(notes.size()),10,y,width,20);y+=32;
-    const int cell=(width-24)/4;
-    auto prev=action("note_previous","上一版本",10,y,cell,[this,index]{updater_->request("note",{{"index",index-1},{"page",0}});});
-    auto next=action("note_next","下一版本",18+cell,y,cell,[this,index]{updater_->request("note",{{"index",index+1},{"page",0}});});
-    auto left=action("page_previous","上一页",26+2*cell,y,cell,[this,index,page]{updater_->request("note",{{"index",index},{"page",page-1}});});
-    auto right=action("page_next","下一页",34+3*cell,y,cell,[this,index,page]{updater_->request("note",{{"index",index},{"page",page+1}});});
+    readableLabel(pageContent_,notes[index].value("version",std::string())+" 更新说明 · "+std::to_string(index+1)+"/"+std::to_string(notes.size()),uiMetrics_.dp(10),y,width,uiMetrics_.fontSize(UiFont::SettingsTitle));y += uiMetrics_.dp(32);
+    const int cell=(width-uiMetrics_.dp(24))/4;
+    auto prev=action("note_previous","上一版本",uiMetrics_.dp(10),y,cell,[this,index]{updater_->request("note",{{"index",index-1},{"page",0}});});
+    auto next=action("note_next","下一版本",uiMetrics_.dp(18)+cell,y,cell,[this,index]{updater_->request("note",{{"index",index+1},{"page",0}});});
+    auto left=action("page_previous","上一页",uiMetrics_.dp(26)+2*cell,y,cell,[this,index,page]{updater_->request("note",{{"index",index},{"page",page-1}});});
+    auto right=action("page_next","下一页",uiMetrics_.dp(34)+3*cell,y,cell,[this,index,page]{updater_->request("note",{{"index",index},{"page",page+1}});});
     if(!index)lv_obj_add_state(prev,LV_STATE_DISABLED);
     if(index+1>=notes.size())lv_obj_add_state(next,LV_STATE_DISABLED);
     if(!page)lv_obj_add_state(left,LV_STATE_DISABLED);
     if(page+1>=updateState_.value("note_pages",size_t(1)))lv_obj_add_state(right,LV_STATE_DISABLED);
-    y+=64;auto content=box(pageContent_,10,y,width,LV_SIZE_CONTENT);lv_obj_set_flex_flow(content,LV_FLEX_FLOW_COLUMN);lv_obj_set_style_pad_row(content,8,0);
+    y += uiMetrics_.dp(64);auto content=box(pageContent_,uiMetrics_.dp(10),y,width,LV_SIZE_CONTENT);lv_obj_set_flex_flow(content,LV_FLEX_FLOW_COLUMN);lv_obj_set_style_pad_row(content,uiMetrics_.dp(8),0);
     richMessage(content,updateState_.value("note_text",std::string()),width,false,"release-note");
   }
 }

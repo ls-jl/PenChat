@@ -64,10 +64,10 @@ bool App::imageTouch(const Json &m) {
   if(g.mode==-1){if(!count)finishImageGesture();return true;}
   if(!count) {
     const int mode=g.mode;
-    if(viewer && mode==1 && !g.multi && viewerDistance_<=144 && viewerFrame_) {
+    if(viewer && mode==1 && !g.multi && viewerDistance_<=uiMetrics_.gestures().tapSquared() && viewerFrame_) {
       const auto now=ticks();
       const int x=viewerLastX_,y=viewerLastY_;
-      if(viewerLastTap_ && now-viewerLastTap_<350 && std::abs(x-viewerLastTapX_)<24 && std::abs(y-viewerLastTapY_)<24)
+      if(viewerLastTap_ && now-viewerLastTap_<350 && std::abs(x-viewerLastTapX_)<uiMetrics_.dp(24) && std::abs(y-viewerLastTapY_)<uiMetrics_.dp(24))
         zoomImageViewer(viewerZoom_>1.001?1:2,x,y);
       else {viewerLastTap_=now;viewerLastTapX_=x;viewerLastTapY_=y;}
     }
@@ -133,7 +133,7 @@ bool App::imageTouch(const Json &m) {
     if(g.edges&4)t=std::max(std::max(0.,cropPanY_),std::min(b-minH,g.top+dy));
     if(g.edges&8)b=std::min(std::min(double(cropViewportH_),imageBottom),std::max(t+minH,g.bottom+dy));
     cropX_=l;cropY_=t;cropW_=r-l;cropH_=b-t;updateCrop();
-  } else if(g.multi || viewerDistance_>144) {
+  } else if(g.multi || viewerDistance_>uiMetrics_.gestures().tapSquared()) {
     viewerLastTap_=0;
     if(viewer){viewerPanX_=g.panX+dx;viewerPanY_=g.panY+dy;updateImageViewer();}
     else {cropPanX_=g.panX+dx;cropPanY_=g.panY+dy;updateCrop();}

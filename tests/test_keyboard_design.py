@@ -101,4 +101,9 @@ if __name__ == '__main__':
             for state, snapshot in before.items():
                 for field, value in snapshot.items():
                     assert after[state][field] == value, (fixture, state, field, value, after[state][field])
+            width,height,split,swap=fixture
+            prefix=f'{width}x{height}-'+('split' if split else 'default')+('-swap' if swap else '')
+            for state in before:
+                name=prefix+'-'+state+'.png'
+                assert (directory/name).read_bytes()==(args.output/name).read_bytes(), name
         print('Keyboard template geometry, modes and session preserved:', fixture, flush=True)

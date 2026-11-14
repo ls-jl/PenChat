@@ -80,7 +80,7 @@ void App::modelCapabilityRows(int y) {
     auto held = std::make_shared<bool>(false);
     auto object = button(pageContent_, "", x + col - uiMetrics_.dp(44), at + uiMetrics_.dp(6), uiMetrics_.dp(44), uiMetrics_.dp(44),
                          [fill, held, key] { if (*held) { *held = false; return; } fill(key); });
-    attachIcon(object, "autofill", theme::text);
+    attachIcon(object, "autofill", theme::text, 1.f, uiMetrics_);
     if(layout().portrait()||layout().compact()) {
       lv_obj_set_user_data(object,settingsControls_.at("model_"+key).row);
       lv_obj_set_floating(object,true);
@@ -100,7 +100,7 @@ void App::modelCapabilityRows(int y) {
       if (code == LV_EVENT_PRESSED) { *h->held = false; h->start = point; h->distance = 0; }
       const int64_t dx = point.x - h->start.x, dy = point.y - h->start.y;
       h->distance = std::max(h->distance, dx * dx + dy * dy);
-      if (code == LV_EVENT_LONG_PRESSED && h->distance <= 144) {
+      if (code == LV_EVENT_LONG_PRESSED && h->distance <= h->app->uiMetrics_.gestures().tapSquared()) {
         *h->held = true;
         h->app->events_.push("catalog_help", {{"id", h->app->modelForm_.value("id", std::string())}});
       }

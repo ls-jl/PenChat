@@ -43,9 +43,9 @@ void App::nativeBack() {
 bool App::backTouch(const Json &m) {
   const int x=m.value("x",0), y=m.value("y",0);
   const bool down=m.value("pressed",false), cancelled=m.value("cancelled",false);
-  const int slop=std::max(8,int(std::lround(screen_.width*.0125)));
-  const int edge=std::max(20,int(std::lround(screen_.width*.046)));
-  const int distance=std::max(44,int(std::lround(screen_.width*.10)));
+  const int slop=std::max(uiMetrics_.dp(8),int(std::lround(screen_.width*.0125)));
+  const int edge=std::max(uiMetrics_.dp(20),int(std::lround(screen_.width*.046)));
+  const int distance=std::max(uiMetrics_.dp(44),int(std::lround(screen_.width*.10)));
   if (cancelled) {
     const bool consumed=backCandidate_;
     resetBack();

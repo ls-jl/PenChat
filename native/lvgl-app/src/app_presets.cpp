@@ -35,56 +35,56 @@ void App::presetPicker() {
   auto backdrop = button(attachments_, "", 0, 0, screen_.width-layout().gutter(), screen_.height,
                          [this] { closeAttachments(); });
   lv_obj_set_style_bg_opa(backdrop, LV_OPA_TRANSP, 0);
-  const auto area=pickerArea(screen_.width-(layout().portrait()?32:130));
+  const auto area=pickerArea(screen_.width-uiMetrics_.dp(layout().portrait()?32:130));
   const int panelWidth=area.width;
   auto panel=box(attachments_,area.x,area.y,panelWidth,area.height,theme::popup);
-  attachmentPanel_=panel;stylePopupPanel(panel,layout().portrait());
+  attachmentPanel_=panel;stylePopupPanel(panel,layout().portrait(),uiMetrics_);
   lv_obj_set_scroll_dir(panel, LV_DIR_VER);
   lv_obj_set_scroll_elastic(panel, false);
   lv_obj_set_scroll_momentum(panel, false);
   auto current = sessionPreferences_.value("preset_name", std::string("未选择预设"));
   if (sessionPreferences_.value("preset_adjusted", false)) current += " · 已调整";
-  auto heading = label(panel, "当前：" + current, 14, 4, panelWidth-38, 17, theme::muted);
+  auto heading = label(panel, "当前：" + current, uiMetrics_.dp(14), uiMetrics_.dp(4), panelWidth-uiMetrics_.dp(38), uiMetrics_.fontSize(UiFont::FormHint), theme::muted);
   lv_label_set_long_mode(heading, LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(heading, 24);
-  int y = 32;
+  lv_obj_set_height(heading, uiMetrics_.dp(24));
+  int y = uiMetrics_.dp(32);
   for (const auto &p : presetList(db_.settings())) {
     bool selected = p["id"] == sessionPreferences_.value("preset_id", std::string());
     auto title = (selected ? "● " : "○ ") + p.value("name", std::string());
     if (selected && sessionPreferences_.value("preset_adjusted", false)) title += " · 已调整";
-    button(panel, title, 8, y, panelWidth-24, 44,
+    button(panel, title, uiMetrics_.dp(8), y, panelWidth-uiMetrics_.dp(24), uiMetrics_.dp(44),
            [this, p] { applyPreset(p); }, theme::surface, LV_TEXT_ALIGN_LEFT);
-    auto caption = label(panel, presetSummary(p), 22, y + 44, panelWidth-50, 16, theme::muted);
+    auto caption = label(panel, presetSummary(p), uiMetrics_.dp(22), y + uiMetrics_.dp(44), panelWidth-uiMetrics_.dp(50), uiMetrics_.fontSize(UiFont::Detail), theme::muted);
     lv_label_set_long_mode(caption, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_height(caption, 22);
+    lv_obj_set_height(caption, uiMetrics_.dp(22));
     lv_obj_set_clickable(caption, false);
-    y += 72;
+    y += uiMetrics_.dp(72);
   }
 }
 void App::presetsPage() {
   pageHeader("会话预设");
-  const int width = layout().contentWidth(), column = (width - 14) / 2;
+  const int width = layout().contentWidth(), column = (width - uiMetrics_.dp(14)) / 2;
   bool enabled = db_.settings().value("presets_enabled", false);
-  button(pageContent_, enabled ? "启用预设入口：开" : "启用预设入口：关", 10, 4, column, 48,
+  button(pageContent_, enabled ? "启用预设入口：开" : "启用预设入口：关", uiMetrics_.dp(10), uiMetrics_.dp(4), column, uiMetrics_.dp(48),
          [this, enabled] { db_.setting("presets_enabled", !enabled); build(); });
-  auto add = pageAction("新增预设", 24, 130, [this] {
+  auto add = pageAction("新增预设", uiMetrics_.dp(24), uiMetrics_.dp(130), [this] {
     presetForm_ = defaultPreset();
     presetForm_["id"] = uid("preset");
     presetForm_["name"] = "新预设";
     show("preset_edit");
   });
   primary(add);
-  label(pageContent_, "关闭只隐藏入口\n已有会话配置继续生效", 24 + column, 7, column, 17, theme::muted);
-  int y = 64;
+  label(pageContent_, "关闭只隐藏入口\n已有会话配置继续生效", uiMetrics_.dp(24) + column, uiMetrics_.dp(7), column, uiMetrics_.fontSize(UiFont::FormHint), theme::muted);
+  int y = uiMetrics_.dp(64);
   for (const auto &p : presetList(db_.settings())) {
-    auto row = button(pageContent_, p.value("name", std::string()), 10, y, width, 64,
+    auto row = button(pageContent_, p.value("name", std::string()), uiMetrics_.dp(10), y, width, uiMetrics_.dp(64),
                       [this, p] { presetForm_ = p; show("preset_edit"); }, theme::surface, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lv_obj_get_child(row, 0), LV_ALIGN_TOP_LEFT, 12, 6);
-    auto detail = label(row, presetSummary(p), 12, 36, width - 24, 16, theme::muted);
+    lv_obj_align(lv_obj_get_child(row, 0), LV_ALIGN_TOP_LEFT, uiMetrics_.dp(12), uiMetrics_.dp(6));
+    auto detail = label(row, presetSummary(p), uiMetrics_.dp(12), uiMetrics_.dp(36), width - uiMetrics_.dp(24), uiMetrics_.fontSize(UiFont::Detail), theme::muted);
     lv_label_set_long_mode(detail, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_height(detail, 21);
+    lv_obj_set_height(detail, uiMetrics_.dp(21));
     lv_obj_set_clickable(detail, false);
-    y += 72;
+    y += uiMetrics_.dp(72);
   }
 }
 void App::presetChoices(const std::string &field) {
@@ -115,8 +115,8 @@ void App::presetChoices(const std::string &field) {
 }
 void App::presetEditor() {
   pageHeader("编辑预设");
-  const int width = layout().contentWidth(), column = (width - 14) / 2, right = 24 + column;
-  auto save = pageAction("保存", 24, 130, [this] {
+  const int width = layout().contentWidth(), column = (width - uiMetrics_.dp(14)) / 2, right = uiMetrics_.dp(24) + column;
+  auto save = pageAction("保存", uiMetrics_.dp(24), uiMetrics_.dp(130), [this] {
     if (!presetHasText(presetForm_.value("name", std::string()))) { modal("请输入预设名称", "名称不能为空。"); return; }
     if (presetForm_.value("prompt_mode", std::string()) == "custom" && !presetHasText(presetForm_.value("prompt", std::string()))) {
       modal("请输入系统提示词", "若需要移除提示词，请选择“清空”。"); return;
@@ -150,16 +150,16 @@ void App::presetEditor() {
       auto field=fieldButton(pageContent_, text.substr(0, separator), text.substr(separator + 3), x, y, column, callback);
       pageActions_["preset:"+text.substr(0,separator)]=field;
     } else {
-      auto object = button(pageContent_, text, x, y, column, 48, callback, theme::surface, LV_TEXT_ALIGN_LEFT);
+      auto object = button(pageContent_, text, x, y, column, uiMetrics_.dp(48), callback, theme::surface, LV_TEXT_ALIGN_LEFT);
       if (text == "删除预设") lv_obj_set_style_text_color(lv_obj_get_child(object, 0), lv_color_hex(theme::danger), 0);
     }
   };
-  action("名称：" + presetForm_.value("name", std::string()), 10, 4, [this] {
+  action("名称：" + presetForm_.value("name", std::string()), uiMetrics_.dp(10), uiMetrics_.dp(4), [this] {
     if (presetForm_["id"] == "default") { modal("默认预设", "默认预设始终存在，名称固定；其他配置可以修改。"); return; }
     edit(presetForm_.value("name", std::string()), "预设名称", [this](const std::string &v) { presetForm_["name"] = v; build(); }, 32);
   });
   auto mode = presetForm_.value("prompt_mode", std::string("inherit"));
-  action(std::string("系统提示词：") + (mode == "custom" ? "自定义" : mode == "clear" ? "清空" : "沿用会话"), right, 4,
+  action(std::string("系统提示词：") + (mode == "custom" ? "自定义" : mode == "clear" ? "清空" : "沿用会话"), right, uiMetrics_.dp(4),
          [this] { presetChoices("prompt_mode"); });
   std::string name = "沿用会话";
   auto id = presetForm_.value("model_id", std::string());
@@ -167,26 +167,26 @@ void App::presetEditor() {
     name = "模型不可用";
     for (const auto &m : db_.models()) if (m["id"] == id) name = m.value("display_name",m.value("name", std::string()));
   }
-  action("模型：" + name, 10, 62, [this] { presetChoices("model_id"); });
+  action("模型：" + name, uiMetrics_.dp(10), uiMetrics_.dp(62), [this] { presetChoices("model_id"); });
   auto effort = presetForm_.value("effort", std::string());
-  action("推理强度：" + (effort.empty() ? std::string("沿用会话") : effort == "api_default" ? "API 默认" : effortLabel(effort)), right, 62,
+  action("推理强度：" + (effort.empty() ? std::string("沿用会话") : effort == "api_default" ? "API 默认" : effortLabel(effort)), right, uiMetrics_.dp(62),
          [this] { presetChoices("effort"); });
   auto timing = [&](const std::string &field, int x) {
     bool always = presetForm_.value(field, std::string("empty")) == "always";
-    label(pageContent_, "应用时机", x, 120, column, 16, theme::muted);
+    label(pageContent_, "应用时机", x, uiMetrics_.dp(120), column, uiMetrics_.fontSize(UiFont::Detail), theme::muted);
     for (int i = 0; i < 2; ++i) {
       const std::string value = i ? "always" : "empty";
       const int segment = (column - 8) / 2;
       auto choice = button(pageContent_, ((always == bool(i)) ? "● " : "○ ") + std::string(i ? "每次切换" : "仅空白会话"),
-                           x + i * (segment + 8), 144, segment, 44,
+                           x + i * (segment + uiMetrics_.dp(8)), uiMetrics_.dp(144), segment, uiMetrics_.dp(44),
                            [this, field, value] { presetForm_[field] = value; build(); }, theme::surface);
       if (always == bool(i)) {
-        lv_obj_set_style_border_width(choice, 1, 0);
+        lv_obj_set_style_border_width(choice, uiMetrics_.dp(1), 0);
         lv_obj_set_style_border_color(choice, lv_color_hex(theme::muted), 0);
       }
     }
   };
-  if (!id.empty()) timing("model_when", 10);
+  if (!id.empty()) timing("model_when", uiMetrics_.dp(10));
   if (!effort.empty()) timing("effort_when", right);
   auto compressionId = presetForm_.value("compression_model_id", std::string());
   std::string compressionName =
@@ -194,15 +194,15 @@ void App::presetEditor() {
   for (const auto &m : db_.models())
     if (m["id"] == compressionId)
       compressionName = m.value("display_name",m.value("name", std::string()));
-  const int compressionY = (!id.empty() || !effort.empty()) ? 202 : 120;
-  action("上下文压缩模型：" + compressionName, 10, compressionY,
+  const int compressionY = (!id.empty() || !effort.empty()) ? uiMetrics_.dp(202) : uiMetrics_.dp(120);
+  action("上下文压缩模型：" + compressionName, uiMetrics_.dp(10), compressionY,
          [this] { presetChoices("compression_model_id"); });
-  label(pageContent_, "仅影响下一次压缩；不改变聊天模型和已有摘要", right, compressionY + 8, column, 16,
+  label(pageContent_, "仅影响下一次压缩；不改变聊天模型和已有摘要", right, compressionY + uiMetrics_.dp(8), column, uiMetrics_.fontSize(UiFont::Detail),
         theme::muted);
   if (mode == "custom") {
     fieldButton(
-        pageContent_, "系统提示词", presetForm_.value("prompt", std::string("点击编辑")), 10,
-        compressionY + 64, width, [this] {
+        pageContent_, "系统提示词", presetForm_.value("prompt", std::string("点击编辑")), uiMetrics_.dp(10),
+        compressionY + uiMetrics_.dp(64), width, [this] {
           edit(
               presetForm_.value("prompt", std::string()), "系统提示词（可输入多行）",
               [this](const std::string &v) {
@@ -211,13 +211,13 @@ void App::presetEditor() {
               },
               8192, "ZhCNPreferred", {}, true);
         });
-    label(pageContent_, "应用后替换会话提示词；需要移除时请选择“清空”。", 10, compressionY + 122, width, 16,
+    label(pageContent_, "应用后替换会话提示词；需要移除时请选择“清空”。", uiMetrics_.dp(10), compressionY + uiMetrics_.dp(122), width, uiMetrics_.fontSize(UiFont::Detail),
           theme::muted);
   }
   if (presetForm_["id"] != "default")
-    action("删除预设", right, compressionY + (mode == "custom" ? 156 : 64), [this] {
+    action("删除预设", right, compressionY + (mode == "custom" ? uiMetrics_.dp(156) : uiMetrics_.dp(64)), [this] {
       modal("删除预设", "已有会话仍保留当前配置。确定删除此预设？");
-      button(modal_, "确定删除", 16, screen_.height - 66, 160, 44, [this] {
+      button(modal_, "确定删除", uiMetrics_.dp(16), screen_.height - uiMetrics_.dp(66), uiMetrics_.dp(160), uiMetrics_.dp(44), [this] {
         auto presets = presetList(db_.settings());
         Json kept = Json::array();
         for (const auto &p : presets)

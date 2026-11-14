@@ -143,6 +143,20 @@ struct UiControlsTest {
       }
     }
     a.clear();
+    for(const auto &view:{"presets","archives","transfer","feedback","update","http_settings","keyboard_settings","album"}) {
+      a.show(view);lv_obj_update_layout(a.screenObj_);
+      assert(lv_obj_get_width(a.body_)>0 && lv_obj_get_height(a.body_)>0);
+      for(const auto &target:a.inputTargets_) {
+        auto object=target.first;lv_area_t bounds;lv_obj_get_coords(object,&bounds);
+        assert(lv_obj_get_width(object)>0 && lv_obj_get_height(object)>0);
+        assert(bounds.x1>=0 && bounds.x2<a.screen_.width);
+      }
+    }
+    auto resolves=a.editorLayoutResolves_;
+    a.editorLayout();resolves=a.editorLayoutResolves_;
+    for(int i=0;i<100;++i)a.editorLayout();
+    assert(a.editorLayoutResolves_==resolves);
+    a.clear();
   }
 };
 }

@@ -62,14 +62,14 @@ void App::whenScannerReleased(std::function<void()> callback) {
 void App::scanPage() {
   lv_obj_set_scrollable(body_, false);
   const auto workspace=layout().scanWorkspace();
-  scanLabel_ = label(body_, "请从左向右扫描，松开笔头后完成拼接", workspace.caption.x, workspace.caption.y, workspace.caption.width, 19,
+  scanLabel_ = label(body_, "请从左向右扫描，松开笔头后完成拼接", workspace.caption.x, workspace.caption.y, workspace.caption.width, uiMetrics_.fontSize(UiFont::FormCaption),
                      theme::muted);
   lv_label_set_long_mode(scanLabel_, LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(scanLabel_, font(19)->line_height);
+  lv_obj_set_height(scanLabel_, font(uiMetrics_.fontSize(UiFont::FormCaption))->line_height);
   const bool portrait=layout().portrait();
   auto holder = box(body_,workspace.preview.x,workspace.preview.y,workspace.preview.width,workspace.preview.height,theme::surface);
   scanHolder_=holder;
-  scanWarning_=label(body_,"",10,28,screen_.width-120,17,theme::danger);
+  scanWarning_=label(body_,"",uiMetrics_.dp(10),uiMetrics_.dp(28),screen_.width-uiMetrics_.dp(120),uiMetrics_.fontSize(UiFont::FormHint),theme::danger);
   lv_obj_set_hidden(scanWarning_,true);
   lv_obj_set_clickable(holder,true);
   lv_obj_add_event_cb(holder, [](lv_event_t *e) {
@@ -125,7 +125,7 @@ void App::scanPage() {
              (c.value("warnings", 0u) ? "，存在光照估计回退，请核对"
                                       : "，请确认使用");
     if(partial) {
-      lv_obj_set_width(scanLabel_,portrait?screen_.width-88:screen_.width-330);
+      lv_obj_set_width(scanLabel_,portrait?screen_.width-uiMetrics_.dp(88):screen_.width-uiMetrics_.dp(330));
       lv_label_set_long_mode(scanLabel_,LV_LABEL_LONG_MODE_WRAP);
       lv_obj_set_height(scanLabel_,LV_SIZE_CONTENT);
     }
@@ -147,7 +147,7 @@ void App::updateScanWarning(const Json &counts) {
   const int extra=lost?lv_obj_get_height(scanWarning_)+8:0;
   const int holderTop=top+extra+4;
   lv_obj_set_y(scanHolder_,holderTop);
-  lv_obj_set_height(scanHolder_,std::max(24,workspace.previewBottom-holderTop));
+  lv_obj_set_height(scanHolder_,std::max(uiMetrics_.dp(24),workspace.previewBottom-holderTop));
   if(auto frame=scanner_.preview(scanId_)) {
     lv_image_set_scale(scanImage_,std::min(256,std::min((lv_obj_get_width(scanHolder_)-8)*256/frame->width,
       (lv_obj_get_height(scanHolder_)-8)*256/frame->height)));lv_obj_center(scanImage_);

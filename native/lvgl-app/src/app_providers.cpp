@@ -401,7 +401,7 @@ void App::providerModelsPage() {
     lv_obj_set_style_border_width(mark, uiMetrics_.dp(1), 0);
     lv_obj_set_style_border_color(mark, lv_color_hex(theme::muted), 0);
     if (exists || selected)
-      attachIcon(mark, "check", exists ? theme::muted : theme::text);
+      attachIcon(mark, "check", exists ? theme::muted : theme::text, 1.f, uiMetrics_);
     pageActions_["model-option:" + name] = row;
     y += uiMetrics_.form().settingsPitch;
   }
