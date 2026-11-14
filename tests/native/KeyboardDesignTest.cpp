@@ -15,20 +15,20 @@ int main(int argc,char **argv) {
   const auto &defaults=keyboardDesign();
   KeyboardDesign design=defaults;
   design.base.radius=13;
-  design.roles[size_t(KeyboardRole::Function)].background=theme::accent;
+  design.roles[size_t(KeyboardRole::Function)].background=theme::palette().accent;
   design.roles[size_t(KeyboardRole::Function)].disabledOpacity=102;
-  design.variants[size_t(KeyboardVariant::DeleteKey)].background=theme::danger;
+  design.variants[size_t(KeyboardVariant::DeleteKey)].background=theme::palette().danger;
   design.profiles[size_t(KeyboardView::Portrait)].fonts[size_t(KeyboardFont::Character)]=28;
   assert(design.font(KeyboardFont::Character,KeyboardView::Portrait)==28);
   assert(design.font(KeyboardFont::Character,KeyboardView::Wide)==23);
   assert(design.font(KeyboardFont::Character,KeyboardView::Compact)==23);
-  assert(design.resolve(KeyboardRole::Function).background==theme::accent);
-  assert(design.resolve(KeyboardRole::Character).background==theme::surface);
-  assert(design.resolve(KeyboardRole::Function,KeyboardVariant::DeleteKey).background==theme::danger);
-  assert(design.resolve(KeyboardRole::Function,KeyboardVariant::DeleteKey,{true,false,false}).background==theme::border);
+  assert(design.resolve(KeyboardRole::Function).background==theme::palette().accent);
+  assert(design.resolve(KeyboardRole::Character).background==theme::palette().surface);
+  assert(design.resolve(KeyboardRole::Function,KeyboardVariant::DeleteKey).background==theme::palette().danger);
+  assert(design.resolve(KeyboardRole::Function,KeyboardVariant::DeleteKey,{true,false,false}).background==theme::palette().border);
   const auto disabled=design.resolve(KeyboardRole::Function,KeyboardVariant::DeleteKey,{true,true,false});
-  assert(disabled.background==theme::danger&&disabled.opacity==102);
-  assert(design.resolve(KeyboardRole::Menu,{}, {false,false,true}).background==theme::surface);
+  assert(disabled.background==theme::palette().danger&&disabled.opacity==102);
+  assert(design.resolve(KeyboardRole::Menu,{}, {false,false,true}).background==theme::palette().surface);
   for(auto size:{std::make_pair(960,266),{936,280},{640,260},{720,280},{568,1210},{600,1280}})
     for(bool expanded:{false,true})for(bool swapped:{false,true}) {
       const EditorLayout layout(size.first,size.second,false,false,swapped,expanded,false,design);

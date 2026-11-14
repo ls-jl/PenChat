@@ -44,7 +44,7 @@ void App::feedbackPage() {
     feedbackActions_[key] = b;
     return b;
   };
-  auto description = [this,width](const std::string &text, int y, uint32_t color = theme::muted) {
+  auto description = [this,width](const std::string &text, int y, uint32_t color = theme::palette().muted) {
     auto object = readableLabel(pageContent_, text, uiMetrics_.dp(10), y, width, uiMetrics_.fontSize(UiFont::FormNote), color);
     lv_obj_update_layout(object);
     return int(lv_obj_get_height(object));
@@ -65,7 +65,7 @@ void App::feedbackPage() {
     if (!state.value("enabled",false) || feedbackBusy_ || !state.value("preview_ready",false))
       lv_obj_add_state(send,LV_STATE_DISABLED);
     if (!state.value("enabled",false)) description("此构建未配置上传服务，仍可查看诊断。",uiMetrics_.dp(92));
-    description(feedback_->previewPage(feedbackPreviewPage_), state.value("enabled",false)?uiMetrics_.dp(100):uiMetrics_.dp(130), theme::text);
+    description(feedback_->previewPage(feedbackPreviewPage_), state.value("enabled",false)?uiMetrics_.dp(100):uiMetrics_.dp(130), theme::palette().text);
   } else if (feedbackView_ == "records") {
     pageHeader("反馈记录");
     int y = uiMetrics_.dp(4);
@@ -73,7 +73,7 @@ void App::feedbackPage() {
     if (records.empty()) y += description("没有待处理反馈。发送成功后仅保留编号与时间，报告正文会清除。",y)+16;
     for (const auto &record : records) {
       const auto id = record.value("id",std::string());
-      y += description(id.substr(0,8) + " · " + record.value("reason",std::string()),y,theme::text)+4;
+      y += description(id.substr(0,8) + " · " + record.value("reason",std::string()),y,theme::palette().text)+4;
       const auto due = record.value("due_ms",int64_t(0));
       y += description("已尝试 " + std::to_string(record.value("attempts",0)) + " 次 · " +
                        std::to_string(record.value("bytes",size_t(0))) + " 字节" +
@@ -108,7 +108,7 @@ void App::feedbackPage() {
         status=="ambiguous"?"检测到多个候选，请核对":status=="grab_failed"?"无法屏蔽按键，请结束其他占用后重试":
         status=="key_held"?"按键尚未松开，请松开后重试":status=="unavailable"?"设备不可读或权限不足，未开始采样":
         status=="events_lost"?"事件丢失，请重新采集":status=="cancelled"?(result.value("release_missing",false)?"已取消 · 缺少松开事件":"已取消"):"尚未采集";
-      y+=description(std::string(title)+" · "+(collecting&&current==step?(status=="listening"||status=="pressed"?"按键功能已屏蔽，请按下并松开按钮":"正在准备监听，请稍候"):meaning),y,theme::text)+8;
+      y+=description(std::string(title)+" · "+(collecting&&current==step?(status=="listening"||status=="pressed"?"按键功能已屏蔽，请按下并松开按钮":"正在准备监听，请稍候"):meaning),y,theme::palette().text)+8;
       auto start=control("start_"+step,status.empty()?"开始采集":"重新采集",uiMetrics_.dp(10),y,column,[this,step]{feedbackStartKeys(step);});
       auto skip=control("skip_"+step,"跳过",uiMetrics_.dp(26)+column,y,column,[this,step]{feedbackRequest("keys.skip",{{"step",step}});});
       if(collecting || (step=="home"&&!steps.count("scan"))) lv_obj_add_state(start,LV_STATE_DISABLED);
@@ -148,7 +148,7 @@ void App::feedbackPage() {
   if(!message.empty()) {
     lv_obj_update_layout(pageContent_);
     const int y=lv_obj_get_height(pageContent_)+uiMetrics_.dp(12);
-    description(message,y,theme::text);
+    description(message,y,theme::palette().text);
   }
 }
 } // namespace penchat

@@ -502,3 +502,20 @@ test('portrait official display follows its owned IME without granting input foc
  f.options.onHide.call(f.page);assert(!layout().foreground)
  f.page.dispose()
 })
+test('native appearance uses resolved metrics and preserves official field coordinates', () => {
+  const f=fixture();const page=f.page
+  const colors={background:'#ffffff',text:'#20242d',muted:'#626b78',surface:'#eef1f5',primaryText:'#ffffff',caret:'#2457c5'}
+  const metrics={title:35,body:26,caption:25,gap:18,inset:40,top:25,bottom:31,retryWidth:225,leaveX:294,leaveWidth:150,controlHeight:56,radius:15}
+  page.nativeAreaStyle={width:'568px',height:'1210px'}
+  page.applyAppearance({mode:'light',colors,metrics})
+  assert.equal(page.pageStyle.backgroundColor,'#ffffff')
+  assert.equal(page.pageStyle.width,'568px')
+  assert.equal(page.appearanceStyles.retry.width,'225px')
+  page.officialInline=true;page._keyboardRequest='r'
+  page.inlineOfficialField({requestId:'r',x:12,y:68,width:300,height:44})
+  assert.equal(page.officialInputStyle.left,'12px')
+  assert.equal(page.officialInputStyle.color,'#20242d')
+  const previous=page.appearanceStyles
+  page.applyAppearance({mode:'light',colors:{...colors,text:'invalid'},metrics})
+  assert.equal(page.appearanceStyles,previous)
+})

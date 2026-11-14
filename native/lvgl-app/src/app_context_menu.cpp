@@ -16,10 +16,10 @@ bool App::finishChatEditorForNavigation() {
   return !keepChatEditor() || editorAccept();
 }
 void App::selected(lv_obj_t *object,bool value) {
-  lv_obj_set_style_bg_color(object,lv_color_hex(theme::surface),0);
+  lv_obj_set_style_bg_color(object,lv_color_hex(theme::palette().surface),0);
   if(value)lv_obj_add_state(object,LV_STATE_CHECKED);
   else lv_obj_remove_state(object,LV_STATE_CHECKED);
-  lv_obj_set_style_bg_color(object,lv_color_hex(theme::surface),LV_STATE_CHECKED);
+  lv_obj_set_style_bg_color(object,lv_color_hex(theme::palette().surface),LV_STATE_CHECKED);
   const auto &metrics=controlMetrics(object);
   auto caption=lv_obj_get_child(object,0);
   if(caption) {
@@ -28,12 +28,12 @@ void App::selected(lv_obj_t *object,bool value) {
     lv_obj_update_layout(object);
     lv_obj_set_width(caption,std::max(metrics.dp(24),int(lv_obj_get_width(object))-metrics.dp(52)));
     lv_obj_align(caption,LV_ALIGN_LEFT_MID,metrics.dp(36),0);
-    lv_obj_set_style_text_color(caption,lv_color_hex(theme::text),0);
+    lv_obj_set_style_text_color(caption,lv_color_hex(theme::palette().text),0);
   }
   if(value) {
-    auto mark=box(object,metrics.dp(8),(lv_obj_get_height(object)-metrics.dp(24))/2,metrics.dp(24),metrics.dp(24),theme::surface);
+    auto mark=box(object,metrics.dp(8),(lv_obj_get_height(object)-metrics.dp(24))/2,metrics.dp(24),metrics.dp(24),theme::palette().surface);
     lv_obj_set_scrollable(mark,false);lv_obj_set_clickable(mark,false);
-    attachIcon(mark,"check",theme::accent, 1.f, uiMetrics_);
+    attachIcon(mark,"check",theme::palette().accent, 1.f, uiMetrics_);
   }
 }
 void App::choiceMenu(const std::string &kind,
@@ -52,7 +52,7 @@ void App::choiceMenu(const std::string &kind,
   for(const auto &option:options) {
     const auto key=option.first;
     auto row=button(list,option.second,0,y,lv_obj_get_width(list),rowHeight-uiMetrics_.dp(4),
-      [this,key,apply]{closeHistoryContext();apply(key);},theme::popup,LV_TEXT_ALIGN_LEFT);
+      [this,key,apply]{closeHistoryContext();apply(key);},theme::palette().popup,LV_TEXT_ALIGN_LEFT);
     selected(row,key==current);stylePopupRow(row);
     choiceActions_[key]=row;
     y+=rowHeight;
@@ -64,7 +64,7 @@ lv_obj_t *App::contextMenu(const std::string &kind,int rows,int width) {
   contextMenuKind_=kind;
   contextMenuOpening_=lastTouch_.value("pressed",false);
   input_.cancel();
-  auto layer=box(screenObj_,0,0,screen_.width,screen_.height,theme::scrim);
+  auto layer=box(screenObj_,0,0,screen_.width,screen_.height,theme::palette().scrim);
   modal_=layer;modalScroll_=nullptr;modalButtons_.clear();
   lv_obj_set_style_bg_opa(layer,LV_OPA_TRANSP,0);
   lv_obj_set_scrollable(layer,false);lv_obj_set_clickable(layer,true);
@@ -88,13 +88,13 @@ lv_obj_t *App::contextMenu(const std::string &kind,int rows,int width) {
   const LayoutRect anchor{lastTouch_.value("x",screen_.width/2),lastTouch_.value("y",screen_.height/2),1,1};
   const auto area=placeContextPopup(screen_.width,screen_.height,roundedDisplay_,anchor,
                                    width>0?width:portrait?uiMetrics_.popup().portraitWidth:uiMetrics_.popup().width,rows*rowHeight+2*padding,availableHeight,uiMetrics_);
-  auto panel=box(layer,area.x,area.y,area.width,area.height,theme::popup);
+  auto panel=box(layer,area.x,area.y,area.width,area.height,theme::palette().popup);
   contextMenuPanel_=panel;stylePopupPanel(panel,portrait,uiMetrics_);lv_obj_set_scrollable(panel,false);
   auto list=box(panel,padding,padding,area.width-2*padding,
-                std::max(uiMetrics_.dp(44),area.height-2*padding),theme::popup);
+                std::max(uiMetrics_.dp(44),area.height-2*padding),theme::palette().popup);
   contextMenuList_=list;lv_obj_set_scroll_dir(list,LV_DIR_VER);
   lv_obj_set_style_width(list,3,LV_PART_SCROLLBAR);
-  lv_obj_set_style_bg_color(list,lv_color_hex(theme::border),LV_PART_SCROLLBAR);
+  lv_obj_set_style_bg_color(list,lv_color_hex(theme::palette().border),LV_PART_SCROLLBAR);
   lv_obj_set_scroll_elastic(list,false);lv_obj_set_scroll_chain_ver(list,false);
   // Callers size their rows from this reader immediately. Resolve percentage
   // and content geometry before they inspect its width.

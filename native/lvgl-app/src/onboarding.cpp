@@ -44,10 +44,10 @@ lv_obj_t *Onboarding::text(lv_obj_t *p,const std::string &s,int x,int y,int w,in
 }
 lv_obj_t *Onboarding::control(const std::string &id,const std::string &s,int x,int y,int w,bool primary) {
   const auto area=safety_.fit({x,y,w,std::max(44,metrics_.dp(44))});
-  auto o=rect(root_,area.x,area.y,area.width,area.height,primary?theme::text:theme::surface,metrics_.dp(8));
-  auto l=text(o,s,0,0,area.width-metrics_.dp(8),18,primary?theme::primaryText:theme::text);
+  auto o=rect(root_,area.x,area.y,area.width,area.height,primary?theme::palette().text:theme::palette().surface,metrics_.dp(8));
+  auto l=text(o,s,0,0,area.width-metrics_.dp(8),18,primary?theme::palette().primaryText:theme::palette().text);
   lv_label_set_long_mode(l,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(l,font(metrics_.dp(18))->line_height);lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(l);
-  lv_obj_set_style_bg_color(o,lv_color_hex(theme::border),LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(o,lv_color_hex(theme::palette().border),LV_STATE_PRESSED);
   lv_obj_set_style_opa(o,LV_OPA_50,LV_STATE_DISABLED);
   click(o,[this,id]{if(!busy_)action_(id);});actions_[id]=o;return o;
 }
@@ -60,17 +60,17 @@ void Onboarding::words(lv_obj_t *p,const std::string &s,int x,int y,int w,int si
   lv_label_set_long_mode(o,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(o,font(metrics_.dp(size))->line_height);
 }
 void Onboarding::symbol(lv_obj_t *p,const std::string &s,int x,int y,int size,uint32_t ink) {
-  auto o=part(p,x,y,size,size,theme::sidebar,0);lv_obj_set_style_bg_opa(o,LV_OPA_TRANSP,0);attachIcon(o,s,ink);
+  auto o=part(p,x,y,size,size,theme::palette().sidebar,0);lv_obj_set_style_bg_opa(o,LV_OPA_TRANSP,0);attachIcon(o,s,ink);
 }
 void Onboarding::paper(lv_obj_t *p,int x,int y,int w,int h) {
-  auto o=part(p,x,y,w,h,theme::text,5);
-  for(int n=0;n<3;++n)rect(o,12,10+n*12,std::max(10,w*sceneWidth_/400-28-(n==2?30:0)),3,theme::border,1);
+  auto o=part(p,x,y,w,h,theme::palette().text,5);
+  for(int n=0;n<3;++n)rect(o,12,10+n*12,std::max(10,w*sceneWidth_/400-28-(n==2?30:0)),3,theme::palette().border,1);
 }
 void Onboarding::chat(lv_obj_t *p,bool image) {
   symbol(p,"menu",10,5);words(p,"PenChat",46,4,200,17);
   part(p,108,34,260,26);words(p,"请解释这道题",120,36,230,16);
   part(p,12,118,376,29);symbol(p,"plus",22,121,20);
-  words(p,"询问 PenChat",60,121,230,16,theme::muted);symbol(p,"up",352,121,22);
+  words(p,"询问 PenChat",60,121,230,16,theme::palette().muted);symbol(p,"up",352,121,22);
   if(image)paper(p,20,66,145,42);
 }
 void Onboarding::scene(int phase,lv_obj_t *p) {
@@ -82,13 +82,13 @@ void Onboarding::scene(int phase,lv_obj_t *p) {
       paper(p,30,48,330,61);
       // The dictionary pen is a solid mesh rendered above this paper texture.
     } else if(phase==2) {
-      paper(p,24,24,352,70);part(p,244,108,132,34,theme::accent);
+      paper(p,24,24,352,70);part(p,244,108,132,34,theme::palette().accent);
       words(p,"使用图片",266,113,110,17);symbol(p,"close",26,112);
     }
   } else if(s==1) {
     if(phase==0)chat(p);
     else if(lv_obj_get_style_height(root_,LV_PART_MAIN)>lv_obj_get_style_width(root_,LV_PART_MAIN)) {
-      part(p,8,3,384,67,theme::sidebar);
+      part(p,8,3,384,67,theme::palette().sidebar);
       words(p,phase==1?"划扫得到可编辑文字":phase==2?"请解释这道题":"请解释这道题。",20,18,360,16);
       const std::string rows[]={"QWERTYUIOP","ASDFGHJKL","ZXCVBNM"};
       for(int row=0;row<3;++row)for(int k=0;k<int(rows[row].size());++k) {
@@ -97,7 +97,7 @@ void Onboarding::scene(int phase,lv_obj_t *p) {
         lv_obj_set_style_text_align(letter,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(letter);
       }
       if(phase==1)paper(p,30,48,330,61);
-      else {auto caret=part(p,phase==2?190:218,20,2,22,theme::caret,0);motions_[phase].push_back({caret,(phase==2?190:218)*sceneWidth_/400,20*sceneHeight_/150,24,0});}
+      else {auto caret=part(p,phase==2?190:218,20,2,22,theme::palette().caret,0);motions_[phase].push_back({caret,(phase==2?190:218)*sceneWidth_/400,20*sceneHeight_/150,24,0});}
     } else {
       const std::string rows[]={"QWERTYUIOP","ASDFGHJKL","ZXCVBNM"};
       for(int row=0;row<3;++row)for(int k=0;k<int(rows[row].size());++k) {
@@ -107,53 +107,53 @@ void Onboarding::scene(int phase,lv_obj_t *p) {
         lv_obj_set_style_text_align(letter,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(letter);
       }
       part(p,20,103,174,33);words(p,"拼音",80,110,80,15);
-      part(p,218,3,174,140,theme::sidebar);
-      words(p,"单行扫描",226,106,100,15,theme::muted);
-      words(p,"完成",332,106,60,15,theme::link);
+      part(p,218,3,174,140,theme::palette().sidebar);
+      words(p,"单行扫描",226,106,100,15,theme::palette().muted);
+      words(p,"完成",332,106,60,15,theme::palette().link);
       words(p,phase==1?"划扫后识别文字":phase==2?"请解释这道题":"请解释这道题。",226,32,164,16);
       if(phase==1)paper(p,30,48,330,61);
-      else {auto caret=part(p,phase==2?350:280,57,2,22,theme::caret,0);motions_[phase].push_back({caret,(phase==2?350:280)*sceneWidth_/400,57*sceneHeight_/150,phase==2?-40:35,0});}
+      else {auto caret=part(p,phase==2?350:280,57,2,22,theme::palette().caret,0);motions_[phase].push_back({caret,(phase==2?350:280)*sceneWidth_/400,57*sceneHeight_/150,phase==2?-40:35,0});}
     }
   } else if(s==2) {
     if(phase==0) {
-      part(p,0,0,268,150,theme::sidebar);words(p,"历史对话",18,18,230,18);
+      part(p,0,0,268,150,theme::palette().sidebar);words(p,"历史对话",18,18,230,18);
       words(p,"新建聊天",18,113,120,16);symbol(p,"settings",164,113);words(p,"设置",198,113,66,16);
     } else if(phase==1) {
-      words(p,"设置",16,7,340,21);part(p,12,48,376,48);words(p,"模型管理",26,57,320,19);words(p,"Provider 与模型",26,82,300,14,theme::muted);
+      words(p,"设置",16,7,340,21);part(p,12,48,376,48);words(p,"模型管理",26,57,320,19);words(p,"Provider 与模型",26,82,300,14,theme::palette().muted);
     } else {
       words(p,"添加服务商",16,4,320,19);
       const char *names[]={"服务地址","API Key","模型"};const char *values[]={"服务商提供的 API 地址","****************","你选择的模型 ID"};
-      for(int n=0;n<3;++n){part(p,12,35+n*31,376,28,phase==2&&n==1?theme::border:theme::surface);words(p,names[n],22,37+n*31,100,15,theme::muted);words(p,values[n],124,37+n*31,253,15);}
-      if(phase==3){part(p,300,0,88,28,theme::accent);words(p,"保存",324,3,60,17);}
+      for(int n=0;n<3;++n){part(p,12,35+n*31,376,28,phase==2&&n==1?theme::palette().border:theme::palette().surface);words(p,names[n],22,37+n*31,100,15,theme::palette().muted);words(p,values[n],124,37+n*31,253,15);}
+      if(phase==3){part(p,300,0,88,28,theme::palette().accent);words(p,"保存",324,3,60,17);}
     }
   } else if(s==3) {
     words(p,phase<2?"会话预设":"加号 → 预设",16,6,360,20);
-    if(phase<2){part(p,12,47,376,48);words(p,"启用预设入口",24,59,260,18);part(p,318,57,52,28,phase?theme::accent:theme::border,14);part(p,phase?346:322,61,20,20,theme::text,10);}
-    else {part(p,12,43,376,48,theme::border);words(p,"答题助手 · 示例",25,52,330,18);words(p,phase==2?"点击选择预设":"模型、强度：沿用会话",25,105,340,17,phase==2?theme::muted:theme::link);symbol(p,"chevron-down",350,57);}
+    if(phase<2){part(p,12,47,376,48);words(p,"启用预设入口",24,59,260,18);part(p,318,57,52,28,phase?theme::palette().accent:theme::palette().border,14);part(p,phase?346:322,61,20,20,theme::palette().text,10);}
+    else {part(p,12,43,376,48,theme::palette().border);words(p,"答题助手 · 示例",25,52,330,18);words(p,phase==2?"点击选择预设":"模型、强度：沿用会话",25,105,340,17,phase==2?theme::palette().muted:theme::palette().link);symbol(p,"chevron-down",350,57);}
   } else if(s==4) {
-    if(phase==0){part(p,0,0,268,150,theme::sidebar);part(p,12,8,244,35);words(p,"刚才的问题",24,12,215,17);words(p,"另一段聊天",24,62,215,17);words(p,"新建聊天       设置",16,118,245,16);}
-    else if(phase==1){chat(p);auto arc=lv_arc_create(p);lv_obj_set_size(arc,42,42);lv_obj_set_pos(arc,sceneWidth_/2-21,sceneHeight_/2-20);lv_arc_set_range(arc,0,100);lv_arc_set_bg_angles(arc,0,360);lv_arc_set_rotation(arc,270);lv_obj_set_style_bg_opa(arc,LV_OPA_TRANSP,LV_PART_KNOB);lv_arc_set_value(arc,100);lv_obj_remove_style(arc,nullptr,LV_PART_KNOB);lv_obj_set_style_arc_color(arc,lv_color_hex(theme::accent),LV_PART_INDICATOR);lv_obj_set_clickable(arc,false);words(p,"松开新建",151,93,170,16);}
-    else if(phase==2){chat(p);part(p,45,64,310,43,theme::border);words(p,"复制   选择文本   编辑",60,77,285,17);}
-    else{words(p,"这是 AI 的示例回复。",20,35,360,19);symbol(p,"copy",20,87,34);symbol(p,"retry",85,87,34);symbol(p,"branch",150,87,34);words(p,"复制    重试    创建分支",15,123,370,16,theme::muted);}
+    if(phase==0){part(p,0,0,268,150,theme::palette().sidebar);part(p,12,8,244,35);words(p,"刚才的问题",24,12,215,17);words(p,"另一段聊天",24,62,215,17);words(p,"新建聊天       设置",16,118,245,16);}
+    else if(phase==1){chat(p);auto arc=lv_arc_create(p);lv_obj_set_size(arc,42,42);lv_obj_set_pos(arc,sceneWidth_/2-21,sceneHeight_/2-20);lv_arc_set_range(arc,0,100);lv_arc_set_bg_angles(arc,0,360);lv_arc_set_rotation(arc,270);lv_obj_set_style_bg_opa(arc,LV_OPA_TRANSP,LV_PART_KNOB);lv_arc_set_value(arc,100);lv_obj_remove_style(arc,nullptr,LV_PART_KNOB);lv_obj_set_style_arc_color(arc,lv_color_hex(theme::palette().accent),LV_PART_INDICATOR);lv_obj_set_clickable(arc,false);words(p,"松开新建",151,93,170,16);}
+    else if(phase==2){chat(p);part(p,45,64,310,43,theme::palette().border);words(p,"复制   选择文本   编辑",60,77,285,17);}
+    else{words(p,"这是 AI 的示例回复。",20,35,360,19);symbol(p,"copy",20,87,34);symbol(p,"retry",85,87,34);symbol(p,"branch",150,87,34);words(p,"复制    重试    创建分支",15,123,370,16,theme::palette().muted);}
   } else if(s==5) {
     words(p,phase==0?"选择模型":phase==3?"查看思考过程":"推理强度",16,6,370,20);
-    if(phase==0){part(p,12,45,376,40,theme::border);words(p,"当前模型 · 示例",24,53,330,18);words(p,"按服务商分组，选择后用于下次请求",20,106,360,16,theme::muted);}
-    else if(phase==3){symbol(p,"chevron-down",16,44);words(p,"思考了 12秒",49,43,300,17,theme::reasoning);words(p,"先整理问题中的已知条件…",24,78,350,17,theme::reasoning);words(p,"再给出完整答案。",24,114,350,17);}
-    else{symbol(p,"gauge",25,57,45,theme::link);part(p,88,63,284,15,theme::border,8);part(p,88,63,phase==1?30:188,15,theme::accent,8);for(int n=0;n<4;++n)part(p,92+n*83,60,20,20,theme::text,10);words(p,phase==1?"API 默认：不主动指定":"指定档位：以模型支持为准",25,112,355,17);}
+    if(phase==0){part(p,12,45,376,40,theme::palette().border);words(p,"当前模型 · 示例",24,53,330,18);words(p,"按服务商分组，选择后用于下次请求",20,106,360,16,theme::palette().muted);}
+    else if(phase==3){symbol(p,"chevron-down",16,44);words(p,"思考了 12秒",49,43,300,17,theme::palette().reasoning);words(p,"先整理问题中的已知条件…",24,78,350,17,theme::palette().reasoning);words(p,"再给出完整答案。",24,114,350,17);}
+    else{symbol(p,"gauge",25,57,45,theme::palette().link);part(p,88,63,284,15,theme::palette().border,8);part(p,88,63,phase==1?30:188,15,theme::palette().accent,8);for(int n=0;n<4;++n)part(p,92+n*83,60,20,20,theme::palette().text,10);words(p,phase==1?"API 默认：不主动指定":"指定档位：以模型支持为准",25,112,355,17);}
   } else {
     words(p,phase==3?"导入与导出":"上下文与归档",16,6,365,20);
-    if(phase==3){part(p,12,43,182,40);part(p,204,43,182,40);words(p,"聊天导入 / 导出",21,52,171,15);words(p,"预设导入 / 导出",214,52,171,15);words(p,"Favorite / PenChat",24,103,355,17,theme::link);}
-    else {auto arc=lv_arc_create(p);lv_obj_set_size(arc,66,66);lv_obj_set_pos(arc,25,45);lv_arc_set_range(arc,0,100);lv_arc_set_bg_angles(arc,0,360);lv_arc_set_rotation(arc,270);lv_obj_set_style_bg_opa(arc,LV_OPA_TRANSP,LV_PART_KNOB);lv_arc_set_value(arc,phase==2?35:78);lv_obj_remove_style(arc,nullptr,LV_PART_KNOB);lv_obj_set_style_arc_color(arc,lv_color_hex(theme::accent),LV_PART_INDICATOR);lv_obj_set_clickable(arc,false);words(p,phase==2?"占用 35%":"占用 78%",119,49,250,20);words(p,phase==1?"保存压缩前副本":phase==2?"原消息和图片仍保留":"加号 → 压缩上下文",119,89,260,16,theme::muted);}
+    if(phase==3){part(p,12,43,182,40);part(p,204,43,182,40);words(p,"聊天导入 / 导出",21,52,171,15);words(p,"预设导入 / 导出",214,52,171,15);words(p,"Favorite / PenChat",24,103,355,17,theme::palette().link);}
+    else {auto arc=lv_arc_create(p);lv_obj_set_size(arc,66,66);lv_obj_set_pos(arc,25,45);lv_arc_set_range(arc,0,100);lv_arc_set_bg_angles(arc,0,360);lv_arc_set_rotation(arc,270);lv_obj_set_style_bg_opa(arc,LV_OPA_TRANSP,LV_PART_KNOB);lv_arc_set_value(arc,phase==2?35:78);lv_obj_remove_style(arc,nullptr,LV_PART_KNOB);lv_obj_set_style_arc_color(arc,lv_color_hex(theme::palette().accent),LV_PART_INDICATOR);lv_obj_set_clickable(arc,false);words(p,phase==2?"占用 35%":"占用 78%",119,49,250,20);words(p,phase==1?"保存压缩前副本":phase==2?"原消息和图片仍保留":"加号 → 压缩上下文",119,89,260,16,theme::palette().muted);}
   }
   // A single moving touch indicator makes the demonstrated path visible.
   if(motions_[phase].empty() && !(step_<2 && phase==1)) {
-    auto touch=part(p,phase==0?25:310,phase==0?12:112,12,12,theme::link,6);
+    auto touch=part(p,phase==0?25:310,phase==0?12:112,12,12,theme::palette().link,6);
     motions_[phase].push_back({touch,(phase==0?25:310)*sceneWidth_/400,(phase==0?12:112)*sceneHeight_/150,phase==0?45:-24,0});
   }
 }
 Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool replaying,bool configured,std::function<void(const std::string &)> action,bool rounded,const UiMetrics &metrics)
   : metrics_(metrics),safety_{width,height,rounded},action_(std::move(action)),step_(step) {
-  root_=rect(parent,0,0,width,height,theme::background,0);
+  root_=rect(parent,0,0,width,height,theme::palette().background,0);
   const AppLayout layout{width,height,rounded,metrics_};
   const auto geometry=layout.guideWorkspace();
   const bool portrait=geometry.portrait;
@@ -162,12 +162,12 @@ Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool repla
   const int demoY=safety_.enabled()?layout.safeTop():metrics_.dp(12);
   const int demoX=safety_.enabled()?layout.navigationX():metrics_.dp(16);
   const int demoWidth=portrait?width-2*demoX:split-metrics_.dp(28);
-  auto demo=rect(root_,demoX,demoY,demoWidth,demoH,theme::sidebar,metrics_.dp(14));
-  text(demo,"操作演示",metrics_.dp(14),metrics_.dp(8),demoWidth-metrics_.dp(32),16,theme::muted);
+  auto demo=rect(root_,demoX,demoY,demoWidth,demoH,theme::palette().sidebar,metrics_.dp(14));
+  text(demo,"操作演示",metrics_.dp(14),metrics_.dp(8),demoWidth-metrics_.dp(32),16,theme::palette().muted);
   sceneWidth_=std::min(640,demoWidth-metrics_.dp(16));
   sceneHeight_=std::min(360,portrait?sceneWidth_*150/400:height-metrics_.dp(130));
   const int sceneY=portrait?metrics_.dp(42)+(demoH-metrics_.dp(50)-sceneHeight_)/2:metrics_.dp(42);
-  for(int n=0;n<4;++n){stages_[n]=rect(demo,metrics_.dp(8),sceneY,sceneWidth_,sceneHeight_,theme::background,0);scene(n,stages_[n]);lv_obj_set_hidden(stages_[n],true);}
+  for(int n=0;n<4;++n){stages_[n]=rect(demo,metrics_.dp(8),sceneY,sceneWidth_,sceneHeight_,theme::palette().background,0);scene(n,stages_[n]);lv_obj_set_hidden(stages_[n],true);}
   // Snapshot only the active synthetic stage into one reused texture. The image
   // owns no GPU/display resources and is deleted before its backing buffers.
   try {
@@ -206,11 +206,11 @@ Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool repla
   auto reader=root_;
   int textX=right,textY=top;
   if(!metrics_.identity()) {
-    reader=rect(root_,right,top,measure,std::max(std::max(44,metrics_.dp(44)),footerTop-top-metrics_.dp(12)),theme::background,0);
+    reader=rect(root_,right,top,measure,std::max(std::max(44,metrics_.dp(44)),footerTop-top-metrics_.dp(12)),theme::palette().background,0);
     lv_obj_set_scrollable(reader,true);lv_obj_set_scroll_dir(reader,LV_DIR_VER);
     textX=textY=0;
   }
-  text(reader,std::to_string(step+1)+" / 7"+(step<3?" · 必看":" · 功能介绍"),textX,textY,measure,16,theme::muted);
+  text(reader,std::to_string(step+1)+" / 7"+(step<3?" · 必看":" · 功能介绍"),textX,textY,measure,16,theme::palette().muted);
   auto heading=text(reader,titles[step],textX,textY+metrics_.dp(30),measure,portrait?28:24);
   int descriptionY=textY+metrics_.dp(70);
   if(!metrics_.identity()) {
@@ -221,11 +221,11 @@ Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool repla
   lv_obj_set_style_text_line_space(description,measure<metrics_.dp(340)&&!portrait?metrics_.dp(3):metrics_.dp(5),0);
   int hintY=portrait?textY+metrics_.dp(176):174;
   if(!metrics_.identity()) {lv_obj_update_layout(description);hintY=descriptionY+lv_obj_get_height(description)+metrics_.dp(12);}
-  if(step==2&&configured)text(reader,"已配置模型，可直接继续",textX,hintY,measure,16,theme::link);
-  if(step==6)text(reader,"可在“关于 PenChat”中重看引导",textX,hintY,measure,16,theme::muted);
+  if(step==2&&configured)text(reader,"已配置模型，可直接继续",textX,hintY,measure,16,theme::palette().link);
+  if(step==6)text(reader,"可在“关于 PenChat”中重看引导",textX,hintY,measure,16,theme::palette().muted);
   const int playbackY=portrait?demoH+metrics_.dp(28)+demoY-metrics_.dp(12):footer;
   pause_=control("pause","暂停",metrics_.dp(16),playbackY,metrics_.dp(80));control("replay","重播",metrics_.dp(104),playbackY,metrics_.dp(80));
-  auto phaseCaption=text(demo,captions[step][0],metrics_.dp(126),metrics_.dp(8),safety_.enabled()?demoWidth-metrics_.dp(158):portrait?width-metrics_.dp(190):split-metrics_.dp(166),16,theme::link);actions_["caption"]=phaseCaption;
+  auto phaseCaption=text(demo,captions[step][0],metrics_.dp(126),metrics_.dp(8),safety_.enabled()?demoWidth-metrics_.dp(158):portrait?width-metrics_.dp(190):split-metrics_.dp(166),16,theme::palette().link);actions_["caption"]=phaseCaption;
   if(metrics_.identity()) {
   if(step>0)control("back","上一步",width-end-metrics_.dp(200),footer,metrics_.dp(92));
   control("next",step==6?"开始使用":"下一步",width-end-metrics_.dp(100),footer,metrics_.dp(100),true);
@@ -266,7 +266,7 @@ void Onboarding::render(int phase,float progress,bool changed) {
     lv_draw_buf_destroy(texture_);texture_=nullptr;lv_obj_set_hidden(stages_[phase],false);return;
   }
   renderer_->render({texture_->data,int(texture_->header.w),int(texture_->header.h),int(texture_->header.stride)},
-                    step_,phase,progress,theme::sidebar,theme::accent);
+                    step_,phase,progress,theme::palette().sidebar,theme::palette().accent);
   lv_image_cache_drop(&renderDescriptor_);lv_obj_invalidate(renderImage_);
   const auto us=std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-started).count();
   renderMaxUs_=std::max<int64_t>(renderMaxUs_,us);renderTotalUs_+=us;++renderSamples_;

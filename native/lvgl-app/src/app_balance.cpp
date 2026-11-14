@@ -48,9 +48,9 @@ void App::openBalances() {
   const int width=lv_obj_get_width(contextMenuPanel_);
   auto title=label(contextMenuPanel_,"账户余额",padding+uiMetrics_.dp(12),padding+uiMetrics_.dp(10),width-uiMetrics_.dp(152),uiMetrics_.fontSize(UiFont::Body));
   lv_obj_set_height(title,font(uiMetrics_.fontSize(UiFont::Body))->line_height);
-  balanceRefresh_=button(contextMenuPanel_,"刷新",width-padding-uiMetrics_.dp(112),padding,uiMetrics_.dp(112),uiMetrics_.dp(44),[this]{refreshBalances();},theme::surface);
+  balanceRefresh_=button(contextMenuPanel_,"刷新",width-padding-uiMetrics_.dp(112),padding,uiMetrics_.dp(112),uiMetrics_.dp(44),[this]{refreshBalances();},theme::palette().surface);
   lv_obj_set_style_radius(balanceRefresh_,uiMetrics_.dp(22),0);
-  auto divider=box(contextMenuPanel_,padding+uiMetrics_.dp(12),padding+uiMetrics_.dp(49),width-2*padding-uiMetrics_.dp(24),uiMetrics_.dp(1),theme::border);
+  auto divider=box(contextMenuPanel_,padding+uiMetrics_.dp(12),padding+uiMetrics_.dp(49),width-2*padding-uiMetrics_.dp(24),uiMetrics_.dp(1),theme::palette().border);
   lv_obj_set_clickable(divider,false);lv_obj_set_scrollable(divider,false);
   lv_obj_set_y(list,padding+uiMetrics_.dp(52));lv_obj_set_height(list,lv_obj_get_height(contextMenuPanel_)-2*padding-uiMetrics_.dp(52));
   refreshBalances();
@@ -137,7 +137,7 @@ void App::balancePage() {
     const auto vendor = objectField(provider, "metadata_json").value("balance_vendor", std::string());
     if (vendor.empty()) continue;
     ++count;
-    if(count>1){auto line=box(reader,left,y-uiMetrics_.dp(10),width,uiMetrics_.dp(1),theme::border);lv_obj_set_clickable(line,false);lv_obj_set_scrollable(line,false);}
+    if(count>1){auto line=box(reader,left,y-uiMetrics_.dp(10),width,uiMetrics_.dp(1),theme::palette().border);lv_obj_set_clickable(line,false);lv_obj_set_scrollable(line,false);}
     const auto id = provider.at("id").get<std::string>();
     auto found = balanceResults_.find(id);
     const bool have = found != balanceResults_.end() && found->second.value("identity", std::string()) == balanceIdentity(provider);
@@ -146,42 +146,42 @@ void App::balancePage() {
     bool details=false;
     for(const auto &money:balances)details=details||!money.at("details").empty();
     const int captionY=y+(details?std::max(0,(uiMetrics_.dp(44)-int(font(uiMetrics_.fontSize(UiFont::FormNote))->line_height))/2):0);
-    auto caption=label(reader,provider.value("name",std::string("服务商")),left,captionY,width-(details?uiMetrics_.dp(52):0),uiMetrics_.fontSize(UiFont::FormNote),theme::muted);
+    auto caption=label(reader,provider.value("name",std::string("服务商")),left,captionY,width-(details?uiMetrics_.dp(52):0),uiMetrics_.fontSize(UiFont::FormNote),theme::palette().muted);
     lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(caption,font(uiMetrics_.fontSize(UiFont::Body))->line_height);
     if(details) {
       auto arrow=icon(reader,balanceExpanded_.count(id)?"chevron-down":"chevron-right",left+width-uiMetrics_.dp(44),y,uiMetrics_.dp(44),uiMetrics_.dp(44),[this,id]{
         if(balanceExpanded_.count(id))balanceExpanded_.erase(id);else balanceExpanded_.insert(id);
         balancePage();
-      },theme::popup,theme::muted);
-      lv_obj_set_style_bg_color(arrow,lv_color_hex(theme::surface),LV_STATE_PRESSED);
+      },theme::palette().popup,theme::palette().muted);
+      lv_obj_set_style_bg_color(arrow,lv_color_hex(theme::palette().surface),LV_STATE_PRESSED);
       balanceDetailActions_[id]=arrow;
     }
     y+=std::max(int(font(uiMetrics_.fontSize(UiFont::FormNote))->line_height),details?44:0)+8;
     const bool pending = balancePending_.count(id);
-    if (pending) text(balances.empty() ? "正在查询…" : "正在刷新，以下为上次结果", 17, theme::muted);
+    if (pending) text(balances.empty() ? "正在查询…" : "正在刷新，以下为上次结果", 17, theme::palette().muted);
     else if (result.value("status", std::string()) == "error") {
-      text(result.value("error", std::string("余额查询失败")), 17, theme::danger);
-      if (!balances.empty()) text("刷新失败，以下为上次结果", 16, theme::muted);
+      text(result.value("error", std::string("余额查询失败")), 17, theme::palette().danger);
+      if (!balances.empty()) text("刷新失败，以下为上次结果", 16, theme::palette().muted);
     }
-    if (balances.empty()) text("余额：未知", 23, theme::text);
+    if (balances.empty()) text("余额：未知", 23, theme::palette().text);
     for (const auto &money : balances) {
       const auto unit = money.at("unit").get<std::string>();
-      text(money.at("amount").get<std::string>() + " " + unit, 26, theme::text);
+      text(money.at("amount").get<std::string>() + " " + unit, 26, theme::palette().text);
       if (balanceExpanded_.count(id))
         for (const auto &item : money.at("details")) {
           const auto value = item.at("amount").get<std::string>();
-          text(item.at("label").get<std::string>() + "：" + (value.empty() ? "未知" : value + " " + unit), 18, theme::muted);
+          text(item.at("label").get<std::string>() + "：" + (value.empty() ? "未知" : value + " " + unit), 18, theme::palette().muted);
         }
     }
     if (result.contains("queried_at")) {
       time_t seconds = result.at("queried_at").get<int64_t>() / 1000;
       tm local{}; char formatted[40]{};
       localtime_r(&seconds, &local); strftime(formatted, sizeof(formatted), "%Y-%m-%d %H:%M:%S", &local);
-      text(std::string("查询时间：") + formatted, 14, theme::muted);
+      text(std::string("查询时间：") + formatted, 14, theme::palette().muted);
     }
     y += uiMetrics_.dp(20);
   }
-  if (!count) text("尚未启用余额查询。请在模型管理 → Provider详情中选择“余额查询厂商”，保存后返回。", 20, theme::muted);
+  if (!count) text("尚未启用余额查询。请在模型管理 → Provider详情中选择“余额查询厂商”，保存后返回。", 20, theme::palette().muted);
   lv_obj_update_layout(reader);lv_obj_scroll_to_y(reader,scroll,LV_ANIM_OFF);
 }
 Json App::balanceDiagnostic() const {

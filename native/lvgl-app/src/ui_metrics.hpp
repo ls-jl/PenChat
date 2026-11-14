@@ -25,6 +25,10 @@ public:
       throw std::overflow_error("UI dimension exceeds logical pixel range");
     return int(rounded);
   }
+  // Accessibility floor is already a logical coordinate, independent of UI scale.
+  static constexpr int minimumTouchTarget() { return 44; }
+  int touchTarget(int designSize=44) const { return std::max(minimumTouchTarget(),dp(designSize)); }
+  static int alignLogical(double value) { return int(value<0?value-.5:value+.5); }
   int fontSize(UiFont role) const {
     int size = 21;
     switch (role) {
@@ -62,7 +66,7 @@ public:
   };
   Gesture gestures() const { return {dp(12),dp(12),dp(12)}; }
   struct Popup { int margin, gap, minimum, row, portraitRow, padding, portraitPadding, width, portraitWidth; };
-  Popup popup() const { return {dp(8),dp(8),dp(44),std::max(44+dp(4),dp(48)),std::max(44+dp(4),dp(64)),dp(4),dp(8),dp(224),dp(320)}; }
+  Popup popup() const { return {dp(8),dp(8),dp(44),std::max(minimumTouchTarget()+dp(4),dp(48)),std::max(minimumTouchTarget()+dp(4),dp(64)),dp(4),dp(8),dp(224),dp(320)}; }
   struct Button { int radius, captionPadding; };
   Button button() const { return {dp(10), dp(24)}; }
   struct Field { int height, inset, top, captionHeight, valueHeight, valueTop, gap; };
@@ -72,7 +76,7 @@ public:
     int minimumTail, scrollWidth, minimumTitle, portraitActionGap, actionGap;
   };
   Page page() const {
-    return {std::max(48,dp(48)), dp(2), std::max(44,dp(44)), std::max(52,dp(56)), dp(10), dp(7), dp(60), dp(3), dp(40), dp(80), dp(24)};
+    return {std::max(minimumTouchTarget()+dp(4),dp(48)), dp(2), touchTarget(), std::max(minimumTouchTarget()+dp(8),dp(56)), dp(10), dp(7), dp(60), dp(3), dp(40), dp(80), dp(24)};
   }
   struct Settings {
     int height, radius, inset, titleTop, detailTop, textTrailing;
@@ -102,8 +106,8 @@ public:
     int textPadding() const { return 2 * textInset; }
   };
   Composer composer() const {
-    const int control=std::max(44,dp(44));
-    return {control, std::max(44,dp(54)), dp(25), dp(2), dp(14), dp(12), dp(32), dp(8),
+    const int control=touchTarget();
+    return {control, touchTarget(54), dp(25), dp(2), dp(14), dp(12), dp(32), dp(8),
             dp(4), dp(8), dp(16), dp(12), dp(2), dp(8), 2*control+dp(8), 2*control+dp(12), control+dp(6), dp(2), dp(1)};
   }
 private:

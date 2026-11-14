@@ -17,7 +17,7 @@ void App::pullSensitivityPicker() {
     lv_label_set_text(caption, text.c_str());
   };
   label(modal_, "负值更稳，正值更灵敏；只调整拉满进度所需的距离。", uiMetrics_.dp(15), uiMetrics_.dp(76),
-        screen_.width - uiMetrics_.dp(145), uiMetrics_.fontSize(UiFont::Detail), theme::muted);
+        screen_.width - uiMetrics_.dp(145), uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
   auto slider = lv_slider_create(modal_);
   pullSlider_ = slider;
   lv_obj_add_event_cb(modal_, [](lv_event_t *e) {
@@ -32,8 +32,8 @@ void App::pullSensitivityPicker() {
   for (auto part : {LV_PART_MAIN, LV_PART_INDICATOR, LV_PART_KNOB}) {
     lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, part);
     lv_obj_set_style_radius(slider, LV_RADIUS_CIRCLE, part);
-    lv_obj_set_style_bg_color(slider, lv_color_hex(part == LV_PART_MAIN ? theme::border :
-                                                  part == LV_PART_KNOB ? theme::text : theme::accent), part);
+    lv_obj_set_style_bg_color(slider, lv_color_hex(part == LV_PART_MAIN ? theme::palette().border :
+                                                  part == LV_PART_KNOB ? theme::palette().text : theme::palette().accent), part);
   }
   lv_obj_set_style_pad_all(slider, uiMetrics_.dp(7), LV_PART_KNOB);
   struct State { std::shared_ptr<int> value; std::function<void()> update; };
@@ -46,8 +46,8 @@ void App::pullSensitivityPicker() {
       state->update();
     }
   }, LV_EVENT_ALL, state);
-  label(modal_, "-25%", uiMetrics_.dp(15), uiMetrics_.dp(109), uiMetrics_.dp(80), uiMetrics_.fontSize(UiFont::FormNote), theme::muted);
-  label(modal_, "+25%", screen_.width - uiMetrics_.dp(200), uiMetrics_.dp(109), uiMetrics_.dp(80), uiMetrics_.fontSize(UiFont::FormNote), theme::muted);
+  label(modal_, "-25%", uiMetrics_.dp(15), uiMetrics_.dp(109), uiMetrics_.dp(80), uiMetrics_.fontSize(UiFont::FormNote), theme::palette().muted);
+  label(modal_, "+25%", screen_.width - uiMetrics_.dp(200), uiMetrics_.dp(109), uiMetrics_.dp(80), uiMetrics_.fontSize(UiFont::FormNote), theme::palette().muted);
   button(modal_, "恢复基准", uiMetrics_.dp(15), screen_.height - uiMetrics_.dp(66), uiMetrics_.dp(136), uiMetrics_.dp(44), [value, slider, update] {
     *value = 0; lv_slider_set_value(slider, 0, LV_ANIM_OFF); update();
   });

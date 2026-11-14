@@ -99,17 +99,17 @@ void App::updatePage() {
   };
   const auto state=updateState_.value("status",std::string("idle"));const auto release=updateState_.value("release",Json::object());
   readableLabel(pageContent_,std::string("当前版本 ")+PENCHAT_VERSION+(release.empty()?"":" → "+release.value("version",std::string())),uiMetrics_.dp(10),uiMetrics_.dp(4),width,uiMetrics_.fontSize(UiFont::SettingsTitle));
-  auto message=readableLabel(pageContent_,updateState_.value("message",std::string()),uiMetrics_.dp(10),uiMetrics_.dp(36),width,uiMetrics_.fontSize(UiFont::FormNote),theme::muted);lv_obj_update_layout(message);
+  auto message=readableLabel(pageContent_,updateState_.value("message",std::string()),uiMetrics_.dp(10),uiMetrics_.dp(36),width,uiMetrics_.fontSize(UiFont::FormNote),theme::palette().muted);lv_obj_update_layout(message);
   int y=uiMetrics_.dp(44)+lv_obj_get_height(message);
   if(state=="downloading"||state=="verifying"||state=="ready"||state=="installing") {
     updateProgress_=lv_bar_create(pageContent_);lv_obj_set_pos(updateProgress_,uiMetrics_.dp(10),y+uiMetrics_.dp(6));lv_obj_set_size(updateProgress_,width,uiMetrics_.dp(14));
-    lv_obj_set_style_bg_color(updateProgress_,lv_color_hex(theme::accent),LV_PART_INDICATOR);lv_bar_set_range(updateProgress_,0,100);
+    lv_obj_set_style_bg_color(updateProgress_,lv_color_hex(theme::palette().accent),LV_PART_INDICATOR);lv_bar_set_range(updateProgress_,0,100);
     const auto p=updateState_.value("progress",Json::object());const auto done=p.value("downloaded",uint64_t(0)),total=p.value("total",uint64_t(0));
     lv_bar_set_value(updateProgress_,total?int(std::min<uint64_t>(100,done*100/total)):0,LV_ANIM_OFF);
     updateProgressText_=readableLabel(pageContent_,std::to_string(total?done*100/total:0)+"% · "+std::to_string(done/1024)+" / "+std::to_string(total/1024)+" KiB",uiMetrics_.dp(10),y+uiMetrics_.dp(32),width,uiMetrics_.fontSize(UiFont::SettingsTitle));
-    updateTransferText_=readableLabel(pageContent_,std::to_string(p.value("speed",uint64_t(0))/1024)+" KiB/s · "+std::to_string(p.value("lanes",0))+" 路 · "+std::to_string(p.value("nodes",1))+" 个节点",uiMetrics_.dp(10),y+uiMetrics_.dp(62),width,uiMetrics_.fontSize(UiFont::FormNote),theme::muted);
+    updateTransferText_=readableLabel(pageContent_,std::to_string(p.value("speed",uint64_t(0))/1024)+" KiB/s · "+std::to_string(p.value("lanes",0))+" 路 · "+std::to_string(p.value("nodes",1))+" 个节点",uiMetrics_.dp(10),y+uiMetrics_.dp(62),width,uiMetrics_.fontSize(UiFont::FormNote),theme::palette().muted);
     if(state=="downloading"||state=="verifying")action("cancel","取消下载",uiMetrics_.dp(10),y+uiMetrics_.dp(98),column,[this]{updateBack();});
-    readableLabel(pageContent_,"下载与校验成功后将自动安装。取消后，下一个版本再提醒。",uiMetrics_.dp(10),y+uiMetrics_.dp(160),width,uiMetrics_.fontSize(UiFont::Detail),theme::muted);
+    readableLabel(pageContent_,"下载与校验成功后将自动安装。取消后，下一个版本再提醒。",uiMetrics_.dp(10),y+uiMetrics_.dp(160),width,uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);
     return;
   }
   if(state=="available"||(state=="error"&&!release.empty())) {

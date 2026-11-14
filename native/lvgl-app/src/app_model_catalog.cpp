@@ -80,7 +80,7 @@ void App::modelCapabilityRows(int y) {
     auto held = std::make_shared<bool>(false);
     auto object = button(pageContent_, "", x + col - uiMetrics_.dp(44), at + uiMetrics_.dp(6), uiMetrics_.dp(44), uiMetrics_.dp(44),
                          [fill, held, key] { if (*held) { *held = false; return; } fill(key); });
-    attachIcon(object, "autofill", theme::text, 1.f, uiMetrics_);
+    attachIcon(object, "autofill", theme::palette().text, 1.f, uiMetrics_);
     if(layout().portrait()||layout().compact()) {
       lv_obj_set_user_data(object,settingsControls_.at("model_"+key).row);
       lv_obj_set_floating(object,true);

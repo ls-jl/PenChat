@@ -105,7 +105,7 @@ bool App::backTouch(const Json &m) {
   const int claimSlop = backEditorKey_ ? 2 * slop : slop;
   if (!backClaimed_ && dx>claimSlop && dx>std::abs(dy)*1.5) {
     backClaimed_=true;
-    backHint_=icon(lv_screen_active(),"back",8,(screen_.height-56)/2,44,56,{},theme::surface);
+    backHint_=icon(lv_screen_active(),"back",8,(screen_.height-56)/2,44,56,{},theme::palette().surface);
     lv_obj_set_clickable(backHint_,false);
   }
   if (backHint_) {

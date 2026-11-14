@@ -19,7 +19,7 @@ bool App::switchDraft(const std::string &next) {
 }
 void App::replyToast(const std::string &text) {
   const int width=std::min(screen_.width-uiMetrics_.dp(120),std::max(uiMetrics_.dp(140),int(editLength(text))*uiMetrics_.dp(20)+uiMetrics_.dp(32)));
-  auto toast=box(screenObj_,(screen_.width-width)/2,screen_.height-uiMetrics_.dp(116),width,uiMetrics_.dp(44),theme::surface);
+  auto toast=box(screenObj_,(screen_.width-width)/2,screen_.height-uiMetrics_.dp(116),width,uiMetrics_.dp(44),theme::palette().surface);
   lv_obj_set_scrollable(toast,false);lv_obj_set_clickable(toast,false);lv_obj_set_style_radius(toast,uiMetrics_.dp(16),0);
   auto caption=label(toast,text,uiMetrics_.dp(8),uiMetrics_.dp(10),width-uiMetrics_.dp(16),uiMetrics_.fontSize(UiFont::FormNote));lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(caption,uiMetrics_.dp(24));lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);lv_obj_delete_delayed(toast,1600);
@@ -29,10 +29,10 @@ void App::replyBar(lv_obj_t *parent,const Json &message,int width,bool question)
   const auto choice=replyChoiceRows_.value(id,Json::object());
   const int ordinal=choice.value("ordinal",1),total=choice.value("total",1);
   if(ordinal>1) {
-    auto hint=label(parent,choice.value("archive",0)?"将从这条回复继续 · 发送时先归档":"将从这条回复继续",0,0,width,uiMetrics_.fontSize(UiFont::Detail),theme::muted);
+    auto hint=label(parent,choice.value("archive",0)?"将从这条回复继续 · 发送时先归档":"将从这条回复继续",0,0,width,uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);
     lv_label_set_long_mode(hint,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(hint,font(uiMetrics_.fontSize(UiFont::Detail))->line_height);
   }
-  auto bar=box(parent,0,0,width,uiMetrics_.dp(48),theme::background);lv_obj_set_scrollable(bar,false);
+  auto bar=box(parent,0,0,width,uiMetrics_.dp(48),theme::palette().background);lv_obj_set_scrollable(bar,false);
   lv_obj_t *buttons[3]{};
   const char *names[]={"copy","retry","branch"};
   const char *titles[]={"复制","重试","创建分支"};
@@ -42,7 +42,7 @@ void App::replyBar(lv_obj_t *parent,const Json &message,int width,bool question)
     const std::string action=names[i],title=titles[i];
     buttons[i]=icon(bar,action,i*uiMetrics_.dp(48),uiMetrics_.dp(4),uiMetrics_.dp(44),uiMetrics_.dp(44),[this,state,session,id,action]{
       if(!state->held&&state->distance<=144)events_.push("reply_action",{{"session",session},{"id",id},{"action",action}});
-    },theme::background,theme::muted);
+    },theme::palette().background,theme::palette().muted);
     struct Handler {App *app;std::shared_ptr<Press> press;std::string session,id,title;};
     auto handler=new Handler{this,state,session,id,title};
     lv_obj_add_event_cb(buttons[i],[](lv_event_t *e){
@@ -58,14 +58,14 @@ void App::replyBar(lv_obj_t *parent,const Json &message,int width,bool question)
       }
     },LV_EVENT_ALL,handler);
   }
-  if(!question)label(bar,"无对应问题，无法重试",uiMetrics_.dp(152),uiMetrics_.dp(15),width-uiMetrics_.dp(156),uiMetrics_.fontSize(UiFont::FormHint),theme::muted);
+  if(!question)label(bar,"无对应问题，无法重试",uiMetrics_.dp(152),uiMetrics_.dp(15),width-uiMetrics_.dp(156),uiMetrics_.fontSize(UiFont::FormHint),theme::palette().muted);
   lv_obj_t *previous=nullptr,*next=nullptr;
   if(total>1) {
     auto change=[this,id,session](const char *action){events_.push("reply_action",{{"session",session},{"id",id},{"action",action}});};
-    previous=icon(bar,"chevron-left",width-uiMetrics_.dp(148),uiMetrics_.dp(4),uiMetrics_.dp(44),uiMetrics_.dp(44),[change]{change("previous");},theme::background,theme::muted);
-    auto count=label(bar,std::to_string(ordinal)+" / "+std::to_string(total),width-uiMetrics_.dp(104),uiMetrics_.dp(16),uiMetrics_.dp(60),uiMetrics_.fontSize(UiFont::Detail),theme::muted);
+    previous=icon(bar,"chevron-left",width-uiMetrics_.dp(148),uiMetrics_.dp(4),uiMetrics_.dp(44),uiMetrics_.dp(44),[change]{change("previous");},theme::palette().background,theme::palette().muted);
+    auto count=label(bar,std::to_string(ordinal)+" / "+std::to_string(total),width-uiMetrics_.dp(104),uiMetrics_.dp(16),uiMetrics_.dp(60),uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);
     lv_label_set_long_mode(count,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(count,font(uiMetrics_.fontSize(UiFont::Detail))->line_height);lv_obj_set_style_text_align(count,LV_TEXT_ALIGN_CENTER,0);
-    next=icon(bar,"chevron-right",width-uiMetrics_.dp(44),uiMetrics_.dp(4),uiMetrics_.dp(44),uiMetrics_.dp(44),[change]{change("next");},theme::background,theme::muted);
+    next=icon(bar,"chevron-right",width-uiMetrics_.dp(44),uiMetrics_.dp(4),uiMetrics_.dp(44),uiMetrics_.dp(44),[change]{change("next");},theme::palette().background,theme::palette().muted);
   }
   replyControls_[id]={bar,buttons[0],buttons[1],buttons[2],previous,next,!replyText(message).empty(),question,ordinal,total};
   auto owner=new std::pair<App *,std::string>(this,id);
@@ -125,7 +125,7 @@ void App::retryWarning(const std::string &id) {
     auto item=button(list,labels[i],0,i*row,lv_obj_get_width(list),row-uiMetrics_.dp(4),[this,id,i]{
       if(!i){closeHistoryContext();return;}
       events_.push("reply_retry_confirm",{{"session",session_},{"id",id},{"archive",i==1}});
-    },theme::popup,LV_TEXT_ALIGN_LEFT);stylePopupRow(item);
+    },theme::palette().popup,LV_TEXT_ALIGN_LEFT);stylePopupRow(item);
   }
 }
 void App::selectReply(const std::string &id,int ordinal) {

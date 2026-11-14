@@ -440,7 +440,7 @@ Bitmap RichText::formula(const std::string &source, int size) {
   const float formulaSize = size * 1.5f;
   std::unique_ptr<tex::TeXRender> r(
       tex::LaTeX::parse(tex::utf82wide(source), 4096, formulaSize,
-                        formulaSize * .2, (0xff000000u | theme::text)));
+                        formulaSize * .2, (0xff000000u | theme::palette().text)));
   Bitmap b;
   b.width = std::max(1, r->getWidth() + p_->metrics.dp(4));
   b.height = std::max(1, r->getHeight() + p_->metrics.dp(4));
@@ -829,12 +829,12 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
                          ((value >> 8) & 255) / 255., (value & 255) / 255.);
   };
   if (block.kind == "code" || block.kind == "table") {
-    color(block.kind == "table" && block.header ? theme::surface : theme::code);
+    color(block.kind == "table" && block.header ? theme::palette().surface : theme::palette().code);
     cairo_rectangle(c, left, top, b.width, height);
     cairo_fill(c);
   }
   if (block.kind == "table") {
-    color(theme::border);
+    color(theme::palette().border);
     cairo_set_line_width(c, p_->metrics.dp(1));
     const float tableLeft =
         block.quote * p_->metrics.dp(12) + std::max(0, block.indent - 1) * p_->metrics.dp(20);
@@ -853,12 +853,12 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
     cairo_stroke(c);
   }
   if (block.quote) {
-    color(theme::muted);
+    color(theme::palette().muted);
     cairo_rectangle(c, p_->metrics.dp(1), top, p_->metrics.dp(3), height);
     cairo_fill(c);
   }
   if (block.kind == "hr") {
-    color(theme::border);
+    color(theme::palette().border);
     cairo_rectangle(c, p_->metrics.dp(3), p_->metrics.dp(5), width - p_->metrics.dp(6), p_->metrics.dp(1));
     cairo_fill(c);
   }
@@ -872,7 +872,7 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
           p.math->pixels.data(), CAIRO_FORMAT_ARGB32, p.math->width,
           p.math->height, p.math->width * 4);
       if (subdued) {
-        color(theme::reasoning);
+        color(theme::palette().reasoning);
         cairo_mask_surface(c, m, p.x, p.y);
       } else {
         cairo_set_source_surface(c, m, p.x, p.y);
@@ -883,14 +883,14 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
     }
     p_->select(c, actual, p.style, codepoint(p.text));
     if (!p.target.empty())
-      color(subdued ? theme::reasoningLink : theme::link);
+      color(subdued ? theme::palette().reasoningLink : theme::palette().link);
     else
-      color(subdued ? theme::reasoning : theme::text);
+      color(subdued ? theme::palette().reasoning : theme::palette().text);
     if ((p.style & Mono) && block.kind != "code") {
-      color(theme::surface);
+      color(theme::palette().surface);
       cairo_rectangle(c, p.x, p.y, p.width, p.height);
       cairo_fill(c);
-      color(subdued ? theme::reasoning : theme::text);
+      color(subdued ? theme::palette().reasoning : theme::palette().text);
     }
     cairo_move_to(c, p.x, p.y + p.baseline);
     cairo_show_text(c, p.text.c_str());

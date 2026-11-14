@@ -63,13 +63,13 @@ void App::scanPage() {
   lv_obj_set_scrollable(body_, false);
   const auto workspace=layout().scanWorkspace();
   scanLabel_ = label(body_, "请从左向右扫描，松开笔头后完成拼接", workspace.caption.x, workspace.caption.y, workspace.caption.width, uiMetrics_.fontSize(UiFont::FormCaption),
-                     theme::muted);
+                     theme::palette().muted);
   lv_label_set_long_mode(scanLabel_, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(scanLabel_, font(uiMetrics_.fontSize(UiFont::FormCaption))->line_height);
   const bool portrait=layout().portrait();
-  auto holder = box(body_,workspace.preview.x,workspace.preview.y,workspace.preview.width,workspace.preview.height,theme::surface);
+  auto holder = box(body_,workspace.preview.x,workspace.preview.y,workspace.preview.width,workspace.preview.height,theme::palette().surface);
   scanHolder_=holder;
-  scanWarning_=label(body_,"",uiMetrics_.dp(10),uiMetrics_.dp(28),screen_.width-uiMetrics_.dp(120),uiMetrics_.fontSize(UiFont::FormHint),theme::danger);
+  scanWarning_=label(body_,"",uiMetrics_.dp(10),uiMetrics_.dp(28),screen_.width-uiMetrics_.dp(120),uiMetrics_.fontSize(UiFont::FormHint),theme::palette().danger);
   lv_obj_set_hidden(scanWarning_,true);
   lv_obj_set_clickable(holder,true);
   lv_obj_add_event_cb(holder, [](lv_event_t *e) {
@@ -100,8 +100,8 @@ void App::scanPage() {
   lv_obj_set_clickable(scanUse_, usable && !scanConfirming_);
   if (usable) primary(scanUse_);
   else {
-    lv_obj_set_style_bg_color(scanUse_, lv_color_hex(theme::surface), 0);
-    lv_obj_set_style_text_color(lv_obj_get_child(scanUse_, 0), lv_color_hex(theme::muted), 0);
+    lv_obj_set_style_bg_color(scanUse_, lv_color_hex(theme::palette().surface), 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(scanUse_, 0), lv_color_hex(theme::palette().muted), 0);
   }
   button(body_, "取消", workspace.cancel.x, workspace.cancel.y, workspace.cancel.width, workspace.cancel.height, [this] { show("chat"); });
   if (!scanResult_.empty()) {

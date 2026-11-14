@@ -30,11 +30,11 @@ class Onboarding {
   int64_t elapsed_ = 0, last_ = 0, drawn_ = 0;
   bool paused_ = false, busy_ = false;
   lv_obj_t *rect(lv_obj_t *,int,int,int,int,uint32_t,int=8);
-  lv_obj_t *text(lv_obj_t *,const std::string &,int,int,int,int=16,uint32_t=theme::text);
+  lv_obj_t *text(lv_obj_t *,const std::string &,int,int,int,int=16,uint32_t=theme::palette().text);
   lv_obj_t *control(const std::string &,const std::string &,int,int,int,bool=false);
-  lv_obj_t *part(lv_obj_t *,int,int,int,int,uint32_t=theme::surface,int=8);
-  void words(lv_obj_t *,const std::string &,int,int,int,int=16,uint32_t=theme::text);
-  void symbol(lv_obj_t *,const std::string &,int,int,int=24,uint32_t=theme::text);
+  lv_obj_t *part(lv_obj_t *,int,int,int,int,uint32_t=theme::palette().surface,int=8);
+  void words(lv_obj_t *,const std::string &,int,int,int,int=16,uint32_t=theme::palette().text);
+  void symbol(lv_obj_t *,const std::string &,int,int,int=24,uint32_t=theme::palette().text);
   void paper(lv_obj_t *,int,int,int,int);
   void chat(lv_obj_t *,bool=false);
   void scene(int,lv_obj_t *);

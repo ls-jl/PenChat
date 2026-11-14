@@ -266,8 +266,8 @@ void App::contextSummaryPage() {
     lv_obj_update_layout(line);y+=lv_obj_get_height(line)+uiMetrics_.dp(20);
   };
   if(checkpoint.empty()) {
-    text("尚未压缩",UiFont::LargeCaption,theme::text);
-    text("完整历史将用于后续请求。可从加号菜单手动压缩上下文。",UiFont::SettingsTitle,theme::muted);
+    text("尚未压缩",UiFont::LargeCaption,theme::palette().text);
+    text("完整历史将用于后续请求。可从加号菜单手动压缩上下文。",UiFont::SettingsTitle,theme::palette().muted);
     return;
   }
   const auto archive=checkpoint.value("archive_id",std::string());
@@ -283,13 +283,13 @@ void App::contextSummaryPage() {
     show("archives");
   });
   text(std::string(checkpoint.value("enabled",true)?"已生效":"已停用，请重新压缩")+
-      " · 覆盖至第 "+std::to_string(checkpoint.value("through",int64_t(0)))+" 条",UiFont::FormNote,theme::muted);
+      " · 覆盖至第 "+std::to_string(checkpoint.value("through",int64_t(0)))+" 条",UiFont::FormNote,theme::palette().muted);
   const auto time=checkpoint.value("created_at",int64_t(0));
   if(time>0) {
     time_t seconds=time/1000;tm local{};char stamp[64]{};
     localtime_r(&seconds,&local);strftime(stamp,sizeof(stamp),"%Y-%m-%d %H:%M",&local);
-    text(std::string("压缩时间：")+stamp,UiFont::FormNote,theme::muted);
+    text(std::string("压缩时间：")+stamp,UiFont::FormNote,theme::palette().muted);
   }
-  text(checkpoint.value("summary",std::string()),UiFont::SettingsTitle,theme::text);
+  text(checkpoint.value("summary",std::string()),UiFont::SettingsTitle,theme::palette().text);
 }
 } // namespace penchat

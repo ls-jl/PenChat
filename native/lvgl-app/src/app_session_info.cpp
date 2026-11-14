@@ -126,7 +126,7 @@ void App::sessionInfoPage() {
   const auto data = sessionInfoData_;
   if (data.empty() || data.contains("error")) {
     readableLabel(pageContent_, data.empty() ? "正在读取会话信息…" : data["error"].get<std::string>(),
-          uiMetrics_.dp(10), uiMetrics_.dp(12), width, uiMetrics_.fontSize(UiFont::SettingsTitle), theme::muted);
+          uiMetrics_.dp(10), uiMetrics_.dp(12), width, uiMetrics_.fontSize(UiFont::SettingsTitle), theme::palette().muted);
     return;
   }
   auto single = [this](const std::string &text, int x, int y, int width, int size, uint32_t color) {
@@ -140,27 +140,27 @@ void App::sessionInfoPage() {
     if(layout().portrait()) {
       auto row=box(pageContent_,x,y,column,uiMetrics_.dp(52));
       lv_obj_set_scrollable(row,false);
-      auto caption=readableLabel(row,name,0,0,column,uiMetrics_.fontSize(UiFont::FormHint),theme::muted);
-      auto valueLabel=readableLabel(row,value,0,uiMetrics_.dp(23),column,uiMetrics_.fontSize(UiFont::Body),theme::text);
+      auto caption=readableLabel(row,name,0,0,column,uiMetrics_.fontSize(UiFont::FormHint),theme::palette().muted);
+      auto valueLabel=readableLabel(row,value,0,uiMetrics_.dp(23),column,uiMetrics_.fontSize(UiFont::Body),theme::palette().text);
       for(auto object:{caption,valueLabel}) {
         lv_label_set_long_mode(object,LV_LABEL_LONG_MODE_DOTS);
         lv_obj_set_height(object,object==caption?font(uiMetrics_.fontSize(UiFont::FormHint))->line_height:font(uiMetrics_.fontSize(UiFont::Body))->line_height);
       }
       return;
     }
-    single(name, x, y, column, 17, theme::muted);
-    single(value, x, y + uiMetrics_.dp(23), column, 21, theme::text);
+    single(name, x, y, column, 17, theme::palette().muted);
+    single(value, x, y + uiMetrics_.dp(23), column, 21, theme::palette().text);
   };
   auto model = data.value("model", std::string());
   single(model.empty() ? "尚未配置聊天模型" : data.value("provider", std::string()) + " / " + model,
-         uiMetrics_.dp(10), uiMetrics_.dp(4), width, 17, theme::muted);
+         uiMetrics_.dp(10), uiMetrics_.dp(4), width, 17, theme::palette().muted);
   metric("当前上下文 · 估算 token", "≈ " + number(data.at("estimated_tokens")), 0, uiMetrics_.dp(34));
   metric("最大长度 · 本地预算", data["budget"].is_null() ? "未配置模型" : number(data["budget"]) + " token", 1, uiMetrics_.dp(34));
   single(data["budget"].is_null() ? "服务端上下文上限未提供" :
          "已占本地预算 " + ratio(data["estimated_tokens"], data["budget"]) + "；服务端上限未提供",
-         uiMetrics_.dp(10), uiMetrics_.dp(92), width, 17, theme::muted);
+         uiMetrics_.dp(10), uiMetrics_.dp(92), width, 17, theme::palette().muted);
   const auto latestModel = data.value("latest_model", std::string());
-  single("最近一次请求" + (latestModel.empty() ? "" : " · " + latestModel), uiMetrics_.dp(10), uiMetrics_.dp(126), width, 20, theme::text);
+  single("最近一次请求" + (latestModel.empty() ? "" : " · " + latestModel), uiMetrics_.dp(10), uiMetrics_.dp(126), width, 20, theme::palette().text);
   const auto latest = data.at("latest");
   metric("输入 token", tokenValue(latest, "input_tokens"), 0, uiMetrics_.dp(160));
   metric("输出 token · 含推理", tokenValue(latest, "output_tokens"), 1, uiMetrics_.dp(160));
@@ -169,8 +169,8 @@ void App::sessionInfoPage() {
   metric("总 token", tokenValue(latest, "total_tokens"), 0, uiMetrics_.dp(276));
   metric("缓存读取 / 写入 token", tokenValue(latest, "cached_tokens") + " / " + tokenValue(latest, "cache_write_tokens"), 1, uiMetrics_.dp(276));
   single(data.value("latest_status", std::string()) == "streaming" ? "生成中，用量等待接口返回；可刷新查看快照" :
-         "接口未返回的指标显示“未提供”，中断请求也可能缺少用量", uiMetrics_.dp(10), uiMetrics_.dp(338), width, 17, theme::muted);
-  single("会话累计 · 当前保留的回复", uiMetrics_.dp(10), uiMetrics_.dp(376), width, 20, theme::text);
+         "接口未返回的指标显示“未提供”，中断请求也可能缺少用量", uiMetrics_.dp(10), uiMetrics_.dp(338), width, 17, theme::palette().muted);
+  single("会话累计 · 当前保留的回复", uiMetrics_.dp(10), uiMetrics_.dp(376), width, 20, theme::palette().text);
   const auto totals = data.at("totals");
   metric("已记录输入 token", tokenValue(totals, "input_tokens"), 0, uiMetrics_.dp(410));
   metric("已记录输出 token", tokenValue(totals, "output_tokens"), 1, uiMetrics_.dp(410));
@@ -192,6 +192,6 @@ void App::sessionInfoPage() {
         "上下文按当前模型、系统提示词、有效摘要、历史和待发送内容估算；图片单独估算，非精确分词。发送时的自动压缩或重试会改变上下文。\n\n"
         "用量来自接口，不回填旧消息；各指标只累计已返回该字段的回复。缓存命中率＝已缓存输入 token ÷ 对应输入 token，不是请求成功率。\n\n"
         "累计仅统计当前保留回复，不包含被覆盖回复、自动命名和压缩请求；推理 token 已包含在输出中，不再重复相加。这里不是账单或费用统计。",
-        uiMetrics_.dp(10), uncached ? uiMetrics_.dp(712) : uiMetrics_.dp(654), width, uiMetrics_.fontSize(UiFont::FormHint), theme::muted);
+        uiMetrics_.dp(10), uncached ? uiMetrics_.dp(712) : uiMetrics_.dp(654), width, uiMetrics_.fontSize(UiFont::FormHint), theme::palette().muted);
 }
 } // namespace penchat

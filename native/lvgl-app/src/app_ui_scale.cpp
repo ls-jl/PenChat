@@ -30,7 +30,7 @@ void App::uiScalePage() {
   primary(save);uiScaleControls_.push_back(save);
   const int left=uiMetrics_.dp(10),width=std::max(1,layout().contentWidth()-2*left);
   auto description=label(pageContent_,"调整全应用的文字、控件和间距。保存后生效；键盘会自动适配可用空间。",
-      left,uiMetrics_.dp(8),width,uiMetrics_.fontSize(UiFont::Detail),theme::muted);
+      left,uiMetrics_.dp(8),width,uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);
   lv_obj_update_layout(description);
   int y=lv_obj_get_y(description)+lv_obj_get_height(description)+uiMetrics_.dp(12);
   const int height=std::max(44,uiMetrics_.dp(44)),side=std::max(44,uiMetrics_.dp(56));
@@ -47,7 +47,7 @@ void App::uiScalePage() {
   lv_obj_set_ext_click_area(uiScaleSlider_,uiMetrics_.dp(16));lv_slider_set_range(uiScaleSlider_,75,150);
   for(auto part:{LV_PART_MAIN,LV_PART_INDICATOR,LV_PART_KNOB}) {
     lv_obj_set_style_bg_opa(uiScaleSlider_,LV_OPA_COVER,part);lv_obj_set_style_radius(uiScaleSlider_,LV_RADIUS_CIRCLE,part);
-    lv_obj_set_style_bg_color(uiScaleSlider_,lv_color_hex(part==LV_PART_MAIN?theme::border:part==LV_PART_KNOB?theme::text:theme::accent),part);
+    lv_obj_set_style_bg_color(uiScaleSlider_,lv_color_hex(part==LV_PART_MAIN?theme::palette().border:part==LV_PART_KNOB?theme::palette().text:theme::palette().accent),part);
   }
   lv_obj_set_style_pad_all(uiScaleSlider_,uiMetrics_.dp(7),LV_PART_KNOB);
   lv_obj_add_event_cb(uiScaleSlider_,[](lv_event_t *e){auto app=static_cast<App *>(lv_event_get_user_data(e));
@@ -55,16 +55,16 @@ void App::uiScalePage() {
   },LV_EVENT_VALUE_CHANGED,this);
   uiScaleControls_.push_back(uiScaleSlider_);
   y+=uiMetrics_.dp(32);
-  label(pageContent_,"75%",left,y,width/2,uiMetrics_.fontSize(UiFont::Detail),theme::muted);
-  auto maximum=label(pageContent_,"150%",left+width/2,y,width/2,uiMetrics_.fontSize(UiFont::Detail),theme::muted);
+  label(pageContent_,"75%",left,y,width/2,uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);
+  auto maximum=label(pageContent_,"150%",left+width/2,y,width/2,uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);
   lv_obj_set_style_text_align(maximum,LV_TEXT_ALIGN_RIGHT,0);
   y+=uiMetrics_.dp(32);
   auto reset=button(pageContent_,"恢复默认",left,y,std::min(width,uiMetrics_.dp(144)),height,[this]{if(uiScaleRequest_.empty())updateUiScalePreview(100);});
   pageActions_["恢复默认"]=reset;uiScaleControls_.push_back(reset);
   y+=height+uiMetrics_.dp(10);
-  uiScaleStatus_=label(pageContent_,"",left,y,width,uiMetrics_.fontSize(UiFont::Detail),theme::muted);
+  uiScaleStatus_=label(pageContent_,"",left,y,width,uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);
   y+=uiMetrics_.dp(32);
-  uiScalePreview_=box(pageContent_,left,y,width,LV_SIZE_CONTENT,theme::surface);
+  uiScalePreview_=box(pageContent_,left,y,width,LV_SIZE_CONTENT,theme::palette().surface);
   lv_obj_set_scrollable(uiScalePreview_,false);lv_obj_set_clickable(uiScalePreview_,false);
   updateUiScalePreview(uiScaleDraft_);uiScaleBusy(!uiScaleRequest_.empty());
 }
@@ -82,16 +82,16 @@ void App::updateUiScalePreview(int percent) {
     auto o=label(uiScalePreview_,text,inset,y,width,preview.fontSize(role),ink);
     lv_obj_update_layout(o);y+=lv_obj_get_height(o)+preview.dp(10);
   };
-  line("界面预览",UiFont::PageTitle,theme::text);
-  line("中文与 English Aa 123\n文字和留白一起调整。",UiFont::Body,theme::text);
-  auto sample=box(uiScalePreview_,inset,y,width,preview.dp(44),theme::text,preview);
+  line("界面预览",UiFont::PageTitle,theme::palette().text);
+  line("中文与 English Aa 123\n文字和留白一起调整。",UiFont::Body,theme::palette().text);
+  auto sample=box(uiScalePreview_,inset,y,width,preview.dp(44),theme::palette().text,preview);
   lv_obj_set_scrollable(sample,false);lv_obj_set_clickable(sample,false);
   lv_obj_set_style_radius(sample,preview.button().radius,0);
-  auto caption=label(sample,"示例按钮",0,0,std::max(1,width-preview.button().captionPadding),preview.fontSize(UiFont::Button),theme::primaryText);
+  auto caption=label(sample,"示例按钮",0,0,std::max(1,width-preview.button().captionPadding),preview.fontSize(UiFont::Button),theme::palette().primaryText);
   lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(caption,font(preview.fontSize(UiFont::Button))->line_height);lv_obj_center(caption);
   y+=preview.dp(56);
-  line("字段标题",UiFont::FieldTitle,theme::muted);
-  line("示例内容",UiFont::FieldValue,theme::text);
+  line("字段标题",UiFont::FieldTitle,theme::palette().muted);
+  line("示例内容",UiFont::FieldValue,theme::palette().text);
   lv_obj_set_height(uiScalePreview_,y);
 }
 void App::saveUiScale() {

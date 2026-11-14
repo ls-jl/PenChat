@@ -53,7 +53,7 @@ void App::anthropicConnectionPage() {
   });
   label(pageContent_, "返回后保存 Provider 才会生效。两种鉴权不能同时发送；自定义请求头不进入聊天导出或诊断。"
         "\n\n2023-06-01 用于广泛兼容；2026-10-21 按官方新版协议发送。连接失败不会自动切换版本或重试。",
-        uiMetrics_.dp(10), uiMetrics_.dp(140), width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::FormHint), theme::muted);
+        uiMetrics_.dp(10), uiMetrics_.dp(140), width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::FormHint), theme::palette().muted);
 }
 void App::anthropicModelPage() {
   pageHeader("模型设置");
@@ -110,7 +110,7 @@ void App::anthropicModelPage() {
           if (choices.contains(key)) choices.erase(key);
           else choices[key] = mode == "budget" || key == "none" ? anthropicBudget(key) : key;
           build();
-        }, theme::surface, LV_TEXT_ALIGN_LEFT);
+        }, theme::palette().surface, LV_TEXT_ALIGN_LEFT);
         if (key == "none" && !caps.value("disable", false)) lv_obj_add_state(b, LV_STATE_DISABLED);
         ++n;
       }
@@ -134,6 +134,6 @@ void App::anthropicModelPage() {
   }
   modelCapabilityRows(y);
   label(pageContent_, "API默认省略思考参数。输出额度为Messages必填项，匹配不修改它。固定思考预算须小于输出额度。",
-        uiMetrics_.dp(10), y + uiMetrics_.dp(264), width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::muted);
+        uiMetrics_.dp(10), y + uiMetrics_.dp(264), width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
 }
 } // namespace penchat

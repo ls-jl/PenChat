@@ -62,7 +62,7 @@ void App::messageMenu(const std::string &id) {
   if(!assistant)actions.push_back({"edit","编辑消息"});
   int y=0;
   for(const auto &a:actions) {
-    auto b=button(list,a.second,0,y,width,rowHeight-uiMetrics_.dp(4),[this,id,key=a.first]{events_.push("message_action",{{"session",session_},{"id",id},{"action",key}});},theme::popup,LV_TEXT_ALIGN_LEFT);
+    auto b=button(list,a.second,0,y,width,rowHeight-uiMetrics_.dp(4),[this,id,key=a.first]{events_.push("message_action",{{"session",session_},{"id",id},{"action",key}});},theme::palette().popup,LV_TEXT_ALIGN_LEFT);
     stylePopupRow(b);messageActions_[a.first]=b;y+=rowHeight;
     if((a.first!="edit"&&text.empty())||(a.first=="edit"&&(generating_||contextBusy_||saveInFlight_||!messageEdit_.empty())))lv_obj_add_state(b,LV_STATE_DISABLED);
   }
@@ -185,7 +185,7 @@ bool App::messageEvent(const Event &e) {
     const auto text=messageContextText_,action=e.data.value("action",std::string());
     input_.cancel();auto layer=modal_;lv_obj_delete(layer);
     if(action=="copy"){if(editorClipboard_.copy(text)) {
-      auto toast=box(screenObj_,screen_.width/2-uiMetrics_.dp(70),screen_.height-uiMetrics_.dp(116),uiMetrics_.dp(140),uiMetrics_.dp(44),theme::surface);
+      auto toast=box(screenObj_,screen_.width/2-uiMetrics_.dp(70),screen_.height-uiMetrics_.dp(116),uiMetrics_.dp(140),uiMetrics_.dp(44),theme::palette().surface);
       lv_obj_set_scrollable(toast,false);lv_obj_set_clickable(toast,false);lv_obj_set_style_radius(toast,uiMetrics_.dp(16),0);
       auto caption=label(toast,"已复制",uiMetrics_.dp(8),uiMetrics_.dp(8),uiMetrics_.dp(124),uiMetrics_.fontSize(UiFont::SettingsTitle));lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);
       lv_obj_delete_delayed(toast,1200);

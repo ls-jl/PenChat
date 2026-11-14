@@ -63,14 +63,14 @@ struct AppLayout {
   int dp(int value) const { return metrics.dp(value); }
   ScreenSafety safety() const { return {width,height,rounded}; }
   LayoutRect edgeRect(LayoutRect rect) const {
-    if(safety().enabled()&&metrics.scalePercent()<100) {
-      const int w=std::max(44,rect.width),h=std::max(44,rect.height);
+    if(safety().enabled()&&metrics.factor()<1.) {
+      const int w=std::max(UiMetrics::minimumTouchTarget(),rect.width),h=std::max(UiMetrics::minimumTouchTarget(),rect.height);
       rect.x-=(w-rect.width)/2;rect.y-=(h-rect.height)/2;rect.width=w;rect.height=h;
     }
     return safety().fit(rect);
   }
   int edgeSide(int y,int h) const { return std::max(safeSide(),safety().sideInset(y,h)); }
-  int navigationX() const { return edgeSide(safeTop(),std::max(44,dp(48))); }
+  int navigationX() const { return edgeSide(safeTop(),metrics.touchTarget(48)); }
   LayoutClass category() const { return classifyLayout(width,height); }
   bool portrait() const { return category() == LayoutClass::Portrait; }
   bool compact() const { return category() == LayoutClass::CompactLandscape; }
@@ -86,7 +86,7 @@ struct AppLayout {
   int composerY() const { return height - composerHeight() - safeBottom(); }
   int gutter() const { return portrait() ? 0 : dp(86); }
   int bodyWidth() const { return std::max(1,width - gutter() - dp(4)); }
-  int chatReaderTop() const { return portrait() ? safeTop() + std::max(52,dp(56)) : 0; }
+  int chatReaderTop() const { return portrait() ? safeTop() + std::max(UiMetrics::minimumTouchTarget()+dp(8),dp(56)) : 0; }
   int chatMessageWidth() const { return std::max(1,portrait() ? bodyWidth() - dp(16) : width - dp(112)); }
   int contentWidth() const { return std::max(1,width - dp(portrait()?32:118)); }
   int composerX() const { return portrait() ? safeSide() : dp(106); }
@@ -101,7 +101,7 @@ struct AppLayout {
     if(portrait()) {
       if(!safety().enabled())return {{dp(72),dp(16),width-dp(88),dp(24)},{dp(10),dp(56),width-dp(20),height-dp(186)},
         {dp(16),dp(28),width-dp(32),dp(24)},{dp(16),height-dp(112),width-dp(32),dp(44)},{dp(16),height-dp(58),width-dp(32),dp(44)},dp(48),height-dp(130)};
-      const int control=std::max(44,dp(44)),top=safeTop(),cancelY=height-safeBottom()-control,useY=cancelY-control-dp(8);
+      const int control=metrics.touchTarget(),top=safeTop(),cancelY=height-safeBottom()-control,useY=cancelY-control-dp(8);
       return {{navigationX()+dp(56),top+dp(8),width-navigationX()-dp(80),dp(24)},
         {dp(10),top+dp(48),width-dp(20),useY-top-dp(64)},{dp(16),top+dp(28),width-dp(32),dp(24)},
         edgeRect({dp(16),useY,width-dp(32),control}),edgeRect({dp(16),cancelY,width-dp(32),control}),top+dp(40),useY-dp(16)};
@@ -126,7 +126,7 @@ struct AppLayout {
   }
   CropWorkspace cropWorkspace(int w,int h) const {
     if(portrait()) {
-      const int control=std::max(44,dp(48)),album=std::max(44,dp(44));
+      const int control=metrics.touchTarget(48),album=metrics.touchTarget();
       const int side=edgeSide(safeTop(),album),available=w-2*side;
       const int y=h-safeBottom()-dp(12)-control,albumY=y-album-dp(12);
       const int buttonWidth=(available-dp(24))/3;
@@ -142,7 +142,7 @@ struct AppLayout {
   GuideWorkspace guideWorkspace() const {
     const bool p=portrait();const int split=p?width-dp(4):width/2,right=p?dp(20):split+dp(20);
     const int side=safety().enabled()?navigationX():right;
-    return {p,split,side,width-side-(p?side:dp(20)),height-std::max(44,dp(44))-(safety().enabled()?safeBottom():dp(12)),p?std::min(dp(520),height*43/100):height-dp(80)};
+    return {p,split,side,width-side-(p?side:dp(20)),height-metrics.touchTarget()-(safety().enabled()?safeBottom():dp(12)),p?std::min(dp(520),height*43/100):height-dp(80)};
   }
 };
 } // namespace penchat

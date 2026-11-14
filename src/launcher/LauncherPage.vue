@@ -1,19 +1,19 @@
 <template>
-  <div class="native-page" :style="nativeAreaStyle">
+  <div class="native-page" :style="pageStyle">
     <hole class="native-hole" :style="nativeAreaStyle"></hole>
-    <div v-if="officialInline" class="official-editor">
-      <input v-if="officialSingleLine" ref="officialInput" class="official-input" :style="officialInputStyle" :type="officialSensitive ? 'password' : 'text'" :value="officialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="true" cursorColor="#4ade80" @input="inlineOfficialInput" @confirm="finishInlineOfficial" />
-      <textarea v-else ref="officialInput" class="official-input" :style="officialInputStyle" :value="officialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="true" cursorColor="#4ade80" @input="inlineOfficialInput" @confirm="finishInlineOfficial" />
+    <div v-if="officialInline" class="official-editor" :style="appearanceStyles.officialPanel">
+      <input v-if="officialSingleLine" ref="officialInput" class="official-input" :style="officialInputStyle" :type="officialSensitive ? 'password' : 'text'" :value="officialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="true" :cursorColor="appearanceColors.caret" @input="inlineOfficialInput" @confirm="finishInlineOfficial" />
+      <textarea v-else ref="officialInput" class="official-input" :style="officialInputStyle" :value="officialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="true" :cursorColor="appearanceColors.caret" @input="inlineOfficialInput" @confirm="finishInlineOfficial" />
     </div>
-    <div v-if="!nativeReady && !errorText" class="startup-panel">
-      <text class="startup-title">{{ appName }}</text>
-      <text class="startup-text">{{ startupText }}</text>
+    <div v-if="!nativeReady && !errorText" class="startup-panel" :style="appearanceStyles.panel">
+      <text class="startup-title" :style="appearanceStyles.title">{{ appName }}</text>
+      <text class="startup-text" :style="appearanceStyles.hint">{{ startupText }}</text>
     </div>
-    <div v-if="errorText" class="failure-panel">
-      <text class="failure-title">{{ appName }}</text>
-      <text class="failure-text">{{ errorText }}</text>
-      <div class="retry" @click="retry"><text class="retry-label">重新启动</text></div>
-      <div class="leave" @click="finish"><text class="retry-text">返回</text></div>
+    <div v-if="errorText" class="failure-panel" :style="appearanceStyles.failure">
+      <text class="failure-title" :style="appearanceStyles.title">{{ appName }}</text>
+      <text class="failure-text" :style="appearanceStyles.hint">{{ errorText }}</text>
+      <div class="retry" :style="appearanceStyles.retry" @click="retry"><text class="retry-label" :style="appearanceStyles.primaryText">重新启动</text></div>
+      <div class="leave" :style="appearanceStyles.leave" @click="finish"><text class="retry-text" :style="appearanceStyles.text">返回</text></div>
     </div>
   </div>
 </template>
@@ -31,8 +31,27 @@ function parse(value) {
   if (typeof value !== 'string') return value
   try { return JSON.parse(value) } catch (err) { return null }
 }
+// Before the native bridge starts, use the named 100% startup design. Once the
+// appearance packet arrives its UiMetrics-resolved logical values replace these
+// unchanged; Falcon screen and official field coordinates are never scaled here.
+const startupDesign = Object.freeze({ title: 28, body: 21, caption: 20, gap: 14, inset: 32, top: 20, bottom: 25, retryWidth: 180, leaveX: 235, leaveWidth: 120, controlHeight: 45, radius: 12 })
+const startupColors = Object.freeze({ background: '#212121', text: '#ececec', muted: '#b4b4b4', surface: '#303030', primaryText: '#212121', caret: '#4ade80' })
+function resolvedAppearance(c, m) {
+  const pixel = value => value + 'px' // already resolved logical pixels
+  return {
+    page: { backgroundColor: c.background }, panel: { backgroundColor: c.background },
+    officialPanel: { backgroundColor: c.background },
+    officialInput: { backgroundColor: c.surface, color: c.text, fontSize: pixel(m.caption) },
+    title: { color: c.text, fontSize: pixel(m.title) },
+    hint: { color: c.muted, fontSize: pixel(m.body), marginTop: pixel(m.gap) },
+    failure: { backgroundColor: c.background, paddingLeft: pixel(m.inset), paddingTop: pixel(m.top) },
+    retry: { left: pixel(m.inset), bottom: pixel(m.bottom), width: pixel(m.retryWidth), height: pixel(m.controlHeight), borderRadius: pixel(m.radius), backgroundColor: c.text },
+    leave: { left: pixel(m.leaveX), bottom: pixel(m.bottom), width: pixel(m.leaveWidth), height: pixel(m.controlHeight), borderRadius: pixel(m.radius), backgroundColor: c.surface },
+    primaryText: { color: c.primaryText, fontSize: pixel(m.body) }, text: { color: c.text, fontSize: pixel(m.body) }
+  }
+}
 export default {
-  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, officialInline: false, officialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
+  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialInline: false, officialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
   mounted() { this.boot() },
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
@@ -121,8 +140,10 @@ export default {
               throw new Error('Invalid Falcon display configuration')
             this._screen = screen
             this.nativeAreaStyle = { left: '0px', top: '0px', width: screen.width + 'px', height: screen.height + 'px' }
+            this.pageStyle = Object.assign({}, this.nativeAreaStyle, this.appearanceStyles.page || {})
             this.send('display.area', { x: 0, y: 0, width: screen.width, height: screen.height })
           }
+          else if (event.type === 'appearance') this.applyAppearance(event)
           else if (event.type === 'startup') { this.startupText = ({ display: '正在准备显示…', data: '正在读取数据…', interface: '正在准备页面…', frame: '正在显示页面…' })[event.stage] || '正在打开…' }
           else if (event.type === 'ready') { this.nativeReady = true; this.syncWindowFocus(true); this.syncInputFocus(true); clearTimeout(this._readyTimer); this._readyTimer = null; if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
           else if (event.type === 'editor.state') this.editorState(event)
@@ -360,10 +381,22 @@ export default {
           this.cancelOfficialKeyboard('官方键盘未能显示，已恢复内置键盘')
       } catch (_) { this.cancelOfficialKeyboard('官方键盘状态异常，已恢复内置键盘') }
     },
+    applyAppearance(event) {
+      if (!event || !['dark', 'light'].includes(event.mode)) return
+      const c = event.colors || {}, m = event.metrics || {}
+      const colors = ['background', 'text', 'muted', 'surface', 'primaryText', 'caret']
+      const sizes = ['title', 'body', 'caption', 'gap', 'inset', 'top', 'bottom', 'retryWidth', 'leaveX', 'leaveWidth', 'controlHeight', 'radius']
+      if (!colors.every(k => typeof c[k] === 'string' && /^#[0-9a-fA-F]{6}$/.test(c[k])) ||
+          !sizes.every(k => Number.isInteger(m[k]) && m[k] >= 0 && m[k] <= 4096)) return
+      this.appearanceColors = c
+      this.appearanceStyles = resolvedAppearance(c, m)
+      this.pageStyle = Object.assign({}, this.nativeAreaStyle, this.appearanceStyles.page)
+      if (this.officialInline) this.officialInputStyle = Object.assign({}, this.officialInputStyle, this.appearanceStyles.officialInput)
+    },
     inlineOfficialField(field) {
       if (!this.officialInline || field.requestId !== this._keyboardRequest) return
       if (![field.x, field.y, field.width, field.height].every(Number.isFinite) || field.width <= 0 || field.height <= 0) return
-      this.officialInputStyle = { left: field.x + 'px', top: field.y + 'px', width: field.width + 'px', height: field.height + 'px' }
+      this.officialInputStyle = Object.assign({}, this.appearanceStyles.officialInput || {}, { left: field.x + 'px', top: field.y + 'px', width: field.width + 'px', height: field.height + 'px' })
     },
     openInlineOfficial(event) {
       // Portrait themes expose an inline IM panel, not a standalone text
@@ -506,18 +539,18 @@ export default {
 }
 </script>
 <style lang="less" scoped>
-.native-page { width: 100vw; height: 100vh; position: relative; background-color: #212121; }
+.native-page { width: 100vw; height: 100vh; position: relative; }
 .native-hole { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
-.official-editor { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #212121; }
-.official-input { position: absolute; background-color: #303030; color: #ececec; font-size: 20px; padding: 0px; }
-.startup-panel { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #212121; justify-content: center; align-items: center; }
-.startup-title { color: #ececec; font-size: 28px; }
-.startup-text { color: #b4b4b4; font-size: 20px; margin-top: 14px; }
-.failure-panel { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #212121; padding-left: 32px; padding-top: 20px; }
-.failure-title { color: #ececec; font-size: 30px; }
-.failure-text { color: #b4b4b4; font-size: 21px; margin-top: 14px; }
-.retry { position: absolute; left: 32px; bottom: 25px; width: 180px; height: 45px; background-color: #ececec; border-radius: 12px; justify-content: center; align-items: center; }
-.leave { position: absolute; left: 235px; bottom: 25px; width: 120px; height: 45px; background-color: #303030; border-radius: 12px; justify-content: center; align-items: center; }
-.retry-label { color: #212121; font-size: 21px; }
-.retry-text { color: #ececec; font-size: 21px; }
+.official-editor { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
+.official-input { position: absolute; padding: 0px; }
+.startup-panel { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; justify-content: center; align-items: center; }
+.startup-title { }
+.startup-text { }
+.failure-panel { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
+.failure-title { }
+.failure-text { }
+.retry { position: absolute; justify-content: center; align-items: center; }
+.leave { position: absolute; justify-content: center; align-items: center; }
+.retry-label { }
+.retry-text { }
 </style>

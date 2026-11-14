@@ -469,17 +469,17 @@ class App {
   int albumPage_ = 0;
   std::vector<std::string> modelNames_;
   lv_obj_t *box(lv_obj_t *parent, int x, int y, int w, int h,
-                uint32_t color = theme::background);
+                uint32_t color = theme::palette().background);
   lv_obj_t *box(lv_obj_t *parent, int x, int y, int w, int h,
                 uint32_t color, const UiMetrics &metrics);
   // Geometry and the integer-size overload are already resolved logical pixels.
   lv_obj_t *label(lv_obj_t *parent, const std::string &text, int x, int y,
-                  int w, int size = -1, uint32_t color = theme::text);
+                  int w, int size = -1, uint32_t color = theme::palette().text);
   lv_obj_t *label(lv_obj_t *parent, const std::string &text, int x, int y,
-                  int w, UiFont role, uint32_t color = theme::text);
+                  int w, UiFont role, uint32_t color = theme::palette().text);
   lv_obj_t *button(lv_obj_t *parent, const std::string &text, int x, int y,
                    int w, int h, std::function<void()> click,
-                   uint32_t color = theme::surface,
+                   uint32_t color = theme::palette().surface,
                    lv_text_align_t align = LV_TEXT_ALIGN_CENTER);
   void primary(lv_obj_t *button);
   lv_obj_t *fieldButton(lv_obj_t *parent, const std::string &caption,
@@ -496,8 +496,8 @@ class App {
                bool premultiplied = false);
   lv_obj_t *icon(lv_obj_t *parent, const std::string &kind, int x, int y, int w,
                  int h, std::function<void()> action = {},
-                 uint32_t background = theme::background,
-                 uint32_t ink = theme::text);
+                 uint32_t background = theme::palette().background,
+                 uint32_t ink = theme::palette().text);
   void closeAttachments();
   void toggleAttachments();
   void resetPull();
@@ -632,7 +632,7 @@ class App {
   void readLabel(lv_obj_t *,const std::string &);
   void readLinkText(lv_obj_t *,const std::string &,const std::string &);
   void readSlice(lv_obj_t *,const std::string &,size_t);
-  lv_obj_t *readableLabel(lv_obj_t *,const std::string &,int,int,int,int=-1,uint32_t=theme::text);
+  lv_obj_t *readableLabel(lv_obj_t *,const std::string &,int,int,int,int=-1,uint32_t=theme::palette().text);
   ReadRegion *readRegion(uint64_t);
   lv_area_t readClip(lv_obj_t *) const;
   size_t readPosition(ReadRegion &,int,int,bool word=false,std::pair<size_t,size_t> *atom=nullptr);

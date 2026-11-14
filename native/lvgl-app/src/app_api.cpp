@@ -41,7 +41,7 @@ void App::apiCompatibilityPage() {
     }, 4, "EnUSOnly", {}, false);
   });
   label(pageContent_, "不自动重发、不降低推理强度。关闭统计或思考扩展会减少对应信息；TLS 校验始终开启。",
-        uiMetrics_.dp(10), timeoutY + uiMetrics_.dp(72), width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::muted);
+        uiMetrics_.dp(10), timeoutY + uiMetrics_.dp(72), width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
 }
 void App::httpSettingsPage() {
   pageHeader("连接保留时间");
@@ -60,7 +60,7 @@ void App::httpSettingsPage() {
       } catch (...) {modal("保留时间未修改","请输入15～600之间的整数秒数。");}
     },3,"EnUSOnly",{},false);
   });
-  label(pageContent_, "请求结束后计时，服务器可能提前断开", uiMetrics_.dp(10), uiMetrics_.dp(76), width-uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::FormNote), theme::muted);
-  label(pageContent_, "全应用生效；后台及官方键盘期间保留至到期，退出应用时释放。", uiMetrics_.dp(10), uiMetrics_.dp(112), width-uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::muted);
+  label(pageContent_, "请求结束后计时，服务器可能提前断开", uiMetrics_.dp(10), uiMetrics_.dp(76), width-uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::FormNote), theme::palette().muted);
+  label(pageContent_, "全应用生效；后台及官方键盘期间保留至到期，退出应用时释放。", uiMetrics_.dp(10), uiMetrics_.dp(112), width-uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
 }
 } // namespace penchat

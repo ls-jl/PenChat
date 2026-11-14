@@ -7,7 +7,7 @@
 #include <iostream>
 using namespace penchat;
 int main(int argc,char **argv) {
-  assert(theme::background==0x000000 && theme::keyboardCanvas==0x212121);
+  assert(theme::palette().background==0x000000 && theme::palette().keyboardCanvas==0x212121);
   assert(keyboardDesign().background==0x111111);
   assert(keyboardDesign().style(KeyboardRole::Primary).foreground==0x212121);
   assert(keyboardDesign().style(KeyboardRole::Composition).background==0x212121);

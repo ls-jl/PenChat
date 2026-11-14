@@ -88,8 +88,8 @@ void Onboarding3D::panel(Texture texture) {
   // A beveled housing: actual side faces, not an offset 2D shadow.
   const Point aa{-202,-h/2-2,-9}, bb{202,-h/2-2,-9};
   const Point cc{202,h/2+2,-9}, dd{-202,h/2+2,-9};
-  quad(a,b,bb,aa,shade(theme::border,1.15f));quad(b,c,cc,bb,shade(theme::border,1.5f));
-  quad(c,d,dd,cc,shade(theme::border,1.25f));quad(d,a,aa,dd,shade(theme::border,.85f));
+  quad(a,b,bb,aa,shade(theme::palette().border,1.15f));quad(b,c,cc,bb,shade(theme::palette().border,1.5f));
+  quad(c,d,dd,cc,shade(theme::palette().border,1.25f));quad(d,a,aa,dd,shade(theme::palette().border,.85f));
   quad(a,b,c,d,0xffffffff,&texture);
 }
 void Onboarding3D::pen(float position,float lift,uint32_t color) {
@@ -103,13 +103,13 @@ void Onboarding3D::pen(float position,float lift,uint32_t color) {
     const float a=2*pi*n/10, b=2*pi*(n+1)/10;
     const float light=.63f+.37f*std::max(0.f,std::cos(a+.8f));
     quad(point(6,10,a),point(6,10,b),point(9,76,b),point(9,76,a),shade(color,light));
-    quad(point(9,76,a),point(9,76,b),point(7,83,b),point(7,83,a),shade(theme::text,light));
-    triangle(point(6,10,a),point(6,10,b),point(2,0,a),shade(theme::muted,light));
-    triangle(point(7,83,a),point(7,83,b),point(0,83,0),shade(theme::text,light));
+    quad(point(9,76,a),point(9,76,b),point(7,83,b),point(7,83,a),shade(theme::palette().text,light));
+    triangle(point(6,10,a),point(6,10,b),point(2,0,a),shade(theme::palette().muted,light));
+    triangle(point(7,83,a),point(7,83,b),point(0,83,0),shade(theme::palette().text,light));
   }
   // A slim raised screen on the barrel, sharing its actual 3D orientation.
   quad({x+10,y-54,lift+28},{x+19,y-54,lift+28},
-       {x+24,y-69,lift+31},{x+15,y-69,lift+31},shade(theme::sidebar,1));
+       {x+24,y-69,lift+31},{x+15,y-69,lift+31},shade(theme::palette().sidebar,1));
 }
 void Onboarding3D::render(Texture texture,int page,int phase,float progress,uint32_t background,uint32_t accent) {
   if(!texture.pixels || texture.width<=0 || texture.height<=0 || texture.width>640 ||

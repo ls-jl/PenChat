@@ -236,7 +236,7 @@ struct EditorLayout {
   int selectionHandleWidth() const {return scaled?int(std::ceil(double(controlMetrics.height)*256/scaleX())):controlMetrics.height;}
   int selectionHandleHeight() const {return scaled?int(std::ceil(double(controlMetrics.height)*256/scaleY())):controlMetrics.height;}
   int selectionButtonWidth() const {return std::max(metrics.dp(88),scaled?int(std::ceil(double(controlMetrics.height)*256/scaleX())):controlMetrics.height);}
-  int selectionButtonHeight() const {return std::max(metrics.dp(44),scaled?int(std::ceil(double(controlMetrics.height)*256/scaleY())):controlMetrics.height);}
+  int selectionButtonHeight() const {return std::max(metrics.touchTarget(),scaled?int(std::ceil(double(controlMetrics.height)*256/scaleY())):controlMetrics.height);}
   Popup globeKey() const {
     const int commaCenter=metrics.dp(8)+px(keyWidth+metrics.dp(14))+px(keyWidth+metrics.dp(10))/2;
     const int centerY=px((bottomY+bottomHeight-1.+height-1)/2.);

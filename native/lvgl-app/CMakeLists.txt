@@ -422,3 +422,8 @@ if(NOT CMAKE_CROSSCOMPILING)
   target_link_libraries(penchat-ui-controls-tests PRIVATE penchat_core)
   target_compile_options(penchat-ui-controls-tests PRIVATE -UNDEBUG)
 endif()
+
+add_executable(penchat-theme-tests "${ROOT}/tests/native/ThemePaletteTest.cpp")
+target_include_directories(penchat-theme-tests PRIVATE src)
+target_compile_options(penchat-theme-tests PRIVATE -UNDEBUG)
+add_test(NAME penchat-theme COMMAND penchat-theme-tests)

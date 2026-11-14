@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdint>
 #include <cstddef>
+#include <memory>
 
 namespace penchat {
 // Compile-time authoring surface. Pixels are Falcon logical pixels, except the
@@ -15,8 +16,8 @@ enum class KeyboardVariant { Default, UtilityIcon, FinishIcon, SolidControl, Fil
 enum class KeyboardFont { Character, KeyFunction, Function, Candidate, Composition, Menu, Editor, InlineField, Filter, Heading, Hint, Count };
 
 struct KeyboardStyle {
-  uint32_t background=theme::surface, foreground=theme::text;
-  uint32_t pressedBackground=theme::border, selectedBackground=theme::surface;
+  uint32_t background=theme::palette().surface, foreground=theme::palette().text;
+  uint32_t pressedBackground=theme::palette().border, selectedBackground=theme::palette().surface;
   int radius=9, opacity=153, pressedOpacity=153, disabledOpacity=255;
 };
 // -1 means inherit. Patches only contain visual properties; actions and layout
@@ -59,8 +60,8 @@ struct KeyboardDesign {
   std::array<KeyboardStylePatch,size_t(KeyboardVariant::Count)> variants{};
   KeyboardTypography typography;
   std::array<KeyboardProfile,4> profiles{};
-  uint32_t background=theme::keyboardBackground, popupBackground=theme::popup;
-  uint32_t compositionText=theme::muted, caret=theme::caret, selection=theme::border;
+  uint32_t background=theme::palette().keyboardBackground, popupBackground=theme::palette().popup;
+  uint32_t compositionText=theme::palette().muted, caret=theme::palette().caret, selection=theme::palette().border;
   struct Keys {
     int gap=4, rowGap=6, margin=4, touchX=4, touchY=3;
     int filterWidth=88, utilitySize=48, utilityGrow=24;
@@ -105,29 +106,29 @@ struct KeyboardDesign {
 
   KeyboardDesign() {
     auto &primary=roles[size_t(KeyboardRole::Primary)];
-    primary.background=theme::text;primary.foreground=theme::primaryText;
-    primary.pressedBackground=theme::muted;primary.radius=10;
+    primary.background=theme::palette().text;primary.foreground=theme::palette().primaryText;
+    primary.pressedBackground=theme::palette().muted;primary.radius=10;
     primary.opacity=primary.pressedOpacity=255;primary.disabledOpacity=127;
     auto &auxiliary=roles[size_t(KeyboardRole::Auxiliary)];
     auxiliary.radius=10;auxiliary.opacity=51;auxiliary.pressedOpacity=204;
     auto &input=roles[size_t(KeyboardRole::Input)];
     input.radius=8;input.opacity=51;
     auto &composition=roles[size_t(KeyboardRole::Composition)];
-    composition.background=theme::keyboardCanvas;composition.radius=8;composition.opacity=51;
+    composition.background=theme::palette().keyboardCanvas;composition.radius=8;composition.opacity=51;
     auto &candidates=roles[size_t(KeyboardRole::Candidates)];
-    candidates.background=theme::keyboardCanvas;candidates.radius=8;candidates.opacity=0;
+    candidates.background=theme::palette().keyboardCanvas;candidates.radius=8;candidates.opacity=0;
     auto &candidate=roles[size_t(KeyboardRole::Candidate)];
     candidate.radius=6;candidate.opacity=0;candidate.pressedOpacity=255;
     auto &menu=roles[size_t(KeyboardRole::Menu)];
-    menu.background=theme::sidebar;menu.radius=10;menu.opacity=menu.pressedOpacity=255;
+    menu.background=theme::palette().sidebar;menu.radius=10;menu.opacity=menu.pressedOpacity=255;
     auto &utility=variants[size_t(KeyboardVariant::UtilityIcon)];
     utility.opacity=0;
     auto &finish=variants[size_t(KeyboardVariant::FinishIcon)];
-    finish.opacity=finish.pressedOpacity=0;finish.foreground=theme::text;
+    finish.opacity=finish.pressedOpacity=0;finish.foreground=theme::palette().text;
     auto &solid=variants[size_t(KeyboardVariant::SolidControl)];
     solid.opacity=solid.pressedOpacity=255;
     auto &filter=variants[size_t(KeyboardVariant::FilterSelected)];
-    filter.background=theme::border;filter.opacity=filter.pressedOpacity=255;
+    filter.background=theme::palette().border;filter.opacity=filter.pressedOpacity=255;
     profiles[size_t(KeyboardView::CompactExpanded)].fonts[size_t(KeyboardFont::Function)]=22;
     profiles[size_t(KeyboardView::Portrait)].fonts[size_t(KeyboardFont::Menu)]=22;
   }
@@ -146,8 +147,10 @@ struct KeyboardDesign {
   }
 };
 inline const KeyboardDesign &keyboardDesign() {
-  static const KeyboardDesign value;
-  return value;
+  static std::unique_ptr<KeyboardDesign> values[2];
+  auto &value=values[theme::mode()==theme::Mode::Light?1:0];
+  if(!value)value.reset(new KeyboardDesign);
+  return *value;
 }
 
 // Authoring values remain in design units. Ratios, the legacy compact canvas,
@@ -165,7 +168,7 @@ inline KeyboardDesign resolveKeyboardDesign(const KeyboardDesign &base,const UiM
   result.keys.touchX=metrics.dp(base.keys.touchX);
   result.keys.touchY=metrics.dp(base.keys.touchY);
   result.keys.filterWidth=metrics.dp(base.keys.filterWidth);
-  result.keys.utilitySize=std::max(44,metrics.dp(base.keys.utilitySize));
+  result.keys.utilitySize=metrics.touchTarget(base.keys.utilitySize);
   result.keys.utilityGrow=metrics.dp(base.keys.utilityGrow);
   result.keys.utilityShiftX=metrics.dp(base.keys.utilityShiftX);
   result.keys.utilityShiftY=metrics.dp(base.keys.utilityShiftY);
@@ -178,7 +181,7 @@ inline KeyboardDesign resolveKeyboardDesign(const KeyboardDesign &base,const UiM
   result.composition.portraitExpandWidth=metrics.dp(base.composition.portraitExpandWidth);
   result.composition.portraitExpandHeight=metrics.dp(base.composition.portraitExpandHeight);
   result.composition.portraitRight=metrics.dp(base.composition.portraitRight);
-  result.controls.height=std::max(44,metrics.dp(base.controls.height));
+  result.controls.height=metrics.touchTarget(base.controls.height);
   result.controls.gap=metrics.dp(base.controls.gap);
   result.controls.doneWidth=metrics.dp(base.controls.doneWidth);
   result.controls.clipboardWidth=metrics.dp(base.controls.clipboardWidth);

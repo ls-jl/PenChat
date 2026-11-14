@@ -120,9 +120,9 @@ void App::readLabel(lv_obj_t *object, const std::string &text) {
   part.object = object;
   part.text = text;
   region.parts.push_back(std::move(part));
-  lv_obj_set_style_bg_color(object, lv_color_hex(theme::accent), LV_PART_SELECTED);
+  lv_obj_set_style_bg_color(object, lv_color_hex(theme::palette().accent), LV_PART_SELECTED);
   lv_obj_set_style_bg_opa(object, LV_OPA_40, LV_PART_SELECTED);
-  lv_obj_set_style_text_color(object, lv_color_hex(theme::text), LV_PART_SELECTED);
+  lv_obj_set_style_text_color(object, lv_color_hex(theme::palette().text), LV_PART_SELECTED);
 }
 void App::readLinkText(lv_obj_t *object, const std::string &text, const std::string &target) {
   readLabel(object, text);
@@ -289,7 +289,7 @@ void App::readDraw(bool menu) {
   if (!region)
     return;
   if (!readOverlay_) {
-    readOverlay_ = box(lv_layer_top(), 0, 0, screen_.width, screen_.height, theme::background);
+    readOverlay_ = box(lv_layer_top(), 0, 0, screen_.width, screen_.height, theme::palette().background);
     lv_obj_set_style_bg_opa(readOverlay_, LV_OPA_TRANSP, 0);
     lv_obj_set_scrollable(readOverlay_, false);
     lv_obj_set_clickable(readOverlay_, false);
@@ -309,9 +309,9 @@ void App::readDraw(bool menu) {
       lv_obj_set_style_bg_opa(readHandles_[i], LV_OPA_TRANSP, 0);
       lv_obj_set_clickable(readHandles_[i], false);
       lv_obj_set_scrollable(readHandles_[i], false);
-      attachIcon(readHandles_[i], i ? "selection-end" : "selection-start", theme::accent, 1.f, uiMetrics_);
+      attachIcon(readHandles_[i], i ? "selection-end" : "selection-start", theme::palette().accent, 1.f, uiMetrics_);
     }
-    readMenu_ = box(readOverlay_, 0, 0, uiMetrics_.dp(188), uiMetrics_.dp(52), theme::sidebar);
+    readMenu_ = box(readOverlay_, 0, 0, uiMetrics_.dp(188), uiMetrics_.dp(52), theme::palette().sidebar);
     stylePopupPanel(readMenu_,false,uiMetrics_);
     lv_obj_set_scrollable(readMenu_, false);
     auto all=button(readMenu_, "全选", uiMetrics_.dp(4), uiMetrics_.dp(4), uiMetrics_.dp(88), uiMetrics_.dp(44), [this] {
@@ -431,7 +431,7 @@ void App::readDraw(bool menu) {
     }
   }
   while (readMarks_.size() < marks.size()) {
-    auto mark = box(readOverlay_, 0, 0, uiMetrics_.dp(1), uiMetrics_.dp(1), theme::accent);
+    auto mark = box(readOverlay_, 0, 0, uiMetrics_.dp(1), uiMetrics_.dp(1), theme::palette().accent);
     lv_obj_set_style_bg_opa(mark, LV_OPA_40, 0);
     lv_obj_set_clickable(mark, false);
     lv_obj_set_scrollable(mark, false);

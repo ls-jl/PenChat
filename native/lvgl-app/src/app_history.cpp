@@ -141,7 +141,7 @@ void App::historyCaption(lv_obj_t *parent,const Json &session,int x,int y,int wi
   lv_obj_set_height(caption,uiMetrics_.dp(26));
   lv_label_set_long_mode(caption,mode=="time"?LV_LABEL_LONG_MODE_SCROLL_CIRCULAR:LV_LABEL_LONG_MODE_DOTS);
   lv_obj_t *time=nullptr;
-  if(show) {time=label(parent,stamp,x+width-timeSize.x,y+2,timeSize.x,uiMetrics_.fontSize(UiFont::Detail),theme::muted);lv_obj_set_height(time,uiMetrics_.dp(23));}
+  if(show) {time=label(parent,stamp,x+width-timeSize.x,y+2,timeSize.x,uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);lv_obj_set_height(time,uiMetrics_.dp(23));}
   historyCaptions_[session["id"].get<std::string>()]={caption,time};
   auto owner=new std::pair<App *,std::string>(this,session["id"].get<std::string>());
   lv_obj_add_event_cb(caption,[](lv_event_t *e) {
@@ -176,7 +176,7 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
         }
         show("chat");
       },
-      id == session_ ? theme::surface : theme::sidebar, LV_TEXT_ALIGN_LEFT);
+      id == session_ ? theme::palette().surface : theme::palette().sidebar, LV_TEXT_ALIGN_LEFT);
   auto caption = lv_obj_get_child(row, 0);
   if(id==session_)lv_obj_add_state(row,LV_STATE_CHECKED);
   lv_obj_set_hidden(caption,true);
@@ -184,7 +184,7 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
   historyCaption(row,session,24,9,width-48-(pinned?28:0));
   if (pinned) {
     auto pin=icon(row, "pin", width - uiMetrics_.dp(34), uiMetrics_.dp(8), uiMetrics_.dp(28), uiMetrics_.dp(28), {},
-         id == session_ ? theme::surface : theme::sidebar, theme::muted);
+         id == session_ ? theme::palette().surface : theme::palette().sidebar, theme::palette().muted);
     lv_obj_set_style_bg_opa(pin,LV_OPA_TRANSP,0);
   }
   historyRows_.push_back({id, row});
@@ -232,7 +232,7 @@ void App::refreshHistoryHighlight() {
   const auto &selected=historyContextId_.empty()?session_:historyContextId_;
   for(const auto &entry:historyRows_) {
     const bool active=entry.first==selected;
-    lv_obj_set_style_bg_color(entry.second,lv_color_hex(active?theme::surface:theme::sidebar),0);
+    lv_obj_set_style_bg_color(entry.second,lv_color_hex(active?theme::palette().surface:theme::palette().sidebar),0);
     if(active)lv_obj_add_state(entry.second,LV_STATE_CHECKED);
     else lv_obj_remove_state(entry.second,LV_STATE_CHECKED);
   }
@@ -305,7 +305,7 @@ void App::historyContext(const std::string &id) {
   });
   historyActions_["delete"]=remove;
   lv_obj_set_style_text_color(lv_obj_get_child(remove, 0),
-                              lv_color_hex(theme::danger), 0);
+                              lv_color_hex(theme::palette().danger), 0);
   historyActions_["export"]=button(actionRail, "导出", 0, 4*rowHeight, actionWidth, rowHeight-uiMetrics_.dp(4), [this, id] {
     events_.push("transfer_open_session", {{"id", id}});
   });
@@ -372,7 +372,7 @@ void App::archivesPage() {
     },LV_EVENT_ALL,data);
     archiveViewButtons_[id]=button(pageContent_,"查看",portrait?uiMetrics_.dp(10):width-uiMetrics_.dp(330),portrait?y+uiMetrics_.dp(48):y,portrait?(width-uiMetrics_.dp(16))/3:uiMetrics_.dp(100),uiMetrics_.dp(44),[this,id]{events_.push("archive_open",{{"id",id}});});
     if (id == archiveHighlight_)
-      lv_obj_set_style_text_color(title, lv_color_hex(theme::link), 0);
+      lv_obj_set_style_text_color(title, lv_color_hex(theme::palette().link), 0);
     historyRows_.push_back({id, title});
     button(pageContent_, "还原", portrait?uiMetrics_.dp(18)+(width-uiMetrics_.dp(16))/3:width-uiMetrics_.dp(220), portrait?y+uiMetrics_.dp(48):y, portrait?(width-uiMetrics_.dp(16))/3:uiMetrics_.dp(100), uiMetrics_.dp(44), [this, id] {
       db_.archiveSession(id, false);
@@ -382,7 +382,7 @@ void App::archivesPage() {
     });
     auto remove = button(pageContent_, "删除", portrait?uiMetrics_.dp(26)+2*((width-uiMetrics_.dp(16))/3):width-uiMetrics_.dp(110), portrait?y+uiMetrics_.dp(48):y, portrait?(width-uiMetrics_.dp(16))/3:uiMetrics_.dp(100), uiMetrics_.dp(44),
            [this, id] { retireSession(id, false); });
-    lv_obj_set_style_text_color(lv_obj_get_child(remove, 0), lv_color_hex(theme::danger), 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(remove, 0), lv_color_hex(theme::palette().danger), 0);
     y += portrait?106:52;
   }
   if (archiveOffset_)
@@ -413,7 +413,7 @@ void App::archiveReaderPage() {
   lv_obj_set_style_pad_all(pageContent_,uiMetrics_.dp(8),0);
   lv_obj_set_style_pad_row(pageContent_,uiMetrics_.dp(8),0);
   const int width=layout().portrait()?layout().contentWidth()-uiMetrics_.dp(16):screen_.width-uiMetrics_.dp(112);
-  label(pageContent_,"已归档 · 仅浏览",0,0,width,uiMetrics_.fontSize(UiFont::FormHint),theme::muted);
+  label(pageContent_,"已归档 · 仅浏览",0,0,width,uiMetrics_.fontSize(UiFont::FormHint),theme::palette().muted);
   if(session.empty()||session.value("status",std::string())!="archived") {
     label(pageContent_,"归档会话已不存在",0,0,width,uiMetrics_.fontSize(UiFont::Body));return;
   }
@@ -422,7 +422,7 @@ void App::archiveReaderPage() {
   reasoningDisplay_=db_.settings().value("reasoning_display",std::string("collapsed"));
   if(!messages.empty()&&!db_.query("SELECT id FROM chat_messages WHERE session_id=? AND seq<? LIMIT 1",{archiveReaderId_,messages.front()["seq"]}).empty())
     pageActions_["加载更早消息"]=button(pageContent_,"加载更早消息",0,0,width,uiMetrics_.dp(44),[this]{events_.push("archive_page",{{"id",archiveReaderId_},{"offset",archiveReaderOffset_+30}});});
-  if(messages.empty())label(pageContent_,"没有聊天内容",0,0,width,uiMetrics_.fontSize(UiFont::Body),theme::muted);
+  if(messages.empty())label(pageContent_,"没有聊天内容",0,0,width,uiMetrics_.fontSize(UiFont::Body),theme::palette().muted);
   renderMessageRows(pageContent_,messages,archiveReaderId_,width,true,0,INT64_MAX);
   if(archiveReaderOffset_>0)
     pageActions_["加载较新消息"]=button(pageContent_,"加载较新消息",0,0,width,uiMetrics_.dp(44),[this]{events_.push("archive_page",{{"id",archiveReaderId_},{"offset",std::max(0,archiveReaderOffset_-30)}});});
