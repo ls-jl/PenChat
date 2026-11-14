@@ -400,3 +400,8 @@ if(NOT CMAKE_CROSSCOMPILING)
   target_compile_options(penchat-photo-orientation-tests PRIVATE -UNDEBUG -Wall -Wextra)
   add_test(NAME penchat-photo-orientation COMMAND penchat-photo-orientation-tests)
 endif()
+
+add_executable(penchat-ui-metrics-tests "${ROOT}/tests/native/UiMetricsTest.cpp")
+target_include_directories(penchat-ui-metrics-tests PRIVATE src)
+target_compile_options(penchat-ui-metrics-tests PRIVATE -UNDEBUG -Wall -Wextra)
+add_test(NAME penchat-ui-metrics COMMAND penchat-ui-metrics-tests)
