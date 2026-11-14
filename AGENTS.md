@@ -6,13 +6,25 @@ Read display geometry/rotation from Falcon, never a device-specific screen fallb
 The Falcon AMR is a thin launcher with a full-screen hole, system IME and
 lifecycle forwarding. Do not put business UI or networking back into Vue.
 Scanning uses the source-pinned Stream32 backend in native/scanner, with a
-separate C++17 process and explicit ORANGE/Y02/Y07/MELON capture leases. Keep 32/24/8 windowing,
+separate C++17 process and explicit Y01/Y02/Y07/MELON capture leases. Keep 32/24/8 windowing,
 per-frame photometric estimates and bounded memory. Always review scan results
 before appending messages. API Key entry still uses the system pen-tip OCR bridge.
 Do not import legacy stitching engines or research data. The first release supports
 forward paper scans only; reverse motion and dark-screen scans are not validated.
 Canvas preview reads run outside the capture loop; keep only bounded latest
 previews and join/cancel readers before releasing scan results.
+
+## Device naming
+
+Use **Y01** for the device previously called **ORANGE**; its authorized serial
+remains `MEB0400008900794`. Existing firmware/board IDs or source identifiers may
+retain the old technical name; this naming convention does not change hardware
+profiles or device identity checks.
+
+**Y03WG** is an earlier model that looks similar to **Y07**, but is a separate
+model. Do not infer matching sensors, rotation, rounded-screen geometry or
+hardware backends from their appearance; verify its own configuration before
+reusing an adaptation.
 
 ## Structure
 
@@ -62,7 +74,7 @@ release/cancellation does not rearm the wait. Guarded pulls still translate and
 retract the viewport, with smooth handoff into a 160ms return. Disable LVGL elastic
 overscroll so it cannot compete with that controlled visual movement.
 Freshly entered conversations with content bypass this guard. Empty conversations
-and unsent drafts never enter pull-to-create. The ORANGE pull uses 12px slop plus
+and unsent drafts never enter pull-to-create. The Y01 pull uses 12px slop plus
 155px fill distance (167px total), with 0% sensitivity offset. The new baseline
 is 85% of the prior sensitivity; app-global offsets range from -25% to +25%,
 positive means more responsive. Freeze the offset with geometry at pointer-down. Pulls may start in the composer text entry,
@@ -116,9 +128,9 @@ checks relevant to the change; do not run the full regression/sanitizer suite or
 production packaging for every request. Run `npm run check`, full release checks
 and `npm run build:prod` when the user explicitly requests a new release.
 `check` currently reports optional cnpm. For runtime/camera/display changes,
-use targeted ORANGE verification when necessary; do not automatically run device
+use targeted Y01 verification when necessary; do not automatically run device
 test flows for each change. Automatic development installation follows the policy below.
-Device test helpers use real touchscreen events. Authorized targets are ORANGE
+Device test helpers use real touchscreen events. Authorized targets are Y01
 MEB0400008900794, Y02 MEA2300009007113, Y07 7G12000010905426 and S6
 JDA0700006552216. Do not target unlisted devices.
 The user has resumed Y02/113 access. After application changes, build the relevant
@@ -162,7 +174,7 @@ PenChat is an independent application. Never read external application databases
   targeted validation and remaining release checks accurately; never claim an
   uncommitted change is committed or an unpushed commit is pushed.
 
-The user authorizes future ORANGE package installation and device testing without asking again. Preserve user data and pending input where possible; never restart the system MiniApp host.
+The user authorizes future Y01 package installation and device testing without asking again. Preserve user data and pending input where possible; never restart the system MiniApp host.
 
 Camera captures stay in camera-tmp until crop confirmation. Confirm attaches without auto-send. Persist saveCameraToAlbum; only explicit opt-in creates a new PenChat photo in /userdisk/Pictures. Never alter existing system photos; cancellation and exit discard temporary captures.
 
@@ -285,9 +297,9 @@ row. A horizontal drag beyond a full line must stay drawn at that line end,
 including after release; moving vertically selects another visual row. Keep the
 rendered caret, magnifier and selection handles on that same visual boundary.
 `tests/device/display_config.py --serial <explicit serial>` covers the user-authorized Y02
-and ORANGE display targets using their config and discovered input device. Keep ORANGE
+and Y01 display targets using their config and discovered input device. Keep Y01
 scanner calibration guards even when display/input support expands to another board.
-Y02 is an explicit SC035GS 640×480 profile, not an ORANGE alias. Its neutral
+Y02 is an explicit SC035GS 640×480 profile, not a Y01 alias. Its neutral
 flat-field is separately identified; never substitute the SC2356 gain map. Restore
 the previous V4L2 format before resuming the system capture guardian. Use the shared dynamic system-memory admission for the native-size frame pages;
 no temporary frame spill files are permitted.
@@ -385,7 +397,7 @@ quality acceptance. The Y07 GC08A8 main path captures 3264x2448, separately from
 frame; never silently save preview pixels. Camera generation IDs reject late results.
 Do not treat Falcon video_direction as optical camera mounting calibration.
 
-Y07's system RKNN 1.4.0 aborts on the model MaxPool dilations. ORANGE, Y02 and Y07
+Y07's system RKNN 1.4.0 aborts on the model MaxPool dilations. Y01, Y02 and Y07
 use the same hash-locked private RKNN 1.6.0 runtime, librknnrt-rk3562.so, after
 their fixed-input and capture/handoff checks. MELON retains system RKNN pending
 authorized device validation; CVI retains its own device runtime. Keep the scanner's exported
