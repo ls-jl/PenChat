@@ -32,25 +32,29 @@ void Hardware::reserve(const Json &lease) {
     for (auto &p : lease_.at("captures"))
       if (same(p) && match(p["pid"], "CaptureFrame", "CaptureFrame"))
         kill(p["pid"].get<int>(), SIGTERM);
-    std::this_thread::sleep_for(std::chrono::milliseconds(250));
-    for (auto &p : lease_.at("captures"))
-      if (same(p) && match(p["pid"], "CaptureFrame", "CaptureFrame"))
-        kill(p["pid"].get<int>(), SIGKILL);
-    // SIGKILL is asynchronous. Do not request our V4L2 buffers while the old
-    // owner is still closing the same video node in the kernel.
-    const auto stopped = std::chrono::steady_clock::now() +
-                         std::chrono::seconds(2);
-    for (;;) {
-      bool alive = false;
-      for (auto &p : lease_.at("captures"))
-        alive = alive ||
-                (same(p) && match(p["pid"], "CaptureFrame", "CaptureFrame"));
-      if (!alive)
-        break;
-      require(std::chrono::steady_clock::now() < stopped,
-              "system capture did not release video node");
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    auto pending=[&] {
+      for(const auto &owner:lease_.at("captures"))if(!captureReleased(owner))return true;
+      return false;
+    };
+    auto waitUntil=[&](std::chrono::steady_clock::time_point deadline) {
+      while(pending()) {
+        if(std::chrono::steady_clock::now()>=deadline)return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+      return true;
+    };
+    // CVI ISP/scaler streamoff may still be in its bounded drain after 250ms.
+    // Let the stock process finish normally before escalating to SIGKILL.
+    const auto graceful=std::chrono::steady_clock::now()+
+        std::chrono::milliseconds(profile().platform==PlatformKind::Cvi?2000:250);
+    if(!waitUntil(graceful)) {
+      for(const auto &owner:lease_.at("captures"))
+        if(same(owner)&&!captureReleased(owner))kill(owner["pid"].get<int>(),SIGKILL);
     }
+    // An empty cmdline only proves exit_mm. Require the original thread group
+    // to finish exit_files/exit_task_work before any capture device is opened.
+    require(waitUntil(std::chrono::steady_clock::now()+std::chrono::seconds(2)),
+            "system capture is still releasing video devices");
     light(false);
     key_ = ::open(profile().keyNode.c_str(),
                   O_RDONLY | O_NONBLOCK | O_CLOEXEC);

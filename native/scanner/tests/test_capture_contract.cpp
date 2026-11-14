@@ -1,4 +1,10 @@
 #include "capture_stream.hpp"
+#include "capture_owner.hpp"
+#include "hardware_ops.hpp"
+#include <csignal>
+#include <thread>
+#include <sys/wait.h>
+#include <pthread.h>
 #include "cvi_startup.hpp"
 #include "optical_config.hpp"
 #include "start_policy.hpp"
@@ -13,6 +19,54 @@ template<class F> void rejects(F f) {
   bool rejected=false;try {f();} catch (...) {rejected=true;} assert(rejected);
 }
 int main() {
+  auto stat=[](char state,const std::string &start) {
+    std::string text="123 (CaptureFrame (worker)) ";text+=state;
+    for(int field=4;field<22;++field)text+=" 0";
+    return text+" "+start;
+  };
+  const auto running=captureTaskState(stat('S',"456"));
+  const auto releasing=captureTaskState(stat('D',"456"));
+  const auto zombie=captureTaskState(stat('Z',"456"));
+  assert(running.valid&&running.start=="456"&&running.state=='S');
+  // No cmdline dependency: even after exit_mm an uninterruptible close waits.
+  assert(!captureOwnerExited("456",releasing,{releasing}));
+  assert(!captureOwnerExited("456",zombie,{zombie,running}));
+  assert(!captureOwnerExited("456",zombie,{zombie,releasing}));
+  assert(!captureOwnerExited("456",zombie,{zombie,CaptureTaskState{}}));
+  assert(!captureOwnerExited("456",zombie,{}));
+  assert(captureOwnerExited("456",zombie,{zombie,zombie}));
+  assert(captureOwnerExited("old-pid",running,{running}));
+  assert(captureOwnerExited("456",CaptureTaskState{},{},true));
+  for(const std::string bad:{"","123 (CaptureFrame) D","123 (CaptureFrame) UNKNOWN","123 no task name"})
+    assert(!captureTaskState(bad).valid);
+  // Real /proc regression: the leader can become a zombie while a surviving
+  // thread still holds the shared files. Do not hand hardware to a new owner.
+  int pipefd[2];assert(pipe(pipefd)==0);
+  const auto child=fork();assert(child>=0);
+  if(child==0) {
+    close(pipefd[1]);
+    std::thread([fd=pipefd[0]] {char byte;while(read(fd,&byte,1)<0&&errno==EINTR){};_exit(0);}).detach();
+    pthread_exit(nullptr);
+  }
+  close(pipefd[0]);
+  const auto proc="/proc/"+std::to_string(child);
+  const auto started=hardware_detail::startTime(child);
+  assert(!started.empty());
+  const nlohmann::json owner={{"pid",child},{"start",started}};
+  bool leaderGone=false;
+  for(int i=0;i<400;++i) {
+    if(captureTaskExited(captureTaskState(hardware_detail::read(proc+"/stat")))){leaderGone=true;break;}
+    usleep(5000);
+  }
+  assert(leaderGone&&!hardware_detail::captureReleased(owner));
+  assert(write(pipefd[1],"x",1)==1);close(pipefd[1]);
+  bool released=false;
+  for(int i=0;i<400;++i) {
+    if(hardware_detail::captureReleased(owner)){released=true;break;}
+    usleep(5000);
+  }
+  assert(released);int status=0;assert(waitpid(child,&status,0)==child&&WIFEXITED(status));
+  assert(hardware_detail::captureReleased(owner));
   assert(cviStartupCanReopen(0,int(cviBufferEmpty)));
   assert(!cviStartupCanReopen(1,int(cviBufferEmpty)));
   assert(!cviStartupCanReopen(0,0));

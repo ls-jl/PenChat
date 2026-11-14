@@ -50,11 +50,13 @@
     "src/platform_inference.hpp": "723911d10f3ea0304bec2471ce9d2e14c01fe5e27ba00d1b3b765df62c584ec0",
     "src/platform_inference.cpp": "130a8c74554b870110eb47372aabe609c8d383cee990f43d3318be08a7553f3c",
     "src/scan_platform.hpp": "d4d2151f636feddfd0a9aa9e93fc535a598f10c41bb552487060e1c8dcfd73a4",
-    "src/scan_platform.cpp": "9470fc2faf1af40473f18844eb659df8c96afde3c66c2f5fe207e3b475e26d27",
-    "src/hardware_ops.hpp": "024744deae0cbf33839f2c1dcf2188e120c52fc4b64e76d56aa70fff4772bb0c",
+    "src/scan_platform.cpp": "5d8e70c815a91e09df4b39e316d8cae010405de8e6b5339ed672916b36d55b63",
+    "src/hardware_ops.hpp": "8342f7ab134bd63e4401af11fa0c02c0ca9db7b892556556ecdcbe9f1c08732b",
     "src/rk_capture.cpp": "d0dab4d88649b20a3e0699bcadceabfe57e96d06f08c1c0845af2be8cb194c89",
     "CMakeLists.txt": "8f5eb18f010304ad58fa00e8b7e062d16c0d97111124acd92693eb022f43cd75",
-    "src/cvi_startup.hpp": "d318117bde0cb6f0dad41348d2b227b014eb7be3d393274131f6f455a4b58409"
+    "src/cvi_startup.hpp": "d318117bde0cb6f0dad41348d2b227b014eb7be3d393274131f6f455a4b58409",
+    "src/capture_owner.hpp": "9787070779126f9ca472b94d849bb76f2784bebe6676513d064c7b6396fc5555",
+    "tests/test_capture_contract.cpp": "b196033a0b94d151ac923c761c6d8b2d5cd20b67b319fad40a548802561738cd"
   },
   "resources": {
     "pintu_32.rknn": {
