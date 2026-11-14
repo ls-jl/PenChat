@@ -23,6 +23,10 @@ struct Block {
   std::vector<std::vector<Run>> cells;
   std::vector<int> columnWidths, cellAlignments;
   int tableId = 0;
+  // Stable identities keep hanging indents across loose paragraphs and nesting.
+  int listItemId = 0;
+  std::vector<int> listGroups;
+  std::vector<int> listColumns;
   bool header = false;
 };
 struct Document {
@@ -55,6 +59,9 @@ struct RichLayout {
   }
 };
 std::string blockPlainText(const Block &block);
+struct RichTypography {
+  int fontSize = 21, lineHeight = 34, before = 0, after = 0;
+};
 class RichText {
   struct Impl;
   std::unique_ptr<Impl> p_;
@@ -62,9 +69,12 @@ class RichText {
 public:
   RichText(const std::string &fontPath, const std::string &resourcePath, const std::string &fallbackPath = "", const UiMetrics &metrics = UiMetrics());
   ~RichText();
-  Bitmap formula(const std::string &text, int size);
+  Bitmap formula(const std::string &text, int size, uint32_t foreground = 0);
+  RichTypography typography(const Block &block, int size = 21) const;
+  int blockGap(const Block *previous, const Block &current, int size = 21) const;
+  bool hasTrueBold() const;
   void prepare(Document &document, int width, int size = 21);
-  RichLayout layout(const Block &block, int width, int size = 21, bool textHits = false);
+  RichLayout layout(const Block &block, int width, int size = 21, bool textHits = false, bool subdued = false);
   Bitmap paint(const Block &block, int width, int top, int height,
                int size = 21, int left = 0, int windowWidth = 0,
                bool subdued = false);

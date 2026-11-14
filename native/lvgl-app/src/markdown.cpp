@@ -23,7 +23,8 @@ struct Parser {
   Document doc;
   Block *block = nullptr;
   int indent = 0, quote = 0, style = 0, tableId = 0;
-  std::vector<int> styles, ordered;
+  std::vector<int> styles, ordered, listGroups, listItems;
+  int nextListGroup = 0, nextListItem = 0;
   std::vector<std::string> links;
   bool cell = false;
   std::string marker;
@@ -34,6 +35,8 @@ struct Parser {
     b.indent = indent;
     b.quote = quote;
     b.marker = marker;
+    b.listGroups = listGroups;
+    b.listItemId = listItems.empty() ? 0 : listItems.back();
     marker.clear();
     doc.blocks.push_back(std::move(b));
     block = &doc.blocks.back();
@@ -52,14 +55,19 @@ int enterBlock(MD_BLOCKTYPE type, void *detail, void *ctx) {
     break;
   case MD_BLOCK_UL:
     p.ordered.push_back(0);
+    p.listGroups.push_back(++p.nextListGroup);
+    p.listItems.push_back(0);
     ++p.indent;
     break;
   case MD_BLOCK_OL:
     p.ordered.push_back(static_cast<MD_BLOCK_OL_DETAIL *>(detail)->start);
+    p.listGroups.push_back(++p.nextListGroup);
+    p.listItems.push_back(0);
     ++p.indent;
     break;
   case MD_BLOCK_LI: {
     auto d = static_cast<MD_BLOCK_LI_DETAIL *>(detail);
+    p.listItems.back() = ++p.nextListItem;
     int &n = p.ordered.back();
     p.marker = d->is_task ? (d->task_mark == ' ' ? "☐ " : "☑ ")
                           : (n ? std::to_string(n++) + ". " : "• ");
@@ -107,6 +115,8 @@ int leaveBlock(MD_BLOCKTYPE type, void *, void *ctx) {
   else if (type == MD_BLOCK_UL || type == MD_BLOCK_OL) {
     --p.indent;
     p.ordered.pop_back();
+    p.listGroups.pop_back();
+    p.listItems.pop_back();
   } else if (type == MD_BLOCK_TH || type == MD_BLOCK_TD)
     p.cell = false;
   else if (type == MD_BLOCK_P || type == MD_BLOCK_H || type == MD_BLOCK_CODE ||
@@ -368,16 +378,17 @@ struct RichText::Impl {
   UiMetrics metrics;
   std::string cacheIdentity;
   FT_Library library = nullptr;
-  FT_Face face = nullptr, monoFace = nullptr, fallbackFace = nullptr;
-  cairo_font_face_t *cairoFace = nullptr, *monoCairo = nullptr, *fallbackCairo = nullptr;
+  FT_Face face = nullptr, boldFace = nullptr, monoFace = nullptr, fallbackFace = nullptr;
+  cairo_font_face_t *cairoFace = nullptr, *boldCairo = nullptr, *monoCairo = nullptr, *fallbackCairo = nullptr;
   std::map<std::string, std::shared_ptr<Bitmap>> cache;
   std::deque<std::string> order;
   size_t cacheBytes = 0;
   std::vector<Piece> pieces;
   void select(cairo_t *c, int size, int style, uint32_t cp = 0) {
-    const bool mono = (style & Mono) && cp < 128 && monoCairo;
-    auto selected = mono ? monoFace : face;
-    auto cairoSelected = mono ? monoCairo : cairoFace;
+    const bool mono = (style & Mono) && !(style & Bold) && cp < 128 && monoCairo;
+    const bool bold = (style & Bold) && boldCairo && !mono;
+    auto selected = mono ? monoFace : bold ? boldFace : face;
+    auto cairoSelected = mono ? monoCairo : bold ? boldCairo : cairoFace;
     if (cp && !FT_Get_Char_Index(selected, cp) && fallbackCairo)
       cairoSelected = fallbackCairo;
     cairo_set_font_face(c, cairoSelected);
@@ -396,6 +407,23 @@ RichText::RichText(const std::string &fontPath, const std::string &res, const st
       FT_New_Face(p_->library, fontPath.c_str(), 0, &p_->face))
     throw std::runtime_error("Cannot initialize text renderer");
   p_->cairoFace = cairo_ft_font_face_create_for_ft_face(p_->face, 0);
+  // Use the sibling system face; device fonts remain system-owned resources.
+  const auto slash = fontPath.find_last_of('/');
+  const auto directory = slash == std::string::npos ? std::string() : fontPath.substr(0, slash + 1);
+  const std::vector<std::string> boldPaths = {
+      directory + "HarmonyOS_Sans_SC_Bold.ttf", directory + "chinese-bold.ttf"};
+  for (const auto &path : boldPaths) {
+    if (!FT_New_Face(p_->library, path.c_str(), 0, &p_->boldFace)) {
+      if ((p_->boldFace->style_flags & FT_STYLE_FLAG_BOLD) &&
+          p_->face->family_name && p_->boldFace->family_name &&
+          !std::strcmp(p_->face->family_name, p_->boldFace->family_name)) {
+        p_->boldCairo = cairo_ft_font_face_create_for_ft_face(p_->boldFace, 0);
+        break;
+      }
+      FT_Done_Face(p_->boldFace);
+      p_->boldFace = nullptr;
+    }
+  }
   if (!FT_New_Face(p_->library,
                    join(res, "fonts/latin/optional/cmtt10.ttf").c_str(), 0,
                    &p_->monoFace))
@@ -410,6 +438,8 @@ RichText::RichText(const std::string &fontPath, const std::string &res, const st
 }
 RichText::~RichText() {
   tex::LaTeX::release();
+  if (p_->boldCairo) cairo_font_face_destroy(p_->boldCairo);
+  if (p_->boldFace) FT_Done_Face(p_->boldFace);
   if (p_->monoCairo)
     cairo_font_face_destroy(p_->monoCairo);
   if (p_->monoFace)
@@ -429,9 +459,17 @@ void RichText::clearCache() {
   p_->cache.clear();
   p_->order.clear();
   p_->cacheBytes = 0;
+  p_->pieces.clear();
 }
-Bitmap RichText::formula(const std::string &source, int size) {
-  auto key = p_->cacheIdentity + std::to_string(size) + ":" + source;
+bool RichText::hasTrueBold() const { return p_->boldCairo != nullptr; }
+static std::string formulaKey(const std::string &identity, const std::string &source,
+                              int size, uint32_t foreground) {
+  return identity + "typography2:" + theme::name(theme::mode()) + ":" +
+      std::to_string(foreground) + ":" + std::to_string(size) + ":" + source;
+}
+Bitmap RichText::formula(const std::string &source, int size, uint32_t foreground) {
+  if (!foreground) foreground = theme::palette().richBody;
+  auto key = formulaKey(p_->cacheIdentity, source, size, foreground);
   auto it = p_->cache.find(key);
   if (it != p_->cache.end())
     return *it->second;
@@ -440,7 +478,7 @@ Bitmap RichText::formula(const std::string &source, int size) {
   const float formulaSize = size * 1.5f;
   std::unique_ptr<tex::TeXRender> r(
       tex::LaTeX::parse(tex::utf82wide(source), 4096, formulaSize,
-                        formulaSize * .2, (0xff000000u | theme::palette().text)));
+                        formulaSize * .2, (0xff000000u | foreground)));
   Bitmap b;
   b.width = std::max(1, r->getWidth() + p_->metrics.dp(4));
   b.height = std::max(1, r->getHeight() + p_->metrics.dp(4));
@@ -471,6 +509,29 @@ Bitmap RichText::formula(const std::string &source, int size) {
   return b;
 }
 void RichText::prepare(Document &document, int width, int size) {
+  std::map<int, int> listColumns;
+  auto surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
+  auto context = cairo_create(surface);
+  p_->select(context, size, 0);
+  for (const auto &block : document.blocks) {
+    if (block.marker.empty() || block.listGroups.empty()) continue;
+    double advance = 0;
+    for (const auto &ch : characters(block.marker)) {
+      p_->select(context, size, 0, codepoint(ch));
+      cairo_text_extents_t extents;
+      cairo_text_extents(context, ch.c_str(), &extents);
+      advance += extents.x_advance;
+    }
+    const int group = block.listGroups.back();
+    listColumns[group] = std::max(listColumns[group], int(std::ceil(advance)) + std::max(1, size / 4));
+  }
+  cairo_destroy(context);
+  cairo_surface_destroy(surface);
+  for (auto &block : document.blocks) {
+    block.listColumns.clear();
+    for (int group : block.listGroups)
+      block.listColumns.push_back(std::max(size, listColumns[group]));
+  }
   for (size_t i = 0; i < document.blocks.size();) {
     if (document.blocks[i].kind != "table") {
       ++i;
@@ -517,10 +578,32 @@ std::string blockPlainText(const Block &block) {
   } else for (const auto &run : block.runs) text += runPlainText(run);
   return text;
 }
-static int richHeadingSize(const Block &block,int size) {
-  return block.kind == "h" ? std::max(size, ((31 - block.level * 2) * size + 10) / 21) : size;
+RichTypography RichText::typography(const Block &block, int size) const {
+  RichTypography result;
+  result.fontSize = size;
+  if (block.kind == "h") {
+    static const int sizes[] = {29, 27, 25, 23, 22, 21};
+    static const double spaces[] = {1.2, 1.0, .9, .8, .7, .6};
+    const int index = std::max(0, std::min(5, block.level - 1));
+    result.fontSize = std::max(1, int(std::lround(sizes[index] * size / 21.0)));
+    result.lineHeight = std::ceil(result.fontSize * 1.3);
+    result.before = std::lround(result.fontSize * spaces[index]);
+    result.after = std::lround(result.fontSize * .4);
+  } else {
+    result.lineHeight = std::ceil(size * (block.kind == "code" || block.kind == "table" ? 1.45 : 1.6));
+    result.before = result.after = std::lround(size * (block.listItemId ? .6 : .7));
+  }
+  return result;
 }
-RichLayout RichText::layout(const Block &block, int width, int size, bool textHits) {
+int RichText::blockGap(const Block *previous, const Block &current, int size) const {
+  if (!previous) return 0;
+  if (previous->tableId && previous->tableId == current.tableId) return 0;
+  int gap = std::max(typography(*previous, size).after, typography(current, size).before);
+  if (previous->listItemId && previous->listItemId == current.listItemId)
+    gap = std::max(gap, int(std::lround(size * .7)));
+  return gap;
+}
+RichLayout RichText::layout(const Block &block, int width, int size, bool textHits, bool subdued) {
   p_->pieces.clear();
   if (block.kind == "table") {
     std::vector<Piece> pieces;
@@ -542,7 +625,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
       if (block.header)
         for (auto &run : cell.runs)
           run.style |= Bold;
-      auto cellLayout = layout(cell, 1, size);
+      auto cellLayout = layout(cell, 1, size, false, subdued);
       const int cellWidth = column < block.columnWidths.size()
                                 ? block.columnWidths[column]
                                 : std::max(p_->metrics.dp(140), cellLayout.width + p_->metrics.dp(14));
@@ -581,25 +664,55 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
     }
     return result;
   }
-  int actualSize =
-      richHeadingSize(block,size);
+  const auto type = typography(block, size);
+  const int actualSize = type.fontSize;
+  const int baseStyle = block.kind == "h" || block.header ? Bold : 0;
+  const uint32_t foreground = subdued ? theme::palette().reasoning :
+      block.kind == "h" ? theme::palette().richHeading : theme::palette().richBody;
   auto surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
   auto c = cairo_create(surf);
-  float left = block.quote * p_->metrics.dp(12) + std::max(0, block.indent - 1) * p_->metrics.dp(20) + p_->metrics.dp(6);
-  float x = left, y = p_->metrics.dp(5), lineTop = 0, ascent = actualSize, descent = p_->metrics.dp(5),
+  const float inset = block.quote * p_->metrics.dp(12) + p_->metrics.dp(6);
+  float markerWidth = 0;
+  for (const auto &ch : characters(block.marker)) {
+    p_->select(c, actualSize, 0, codepoint(ch));
+    cairo_text_extents_t extents;
+    cairo_text_extents(c, ch.c_str(), &extents);
+    markerWidth += extents.x_advance;
+  }
+  float ownColumn = 0, parents = 0;
+  if (!block.listGroups.empty()) {
+    for (size_t i = 0; i < block.listGroups.size(); ++i) {
+      const float column = i < block.listColumns.size() ? block.listColumns[i] : actualSize * 1.25f;
+      if (i + 1 == block.listGroups.size()) ownColumn = std::max(column, markerWidth + actualSize * .25f);
+      else parents += column + actualSize * .35f;
+    }
+    // Compress ancestral indentation before sacrificing readable body width.
+    parents = std::min(parents, std::max(0.f, width - inset - p_->metrics.dp(6) - 6.f * size - ownColumn));
+  } else if (block.indent || !block.marker.empty()) {
+    parents = std::min(float(std::max(0, block.indent - 1) * p_->metrics.dp(20)),
+                       std::max(0.f, width - inset - 6.f * size - markerWidth));
+    ownColumn = markerWidth;
+  }
+  const float left = inset + parents + ownColumn;
+  p_->select(c, actualSize, baseStyle);
+  cairo_font_extents_t defaultFont;
+  cairo_font_extents(c, &defaultFont);
+  const float defaultAscent = defaultFont.ascent, defaultDescent = defaultFont.descent;
+  const float padding = block.kind == "code" ? p_->metrics.dp(4) : 0;
+  float x = left, y = padding, ascent = defaultAscent, descent = defaultDescent,
         maxWidth = width;
   size_t lineStart = 0;
   auto newline = [&]() {
+    const float lineHeight = std::max(float(type.lineHeight), ascent + descent);
+    const float leading = (lineHeight - ascent - descent) / 2;
     for (size_t i = lineStart; i < p_->pieces.size(); ++i)
-      p_->pieces[i].y = y + ascent - p_->pieces[i].baseline;
-    y += ascent + descent + p_->metrics.dp(5);
+      p_->pieces[i].y = y + leading + ascent - p_->pieces[i].baseline;
+    y += lineHeight;
     x = left;
     lineStart = p_->pieces.size();
-    ascent = actualSize;
-    descent = p_->metrics.dp(5);
-    lineTop = y;
+    ascent = defaultAscent;
+    descent = defaultDescent;
   };
-  (void)lineTop;
   // The lookahead and placement passes share glyph metrics. Bound this local
   // cache so long replies do not retain an additional unbounded text index.
   std::unordered_map<uint64_t, float> advances;
@@ -610,7 +723,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
     p_->select(c, actualSize, style, cp);
     cairo_text_extents_t extents;
     cairo_text_extents(c, ch.c_str(), &extents);
-    const float advance = (style & Mono)
+    const float advance = (style & Mono) && !(style & Bold)
         ? float(actualSize * .62) * (cp >= 128 ? 2 : 1) : extents.x_advance;
     if (advances.size() < 256) advances.emplace(key, advance);
     return advance;
@@ -621,7 +734,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
       newline();
     if (run.style & Math) {
       try {
-        auto bitmap = std::make_shared<Bitmap>(formula(run.text, actualSize));
+        auto bitmap = std::make_shared<Bitmap>(formula(run.text, actualSize, foreground));
         if (!forceWidth && block.kind != "code" && x + bitmap->width > width && x > left)
           newline();
         Piece p;
@@ -643,7 +756,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
       } catch (...) {
       }
     }
-    p_->select(c, actualSize, run.style);
+    p_->select(c, actualSize, run.style | baseStyle);
     const size_t formulaBegin=textOffset,formulaEnd=textOffset+runPlainText(run).size();
     if(run.style&Math)textOffset+=(run.style&DisplayMath)?2:1;
     for (auto &ch :
@@ -656,7 +769,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
       }
       const auto cp = codepoint(ch);
       if ((cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0xe0100 && cp <= 0xe01ef) || cp == 0x200d || cp == 0x200c || cp == 0x200b) continue;
-      float advance = advanceOf(ch, cp, run.style);
+      float advance = advanceOf(ch, cp, run.style | baseStyle);
       if (block.kind != "code" && (ch == " " || ch == "\t") &&
           (x == left || x + advance > width - p_->metrics.dp(6))) {
         if (x > left) newline();
@@ -673,10 +786,18 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
         advance =
             actualSize * .62 * (4 - int((x - left) / (actualSize * .62)) % 4);
       p.x = x;
-      p.baseline = actualSize;
-      p.height = actualSize + p_->metrics.dp(5);
+      p_->select(c, actualSize, run.style | baseStyle, cp);
+      cairo_font_extents_t font;
+      cairo_text_extents_t glyph;
+      cairo_font_extents(c, &font);
+      cairo_text_extents(c, p.text.c_str(), &glyph);
+      p.baseline = std::max(font.ascent, -glyph.y_bearing);
+      const float below = std::max(font.descent, glyph.y_bearing + glyph.height);
+      p.height = p.baseline + below;
+      ascent = std::max(ascent, p.baseline);
+      descent = std::max(descent, below);
       p.width = advance;
-      p.style = run.style | (block.header ? Bold : 0);
+      p.style = run.style | baseStyle;
       p.target = run.link;
       p_->pieces.push_back(std::move(p));
       x += advance;
@@ -684,8 +805,11 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
     }
     if(run.style&Math)textOffset=formulaEnd;
   };
-  if (!block.marker.empty())
-    add({block.marker, "", 0}, 0);
+  if (!block.marker.empty()) {
+    x = left - markerWidth - (block.listGroups.empty() ? 0 : actualSize * .25f);
+    add({block.marker, "", 0}, 1);
+    x = left;
+  }
   auto wordCharacter = [](uint32_t cp) {
     return (cp < 128 && (std::isalnum(static_cast<unsigned char>(cp)) ||
                          cp == '_' || cp == '\'')) ||
@@ -752,10 +876,10 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
       if (run.style & Math) {
         if (!onlyOpening) flush();
         try {
-          const auto key = p_->cacheIdentity + std::to_string(actualSize) + ":" + run.text;
+          const auto key = formulaKey(p_->cacheIdentity, run.text, actualSize, foreground);
           const auto cached = p_->cache.find(key);
           const int advance = cached != p_->cache.end()
-              ? cached->second->width : formula(run.text, actualSize).width;
+              ? cached->second->width : formula(run.text, actualSize, foreground).width;
           append(run, advance);
           onlyOpening = lastWord = joinNext = false;
         } catch (...) {
@@ -781,7 +905,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
         const bool invisible = (cp >= 0xfe00 && cp <= 0xfe0f) ||
             (cp >= 0xe0100 && cp <= 0xe01ef) || cp == 0x200d ||
             cp == 0x200c || cp == 0x200b;
-        const float advance = invisible ? 0 : advanceOf(ch, cp, run.style);
+        const float advance = invisible ? 0 : advanceOf(ch, cp, run.style | baseStyle);
         append({ch, run.link, run.style}, advance);
         onlyOpening = open && (wasEmpty || onlyOpening);
         lastWord = word && (!close || cp == 0x2019);
@@ -795,10 +919,10 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
   } else {
     flow(block.runs, true);
   }
-  newline();
+  if (lineStart < p_->pieces.size() || p_->pieces.empty()) newline();
   RichLayout layout;
   layout.width = std::ceil(maxWidth);
-  layout.height = block.kind == "hr" ? p_->metrics.dp(12) : std::max(p_->metrics.dp(20), int(std::ceil(y + p_->metrics.dp(4))));
+  layout.height = block.kind == "hr" ? p_->metrics.dp(12) : std::max(1, int(std::ceil(y + padding)));
   for (auto &p : p_->pieces) {
     if (textHits && p.end > p.begin)
       layout.textHits.push_back({int(p.x),int(p.y),std::max(1,int(std::ceil(p.width))),
@@ -813,7 +937,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
 }
 Bitmap RichText::paint(const Block &block, int width, int top, int height,
                        int size, int left, int windowWidth, bool subdued) {
-  auto info = layout(block, width, size);
+  auto info = layout(block, width, size, false, subdued);
   Bitmap b;
   b.width =
       windowWidth > 0 ? std::min(windowWidth, info.width - left) : info.width;
@@ -862,7 +986,7 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
     cairo_rectangle(c, p_->metrics.dp(3), p_->metrics.dp(5), width - p_->metrics.dp(6), p_->metrics.dp(1));
     cairo_fill(c);
   }
-  int actual = richHeadingSize(block,size);
+  int actual = typography(block, size).fontSize;
   for (auto &p : p_->pieces) {
     if (p.y + p.height < top || p.y > top + height || p.x + p.width < left ||
         p.x > left + b.width)
@@ -871,13 +995,8 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
       auto m = cairo_image_surface_create_for_data(
           p.math->pixels.data(), CAIRO_FORMAT_ARGB32, p.math->width,
           p.math->height, p.math->width * 4);
-      if (subdued) {
-        color(theme::palette().reasoning);
-        cairo_mask_surface(c, m, p.x, p.y);
-      } else {
-        cairo_set_source_surface(c, m, p.x, p.y);
-        cairo_paint(c);
-      }
+      cairo_set_source_surface(c, m, p.x, p.y);
+      cairo_paint(c);
       cairo_surface_destroy(m);
       continue;
     }
@@ -885,16 +1004,16 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
     if (!p.target.empty())
       color(subdued ? theme::palette().reasoningLink : theme::palette().link);
     else
-      color(subdued ? theme::palette().reasoning : theme::palette().text);
+      color(subdued ? theme::palette().reasoning : block.kind == "h" ? theme::palette().richHeading : theme::palette().richBody);
     if ((p.style & Mono) && block.kind != "code") {
       color(theme::palette().surface);
       cairo_rectangle(c, p.x, p.y, p.width, p.height);
       cairo_fill(c);
-      color(subdued ? theme::palette().reasoning : theme::palette().text);
+      color(subdued ? theme::palette().reasoning : block.kind == "h" ? theme::palette().richHeading : theme::palette().richBody);
     }
     cairo_move_to(c, p.x, p.y + p.baseline);
     cairo_show_text(c, p.text.c_str());
-    if (p.style & Bold) {
+    if ((p.style & Bold) && !p_->boldCairo) {
       cairo_move_to(c, p.x + .5*p_->metrics.factor(), p.y + p.baseline);
       cairo_show_text(c, p.text.c_str());
     }

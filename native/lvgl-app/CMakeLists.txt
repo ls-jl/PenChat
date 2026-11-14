@@ -427,3 +427,11 @@ add_executable(penchat-theme-tests "${ROOT}/tests/native/ThemePaletteTest.cpp")
 target_include_directories(penchat-theme-tests PRIVATE src)
 target_compile_options(penchat-theme-tests PRIVATE -UNDEBUG)
 add_test(NAME penchat-theme COMMAND penchat-theme-tests)
+
+if(NOT CMAKE_CROSSCOMPILING)
+  add_executable(penchat-rich-typography-tests "${ROOT}/tests/native/RichTypographyTest.cpp")
+  target_link_libraries(penchat-rich-typography-tests penchat_core)
+  target_compile_options(penchat-rich-typography-tests PRIVATE -UNDEBUG)
+  add_test(NAME penchat-rich-typography COMMAND penchat-rich-typography-tests
+    "${DEPS}/chinese.ttf" "${DEPS}/microtex/res" "${ROOT}/assets/fonts/DejaVuSans.ttf")
+endif()
