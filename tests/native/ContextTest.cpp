@@ -5,6 +5,32 @@
 #include <iostream>
 #include <unistd.h>
 using namespace penchat;
+// Independent per-message reader preserves the former lookup/order semantics.
+static Json referenceRows(Database &db, const std::string &session) {
+  const auto cut = db.replyCut(session);
+  const auto last = db.query("SELECT coalesce(max(seq),0) n FROM chat_messages WHERE "
+                             "session_id=? AND role='assistant'", {session})[0]["n"].get<int64_t>();
+  auto rows = Json::array();
+  for (auto row : db.query("SELECT * FROM chat_messages WHERE session_id=? ORDER BY seq", {session})) {
+    const auto seq = row["seq"].get<int64_t>();
+    if (seq > cut && !(row["role"] == "user" && row["message_type"] == "image" &&
+        (!row["output_text"].is_string() || row["output_text"].get<std::string>().empty()) && seq > last))
+      continue;
+    row["parts"] = Json::array();
+    for (const auto &part : db.query(
+             "SELECT p.part_type,a.stored_path,a.original_path,a.width,a.height,a.size_bytes "
+             "FROM message_parts p LEFT JOIN message_assets a ON a.id=p.asset_id "
+             "WHERE p.message_id=? ORDER BY p.part_index", Json::array({row["id"]}))) {
+      if (part["part_type"] != "image") continue;
+      auto path = part["stored_path"].is_string() ? part["stored_path"].get<std::string>() : "";
+      if (path.empty() && part["original_path"].is_string()) path = part["original_path"];
+      row["parts"].push_back({{"type", "image"}, {"path", path},
+          {"signature", Json::array({part["width"], part["height"], part["size_bytes"]}).dump()}});
+    }
+    rows.push_back(std::move(row));
+  }
+  return rows;
+}
 int main() {
   assert(contextBudget(Json::object()) == 16384);
   assert(estimatedText("中文") == 4);
@@ -40,7 +66,34 @@ int main() {
   db.append(session, "user", "", {{"path", photo}, {"width", 1}, {"height", 1}});
   auto last = db.append(session, "assistant", "photo understood");
   db.updateMessage(last, "photo understood", "", "complete");
+  // Multiple parts on both sides of the 100-row page boundary, inserted out of
+  // order. The second asset exercises fallback to the system-original path.
+  auto asset = db.query("SELECT id FROM message_assets WHERE session_id=?", {session})[0]["id"];
+  const auto fallback = uid("asset");
+  db.execute("INSERT INTO message_assets(id,session_id,kind,source_type,original_path,stored_path,"
+             "width,height,size_bytes,created_at) VALUES(?,?,'image','album',?,'',3,4,13,1)",
+             {fallback, session, photo});
+  for (int seq : {100, 101}) {
+    auto id = db.query("SELECT id FROM chat_messages WHERE session_id=? AND seq=?", {session, seq})[0]["id"];
+    db.execute("INSERT INTO message_parts(id,session_id,message_id,part_index,part_type,asset_id) "
+               "VALUES(?,?,?,2,'image',?)", {uid("part"), session, id, fallback});
+    db.execute("INSERT INTO message_parts(id,session_id,message_id,part_index,part_type,asset_id) "
+               "VALUES(?,?,?,1,'image',?)", {uid("part"), session, id, asset});
+  }
+  db.flush();
+  const auto beforeQueries = db.storageStats()["queries"].get<uint64_t>();
   auto snapshot = db.contextSnapshot(session, true);
+  const auto snapshotQueries = db.storageStats()["queries"].get<uint64_t>() - beforeQueries;
+  assert(snapshotQueries == 13); // 2 bounded parts batches, rather than 106 individual lookups.
+  const auto reference = referenceRows(db, session);
+  assert(snapshot["rows"] == reference);
+  assert(snapshot["source_checksum"] == contextChecksum(reference, INT64_MAX));
+  for (int index : {99, 100}) {
+    assert(snapshot["rows"][index]["parts"].size() == 2);
+    assert(snapshot["rows"][index]["parts"][1]["path"] == photo);
+    assert(snapshot["rows"][index]["parts"][1]["signature"] == "[3,4,13]");
+  }
+  std::cout << "106-message context snapshot: " << snapshotQueries << " SQL queries\n";
   auto cp = Json{{"version", 1},
                  {"enabled", true},
                  {"summary", "历史事实"},
@@ -111,7 +164,7 @@ int main() {
   db.flush();
   assert(db.contextSnapshot(session)["rows"].back()["output_text"] == "unsaved");
   auto assets =
-      db.query("SELECT stored_path FROM message_assets WHERE session_id=?", {archived});
+      db.query("SELECT stored_path FROM message_assets WHERE session_id=? AND stored_path<>''", {archived});
   assert(!assets.empty());
   auto shared = assets[0]["stored_path"].get<std::string>();
   db.removeSession(session);
@@ -122,6 +175,24 @@ int main() {
   auto prefs = applyPresetSnapshot({{"compression_model_id", "previous"}},
                                    defaultPreset(), db.models(), model, true, shared);
   assert(prefs["compression_model_id"] == "");
+  // Reply alternatives hide a physical tail, but keep a later unsent image.
+  const auto choiceSession = uid("session");
+  db.append(choiceSession, "user", "first");
+  auto firstReply = db.append(choiceSession, "assistant", "original");
+  db.updateMessage(firstReply, "original", "", "complete");
+  db.append(choiceSession, "user", "hidden later question");
+  auto laterReply = db.append(choiceSession, "assistant", "hidden answer");
+  db.updateMessage(laterReply, "hidden answer", "", "complete");
+  auto pending = db.append(choiceSession, "user", "", {{"path", photo}});
+  db.beginReplyResult(db.contextSnapshot(choiceSession), firstReply, Json(), Json::object(), cancel);
+  db.updateMessage(firstReply, "alternative", "", "complete");
+  auto chosen = db.contextSnapshot(choiceSession);
+  assert(chosen["rows"] == referenceRows(db, choiceSession));
+  assert(chosen["rows"].size() == 3 && chosen["rows"].back()["id"] == pending);
+  assert(chosen["rows"].back()["parts"].size() == 1);
+  db.selectReplyResult(choiceSession, firstReply, 1);
+  auto restored = db.contextSnapshot(choiceSession);
+  assert(restored["rows"].size() == 5 && restored["rows"] == referenceRows(db, choiceSession));
   std::cout << "context snapshots, 106 messages, atomic rollback, shared assets and "
                "preset reset passed\n";
 }

@@ -797,6 +797,9 @@ Json Database::models() {
   if (!onWorker()) {
     return perform([=] { return models(); });
   }
+  return modelCatalogOnWorker();
+}
+const Json &Database::modelCatalogOnWorker() {
   if (!modelsCache_.is_null())
     return modelsCache_;
   modelsCache_ =
@@ -807,12 +810,20 @@ Json Database::models() {
             "m.enabled=1 AND p.enabled=1 ORDER BY m.is_default DESC,m.created_at");
   return modelsCache_;
 }
-Json Database::activeModel() {
+Json Database::model(const std::string &id) {
   if (!onWorker()) {
-    return perform([=] { return activeModel(); });
+    return perform([=] { return model(id); });
   }
-  auto m = models();
-  return m.empty() ? Json::object() : m[0];
+  const auto &catalog = modelCatalogOnWorker();
+  if (id.empty())
+    return catalog.empty() ? Json::object() : catalog[0];
+  for (const auto &candidate : catalog)
+    if (candidate["id"] == id)
+      return candidate;
+  return Json::object();
+}
+Json Database::activeModel() {
+  return model("");
 }
 Json Database::sessionPreferences(const std::string &session) {
   if (!onWorker()) {

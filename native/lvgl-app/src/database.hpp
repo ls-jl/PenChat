@@ -49,6 +49,7 @@ class Database {
   std::thread worker_;
   Json perform(std::function<Json()> task);
   Json queryOnWorker(const std::string &sql, const Json &args);
+  const Json &modelCatalogOnWorker();
 
 public:
   explicit Database(const std::string &path);
@@ -94,6 +95,8 @@ public:
   Json providers();
   Json providerForm(const std::string &id);
   Json models();
+  // An empty ID selects the current default; only one model crosses the worker boundary.
+  Json model(const std::string &id);
   Json activeModel();
   Json sessionPreferences(const std::string &session);
   void saveSessionPreferences(const std::string &session, const Json &preferences);

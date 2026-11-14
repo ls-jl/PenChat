@@ -380,15 +380,7 @@ lv_obj_t *App::icon(lv_obj_t *parent, const std::string &kind, int x, int y,
 }
 Json App::currentModel() {
   auto id = sessionPreferences_.value("model_id", std::string());
-  Json model = Json::object();
-  if (id.empty())
-    model = db_.activeModel();
-  else
-    for (const auto &candidate : db_.models())
-      if (candidate["id"] == id) {
-        model = candidate;
-        break;
-      }
+  const auto model = id.empty() ? db_.activeModel() : db_.model(id);
   return model.empty()
              ? model
              : resolveReasoning(model, sessionPreferences_, effortMemory_);

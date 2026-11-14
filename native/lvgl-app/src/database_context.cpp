@@ -39,31 +39,34 @@ Json Database::contextSnapshot(const std::string &session, bool lease) {
                       {session, seq});
     if (page.empty())
       break;
+    // Fetch image parts once for this physical page, including rows beyond a
+    // reply cut. The effective-message filter below still owns their visibility.
+    std::map<std::string, Json> imageParts;
+    for (const auto &part : query(
+             "SELECT p.message_id,a.stored_path,a.original_path,a.width,a.height,"
+             "a.size_bytes FROM chat_messages m JOIN message_parts p ON "
+             "p.message_id=m.id LEFT JOIN message_assets a ON a.id=p.asset_id "
+             "WHERE m.session_id=? AND m.seq>? AND m.seq<=? AND "
+             "p.part_type='image' ORDER BY m.seq,p.part_index",
+             {session, seq, page.back()["seq"]})) {
+      auto path = part["stored_path"].is_string()
+                      ? part["stored_path"].get<std::string>()
+                      : "";
+      if (path.empty() && part["original_path"].is_string())
+        path = part["original_path"];
+      imageParts[part["message_id"].get<std::string>()].push_back(
+          {{"type", "image"},
+           {"path", path},
+           {"signature", Json::array({part["width"], part["height"],
+                                      part["size_bytes"]}).dump()}});
+    }
     for (auto m : page) {
       seq = m["seq"];
       if(seq>cut) {
         if(!(m["role"]=="user"&&m["message_type"]=="image"&&(!m["output_text"].is_string()||m["output_text"].get<std::string>().empty())&&seq>lastAssistant))continue;
       }
-      m["parts"] = Json::array();
-      for (const auto &part :
-           query("SELECT "
-                 "p.part_type,a.stored_path,a.original_path,a.width,a.height,a.size_"
-                 "bytes FROM message_parts p LEFT JOIN message_assets a ON "
-                 "a.id=p.asset_id WHERE p.message_id=? ORDER BY p.part_index",
-                 Json::array({m["id"]}))) {
-        if (part["part_type"] != "image")
-          continue;
-        auto path = part["stored_path"].is_string()
-                        ? part["stored_path"].get<std::string>()
-                        : "";
-        if (path.empty() && part["original_path"].is_string())
-          path = part["original_path"];
-        m["parts"].push_back({{"type", "image"},
-                              {"path", path},
-                              {"signature", Json::array({part["width"], part["height"],
-                                                         part["size_bytes"]})
-                                                .dump()}});
-      }
+      auto parts = imageParts.find(m["id"].get<std::string>());
+      m["parts"] = parts == imageParts.end() ? Json::array() : std::move(parts->second);
       snapshot["rows"].push_back(std::move(m));
     }
   }

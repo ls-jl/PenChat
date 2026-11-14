@@ -21,10 +21,20 @@ int main() {
     assert(models.size() == 2);
     auto a = models[0], b = models[1];
     const auto aid = a["id"].get<std::string>(), bid = b["id"].get<std::string>();
+    assert(db.model(aid) == a && db.model(bid) == b);
+    assert(db.model("") == db.activeModel() && db.model("missing-model").empty());
+    const auto warmQueries = db.storageStats()["queries"].get<uint64_t>();
+    for (int i = 0; i < 20; ++i) assert(db.model(bid) == b);
+    assert(db.storageStats()["queries"] == warmQueries);
+    assert(!b.contains("api_key") && !b.contains("headers_json"));
+    std::cout << "Model selection returns " << db.model(bid).dump().size()
+              << " bytes instead of " << models.dump().size() << " catalog bytes; 20 warm reads: 0 SQL\n";
     auto caps = objectField(b, "capabilities_json");
     caps["custom"] = true;
     db.saveModelSettings(bid, caps);
+    assert(objectField(db.model(bid), "capabilities_json") == caps);
     db.selectModel(bid);
+    assert(db.model("")["id"] == bid);
     db.execute("INSERT INTO "
                "chat_sessions(id,title,status,created_at,updated_at,last_message_at,default_"
                "provider_id,default_model_"
@@ -38,6 +48,17 @@ int main() {
     edit["apiKey"] = "changed-fake-only";
     db.saveProvider(edit, {}, false);
     assert(db.models().size() == 2 && db.activeModel()["id"] == bid);
+    assert(db.model(bid)["base_url"] == "https://changed.invalid/v1");
+    const auto committedModel = db.model(bid);
+    db.execute("BEGIN IMMEDIATE");
+    db.execute("UPDATE model_configs SET display_name='temporary' WHERE id=?", {bid});
+    assert(db.model(bid)["display_name"] == "temporary"); // Populate cache inside the transaction.
+    db.execute("ROLLBACK");
+    assert(db.model(bid) == committedModel);
+    db.execute("UPDATE providers SET enabled=0 WHERE id=?", {provider});
+    assert(db.model(bid).empty() && db.activeModel().empty());
+    db.execute("UPDATE providers SET enabled=1 WHERE id=?", {provider});
+    assert(db.model(bid) == committedModel);
     assert(objectField(db.query("SELECT capabilities_json FROM model_configs WHERE id=?", {bid})[0],
                        "capabilities_json") == caps);
     assert(db.requestModel(db.activeModel())["base_url"] == "https://changed.invalid/v1");
@@ -60,6 +81,7 @@ int main() {
            db.query("SELECT name FROM model_configs WHERE id=?", {cid})[0]["name"] == "c");
     db.removeModel(bid);
     assert(db.models().size() == 2 && db.activeModel()["id"] != bid);
+    assert(db.model(bid).empty());
     assert(db.query("SELECT COUNT(*) AS n FROM chat_messages WHERE session_id='history'")[0]["n"] ==
            1);
     assert(db.query("SELECT default_model_config_id FROM chat_sessions WHERE id='history'")
@@ -69,6 +91,7 @@ int main() {
         "SELECT id,capabilities_json,display_name FROM model_configs WHERE name='b-new'")[0];
     assert(restored["id"] == bid && restored["display_name"] == "My model" &&
            objectField(restored, "capabilities_json") == caps);
+    assert(db.model(bid)["display_name"] == "My model");
     db.execute("CREATE TRIGGER fail_model BEFORE INSERT ON model_configs WHEN NEW.name='fail' "
                "BEGIN SELECT RAISE(ABORT,'fixture'); END");
     bool failed = false;
@@ -128,12 +151,14 @@ int main() {
     assert(objectField(db.query("SELECT capabilities_json FROM model_configs WHERE id='workspace-new-id'")[0],"capabilities_json")==custom);
     auto beforeProviders=db.query("SELECT * FROM providers ORDER BY id");
     auto beforeModels=db.query("SELECT * FROM model_configs ORDER BY id");
+    const auto beforeModel = db.model(stable);
     workspace=db.providerForm(provider);workspace["apiKey"]="not-committed-fake";
     drafts=Json::array();for(const auto &m:db.models())if(m["provider_id"]==provider)drafts.push_back(m);
     drafts[0]["display_name"]="also-not-committed";
     drafts.push_back({{"id","faulted-id"},{"name","fail"},{"workspace_new",true},{"capabilities_json",Json::object()}});
     failed=false;try{db.saveProviderWorkspace(workspace,drafts);}catch(...){failed=true;}
     assert(failed && db.query("SELECT * FROM providers ORDER BY id")==beforeProviders && db.query("SELECT * FROM model_configs ORDER BY id")==beforeModels);
+    assert(db.model(stable) == beforeModel);
     drafts.erase(drafts.end()-1);drafts[1]["name"]=drafts[0]["name"];
     failed=false;try{db.saveProviderWorkspace(workspace,drafts);}catch(...){failed=true;}
     assert(failed && db.query("SELECT * FROM providers ORDER BY id")==beforeProviders);
