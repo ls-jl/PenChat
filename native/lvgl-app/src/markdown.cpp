@@ -371,7 +371,7 @@ struct Piece {
   std::string text, target;
   int style = 0;
   float x = 0, y = 0, width = 0, height = 0, baseline = 0;
-  std::shared_ptr<Bitmap> math;
+  std::shared_ptr<const Bitmap> math;
   size_t begin = 0, end = 0;
 };
 struct RichText::Impl {
@@ -380,9 +380,12 @@ struct RichText::Impl {
   FT_Library library = nullptr;
   FT_Face face = nullptr, boldFace = nullptr, monoFace = nullptr, fallbackFace = nullptr;
   cairo_font_face_t *cairoFace = nullptr, *boldCairo = nullptr, *monoCairo = nullptr, *fallbackCairo = nullptr;
-  std::map<std::string, std::shared_ptr<Bitmap>> cache;
+  std::map<std::string, std::shared_ptr<const Bitmap>> cache;
   std::deque<std::string> order;
   size_t cacheBytes = 0;
+#ifndef PENCHAT_NATIVE_DEVICE
+  RichWorkStats work;
+#endif
   std::vector<Piece> pieces;
   void select(cairo_t *c, int size, int style, uint32_t cp = 0) {
     const bool mono = (style & Mono) && !(style & Bold) && cp < 128 && monoCairo;
@@ -467,19 +470,39 @@ static std::string formulaKey(const std::string &identity, const std::string &so
   return identity + "typography2:" + theme::name(theme::mode()) + ":" +
       std::to_string(foreground) + ":" + std::to_string(size) + ":" + source;
 }
+#ifndef PENCHAT_NATIVE_DEVICE
+RichWorkStats RichText::workStats() const { return p_->work; }
+void RichText::resetWorkStats() { p_->work = {}; }
+#endif
 Bitmap RichText::formula(const std::string &source, int size, uint32_t foreground) {
+  const auto bitmap = formulaShared(source, size, foreground);
+#ifndef PENCHAT_NATIVE_DEVICE
+  ++p_->work.formulaCopies;
+#endif
+  return *bitmap;
+}
+std::shared_ptr<const Bitmap> RichText::formulaShared(const std::string &source,
+                                                     int size, uint32_t foreground) {
   if (!foreground) foreground = theme::palette().richBody;
   auto key = formulaKey(p_->cacheIdentity, source, size, foreground);
   auto it = p_->cache.find(key);
-  if (it != p_->cache.end())
-    return *it->second;
+  if (it != p_->cache.end()) {
+#ifndef PENCHAT_NATIVE_DEVICE
+    ++p_->work.formulaHits;
+#endif
+    return it->second;
+  }
   if (source.size() > 8192)
     throw std::runtime_error("Formula too large");
+#ifndef PENCHAT_NATIVE_DEVICE
+  ++p_->work.formulaRenders;
+#endif
   const float formulaSize = size * 1.5f;
   std::unique_ptr<tex::TeXRender> r(
       tex::LaTeX::parse(tex::utf82wide(source), 4096, formulaSize,
                         formulaSize * .2, (0xff000000u | foreground)));
-  Bitmap b;
+  auto bitmap = std::make_shared<Bitmap>();
+  auto &b = *bitmap;
   b.width = std::max(1, r->getWidth() + p_->metrics.dp(4));
   b.height = std::max(1, r->getHeight() + p_->metrics.dp(4));
   b.baseline = std::round(r->getBaseline() * r->getHeight()) + p_->metrics.dp(2);
@@ -502,11 +525,11 @@ Bitmap RichText::formula(const std::string &source, int size, uint32_t foregroun
     p_->cache.erase(old);
   }
   if (n <= 8 * 1024 * 1024) {
-    p_->cache[key] = std::make_shared<Bitmap>(b);
+    p_->cache[key] = bitmap;
     p_->order.push_back(key);
     p_->cacheBytes += n;
   }
-  return b;
+  return bitmap;
 }
 void RichText::prepare(Document &document, int width, int size) {
   std::map<int, int> listColumns;
@@ -604,6 +627,9 @@ int RichText::blockGap(const Block *previous, const Block &current, int size) co
   return gap;
 }
 RichLayout RichText::layout(const Block &block, int width, int size, bool textHits, bool subdued) {
+#ifndef PENCHAT_NATIVE_DEVICE
+  ++p_->work.layoutCalls;
+#endif
   p_->pieces.clear();
   if (block.kind == "table") {
     std::vector<Piece> pieces;
@@ -715,18 +741,30 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
   };
   // The lookahead and placement passes share glyph metrics. Bound this local
   // cache so long replies do not retain an additional unbounded text index.
-  std::unordered_map<uint64_t, float> advances;
-  auto advanceOf = [&](const std::string &ch, uint32_t cp, int style) {
+  struct GlyphMetrics {
+    float advance, baseline, below;
+  };
+  std::unordered_map<uint64_t, GlyphMetrics> glyphs;
+  auto metricsOf = [&](const std::string &ch, uint32_t cp, int style) {
     const uint64_t key = (uint64_t(uint32_t(style)) << 32) | cp;
-    const auto found = advances.find(key);
-    if (found != advances.end()) return found->second;
+    const auto found = glyphs.find(key);
+    if (found != glyphs.end()) return found->second;
     p_->select(c, actualSize, style, cp);
     cairo_text_extents_t extents;
     cairo_text_extents(c, ch.c_str(), &extents);
     const float advance = (style & Mono) && !(style & Bold)
         ? float(actualSize * .62) * (cp >= 128 ? 2 : 1) : extents.x_advance;
-    if (advances.size() < 256) advances.emplace(key, advance);
-    return advance;
+    // Tabs retain their dynamic advance but are painted as spaces.
+    if (ch == "\t") cairo_text_extents(c, " ", &extents);
+    cairo_font_extents_t font;
+    cairo_font_extents(c, &font);
+    const GlyphMetrics result{advance, float(std::max(font.ascent, -extents.y_bearing)),
+                              float(std::max(font.descent, extents.y_bearing + extents.height))};
+#ifndef PENCHAT_NATIVE_DEVICE
+    ++p_->work.glyphMeasurements;
+#endif
+    if (glyphs.size() < 256) glyphs.emplace(key, result);
+    return result;
   };
   size_t textOffset = 0;
   auto add = [&](const Run &run, int forceWidth) {
@@ -734,7 +772,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
       newline();
     if (run.style & Math) {
       try {
-        auto bitmap = std::make_shared<Bitmap>(formula(run.text, actualSize, foreground));
+        auto bitmap = formulaShared(run.text, actualSize, foreground);
         if (!forceWidth && block.kind != "code" && x + bitmap->width > width && x > left)
           newline();
         Piece p;
@@ -769,7 +807,8 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
       }
       const auto cp = codepoint(ch);
       if ((cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0xe0100 && cp <= 0xe01ef) || cp == 0x200d || cp == 0x200c || cp == 0x200b) continue;
-      float advance = advanceOf(ch, cp, run.style | baseStyle);
+      const auto metrics = metricsOf(ch, cp, run.style | baseStyle);
+      float advance = metrics.advance;
       if (block.kind != "code" && (ch == " " || ch == "\t") &&
           (x == left || x + advance > width - p_->metrics.dp(6))) {
         if (x > left) newline();
@@ -786,16 +825,10 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
         advance =
             actualSize * .62 * (4 - int((x - left) / (actualSize * .62)) % 4);
       p.x = x;
-      p_->select(c, actualSize, run.style | baseStyle, cp);
-      cairo_font_extents_t font;
-      cairo_text_extents_t glyph;
-      cairo_font_extents(c, &font);
-      cairo_text_extents(c, p.text.c_str(), &glyph);
-      p.baseline = std::max(font.ascent, -glyph.y_bearing);
-      const float below = std::max(font.descent, glyph.y_bearing + glyph.height);
-      p.height = p.baseline + below;
+      p.baseline = metrics.baseline;
+      p.height = p.baseline + metrics.below;
       ascent = std::max(ascent, p.baseline);
-      descent = std::max(descent, below);
+      descent = std::max(descent, metrics.below);
       p.width = advance;
       p.style = run.style | baseStyle;
       p.target = run.link;
@@ -879,7 +912,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
           const auto key = formulaKey(p_->cacheIdentity, run.text, actualSize, foreground);
           const auto cached = p_->cache.find(key);
           const int advance = cached != p_->cache.end()
-              ? cached->second->width : formula(run.text, actualSize, foreground).width;
+              ? cached->second->width : formulaShared(run.text, actualSize, foreground)->width;
           append(run, advance);
           onlyOpening = lastWord = joinNext = false;
         } catch (...) {
@@ -905,7 +938,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
         const bool invisible = (cp >= 0xfe00 && cp <= 0xfe0f) ||
             (cp >= 0xe0100 && cp <= 0xe01ef) || cp == 0x200d ||
             cp == 0x200c || cp == 0x200b;
-        const float advance = invisible ? 0 : advanceOf(ch, cp, run.style | baseStyle);
+        const float advance = invisible ? 0 : metricsOf(ch, cp, run.style | baseStyle).advance;
         append({ch, run.link, run.style}, advance);
         onlyOpening = open && (wasEmpty || onlyOpening);
         lastWord = word && (!close || cp == 0x2019);
@@ -937,7 +970,24 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
 }
 Bitmap RichText::paint(const Block &block, int width, int top, int height,
                        int size, int left, int windowWidth, bool subdued) {
-  auto info = layout(block, width, size, false, subdued);
+  const auto info = layout(block, width, size, false, subdued);
+  return paintPrepared(block, width, info, {top, height, left, windowWidth}, size, subdued);
+}
+std::vector<Bitmap> RichText::paintBatch(const Block &block, int width,
+                                       const std::vector<RichWindow> &windows,
+                                       int size, bool subdued) {
+  std::vector<Bitmap> bitmaps;
+  if (windows.empty()) return bitmaps;
+  bitmaps.reserve(windows.size());
+  const auto info = layout(block, width, size, false, subdued);
+  for (const auto &window : windows)
+    bitmaps.push_back(paintPrepared(block, width, info, window, size, subdued));
+  return bitmaps;
+}
+Bitmap RichText::paintPrepared(const Block &block, int width, const RichLayout &info,
+                               const RichWindow &window, int size, bool subdued) {
+  const int top = window.top, height = window.height;
+  const int left = window.left, windowWidth = window.width;
   Bitmap b;
   b.width =
       windowWidth > 0 ? std::min(windowWidth, info.width - left) : info.width;
@@ -993,7 +1043,8 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
       continue;
     if (p.math) {
       auto m = cairo_image_surface_create_for_data(
-          p.math->pixels.data(), CAIRO_FORMAT_ARGB32, p.math->width,
+          // Cairo's source-surface API takes mutable data but only reads it here.
+          const_cast<uint8_t *>(p.math->pixels.data()), CAIRO_FORMAT_ARGB32, p.math->width,
           p.math->height, p.math->width * 4);
       cairo_set_source_surface(c, m, p.x, p.y);
       cairo_paint(c);

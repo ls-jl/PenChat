@@ -29,6 +29,8 @@ namespace penchat {
 class App {
 #ifndef PENCHAT_NATIVE_DEVICE
   friend struct UiControlsTest;
+  friend struct UiPerformanceTest;
+  friend struct PaintPerformanceTest;
   friend struct MenusMotionTest;
 #endif
   UiMetrics uiMetrics_;

@@ -1254,7 +1254,7 @@ void App::editorSyncText(bool text) {
   if(!editorText_)return;
   if(editorInlineChat_&&editorInPlace())editorViewport();
   const int scroll=lv_obj_get_scroll_y(editorText_);
-  if(text)lv_textarea_set_text(editorText_,editor_.text.c_str());
+  if(text&&editor_.text!=lv_textarea_get_text(editorText_))lv_textarea_set_text(editorText_,editor_.text.c_str());
   if(text||lv_textarea_get_cursor_pos(editorText_)!=editor_.cursor)lv_textarea_set_cursor_pos(editorText_,editor_.cursor);
   auto label=lv_textarea_get_label(editorText_);auto r=editor_.range();
   lv_label_set_text_selection_start(label,editor_.selected()?r.first:LV_LABEL_TEXT_SELECTION_OFF);
@@ -1631,7 +1631,6 @@ void App::editorInterrupt(bool releaseOcr) {
   editor_.globeChain=false;editorLayoutMenu_=editorPunctuation_=false;editorPinyinPending_=Json();
 }
 void App::editorTick() {
-  const auto layout=editorLayout();
   if (!editor_.active || keyboard_ || !visible_ || !touchLeaseActive_) { editorAutoScrollAt_=0;return; }
   const auto now=ticks();
   if(editorTextTouch_&&editorTextGesture_.hold(now))editorWordPreview();
@@ -1651,7 +1650,10 @@ void App::editorTick() {
     auto send=lv_obj_get_child(chatControls_,-1);
     const bool enabled=generating_||contextBusy_||hasChatText(editor_.text)||editorSendAssets_;
     lv_obj_set_clickable(send,enabled);
-    lv_obj_set_style_bg_color(send,lv_color_hex(enabled?theme::palette().text:theme::palette().border),0);
+    const auto color=lv_color_hex(enabled?theme::palette().text:theme::palette().border);
+    lv_style_value_t current;
+    if(lv_obj_get_local_style_prop(send,LV_STYLE_BG_COLOR,&current,LV_PART_MAIN)!=LV_STYLE_RES_FOUND||
+       !lv_color_eq(current.color,color))lv_obj_set_style_bg_color(send,color,0);
   }
   const auto area=editorTextArea();
   if(editorInPlace()&&(area.x!=editorLastTextArea_.x||area.y!=editorLastTextArea_.y||

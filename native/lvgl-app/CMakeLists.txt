@@ -446,3 +446,21 @@ if(NOT CMAKE_CROSSCOMPILING)
   target_compile_options(penchat-status-state-tests PRIVATE -UNDEBUG)
   add_test(NAME penchat-status-state COMMAND penchat-status-state-tests "${DEPS}/chinese.ttf")
 endif()
+
+if(NOT CMAKE_CROSSCOMPILING)
+  add_executable(penchat-ui-performance-tests EXCLUDE_FROM_ALL
+    "${ROOT}/tests/native/UiPerformanceTest.cpp" ${UI_CONTROL_APP_SOURCES})
+  target_include_directories(penchat-ui-performance-tests PRIVATE src "${DEPS}/lvgl")
+  target_link_libraries(penchat-ui-performance-tests PRIVATE penchat_core)
+  target_compile_options(penchat-ui-performance-tests PRIVATE -UNDEBUG)
+  target_link_options(penchat-ui-performance-tests PRIVATE
+    -Wl,--wrap=lv_textarea_set_text -Wl,--wrap=lv_obj_set_style_bg_color)
+endif()
+
+if(NOT CMAKE_CROSSCOMPILING)
+  add_executable(penchat-rich-performance-tests "${ROOT}/tests/native/RichPerformanceTest.cpp")
+  target_link_libraries(penchat-rich-performance-tests PRIVATE penchat_core)
+  target_compile_options(penchat-rich-performance-tests PRIVATE -UNDEBUG)
+  add_test(NAME penchat-rich-performance COMMAND penchat-rich-performance-tests
+    "${DEPS}/chinese.ttf" "${DEPS}/microtex/res" "${ROOT}/assets/fonts/DejaVuSans.ttf")
+endif()

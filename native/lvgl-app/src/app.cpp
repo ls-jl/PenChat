@@ -1899,47 +1899,45 @@ void App::paintVisible() {
   lv_area_t viewport;
   lv_obj_get_coords(body_, &viewport);
   for (auto &r : rasters_) {
-
     lv_area_t area;
     lv_obj_get_coords(r.holder, &area);
-    int from = std::max(0, viewport.y1 - area.y1 - 128),
-        to = std::min(r.height, viewport.y2 - area.y1 + 128);
-    int left = std::max(0, int(lv_obj_get_scroll_x(r.holder))),
-        right = std::min(r.contentWidth, left + r.width + 512);
-    std::set<std::pair<int, int>> wanted;
-    if (to >= from)
-      for (int y = (from / 128) * 128; y < to; y += 128)
-        for (int x = (left / 512) * 512; x < right; x += 512)
-          wanted.insert({x, y});
-    for (auto it = r.tiles.begin(); it != r.tiles.end();) {
-      if (wanted.count(it->first)) {
-        ++it;
-        continue;
-      }
-      auto object = it->second;
-      lv_obj_delete(object);
-      auto texture = textures_.find(object);
-      if (texture != textures_.end()) {
-        lv_image_cache_drop(&texture->second->descriptor);
-        textures_.erase(texture);
-      }
-      it = r.tiles.erase(it);
+    const int from=std::max(0,viewport.y1-area.y1-128);
+    const int to=std::min(r.height,viewport.y2-area.y1+128);
+    const int left=std::max(0,int(lv_obj_get_scroll_x(r.holder)));
+    const int right=std::min(r.contentWidth,left+r.width+512);
+    const int firstX=(left/512)*512,firstY=(from/128)*128;
+    // Visible tiles form a rectangle in the fixed raster grid. Inclusive
+    // viewport boundaries retain the same partial row as the original loop.
+    for(auto it=r.tiles.begin();it!=r.tiles.end();) {
+      const auto &position=it->first;
+      if(to>=from&&position.first>=firstX&&position.first<right&&
+          position.second>=firstY&&position.second<to) { ++it;continue; }
+      lv_obj_delete(it->second); // imageWidget's DELETE callback owns texture cleanup.
+      it=r.tiles.erase(it);
     }
-    for (auto position : wanted)
-      if (!r.tiles.count(position)) {
-        int x = position.first, y = position.second;
-        auto bitmap =
-            rich_.paint(r.block, r.width, y, std::min(128, r.height - y), r.fontSize, x,
-                        512, r.subdued);
-        auto frame = std::make_shared<ImageFrame>();
-        frame->width = bitmap.width;
-        frame->height = bitmap.height;
-        frame->pixels = std::move(bitmap.pixels);
-        auto object = imageWidget(r.holder);
-        lv_obj_set_pos(object, x, y);
-        texture(object, frame, true);
-        r.tiles[position] = object;
-      }
+    std::vector<std::pair<int,int>> positions;
+    std::vector<RichWindow> windows;
+    if(to>=from)
+      for(int x=firstX;x<right;x+=512)
+        for(int y=firstY;y<to;y+=128)
+          if(r.tiles.find({x,y})==r.tiles.end()) {
+            positions.push_back({x,y});
+            windows.push_back({y,std::min(128,r.height-y),x,512});
+          }
+    if(windows.empty())continue;
+    // Layout is shared only within this explicit batch. Create LVGL objects
+    // after drawing finishes so callbacks cannot replace the prepared pieces.
+    auto bitmaps=rich_.paintBatch(r.block,r.width,windows,r.fontSize,r.subdued);
+    for(size_t i=0;i<positions.size();++i) {
+      auto &bitmap=bitmaps[i];
+      auto frame=std::make_shared<ImageFrame>();
+      frame->width=bitmap.width;frame->height=bitmap.height;
+      frame->pixels=std::move(bitmap.pixels);
+      auto object=imageWidget(r.holder);
+      lv_obj_set_pos(object,positions[i].first,positions[i].second);
+      texture(object,frame,true);
+      r.tiles.emplace(positions[i],object);
+    }
   }
 }
 void App::refreshImages() {
