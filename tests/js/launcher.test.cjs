@@ -148,11 +148,41 @@ test('native keyboard is independent of Falcon shared input methods', () => {
   const f=fixture()
   assert.equal(typeof f.page.queryIme,'undefined')
 })
-test('official fallback receives independent multiline and UTF-16 cursor configuration', async () => {
+test('legacy official fallback preserves initial text and isolates cancel/reopen identities', async () => {
   const f = fixture(); await f.page.boot()
-  f.page.openKeyboard({ requestId: 'k', text: '中😀', inputType: 'ZhCNPreferred', multiline: false, cursorIndex: 3 })
+  let sequence = 0
+  f.keyboard.startTextEdit = config => {
+    f.calls.push(['startTextEdit', JSON.parse(config)])
+    return 'legacy-' + (++sequence)
+  }
+  const firstText = '中😀 fixture-first-75daaaaa'
+  f.page.openKeyboard({ requestId: 'first', inline: false, text: firstText, inputType: 'ZhCNPreferred', multiline: false, cursorIndex: 3 })
   const config = f.calls.find(c => c[0] === 'startTextEdit')[1]
+  assert.equal(config.text, firstText)
   assert.equal(config.multiLinesEditVisible, false); assert.equal(config.cursorIndex, 3)
+  assert.equal(f.page._keyboardUuid, 'legacy-1')
+  f.edit('legacy-1', JSON.stringify({ editConfirmed: false, text: 'discarded fake edit' }))
+  assert.equal(f.page.keyboardOpen, false)
+  assert.equal(f.page._keyboardUuid, '')
+  const secondText = 'fixture-second-a2009152'
+  f.page.openKeyboard({ requestId: 'second', inline: false, text: secondText, inputType: 'EnUSOnly', multiline: true, cursorIndex: secondText.length })
+  const reopened = f.calls.filter(c => c[0] === 'startTextEdit')
+  assert.equal(reopened.length, 2)
+  assert.equal(reopened[1][1].text, secondText)
+  assert.equal(reopened[1][1].cursorIndex, secondText.length)
+  assert.equal(reopened[1][1].multiLinesEditVisible, true)
+  assert.equal(reopened[1][1].inputType, 'EnUSOnly')
+  assert.equal(f.page._keyboardUuid, 'legacy-2')
+  const results = () => f.calls.filter(c => c[0] === 'send' && c[1].type === 'keyboard.result')
+  const beforeStale = results().length
+  f.edit('legacy-1', JSON.stringify({ editConfirmed: true, text: firstText }))
+  assert.equal(results().length, beforeStale)
+  assert.equal(f.page.keyboardOpen, true)
+  assert.equal(f.page._keyboardRequest, 'second')
+  f.edit('legacy-2', JSON.stringify({ editConfirmed: true, text: secondText }))
+  assert.equal(f.page.keyboardOpen, false)
+  assert.equal(results().at(-1)[1].requestId, 'second')
+  assert.equal(results().at(-1)[1].text, secondText)
   f.page.dispose()
 })
 
