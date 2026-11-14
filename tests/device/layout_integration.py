@@ -4,7 +4,7 @@ import argparse,hashlib,json,pathlib,shlex,sqlite3,subprocess,tempfile,time
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text())
 p=argparse.ArgumentParser(description=__doc__);p.add_argument('--serial',required=True);p.add_argument('--package',type=pathlib.Path,required=True);args=p.parse_args()
-if args.serial not in ('7G12000010905426','JDA0700006552216','MEB0400008900794'):raise SystemExit('Device not authorized for this merge. Y02/113 remains prohibited.')
+if args.serial not in ('7G12000010905426','JDA0700006552216','MEB0400008900794','MEA2300009007113'):raise SystemExit('Device is not in the explicit acceptance allowlist.')
 s6=args.serial=='JDA0700006552216';target='cv1826-s' if s6 else 'rk3562'
 OUT=ROOT/'.work'/('merged-layout-'+args.serial);OUT.mkdir(parents=True,exist_ok=True)
 DATA=('/userdisk/miniapp' if s6 else '/userdisk/secondary/miniapp')+'/data/mini_app/pkg/'+APP['appid']+'/data';PUBLIC='/userdisk/Favorite/PenChat'

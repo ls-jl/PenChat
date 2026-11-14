@@ -148,6 +148,9 @@ Y07 通过驱动 LED 类控制白灯，使用厂商模式值1，不套用 ORANGE
 
 ### DPI 与全局缩放基础（实验分支）
 
+以下保留各阶段的实施记录；当前完整范围、单位边界、键盘适配和验收命令见
+[DPI 与全局缩放](DPI-SCALING.md)。设备仍固定 100%。
+
 `ui_metrics.hpp` 的 `UiMetrics` 统一设计尺寸和语义字号，默认 density/UI scale
 均为 100%。两者先组合，再统一四舍五入到 Falcon 逻辑像素；不根据分辨率推测
 物理 DPI。生产设备固定 100%，本阶段没有用户设置或数据库迁移。
@@ -210,10 +213,9 @@ python3 tests/test_composer_scale.py --scales 100 --baseline .work/composer-befo
 ctest --test-dir build/host -R '^penchat-(ui-metrics|platform-layout)$' --output-on-failure
 ```
 
-本阶段定向验证发现 `test_docked_dismiss.py` 在取消触摸后的 offset 归零检查
-（当前第 46 行）超时；上一阶段独立基线 `1e36122` 也在同一位置失败。此次只
-记录这一既有测试失败，不修改取消交互、不跳过断言，也不将该项报告为通过。
-其原因与真实设备表现仍需单独排查。
+此阶段曾发现 `test_docked_dismiss.py` 取消触摸后的 offset 归零超时，独立基线
+`1e36122` 同样失败。最终阶段已修复：先把取消事件交还已拥有该手势的键盘
+下推处理器，避免被阅读选择处理器吞掉；原有取消与归零断言现已通过。
 
 ### 设置页与 Provider / 模型表单度量接入
 
@@ -245,6 +247,7 @@ python3 tests/test_form_scale.py --scales 100 --baseline .work/forms-before
 表单测试使用临时数据库和虚构本地 Provider，不请求真实模型；通过实际控件
 边界定位入口，避免把旧测试固定坐标在放大后的失效当成产品回归。
 
-第三阶段的完整 `test_anthropic_ui.py` 在聊天请求 `system` 的等值断言
-（当前第 75 行）失败；改造前 `1423410` 独立基线同样失败。表单配置流程单独
-执行，聊天断言没有删除或放宽，也不记为通过；本次不修改请求或系统提示词逻辑。
+第三阶段曾发现 `test_anthropic_ui.py` 的旧 system 等值断言与已存在的应用规则
+不一致，独立基线 `1423410` 同样失败。最终阶段按当前请求契约检查应用规则
+只出现一次、先于会话指令、会话指令只出现一次且位于末尾；完整测试已通过。
+请求生产逻辑未因此改变，模型同步测试也改为实际的选择、添加和显式保存流程。
