@@ -13,6 +13,7 @@ namespace penchat {
 struct EditorLayout {
   // Own only the resolved geometry needed after construction, never a borrowed
   // configuration or the complete design/style tables.
+  UiMetrics metrics;
   KeyboardDesign::Keys keyMetrics;
   KeyboardDesign::Composition compositionMetrics;
   KeyboardCandidateMetrics candidateMetrics;
@@ -32,7 +33,8 @@ struct EditorLayout {
   double keyWidth;
   EditorLayout(int w, int h, bool selectionOnly = false, bool chatComposer = false,
                bool swapWideSides = false, bool compactExpanded = false,
-               bool inlineReveal = false, const KeyboardDesign &design = keyboardDesign(), bool roundedScreen = false) :
+               bool inlineReveal = false, const KeyboardDesign &design = keyboardDesign(), bool roundedScreen = false, const UiMetrics &ui = UiMetrics()) :
+      metrics(ui),
       keyMetrics(design.keys),compositionMetrics(design.composition),candidateMetrics(design.candidates),
       controlMetrics(design.controls),compactMetrics(design.compact),popupMetrics(design.popups),
       nativeWidth(w),nativeHeight(h),width(w),height(h) {
@@ -73,7 +75,7 @@ struct EditorLayout {
       keyWidth=(keySpan-2*keyMargin-9*keyGap)/10.;
     }
     if(portrait) {
-      const AppLayout safe{w,h};
+      const AppLayout safe{w,h,false,metrics};
       split=w;keyInset=0;keySpan=w;
       textX=safe.safeSide();textWidth=w-2*textX;textY=safe.safeTop();
       const auto &p=design.portrait;
@@ -97,7 +99,7 @@ struct EditorLayout {
       panelTop=compositionY-design.portrait.panelInset;
       textHeight=design.controls.height;textY=panelTop-textHeight-design.portrait.editorGap;
     }
-    if (selectionOnly) { split=86;textX=96;textWidth=w-106;textY=56;textHeight=h-66;if(portrait){const AppLayout safe{w,h};split=w;textX=safe.safeSide();textWidth=w-2*textX;textY=56+safe.safeTop();textHeight=h-textY-safe.safeBottom();} }
+    if (selectionOnly) { split=metrics.dp(86);textX=metrics.dp(96);textWidth=w-metrics.dp(106);textY=metrics.dp(56);textHeight=h-metrics.dp(66);if(portrait){const AppLayout safe{w,h,false,metrics};split=w;textX=safe.safeSide();textWidth=w-2*textX;textY=metrics.dp(56)+safe.safeTop();textHeight=h-textY-safe.safeBottom();} }
     textAreaWidth=textWidth;
     if(compactFull&&inlineReveal)textAreaWidth=std::max(1,textWidth-design.controls.height-design.controls.gap);
     (void)chatComposer;
@@ -112,8 +114,8 @@ struct EditorLayout {
   int editorPanelWidth() const { return portrait||compactFull?width:width-split; }
   int textRight() const { return textX+textWidth; }
   int keysRight() const { return compactFull?width-compactMetrics.doneWidth-compactMetrics.bottomInset-keyGap:keySpan-keyMargin; }
-  int overlayY() const { return compactFull?keyTop:docked?AppLayout{width,height}.safeTop():textY; }
-  int overlayHeight() const { return compactFull?height-keyTop-4:docked?compositionY-overlayY()-10:textHeight; }
+  int overlayY() const { return compactFull?keyTop:docked?AppLayout{width,height,false,metrics}.safeTop():textY; }
+  int overlayHeight() const { return compactFull?height-keyTop-metrics.dp(4):docked?compositionY-overlayY()-metrics.dp(10):textHeight; }
   int compactTouchWidth() const { return compact&&!compactFull?int(std::ceil(double(controlMetrics.height)*256/scaleX())):controlMetrics.height; }
   int controlHeight() const { return compact&&!compactFull?int(std::ceil(double(controlMetrics.height)*256/scaleY())):controlMetrics.height; }
   using Popup=KeyboardRect;
@@ -208,14 +210,14 @@ struct EditorLayout {
     return {left, top, right - left, bottom - top};
   }
   Popup floatingPopup(int x,int y,int w,int h) const {
-    const AppLayout safe{width,height};const int side=std::max(popupMetrics.safeMargin,safe.safeSide()),top=std::max(popupMetrics.safeMargin,safe.safeTop()),bottom=std::max(popupMetrics.safeMargin,safe.safeBottom());
+    const AppLayout safe{width,height,false,metrics};const int side=std::max(popupMetrics.safeMargin,safe.safeSide()),top=std::max(popupMetrics.safeMargin,safe.safeTop()),bottom=std::max(popupMetrics.safeMargin,safe.safeBottom());
     w=std::min(w,width-2*side);h=std::min(h,height-top-bottom);
     const auto fitted=safety().fit({std::max(side,std::min(width-w-side,x)),
             std::max(top,std::min(height-h-bottom,y)),w,h});
     return {fitted.x,fitted.y,fitted.width,fitted.height};
   }
   Popup magnifierPopup(int cursorX,int cursorY,int editorLeft=0,int editorRight=0) const {
-    const AppLayout safe{width,height};
+    const AppLayout safe{width,height,false,metrics};
     const int side=std::min(std::max(popupMetrics.safeMargin,safe.safeSide()),std::max(0,(width-1)/2));
     const int top=std::min(std::max(popupMetrics.safeMargin,safe.safeTop()),std::max(0,(height-1)/2));
     const int bottom=std::min(std::max(popupMetrics.safeMargin,safe.safeBottom()),std::max(0,height-top-1));
@@ -233,10 +235,10 @@ struct EditorLayout {
   }
   int selectionHandleWidth() const {return scaled?int(std::ceil(double(controlMetrics.height)*256/scaleX())):controlMetrics.height;}
   int selectionHandleHeight() const {return scaled?int(std::ceil(double(controlMetrics.height)*256/scaleY())):controlMetrics.height;}
-  int selectionButtonWidth() const {return std::max(88,scaled?int(std::ceil(double(controlMetrics.height)*256/scaleX())):controlMetrics.height);}
-  int selectionButtonHeight() const {return std::max(44,scaled?int(std::ceil(double(controlMetrics.height)*256/scaleY())):controlMetrics.height);}
+  int selectionButtonWidth() const {return std::max(metrics.dp(88),scaled?int(std::ceil(double(controlMetrics.height)*256/scaleX())):controlMetrics.height);}
+  int selectionButtonHeight() const {return std::max(metrics.dp(44),scaled?int(std::ceil(double(controlMetrics.height)*256/scaleY())):controlMetrics.height);}
   Popup globeKey() const {
-    const int commaCenter=8+px(keyWidth+14)+px(keyWidth+10)/2;
+    const int commaCenter=metrics.dp(8)+px(keyWidth+metrics.dp(14))+px(keyWidth+metrics.dp(10))/2;
     const int centerY=px((bottomY+bottomHeight-1.+height-1)/2.);
     auto fitted=safety().fit({commaCenter-keyMetrics.utilityShiftX-keyMetrics.utilitySize/2,
             centerY-keyMetrics.utilityShiftY-keyMetrics.utilitySize/2,keyMetrics.utilitySize,keyMetrics.utilitySize});

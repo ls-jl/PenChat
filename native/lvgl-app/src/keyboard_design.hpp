@@ -1,5 +1,6 @@
 #pragma once
 #include "theme.hpp"
+#include "ui_metrics.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -147,5 +148,100 @@ struct KeyboardDesign {
 inline const KeyboardDesign &keyboardDesign() {
   static const KeyboardDesign value;
   return value;
+}
+
+// Authoring values remain in design units. Ratios, the legacy compact canvas,
+// and inheritance sentinels are not dimensions and never pass through dp().
+inline KeyboardDesign resolveKeyboardDesign(const KeyboardDesign &base,const UiMetrics &metrics) {
+  auto result=base;
+  result.base.radius=metrics.dp(base.base.radius);
+  for(auto &patch:result.roles)if(patch.radius>=0)patch.radius=metrics.dp(patch.radius);
+  for(auto &patch:result.variants)if(patch.radius>=0)patch.radius=metrics.dp(patch.radius);
+  for(auto &size:result.typography.sizes)size=std::max(1,metrics.dp(size));
+  for(auto &profile:result.profiles)for(auto &size:profile.fonts)if(size>0)size=std::max(1,metrics.dp(size));
+  result.keys.gap=metrics.dp(base.keys.gap);
+  result.keys.rowGap=metrics.dp(base.keys.rowGap);
+  result.keys.margin=metrics.dp(base.keys.margin);
+  result.keys.touchX=metrics.dp(base.keys.touchX);
+  result.keys.touchY=metrics.dp(base.keys.touchY);
+  result.keys.filterWidth=metrics.dp(base.keys.filterWidth);
+  result.keys.utilitySize=metrics.dp(base.keys.utilitySize);
+  result.keys.utilityGrow=metrics.dp(base.keys.utilityGrow);
+  result.keys.utilityShiftX=metrics.dp(base.keys.utilityShiftX);
+  result.keys.utilityShiftY=metrics.dp(base.keys.utilityShiftY);
+  result.composition.gap=metrics.dp(base.composition.gap);
+  result.composition.minimum=metrics.dp(base.composition.minimum);
+  result.composition.maximum=metrics.dp(base.composition.maximum);
+  result.composition.padding=metrics.dp(base.composition.padding);
+  result.composition.labelX=metrics.dp(base.composition.labelX);
+  result.composition.labelY=metrics.dp(base.composition.labelY);
+  result.composition.portraitExpandWidth=metrics.dp(base.composition.portraitExpandWidth);
+  result.composition.portraitExpandHeight=metrics.dp(base.composition.portraitExpandHeight);
+  result.composition.portraitRight=metrics.dp(base.composition.portraitRight);
+  result.controls.height=metrics.dp(base.controls.height);
+  result.controls.gap=metrics.dp(base.controls.gap);
+  result.controls.doneWidth=metrics.dp(base.controls.doneWidth);
+  result.controls.clipboardWidth=metrics.dp(base.controls.clipboardWidth);
+  result.controls.ocrWidth=metrics.dp(base.controls.ocrWidth);
+  result.controls.portraitCancelWidth=metrics.dp(base.controls.portraitCancelWidth);
+  result.controls.portraitOcrWidth=metrics.dp(base.controls.portraitOcrWidth);
+  result.controls.portraitClipboardWidth=metrics.dp(base.controls.portraitClipboardWidth);
+  result.controls.portraitDoneWidth=metrics.dp(base.controls.portraitDoneWidth);
+  result.controls.captionInset=metrics.dp(base.controls.captionInset);
+  result.controls.popupCaptionInset=metrics.dp(base.controls.popupCaptionInset);
+  result.controls.inputPadding=metrics.dp(base.controls.inputPadding);
+  result.controls.caretOffset=metrics.dp(base.controls.caretOffset);
+  result.controls.finishTouchGrow=metrics.dp(base.controls.finishTouchGrow);
+  result.wide.editorMinimum=metrics.dp(base.wide.editorMinimum);
+  result.wide.inset=metrics.dp(base.wide.inset);
+  result.wide.textTop=metrics.dp(base.wide.textTop);
+  result.wide.textActionGap=metrics.dp(base.wide.textActionGap);
+  result.wide.keyTop=metrics.dp(base.wide.keyTop);
+  result.wide.bottomInset=metrics.dp(base.wide.bottomInset);
+  result.compact.headerHeight=metrics.dp(base.compact.headerHeight);
+  result.compact.headerGap=metrics.dp(base.compact.headerGap);
+  result.compact.textLeading=metrics.dp(base.compact.textLeading);
+  result.compact.textTrailing=metrics.dp(base.compact.textTrailing);
+  result.compact.doneWidth=metrics.dp(base.compact.doneWidth);
+  result.compact.bottomInset=metrics.dp(base.compact.bottomInset);
+  result.portrait.rowMin=metrics.dp(base.portrait.rowMin);
+  result.portrait.rowMax=metrics.dp(base.portrait.rowMax);
+  result.portrait.bottomMin=metrics.dp(base.portrait.bottomMin);
+  result.portrait.bottomMax=metrics.dp(base.portrait.bottomMax);
+  result.portrait.liftStep=metrics.dp(base.portrait.liftStep);
+  result.portrait.actionGap=metrics.dp(base.portrait.actionGap);
+  result.portrait.panelInset=metrics.dp(base.portrait.panelInset);
+  result.portrait.editorGap=metrics.dp(base.portrait.editorGap);
+  result.portrait.overlayGap=metrics.dp(base.portrait.overlayGap);
+  result.popups.safeMargin=metrics.dp(base.popups.safeMargin);
+  result.popups.radius=metrics.dp(base.popups.radius);
+  result.popups.menuRadius=metrics.dp(base.popups.menuRadius);
+  result.popups.portraitMenuRadius=metrics.dp(base.popups.portraitMenuRadius);
+  result.popups.menuWidth=metrics.dp(base.popups.menuWidth);
+  result.popups.portraitMenuWidth=metrics.dp(base.popups.portraitMenuWidth);
+  result.popups.menuRow=metrics.dp(base.popups.menuRow);
+  result.popups.portraitMenuRow=metrics.dp(base.popups.portraitMenuRow);
+  result.popups.menuPadding=metrics.dp(base.popups.menuPadding);
+  result.popups.portraitMenuPadding=metrics.dp(base.popups.portraitMenuPadding);
+  result.popups.menuGap=metrics.dp(base.popups.menuGap);
+  result.popups.lensWidth=metrics.dp(base.popups.lensWidth);
+  result.popups.lensHeight=metrics.dp(base.popups.lensHeight);
+  result.popups.lensOffset=metrics.dp(base.popups.lensOffset);
+  result.popups.portraitLensOffset=metrics.dp(base.popups.portraitLensOffset);
+  result.popups.selectionRadius=metrics.dp(base.popups.selectionRadius);
+  result.candidates.height=metrics.dp(base.candidates.height);
+  result.candidates.rowGap=metrics.dp(base.candidates.rowGap);
+  result.candidates.minimumWidth=metrics.dp(base.candidates.minimumWidth);
+  result.candidates.naturalMinimum=metrics.dp(base.candidates.naturalMinimum);
+  result.candidates.textPadding=metrics.dp(base.candidates.textPadding);
+  result.candidates.correctionPadding=metrics.dp(base.candidates.correctionPadding);
+  result.candidates.captionInset=metrics.dp(base.candidates.captionInset);
+  result.candidates.correctedCaptionInset=metrics.dp(base.candidates.correctedCaptionInset);
+  result.candidates.separatorInset=metrics.dp(base.candidates.separatorInset);
+  result.candidates.separatorHeight=metrics.dp(base.candidates.separatorHeight);
+  result.candidates.correctionSize=metrics.dp(base.candidates.correctionSize);
+  result.candidates.correctionRight=metrics.dp(base.candidates.correctionRight);
+  result.candidates.correctionTop=metrics.dp(base.candidates.correctionTop);
+  return result;
 }
 } // namespace penchat

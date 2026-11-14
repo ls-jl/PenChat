@@ -66,9 +66,9 @@ struct UiControlsTest {
     a.editorRoot_ = a.box(a.screenObj_, 0, 0, 240, 120);
     auto key = a.button(a.editorRoot_, "a", 0, 0, 80, 44, [] {});
     lv_obj_update_layout(a.screenObj_);
-    assert(lv_obj_get_style_text_font(lv_obj_get_child(key, 0), LV_PART_MAIN) == font(20));
-    assert(lv_obj_get_style_radius(key, LV_PART_MAIN) == 10);
-    assert(lv_obj_get_width(lv_obj_get_child(key, 0)) == 56);
+    assert(lv_obj_get_style_text_font(lv_obj_get_child(key, 0), LV_PART_MAIN) == font(a.editorMetrics().fontSize(UiFont::Button)));
+    assert(lv_obj_get_style_radius(key, LV_PART_MAIN) == a.editorMetrics().dp(10));
+    assert(lv_obj_get_width(lv_obj_get_child(key, 0)) == 80-a.editorMetrics().dp(24));
     lv_obj_delete(a.editorRoot_);
     a.editorRoot_ = nullptr;
     a.clear();

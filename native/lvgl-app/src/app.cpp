@@ -132,8 +132,7 @@ bool App::keyboardControl(lv_obj_t *parent) const {
   return false;
 }
 const UiMetrics &App::controlMetrics(lv_obj_t *parent) const {
-  static const UiMetrics compatibility;
-  return keyboardControl(parent) ? compatibility : uiMetrics_;
+  return keyboardControl(parent) ? editorMetrics() : uiMetrics_;
 }
 lv_obj_t *App::label(lv_obj_t *parent, const std::string &text, int x, int y,
                      int w, UiFont role, uint32_t color) {
@@ -157,6 +156,7 @@ lv_obj_t *App::box(lv_obj_t *parent, int x, int y, int w, int h,
 }
 lv_obj_t *App::label(lv_obj_t *parent, const std::string &text, int x, int y,
                      int w, int size, uint32_t color) {
+  if(size<0)size=controlMetrics(parent).fontSize(UiFont::Body);
   auto o = lv_label_create(parent);
   lv_obj_set_pos(o, x, y);
   lv_obj_set_width(o, w);
@@ -169,7 +169,7 @@ lv_obj_t *App::button(lv_obj_t *parent, const std::string &text, int x, int y,
                       int w, int h, std::function<void()> click, uint32_t color,
                       lv_text_align_t align) {
   const bool keyboard = keyboardControl(parent);
-  const UiMetrics metrics = keyboard ? UiMetrics() : uiMetrics_;
+  const UiMetrics metrics = keyboard ? editorMetrics() : uiMetrics_;
   const auto style = metrics.button();
   auto o = box(parent, x, y, w, h, color, metrics);
   lv_obj_set_scrollable(o, false);

@@ -13,12 +13,13 @@ FIELDS = ('keys', 'text_bounds', 'candidate_y', 'function_y', 'panel_top',
           'composition_bounds', 'candidate_bounds')
 
 
-def scenario(binary, output, width, height, split=False, swap=False):
+def scenario(binary, output, width, height, split=False, swap=False, scale=100):
     name = f'{width}x{height}-' + ('split' if split else 'default') + ('-swap' if swap else '')
     result = {}
     with tempfile.TemporaryDirectory(prefix='penchat-keyboard-design-') as folder:
         app = t.Native(binary, folder, seed_model=False, official_adapter=False,
-                       screen={'width': width, 'height': height, 'direction': 0})
+                       screen={'width': width, 'height': height, 'direction': 0},
+                       ui_scale_percent=None if scale==100 else scale)
         try:
             if swap:
                 app.open_settings()
@@ -45,6 +46,9 @@ def scenario(binary, output, width, height, split=False, swap=False):
                 app.editor_action('layout:'+str(value))
             def record(label):
                 current = state()
+                if scale!=100:
+                    assert current['requested_scale']==scale
+                    assert min(100,scale)<=current['effective_scale']<=scale
                 assert current['session'] == session
                 result[label] = {k: current[k] for k in FIELDS}
                 for item in current['keys']:
