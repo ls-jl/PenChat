@@ -7,7 +7,7 @@
 namespace penchat {
 // These are design dimensions, not Falcon coordinates, image pixels or LVGL
 // encoded sizes. Convert once, then pass the resolved logical pixels unchanged.
-enum class UiFont { Body, Button, PageTitle, FieldTitle, FieldValue, SettingsTitle, Detail };
+enum class UiFont { Body, Button, PageTitle, FieldTitle, FieldValue, SettingsTitle, Detail, Composer };
 class UiMetrics {
 public:
   explicit UiMetrics(int densityPercent = 100, int scalePercent = 100)
@@ -34,6 +34,7 @@ public:
     case UiFont::FieldValue: size = 19; break;
     case UiFont::SettingsTitle: size = 20; break;
     case UiFont::Detail: size = 16; break;
+    case UiFont::Composer: size = 20; break;
     }
     return std::max(1, dp(size));
   }
@@ -59,6 +60,19 @@ public:
   }
   struct Form { int leadingCaptionPadding, captionPadding; };
   Form form() const { return {dp(52), dp(28)}; }
+  struct Composer {
+    int control, portraitSend, portraitInset, landscapeInset;
+    int expandedPad, textInset, textTop, textToolsGap, dockGap, readerGap;
+    int messageBottom, returnGap, hiddenOffset, attachmentHitGrow;
+    int gaugeTrailing, initialGaugeTrailing, initialSendTrailing, initialTop;
+    int border;
+    int returnOffset() const { return control + returnGap; }
+    int textPadding() const { return 2 * textInset; }
+  };
+  Composer composer() const {
+    return {dp(44), dp(54), dp(25), dp(2), dp(14), dp(12), dp(32), dp(8),
+            dp(4), dp(8), dp(16), dp(12), dp(2), dp(8), dp(96), dp(100), dp(50), dp(2), dp(1)};
+  }
 private:
   int density_, scale_;
 };

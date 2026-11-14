@@ -46,7 +46,7 @@ class App {
     std::string tableKey;
     std::map<std::pair<int, int>, lv_obj_t *> tiles;
   };
-  AppLayout layout() const { return {screen_.width,screen_.height,roundedDisplay_}; }
+  AppLayout layout() const { return {screen_.width,screen_.height,roundedDisplay_,uiMetrics_}; }
   void portraitPage();
   void arrangeModal();
   bool roundedDisplay_ = false, contextMenuOpening_ = false, popupConsumeTouch_ = false;
@@ -642,6 +642,7 @@ class App {
   void inputAction(lv_obj_t *,const std::function<void()> &);
   int chatComposerHeight() const;
   int chatComposerY() const;
+  int chatComposerY(int composerHeight) const;
   void layoutChatComposer();
   void editorAttachTarget();
   void editorDetachTarget();

@@ -1,4 +1,6 @@
 #include "ui_metrics.hpp"
+#include "layout.hpp"
+#include "pull_geometry.hpp"
 #include <cassert>
 #include <iostream>
 #include <limits>
@@ -26,6 +28,39 @@ int main() {
   assert(UiMetrics(125, 125).dp(1) == 2); // round only after composing both factors
   assert(UiMetrics(100, 150).dp(-1) == -2);
   assert(UiMetrics(1, 1).fontSize(UiFont::Body) == 1);
+  assert(identity.fontSize(UiFont::Composer) == 20);
+  for (auto size : {std::make_pair(960,266), std::make_pair(640,260), std::make_pair(568,1210)}) {
+    const AppLayout original(size.first,size.second);
+    assert(original.composerHeight() == (original.portrait()?94:48));
+    assert(original.composerX() == (original.portrait()?24:106));
+    for (int percent : {75,100,125,150}) {
+      const UiMetrics metrics(100,percent);
+      const AppLayout layout(size.first,size.second,false,metrics);
+      assert(layout.category()==original.category());
+      assert(layout.width==size.first && layout.height==size.second);
+      assert(layout.composerHeight()==metrics.composer().control+2*layout.composerInset());
+      assert(layout.composerY()+layout.composerHeight()+layout.safeBottom()==size.second);
+      assert(layout.composerX()>=0 && layout.composerWidth()>0);
+      assert(layout.composerX()+layout.composerWidth()<=size.first);
+      assert(layout.bodyWidth()+layout.gutter()+metrics.dp(4)==size.first);
+      assert(layout.contentWidth()>0 && layout.chatMessageWidth()>0);
+      const AppLayout rounded(size.first,size.second,true,metrics);
+      const AppLayout unscaledRounded(size.first,size.second,true);
+      assert(rounded.safety().radius()==unscaledRounded.safety().radius());
+      assert(rounded.safety().margin()==unscaledRounded.safety().margin());
+      // Relative pull thresholds consume the resulting reader once; there is
+      // deliberately no scale argument or physical-touch multiplier here.
+      auto g=pullGeometry({layout.gutter(),layout.chatReaderTop(),size.first,size.second},
+                          size.first,size.second,layout.composerY());
+      assert(g.reader.bottom==layout.composerY());
+      assert(g.start>=1 && g.fill>g.start);
+      const auto camera=layout.cameraWorkspace(size.first,size.second,false);
+      const auto crop=layout.cropWorkspace(size.first,size.second);
+      const auto scan=layout.scanWorkspace();
+      for (auto rect : {camera.preview,camera.shutter,crop.viewport,crop.confirm,scan.preview,scan.use})
+        assert(rect.width>0 && rect.height>0 && rect.x>=0 && rect.y>=0);
+    }
+  }
   bool invalid = false, overflow = false;
   try { UiMetrics m(0); } catch (const std::invalid_argument &) { invalid = true; }
   try { UiMetrics(1000, 1000).dp(std::numeric_limits<int>::max()); }

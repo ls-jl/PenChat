@@ -157,9 +157,9 @@ Y07 通过驱动 LED 类控制白灯，使用厂商模式值1，不套用 ORANGE
   已解析逻辑像素，例如调用方先计算 `metrics.dp(44)`，按钮内部不再缩放高度。
 - `label(..., UiFont)` 使用语义字号；原 `label(..., int)` 和 `font(int)` 继续接受
   最终像素字号。阅读字体百分比、Markdown 和键盘的既有字号路径保持独立。
-- 本阶段仅迁移通用按钮、字段、页面标题/动作、设置行的内部度量及 box 默认
-  字体。键盘复用 helper 时使用 100% 兼容指标。完整页面、composer、图标和手势
-  尚未整体迁移，不能把局部试验当作全应用缩放验收。
+- 基础控件已迁移通用按钮、字段、页面标题/动作、设置行内部度量及 box 默认
+  字体；第二阶段接入 AppLayout 和 composer，详见下文。键盘复用 helper 时仍
+  使用 100% 兼容指标，不能把局部试验当作全应用缩放验收。
 - 主机程序仅在 `--headless` 下接受 `--ui-scale-percent 75..150` 整数参数；设备
   构建拒绝该参数。App 度量启动时确定，不支持运行中更改。
 
@@ -179,3 +179,38 @@ python3 tests/test_ui_metrics_baseline.py --baseline .work/ui-metrics/baseline
 MicroTeX 的进程级生命周期；覆盖三种布局与四档倍率。基线比较使用相同字体、
 资源和确定性的 PNG 编码，比较稳定界面的几何及完整图片字节。截图和基线
 可执行文件保留在忽略目录，不提交到 Git。
+
+
+### AppLayout 与 composer 度量接入
+
+AppLayout 接收显式 UiMetrics，转换导航/页面/消息区/弹层及各工作区的固定设计
+尺寸；显示宽高、布局类别的宽高比、比例分栏及 ScreenSafety 的物理圆角包络
+保持 Falcon 逻辑坐标。相机/裁剪只转换工作区控件尺寸，不改变采集、图片像素
+或旋转坐标。EditorLayout 默认使用原有指标，键盘键帽和候选布局尚未迁移。
+
+composer 的控件直径、内外留白、文字区域、工具行、键盘间隔及返回底部按钮
+由同一组指标驱动；创建、草稿增长和停靠路径共用这些度量。Composer 字体角色
+默认 20px，测量、预览和竖屏内嵌 textarea 使用同一个最终字号，不再借用键盘
+字号隐式决定正文布局。聊天阅读字号设置仍独立，键帽不会跟随缩放。
+
+保持单行圆角、横屏两倍/竖屏既有增长策略、局部滚动、composer 显隐策略，以及
+160ms 回弹和所有手势时间规则。下拉创建只根据转换完成后的未遮挡 reader
+计算空间阈值，按下时冻结；不再乘 UI 倍率，也不改变 NativeTouch 映射。
+
+主机验证包括四档倍率、三类布局、空白/短/长草稿、有无推理强度按钮及停靠编辑；
+100% 与上一阶段的独立二进制比较几何及 PNG 字节。非 100% 仍为主机实验，其他
+页面的内部内容、图标图形及键盘整体缩放未完成，不开放设备设置。
+
+```bash
+python3 tests/test_composer_scale.py
+# 在修改前记录一次；此文件夹不能由新程序覆盖。
+python3 tests/test_composer_scale.py --binary /absolute/path/to/baseline \
+  --scales 100 --output .work/composer-before
+python3 tests/test_composer_scale.py --scales 100 --baseline .work/composer-before
+ctest --test-dir build/host -R '^penchat-(ui-metrics|platform-layout)$' --output-on-failure
+```
+
+本阶段定向验证发现 `test_docked_dismiss.py` 在取消触摸后的 offset 归零检查
+（当前第 46 行）超时；上一阶段独立基线 `1e36122` 也在同一位置失败。此次只
+记录这一既有测试失败，不修改取消交互、不跳过断言，也不将该项报告为通过。
+其原因与真实设备表现仍需单独排查。

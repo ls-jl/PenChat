@@ -68,73 +68,82 @@ EditorLayout::Popup App::editorTextArea() const {
   return {a.x1,a.y1,std::max(0,int(a.x2-a.x1+1)),std::max(0,int(a.y2-a.y1+1))};
 }
 int App::chatComposerHeight() const {
-  const int base=layout().composerHeight();
+  const auto geometry=layout();
+  const auto c=uiMetrics_.composer();
+  const auto textFont=font(uiMetrics_.fontSize(UiFont::Composer));
+  const int base=geometry.composerHeight();
   const bool editing=editor_.active&&editorInPlace()&&editorInlineChat_;
   const auto &text=editing?editor_.text:draft_;
   if(!editing&&text.empty())return base;
-  if(!layout().portrait()) {
+  if(!geometry.portrait()) {
     const bool gauge=sessionPreferences_.value("gauge",!effortMemory_.empty());
-    const int width=std::max(44,layout().composerWidth()-layout().composerEntryLeft()-layout().composerEntryRight(gauge)-24);
-    lv_point_t size{};lv_text_get_size(&size,text.c_str(),font(editorFontSize(KeyboardFont::Editor)),0,0,width,LV_TEXT_FLAG_NONE);
-    const int inset=std::max(0,(44-int(font(editorFontSize(KeyboardFont::Editor))->line_height))/2);
-    return std::min(base*2,std::max(base,int(size.y)+2*inset+4));
+    const int width=std::max(1,geometry.composerWidth()-geometry.composerEntryLeft()-geometry.composerEntryRight(gauge)-c.textPadding());
+    lv_point_t size{};lv_text_get_size(&size,text.c_str(),textFont,0,0,width,LV_TEXT_FLAG_NONE);
+    const int inset=std::max(0,(c.control-int(textFont->line_height))/2);
+    return std::min(base*2,std::max(base,int(size.y)+2*inset+2*c.landscapeInset));
   }
   // Text has its own inset; the tool row keeps the resting pill's arc center.
-  const int leftPad=26,rightPad=14,topPad=32;
-  const int toolsTop=layout().composerHeight()/2+layout().composerSendDiameter()/2;
-  const int width=std::max(44,layout().composerWidth()-leftPad-rightPad);
-  lv_point_t size{};lv_text_get_size(&size,text.c_str(),font(editorFontSize(KeyboardFont::Editor)),0,0,width,LV_TEXT_FLAG_NONE);
-  const int minimum=std::max(topPad+font(editorFontSize(KeyboardFont::Editor))->line_height+8+toolsTop,
+  const int leftPad=c.expandedPad+c.textInset,rightPad=c.expandedPad,topPad=c.textTop;
+  const int toolsTop=geometry.composerHeight()/2+geometry.composerSendDiameter()/2;
+  const int width=std::max(1,geometry.composerWidth()-leftPad-rightPad);
+  lv_point_t size{};lv_text_get_size(&size,text.c_str(),textFont,0,0,width,LV_TEXT_FLAG_NONE);
+  const int minimum=std::max(topPad+textFont->line_height+c.textToolsGap+toolsTop,
                              editing?editorComposerOpenHeight_:0);
   return std::min(std::max(minimum,base*3),
-                  std::max(minimum,topPad+std::max(int(font(editorFontSize(KeyboardFont::Editor))->line_height),int(size.y))+8+toolsTop));
+                  std::max(minimum,topPad+std::max(int(textFont->line_height),int(size.y))+c.textToolsGap+toolsTop));
 }
 int App::chatComposerY() const {
+  return chatComposerY(chatComposerHeight());
+}
+int App::chatComposerY(int composerHeight) const {
+  const auto geometry=layout();
   const bool docked=editor_.active&&editorInPlace()&&view_=="chat";
-  const auto keyboard=editorLayout();
-  const int bottom=docked?keyboard.panelTop-4:screen_.height-layout().safeBottom();
-  return bottom-chatComposerHeight();
+  const int bottom=docked?editorLayout().panelTop-uiMetrics_.composer().dockGap:screen_.height-geometry.safeBottom();
+  return bottom-composerHeight;
 }
 void App::layoutChatComposer() {
   if(!chatControls_||!composer_)return;
+  const auto geometry=layout();
+  const auto c=uiMetrics_.composer();
+  const auto textFont=font(uiMetrics_.fontSize(UiFont::Composer));
   const bool editing=editor_.active&&editorInPlace()&&editorInlineChat_;
-  const bool expanded=layout().portrait()&&(editing||!draft_.empty());
+  const bool expanded=geometry.portrait()&&(editing||!draft_.empty());
   const bool previous=chatLayout_;chatLayout_=true;
   const int oldHeight=lv_obj_get_height(chatControls_);
-  const int height=chatComposerHeight(),width=layout().composerWidth();
-  const int pad=expanded?14:layout().composerInset();
+  const int height=chatComposerHeight(),width=geometry.composerWidth();
+  const int pad=expanded?c.expandedPad:geometry.composerInset();
   lv_obj_set_height(chatControls_,height);
-  lv_obj_set_style_radius(chatControls_,layout().composerHeight()/2,0);
-  if(toBottom_)lv_obj_set_y(toBottom_,chatComposerY()-56);
+  lv_obj_set_style_radius(chatControls_,geometry.composerHeight()/2,0);
+  if(toBottom_)lv_obj_set_y(toBottom_,chatComposerY(height)-c.returnOffset());
   const bool gauge=sessionPreferences_.value("gauge",!effortMemory_.empty());
-  const int x=expanded?pad+12:layout().composerEntryLeft();
-  const int y=expanded?32:pad;
-  const int w=expanded?width-x-pad:width-x-layout().composerEntryRight(gauge);
-  const int toolsTop=layout().composerHeight()/2+layout().composerSendDiameter()/2;
-  const int h=expanded?height-y-8-toolsTop:height-2*pad;
+  const int x=expanded?pad+c.textInset:geometry.composerEntryLeft();
+  const int y=expanded?c.textTop:pad;
+  const int w=expanded?width-x-pad:width-x-geometry.composerEntryRight(gauge);
+  const int toolsTop=geometry.composerHeight()/2+geometry.composerSendDiameter()/2;
+  const int h=expanded?height-y-c.textToolsGap-toolsTop:height-2*pad;
   lv_obj_set_pos(composer_,x,y);lv_obj_set_size(composer_,w,h);
   for(uint32_t i=0;i<lv_obj_get_child_count(chatControls_);++i) {
     auto child=lv_obj_get_child(chatControls_,i);if(child==composer_)continue;
     const bool send=i+1==lv_obj_get_child_count(chatControls_);
-    const int grow=send?(layout().composerSendDiameter()-44)/2:0;
-    const int toolPad=layout().composerInset();
-    const int cx=send?width-toolPad-44-grow:i==0?pad:width-toolPad-96;
-    lv_obj_set_align(child,LV_ALIGN_TOP_LEFT);lv_obj_set_pos(child,cx,height-toolPad-44-grow);
+    const int grow=send?(geometry.composerSendDiameter()-c.control)/2:0;
+    const int toolPad=geometry.composerInset();
+    const int cx=send?width-toolPad-c.control-grow:i==0?pad:width-toolPad-c.gaugeTrailing;
+    lv_obj_set_align(child,LV_ALIGN_TOP_LEFT);lv_obj_set_pos(child,cx,height-toolPad-c.control-grow);
   }
   auto value=lv_obj_get_child(composer_,0);
   if(value) {
-    const bool wrapping=expanded||!layout().portrait();
-    lv_obj_set_style_text_font(value,font(editorFontSize(KeyboardFont::Editor)),0);
+    const bool wrapping=expanded||!geometry.portrait();
+    lv_obj_set_style_text_font(value,textFont,0);
     lv_label_set_long_mode(value,wrapping?LV_LABEL_LONG_MODE_WRAP:LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_align(value,LV_ALIGN_TOP_LEFT);
-    lv_obj_set_pos(value,expanded?0:12,expanded?0:std::max(0,(std::min(44,h)-font(editorFontSize(KeyboardFont::Editor))->line_height)/2));
-    lv_obj_set_size(value,expanded?w:std::max(0,w-24),expanded?h:wrapping?LV_SIZE_CONTENT:font(editorFontSize(KeyboardFont::Editor))->line_height);
-    lv_obj_set_scrollable(composer_,!layout().portrait()&&height==layout().composerHeight()*2);
+    lv_obj_set_pos(value,expanded?0:c.textInset,expanded?0:std::max(0,(std::min(c.control,h)-textFont->line_height)/2));
+    lv_obj_set_size(value,expanded?w:std::max(0,w-c.textPadding()),expanded?h:wrapping?LV_SIZE_CONTENT:textFont->line_height);
+    lv_obj_set_scrollable(composer_,!geometry.portrait()&&height==geometry.composerHeight()*2);
     lv_obj_set_scroll_dir(composer_,LV_DIR_VER);
     lv_obj_set_scroll_elastic(composer_,false);lv_obj_set_scroll_chain_ver(composer_,false);
   }
   if(oldHeight!=height&&chatComposerVisible()&&(editing||!hasConversationContent_||chatFollowing_||atLatestBottom())) {
-    lv_anim_delete(chatControls_,nullptr);chatControlsTarget_=chatComposerY();
+    lv_anim_delete(chatControls_,nullptr);chatControlsTarget_=chatComposerY(height);
     lv_obj_set_y(chatControls_,chatControlsTarget_);
   }
   lv_obj_update_layout(chatControls_);chatLayout_=previous;
@@ -156,7 +165,7 @@ void App::editorAttachTarget() {
       auto self=static_cast<App *>(lv_event_get_user_data(e));
       if(self->editorText_==lv_event_get_target_obj(e))self->editorText_=nullptr;
     },LV_EVENT_DELETE,this);
-    lv_obj_set_style_text_font(editorText_,font(editorFontSize(style==1?KeyboardFont::InlineField:KeyboardFont::Editor)),0);
+    lv_obj_set_style_text_font(editorText_,font(chat?uiMetrics_.fontSize(UiFont::Composer):editorFontSize(style==1?KeyboardFont::InlineField:KeyboardFont::Editor)),0);
     lv_obj_set_style_text_color(editorText_,lv_color_hex(keyboardDesign().style(KeyboardRole::Input).foreground),0);
     lv_obj_set_style_bg_opa(editorText_,LV_OPA_TRANSP,0);
     lv_obj_set_style_border_width(editorText_,0,0);lv_obj_set_style_radius(editorText_,0,0);

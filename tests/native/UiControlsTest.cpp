@@ -72,6 +72,35 @@ struct UiControlsTest {
     lv_obj_delete(a.editorRoot_);
     a.editorRoot_ = nullptr;
     a.clear();
+    a.view_="chat";
+    for (bool gauge : {false,true}) for (const auto &draft : {std::string(),std::string("short"),std::string(1000,'x')}) {
+      a.sessionPreferences_["gauge"]=gauge;
+      a.draft_=draft;
+      a.build();
+      lv_obj_update_layout(a.screenObj_);
+      const auto layout=a.layout();const auto c=m.composer();
+      assert(lv_obj_get_x(a.chatControls_)==layout.composerX());
+      assert(lv_obj_get_width(a.chatControls_)==layout.composerWidth());
+      assert(lv_obj_get_height(a.chatControls_)==a.chatComposerHeight());
+      assert(lv_obj_get_style_radius(a.chatControls_,LV_PART_MAIN)==layout.composerHeight()/2);
+      assert(lv_obj_get_y(a.toBottom_)==a.chatComposerY()-c.returnOffset());
+      assert(lv_obj_get_width(a.toBottom_)==c.control);
+      assert(lv_obj_get_style_text_font(lv_obj_get_child(a.composer_,0),LV_PART_MAIN)==font(m.fontSize(UiFont::Composer)));
+      const int count=lv_obj_get_child_count(a.chatControls_);
+      auto send=lv_obj_get_child(a.chatControls_,count-1);
+      assert(lv_obj_get_width(send)==layout.composerSendDiameter());
+      for (int i=0;i<count;++i) {
+        auto child=lv_obj_get_child(a.chatControls_,i);
+        assert(lv_obj_get_x(child)>=0 && lv_obj_get_y(child)>=0);
+        assert(lv_obj_get_x(child)+lv_obj_get_width(child)<=layout.composerWidth());
+        assert(lv_obj_get_y(child)+lv_obj_get_height(child)<=a.chatComposerHeight());
+      }
+      if(gauge) {
+        auto gaugeButton=lv_obj_get_child(a.chatControls_,1);
+        assert(lv_obj_get_x(gaugeButton)+lv_obj_get_width(gaugeButton)<=lv_obj_get_x(send));
+      }
+    }
+    a.clear();
   }
 };
 }

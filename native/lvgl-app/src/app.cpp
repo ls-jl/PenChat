@@ -1105,7 +1105,7 @@ void App::build() {
     onboardingPage();builtView_=view_;builtPageKey_=pageKey();syncScanner();syncBackPolicy();return;
   }
   lv_obj_t *navigation=nullptr;
-  if(view_!="crop"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", layout().portrait()?layout().navigationX():16, layout().portrait()?layout().safeTop():8, 48, 48, [this] {
+  if(view_!="crop"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", layout().portrait()?layout().navigationX():uiMetrics_.dp(16), layout().portrait()?layout().safeTop():uiMetrics_.dp(8), uiMetrics_.dp(48), uiMetrics_.dp(48), [this] {
     if(editor_.active){editorAccept();return;}
     if (view_ == "chat") {
       if(!messageEdit_.empty())cancelMessageEdit();else toggleNavigation();
@@ -1170,11 +1170,11 @@ void App::build() {
     chatHeader_ = box(screenObj_, 0, 0, screen_.width, layout().chatReaderTop());
     lv_obj_set_scrollable(chatHeader_, false);
     if (navigation) lv_obj_set_parent(navigation, chatHeader_);
-    const int left = layout().navigationX() + 64;
-    const int statusX = screen_.width - layout().navigationX() - 88;
-    chatTitle_ = label(chatHeader_, "", left, layout().safeTop()+10, statusX-left-12, 20);
+    const int left = layout().navigationX() + uiMetrics_.dp(64);
+    const int statusX = screen_.width - layout().navigationX() - uiMetrics_.dp(88);
+    chatTitle_ = label(chatHeader_, "", left, layout().safeTop()+uiMetrics_.dp(10), statusX-left-uiMetrics_.dp(12), UiFont::Button);
     lv_label_set_long_mode(chatTitle_, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_height(chatTitle_, font(20)->line_height);
+    lv_obj_set_height(chatTitle_, font(uiMetrics_.fontSize(UiFont::Button))->line_height);
     refreshChatTitle();
   }
   if (view_ == "chat" && scanner_.available()) {
@@ -1321,11 +1321,11 @@ void App::chat() {
   lv_obj_set_scroll_chain_ver(body_, false);
   messageContent_ = box(body_, 0, 0, width, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(messageContent_, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(messageContent_, 10, 0);
-  lv_obj_set_style_pad_bottom(messageContent_, chatComposerHeight()+16+layout().safeBottom(), 0);
+  lv_obj_set_style_pad_row(messageContent_, uiMetrics_.dp(10), 0);
+  lv_obj_set_style_pad_bottom(messageContent_, chatComposerHeight()+uiMetrics_.composer().messageBottom+layout().safeBottom(), 0);
   if(layout().portrait()) {
-    lv_obj_set_style_pad_left(messageContent_,8,0);
-    lv_obj_set_style_pad_right(messageContent_,8,0);
+    lv_obj_set_style_pad_left(messageContent_,uiMetrics_.dp(8),0);
+    lv_obj_set_style_pad_right(messageContent_,uiMetrics_.dp(8),0);
   }
   lv_obj_set_scrollable(messageContent_, false);
   lv_obj_add_event_cb(
@@ -1342,21 +1342,23 @@ void App::rebuildChatControls() {
   if (toBottom_) lv_obj_delete(toBottom_);
   composer_ = chatControls_ = toBottom_ = nullptr;
   chatControlsTarget_ = -1;
-  const int composerWidth = layout().composerWidth();
+  const auto geometry = layout();
+  const auto c = uiMetrics_.composer();
+  const int composerWidth = geometry.composerWidth();
   chatControls_ =
-      box(screenObj_, layout().composerX(), layout().composerY(), composerWidth, layout().composerHeight(), theme::surface);
+      box(screenObj_, geometry.composerX(), geometry.composerY(), composerWidth, geometry.composerHeight(), theme::surface);
   lv_obj_set_scrollable(chatControls_, false);
-  lv_obj_set_style_radius(chatControls_, layout().composerHeight()/2, 0);
+  lv_obj_set_style_radius(chatControls_, geometry.composerHeight()/2, 0);
   auto attachment = icon(
-      chatControls_, "plus", layout().composerInset(), layout().composerInset(), 44, 44, [this] { toggleAttachments(); },
+      chatControls_, "plus", geometry.composerInset(), geometry.composerInset(), c.control, c.control, [this] { toggleAttachments(); },
       theme::surface);
   // Keep the glyph in place; near-edge taps belong to attachments, not IME.
-  lv_obj_set_ext_click_area(attachment, 8);
-  const int entryLeft = layout().composerEntryLeft();
+  lv_obj_set_ext_click_area(attachment, c.attachmentHitGrow);
+  const int entryLeft = geometry.composerEntryLeft();
   const bool gauge = sessionPreferences_.value("gauge", !effortMemory_.empty());
   if (gauge)
     icon(
-        chatControls_, "gauge", composerWidth - (layout().portrait()?layout().composerInset()+100:100), 2, 44, 44, [this] { effortPicker(); },
+        chatControls_, "gauge", composerWidth - (geometry.portrait()?geometry.composerInset()+c.initialGaugeTrailing:c.initialGaugeTrailing), c.initialTop, c.control, c.control, [this] { effortPicker(); },
         theme::surface, theme::muted);
   auto compose = [this] {
     if (contextBusy_ || !composerTapAllowed_)
@@ -1370,21 +1372,21 @@ void App::rebuildChatControls() {
         },
         8192, "ZhCNPreferred", {}, true, false, false, true);
   };
-  const auto preview = layout().compact()?chatDraftPreview(draft_):draft_;
+  const auto preview = geometry.compact()?chatDraftPreview(draft_):draft_;
   composer_ = button(
-      chatControls_, preview.empty() ? "询问 " PENCHAT_NAME : preview, entryLeft, 2,
-      composerWidth - entryLeft - layout().composerEntryRight(gauge), 44,
+      chatControls_, preview.empty() ? "询问 " PENCHAT_NAME : preview, entryLeft, c.initialTop,
+      composerWidth - entryLeft - geometry.composerEntryRight(gauge), c.control,
       compose,
       theme::surface, LV_TEXT_ALIGN_LEFT);
   onClick(chatControls_,compose);
-  if(layout().portrait())inputTarget(composer_,"chat-composer");
+  if(geometry.portrait())inputTarget(composer_,"chat-composer");
   if (draft_.empty())
     lv_obj_set_style_text_color(lv_obj_get_child(composer_, 0),
                                 lv_color_hex(theme::muted), 0);
   const bool sendEnabled = contextBusy_ || generating_ || canSend();
-  const int sendDiameter = layout().composerSendDiameter();
+  const int sendDiameter = geometry.composerSendDiameter();
   auto send = icon(
-      chatControls_, (generating_ || contextBusy_) ? "stop" : "up", composerWidth - 50, 2, sendDiameter, sendDiameter,
+      chatControls_, (generating_ || contextBusy_) ? "stop" : "up", composerWidth - c.initialSendTrailing, c.initialTop, sendDiameter, sendDiameter,
       [this] {
         if(editor_.active&&editorInPlace()&&!generating_&&!contextBusy_) {editorAction("chat-send");return;}
         if (contextBusy_) {
@@ -1397,14 +1399,14 @@ void App::rebuildChatControls() {
       },
       sendEnabled ? theme::text : theme::border, theme::primaryText);
   // Grow the portrait circle equally around its existing center.
-  lv_obj_align(send, LV_ALIGN_RIGHT_MID, -layout().composerInset() + (sendDiameter - 44) / 2, 0);
+  lv_obj_align(send, LV_ALIGN_RIGHT_MID, -geometry.composerInset() + (sendDiameter - c.control) / 2, 0);
   if (!sendEnabled)
     lv_obj_set_clickable(send, false);
   toBottom_ = icon(
-      screenObj_, "down", layout().composerX() + (composerWidth - 44) / 2, chatComposerY() - 56, 44, 44,
+      screenObj_, "down", geometry.composerX() + (composerWidth - c.control) / 2, chatComposerY() - c.returnOffset(), c.control, c.control,
       [this] { jumpToBottom(); }, theme::surface);
   lv_obj_set_style_border_color(toBottom_, lv_color_hex(theme::border), 0);
-  lv_obj_set_style_border_width(toBottom_, 1, 0);
+  lv_obj_set_style_border_width(toBottom_, c.border, 0);
   layoutChatComposer();
   updateChatControls(false);
   if(editor_.active&&editorInPlace()&&editorRoot_) {
@@ -1537,7 +1539,7 @@ void App::updateChatControls(bool animate) {
   }
   lv_obj_set_style_bg_opa(toBottom_, overContent ? 160 : 255, 0);
   lv_obj_set_style_border_opa(toBottom_, overContent ? 160 : 255, 0);
-  const int target = chatComposerVisible() ? chatComposerY() : screen_.height + 2;
+  const int target = chatComposerVisible() ? chatComposerY() : screen_.height + uiMetrics_.composer().hiddenOffset;
   if (chatControlsTarget_ == target)
     return;
   chatControlsTarget_ = target;
@@ -2001,7 +2003,7 @@ void App::renderMessages(bool bottom, bool cached) {
   reasoningHeaders_.clear();reasoningControls_.clear();
   lv_obj_clean(messageContent_);
   auto messages = cached ? rows_ : messageEdit_.empty()?db_.messages(session_, messageOffset_, 30):editedMessages();
-  lv_obj_set_style_pad_top(messageContent_, messages.empty() ? 0 : 8, 0);
+  lv_obj_set_style_pad_top(messageContent_, messages.empty() ? 0 : uiMetrics_.dp(8), 0);
   if (!cached)
     reasoningDisplay_ =
         db_.settings().value("reasoning_display", std::string("collapsed"));
@@ -2268,7 +2270,7 @@ void App::pageHeader(const std::string &title, int top) {
 }
 lv_obj_t *App::pageAction(const std::string &title, int right, int width, std::function<void()> action) {
   const auto metrics = uiMetrics_.page();
-  const int x = layout().portrait()?layout().bodyWidth()-right-width-layout().navigationX():screen_.width-86-right-width;
+  const int x = layout().portrait()?layout().bodyWidth()-right-width-layout().navigationX():screen_.width-layout().gutter()-right-width;
   auto result = button(pageHeader_, title, x, metrics.actionTop, width, metrics.actionHeight, std::move(action));
   pageActions_[title] = result;
   const int titleWidth = lv_obj_get_style_width(pageHeading_,LV_PART_MAIN);
