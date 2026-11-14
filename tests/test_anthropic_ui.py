@@ -6,6 +6,7 @@ from anthropic_fixture import Handler,seed,configure,SIGNATURE,REDACTED
 from test_reply_actions import action as reply_action,confirm as confirm_retry,bottom
 from provider_ui import activate as provider_action,commit_model
 from choice_ui import select
+from chat_instruction_checks import assert_chat_prompt
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
 OUT=t.ROOT/'.work/anthropic-ui';OUT.mkdir(parents=True,exist_ok=True)
 def shot(a,name):
@@ -59,11 +60,7 @@ def configuration(w,h):
   finally:a.close()
 
 def assert_chat_instructions(request, session):
-    prompt=request['system']
-    assert prompt.startswith('PenChat_APPLICATION_RULES_V1\n')
-    assert prompt.count('PenChat_APPLICATION_RULES_V1')==1
-    assert prompt.count('Session instructions (subject to the fixed application rules):')==1
-    assert prompt.count(session)==1 and prompt.endswith('\n'+session)
+    assert_chat_prompt(request['system'],session)
 
 def chat(w,h):
  with http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler) as server,tempfile.TemporaryDirectory(prefix='penchat-anthropic-chat-') as folder:

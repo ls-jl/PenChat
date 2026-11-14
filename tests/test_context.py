@@ -2,6 +2,8 @@
 """Actual-process context compaction: HTTP batches, atomic archives, cancellation.
 All keys, providers, databases and images are isolated fixtures. No device access.
 """
+from chat_instruction_checks import assert_chat_prompt
+from provider_ui import open_model,commit_model
 import http.server, json, os, pathlib, sqlite3, tempfile, threading, time, struct, zlib, subprocess, shutil, zipfile
 from test_lvgl_app import Native, ROOT, wait_for
 from test_reasoning_ui import seed
@@ -144,10 +146,11 @@ def run():
                     answer=Server.requests[-1][1]
                     assert answer['model']=='a' and 'CURRENT_PENDING' in json.dumps(answer)
                     if api=='responses':
-                        assert answer['instructions']=='CHAT_SYSTEM_ONCE'
+                        assert_chat_prompt(answer['instructions'],'CHAT_SYSTEM_ONCE')
                         assert answer['reasoning']['effort']=='high'
                     else:
-                        assert answer['messages'][0]=={'role':'system','content':'CHAT_SYSTEM_ONCE'}
+                        assert answer['messages'][0]['role']=='system'
+                        assert_chat_prompt(answer['messages'][0]['content'],'CHAT_SYSTEM_ONCE')
                         assert sum(m['role']=='system' for m in answer['messages'])==1
                     # Covered source/opaque data is absent; summary is ordinary historical data.
                     assert 'fact-0:' not in json.dumps(answer) and 'opaque-covered' not in json.dumps(calls)
@@ -168,18 +171,19 @@ def run():
                     assert app.diag()['view']=='archives' and app.diag()['session']=='s'
                     snapshot(app,'context-archives-'+api)
                     app.to_chat();assert app.diag()['draft_length']==12
-                    app.open_settings();app.setting("models");app.tap(870,175)
+                    app.open_settings();app.setting("models");open_model(app,"a")
                     assert app.diag()['view']=='model'
                     drag(app,[230,190,150,100,60],x=450)
                     snapshot(app,'context-model-budget-'+api)
-                    app.page_action("保存");app.to_chat()
-                    app.open_settings();app.setting("presets");app.tap(300,166)
+                    commit_model(app);app.to_chat()
+                    app.open_settings();app.setting("presets");app.page_action("新增预设")
                     assert app.diag()['view']=='preset_edit'
                     drag(app,[230,190,150,100,60],x=450)
                     snapshot(app,'context-preset-model-'+api)
                 finally:app.close()
                 transfer_roundtrip(p)
-        # A selection made while compaction is running must survive the queued send.
+        # Compaction freezes input/models and blocks the Plus chooser; the next
+        # model is selected explicitly after the frozen request has completed.
         for api in ['responses','chat']:
             with tempfile.TemporaryDirectory(prefix='penchat-context-selection-') as d:
                 p=pathlib.Path(d);fixture(p,server.server_port,rounds=40,budget=16384,api=api,image=True)
@@ -187,12 +191,15 @@ def run():
                 try:
                     Server.requests=[];Server.delay=1
                     app.edit('selection');app.tap(908,232);wait_for(lambda:app.diag()['compressing'])
-                    app.tap(890,222);app.open_settings();app.setting("models");app.tap(300,175)
-                    assert app.diag()['active_model']=='b'
+                    app.tap(890,222)
+                    b=app.diag()['attachment_button'];app.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+                    state=app.diag();assert state['compressing'] and state['modal'] and not state['attachments']
+                    assert state['active_model']=='a'
                     wait_idle(app)
-                    assert app.diag()['active_model']=='b', 'Queued send replaced the next-request selection'
                     assert Server.requests[-1][1]['model']=='a'
-                    app.to_chat();Server.delay=0;app.edit('next');app.tap(908,232);wait_idle(app)
+                    app.to_chat();app.attachment_action("models");app.tap(300,114)
+                    assert app.diag()['active_model']=='b'
+                    Server.delay=0;app.edit('next');app.tap(908,232);wait_idle(app)
                     assert Server.requests[-1][1]['model']=='b'
                 finally:app.close();Server.delay=0
         # Disabled automatic mode sends every one of 102 historical rows, no silent 80 limit.
@@ -227,7 +234,12 @@ def run():
         # HTTP error, too-long output, unavailable image capability and stop retain original state/draft.
         for mode in ['http','cancel','long','vision','model','switch','budget','input_limit']:
             with tempfile.TemporaryDirectory(prefix='penchat-context-failure-') as d:
-                p=pathlib.Path(d);fixture(p,server.server_port,image=True,auto=mode!='budget')
+                p=pathlib.Path(d)
+                # Reach the intended HTTP/cancellation phase: the former 4096
+                # budget now fails the retained-context admission before HTTP.
+                fixture(p,server.server_port,image=True,auto=mode!='budget',
+                        rounds=16 if mode in ('budget','input_limit') else 40,
+                        budget=4096 if mode in ('budget','input_limit') else 16384)
                 if mode in ['vision','model']:
                     with sqlite3.connect(p/'penchat.db') as db:
                         if mode=='vision':db.execute("update model_configs set capabilities_json=? where id='b'",(json.dumps({'context_budget':4096,'vision':False}),))
@@ -248,6 +260,8 @@ def run():
                             app.tap(890,222);app.open_navigation();app.tap(180,236)
                     wait_idle(app)
                     assert not checkpoint(p),mode
+                    if mode=='http':assert len(Server.requests)==1
+                    if mode in ('cancel','long','switch'):assert Server.requests
                     with sqlite3.connect(p/'penchat.db') as db:
                         assert db.execute('select count(*) from chat_sessions').fetchone()[0]==1,mode
                         assert db.execute("select count(*) from chat_messages where output_text='KEEP_DRAFT'").fetchone()[0]==0
