@@ -52,6 +52,8 @@ void App::syncEffortGauge() {
   layoutChatComposer();
   const auto model=currentModel();
   const auto options=effortChoices(model);
-  setGaugePosition(composerGauge_,effortChoiceIndex(model),int(options.size()));
+  const auto placement=effortGaugePlacement(options,effortChoiceIndex(model));
+  setIcon(composerGauge_,"gauge",placement.isDefault?theme::palette().muted:theme::palette().accent,1.f,uiMetrics_);
+  setGaugePosition(composerGauge_,placement.index,placement.count);
 }
 } // namespace penchat

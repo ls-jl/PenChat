@@ -1,5 +1,6 @@
 #include "attachment_layout.hpp"
 #include "app.hpp"
+#include "surface_motion.hpp"
 #include "refresh_settings.hpp"
 #include "empty_state.hpp"
 #include "ui_motion.hpp"
@@ -2383,8 +2384,10 @@ void App::closeNavigation(bool resumeCamera) {
   navigationBackdrop_ = navigationPointerDown_ = false;
   auto object = navigation_;
   navigation_ = navigationList_ = navigationActive_ = nullptr;
-  if (object)
+  if (object) {
+    if(resumeCamera&&visible_&&inputFocused_)fadeSurfaceOut(object);
     lv_obj_delete(object);
+  }
   if (wasOpen && resumeCamera && view_ == "camera" && visible_ && !keyboard_)
     startCamera();
 }
@@ -2402,6 +2405,7 @@ void App::toggleNavigation() {
   navigationScroll_ = 0;
   navigationOpen_ = true;
   historyDrawer();
+  if(navigation_)fadeSurfaceIn(navigation_);
 }
 lv_point_t App::photoPoint(lv_point_t point) const {
   if(layout().portrait())return point;

@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "surface_motion.hpp"
 #include "empty_state.hpp"
 #include "icons.hpp"
 #include "text_selection_geometry.hpp"
@@ -493,6 +494,7 @@ void App::editorBuild() {
   lv_obj_move_foreground(editorRoot_);
   if(attachments_&&popupKind_=="attachments")lv_obj_move_foreground(attachments_);
   editorSyncText();editorViewport();
+  if(!previousRoot&&visible_&&inputFocused_)fadeSurfaceIn(editorRoot_);
   if((preserveTextScroll||viewScroll)&&editorText_) {
     // Textarea SIZE_CHANGED starts an animated scroll-to-caret while the new
     // label is being laid out. Restore only after final geometry, cancelling
@@ -901,6 +903,8 @@ void App::editorResult(const Json &m) {
 }
 void App::editorFinish(bool confirmed) {
   const bool transfer=confirmed&&editorFocusSwitch_&&editorInPlace();
+  std::unique_ptr<SurfaceSnapshot> leaving;
+  if(!transfer&&editorRoot_&&visible_&&inputFocused_)leaving.reset(new SurfaceSnapshot(editorRoot_));
   if(confirmed&&!editor_.secret&&db_.settings().value("pinyin_learning",true))pinyin_.commit(editorLearning_,editor_.text);
   editorLearning_=editorExact_=Json::array();editorPinyinPending_=Json();
   if(!transfer)editorLocalActions_.clear();
@@ -915,7 +919,9 @@ void App::editorFinish(bool confirmed) {
   editorComposerOpenHeight_=0;
   if(!transfer) {
     editorViewport();
-    if (editorRoot_) lv_obj_delete(editorRoot_);
+    if (editorRoot_) {
+      lv_obj_delete(editorRoot_);
+    }
     editorRoot_=editorText_=editorCompactBar_=nullptr; editorHandles_[0]=editorHandles_[1]=nullptr;editorKeys_.clear();
     editorKeyboardId_.clear();
   }
@@ -936,6 +942,7 @@ void App::editorFinish(bool confirmed) {
   editorTarget_=nullptr;editorTargetKey_.clear();editorTargetView_.clear();
   if(transfer){editorTransfer_=true;return;}
   const auto preferred=editor_.preferredChinese;editor_=EditorState{};editor_.preferredChinese=preferred; editorSelectionOnly_=false; editorDeferred_.clear(); syncScanner();
+  if(leaving)leaving->show();
 }
 void App::editorOfficial() {
   if(editorText_)editorTextScroll_=lv_obj_get_scroll_y(editorText_);

@@ -36,6 +36,20 @@ inline std::vector<std::string> effortChoices(const Json &model) {
                  "api_default");
   return options;
 }
+struct EffortGaugePlacement { bool isDefault; int index,count; };
+inline EffortGaugePlacement effortGaugePlacement(const std::vector<std::string> &options,int selected) {
+  const bool automatic=selected<0||selected>=int(options.size())||options[selected]=="api_default";
+  int count=0,index=0;
+  for(int i=0;i<int(options.size());++i)if(options[i]!="api_default") {
+    if(i<selected)++index;
+    ++count;
+  }
+  return automatic?EffortGaugePlacement{true,1,std::max(2,count)}:
+                   EffortGaugePlacement{false,index,std::max(1,count)};
+}
+inline std::string effortCaption(const std::string &effort) {
+  return effortLabel(effort)+" · 推理强度";
+}
 // Invalid or absent settings follow the current logical layout; explicit user
 // choices survive rotation. This does not mutate settings or migrate history.
 inline std::string historyTimeDisplay(const Json &settings,bool portrait) {

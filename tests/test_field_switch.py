@@ -14,7 +14,9 @@ with tempfile.TemporaryDirectory(prefix='penchat-field-switch-') as folder:
         def settle():t.wait_for(lambda:e()['active'] and not e()['ocr_preparing'] and bool(e()['keys']))
         def key(name):
             k=next(k for k in e()['keys'] if k['key']==name);a.tap(k['x'],k['y'])
-        def focus(name):activate(a,'field:'+name);settle()
+        def focus(name):
+            if not e()['active']:time.sleep(.15)  # Let the retiring keyboard absorb its closing release.
+            activate(a,'field:'+name);settle()
         def text():
             a.editor_action('official');r=a.receive('keyboard.open');a.send('keyboard.result',requestId=r['requestId'],confirmed=False);settle();return r['text']
         a.open_settings();a.setting('models');a.page_action('添加 Provider');focus('name')

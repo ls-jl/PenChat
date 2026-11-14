@@ -271,33 +271,41 @@ void App::effortPicker() {
   attachments_=box(keepChatEditor()?lv_screen_active():screenObj_,0,0,screen_.width,screen_.height);
   popupKind_="effort";
   lv_obj_set_style_bg_color(attachments_,lv_color_hex(theme::palette().scrim),0);
-  lv_obj_set_style_bg_opa(attachments_,LV_OPA_50,0);
+  lv_obj_set_style_bg_opa(attachments_,LV_OPA_60,0);
   lv_obj_set_scrollable(attachments_,false);
   menuAction(attachments_,[this]{closeAttachments();});
-  const auto area=placeContextPopup(screen_.width,screen_.height,roundedDisplay_,
-      {layout().safeSide(),chatComposerY(),1,1},
-      std::min(uiMetrics_.dp(520),screen_.width-uiMetrics_.dp(32)),uiMetrics_.dp(140),
-      keepChatEditor()?editorLayout().panelTop:0,uiMetrics_);
+  const auto safe=popupSafeArea(screen_.width,screen_.height,roundedDisplay_,uiMetrics_);
+  const int panelHeight=std::min(uiMetrics_.dp(132),safe.height);
+  const int panelY=std::max(safe.y,std::min(safe.y+safe.height-panelHeight,(screen_.height-panelHeight)/2));
+  const int side=std::max(safe.x,layout().safety().sideInset(panelY,panelHeight));
+  const int panelWidth=std::min(uiMetrics_.dp(520),screen_.width-2*side);
+  const LayoutRect area{(screen_.width-panelWidth)/2,panelY,panelWidth,panelHeight};
   auto panel=box(attachments_,area.x,area.y,area.width,area.height,theme::palette().popup);
-  attachmentPanel_=panel;lv_obj_set_scrollable(panel,false);stylePopupPanel(panel,layout().portrait(),uiMetrics_);
+  attachmentPanel_=panel;lv_obj_set_scrollable(panel,false);
+  lv_obj_set_style_bg_opa(panel,LV_OPA_TRANSP,0);
   const int initial=effortChoiceIndex(model);
-  auto title=label(panel,effortLabel(options[initial]),uiMetrics_.dp(24),uiMetrics_.dp(16),
-                   area.width-uiMetrics_.dp(48),uiMetrics_.fontSize(UiFont::Body));
+  auto title=label(panel,effortCaption(options[initial]),uiMetrics_.dp(24),uiMetrics_.dp(16),
+                   area.width-uiMetrics_.dp(48),uiMetrics_.fontSize(UiFont::Body),theme::palette(theme::Mode::Dark).richHeading);
   lv_obj_set_style_text_align(title,LV_TEXT_ALIGN_CENTER,0);
   lv_label_set_long_mode(title,LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(title,font(uiMetrics_.fontSize(UiFont::Body))->line_height);
-  createEffortSlider(panel,uiMetrics_.dp(24),uiMetrics_.dp(68),area.width-uiMetrics_.dp(48),
+  auto capsule=box(panel,uiMetrics_.dp(16),uiMetrics_.dp(60),area.width-uiMetrics_.dp(32),uiMetrics_.dp(60),theme::palette().popup);
+  lv_obj_set_scrollable(capsule,false);lv_obj_set_style_radius(capsule,LV_RADIUS_CIRCLE,0);
+  auto slider=createEffortSlider(capsule,uiMetrics_.dp(8),uiMetrics_.dp(8),area.width-uiMetrics_.dp(48),
       int(options.size()),initial,uiMetrics_,[this,title,options](int index,EffortSliderEvent event){
-        lv_label_set_text(title,effortLabel(options[index]).c_str());
+        lv_label_set_text(title,effortCaption(options[index]).c_str());
         if(event==EffortSliderEvent::Preview) {
           effortPreview_=true;
-          setGaugePosition(composerGauge_,index,int(options.size()));
+          const auto placement=effortGaugePlacement(options,index);
+          setIcon(composerGauge_,"gauge",placement.isDefault?theme::palette().muted:theme::palette().accent,1.f,uiMetrics_);
+          setGaugePosition(composerGauge_,placement.index,placement.count);
         } else {
           effortPreview_=false;
           if(event==EffortSliderEvent::Commit)chooseEffort(options[index]);
           syncEffortGauge();
         }
       });
+  lv_obj_set_ext_click_area(slider,uiMetrics_.dp(8));
   motion::present(panel,1,uiMetrics_);
 }
 void App::historyDrawer() {

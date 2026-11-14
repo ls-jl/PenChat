@@ -155,14 +155,46 @@ struct MenusMotionTest {
     }
     a.clear();
   }
+  static void centeredEffort(App &a) {
+    a.roundedDisplay_=a.layout().portrait();
+    const auto provider=a.db_.providers().front().at("id");
+    a.db_.query("INSERT INTO model_configs(id,provider_id,name,display_name,model_type,is_default,created_at,updated_at) VALUES(?,?,?,?, 'chat',1,1,1)",
+               {"centered-effort",provider,"fixture","Fixture"});
+    a.sessionPreferences_["model_id"]="centered-effort";
+    a.view_="chat";a.build();a.effortPicker();motion::finishAll();
+    lv_obj_update_layout(a.attachments_);
+    lv_area_t area;lv_obj_get_coords(a.attachmentPanel_,&area);
+    assert(std::abs(area.x1+area.x2-(a.screen_.width-1))<=1);
+    assert(std::abs(area.y1+area.y2-(a.screen_.height-1))<=1);
+    assert(lv_obj_get_style_bg_opa(a.attachmentPanel_,LV_PART_MAIN)==0);
+    auto title=lv_obj_get_child(a.attachmentPanel_,0);
+    auto capsule=lv_obj_get_child(a.attachmentPanel_,1);
+    auto slider=lv_obj_get_child(capsule,0);
+    assert(std::string(lv_label_get_text(title))=="默认 · 推理强度");
+    assert(lv_obj_get_height(capsule)==a.uiMetrics_.dp(60));
+    assert(lv_obj_get_y(slider)>=0&&lv_obj_get_y(slider)+lv_obj_get_height(slider)<=lv_obj_get_height(capsule));
+    a.closeAttachments();motion::finishAll();a.clear();
+  }
   static void run(App &a) {
+    const std::vector<std::string> choices{"none","api_default","low","high"};
+    auto automatic=effortGaugePlacement(choices,1);
+    assert(automatic.isDefault&&automatic.index==1&&automatic.count==3);
+    for(int i:{0,2,3}) {
+      const auto placement=effortGaugePlacement(choices,i);
+      assert(!placement.isDefault&&placement.count==3);
+      assert(placement.index==(i?i-1:0));
+    }
+    assert(effortCaption("high")=="高 · 推理强度");
+    assert(effortGaugePlacement({"api_default"},0).index==1);
+    assert(effortGaugePlacement({"api_default","high"},1).count==1);
+
     for(bool portrait:{false,true}) {
       assert(historyTimeDisplay(Json::object(),portrait)==(portrait?"off":"time"));
       assert(historyTimeDisplay({{"history_time_display",123}},portrait)==(portrait?"off":"time"));
       assert(historyTimeDisplay({{"history_time_display","invalid"}},portrait)==(portrait?"off":"time"));
       for(const auto &mode:{"off","time","title"})assert(historyTimeDisplay({{"history_time_display",mode}},portrait)==mode);
     }
-    components(a);balances(a);historyFooter(a);
+    components(a);balances(a);centeredEffort(a);historyFooter(a);
   }
 };
 uint32_t MenusMotionTest::clock=1000;

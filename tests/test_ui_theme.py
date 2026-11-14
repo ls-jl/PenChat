@@ -18,7 +18,7 @@ class App(t.Native):
   for i in range(7):self.send('touch',x=self.w//2,y=start+(end-start)*i//6,pressed=True);time.sleep(.02)
   time.sleep(.1);self.send('touch',x=self.w//2,y=end,pressed=False);time.sleep(.15)
  def open_navigation(self):
-  self.to_chat();self.nav_tap()
+  self.to_chat();time.sleep(.15);self.nav_tap()
   t.wait_for(lambda:self.diag()['navigation_open'])
  def nav_tap(self):
   d=self.diag()
@@ -36,7 +36,7 @@ class App(t.Native):
   for _ in range(12):
    d=self.diag()
    if d['navigation_open']:self.tap(self.w-12,85)
-   elif d['view']=='chat':return
+   elif d['view']=='chat':time.sleep(.15);return
    else:
     self.top();self.nav_tap()
   raise AssertionError(self.diag()['view'])
