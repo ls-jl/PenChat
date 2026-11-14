@@ -1,6 +1,9 @@
 #include "attachment_layout.hpp"
 #include "app.hpp"
+#include "empty_state.hpp"
+#include "ui_motion.hpp"
 #include "ui_scale_settings.hpp"
+#include "ui_motion.hpp"
 #include "chat_text.hpp"
 #include "chat_time.hpp"
 #include "context.hpp"
@@ -118,7 +121,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   }
   initializeUpdates();
   initializeOnboarding(config);
-  build();
+  build();sendAppearance();
   if (!onboardingActive_ && !presetWarning.empty()) modal("默认预设已部分应用", presetWarning);
   for (const auto &job : db_.pendingTitles())
     titleJobs_.push_back(job);
@@ -241,12 +244,14 @@ lv_obj_t *App::fieldButton(lv_obj_t *parent, const std::string &caption,
   return object;
 }
 void App::emptyState(const std::string &title, const std::string &hint) {
-  const int width = layout().contentWidth();
-  auto parent = pageContent_ ? pageContent_ : body_;
-  auto heading = label(parent, title, uiMetrics_.dp(10), uiMetrics_.dp(62), width, uiMetrics_.fontSize(UiFont::EmptyTitle));
-  lv_obj_set_style_text_align(heading, LV_TEXT_ALIGN_CENTER, 0);
-  auto description = label(parent, hint, uiMetrics_.dp(26), uiMetrics_.dp(99), width - uiMetrics_.dp(32), uiMetrics_.fontSize(UiFont::FormHint), theme::palette().muted);
-  lv_obj_set_style_text_align(description, LV_TEXT_ALIGN_CENTER, 0);
+  auto parent=pageContent_?pageContent_:body_;
+  lv_obj_update_layout(parent);
+  const int inset=uiMetrics_.dp(10);
+  const int width=std::max(1,int(lv_obj_get_width(parent))-2*inset);
+  const int available=std::max(0,int(lv_obj_get_height(body_))-(pageContent_?int(lv_obj_get_y(pageContent_)):0)-uiMetrics_.dp(12));
+  statusState(parent,{StatusKind::Empty,title,hint,view_=="album"?"album":"info"},
+              uiMetrics_,font(uiMetrics_.fontSize(UiFont::EmptyTitle)),
+              font(uiMetrics_.fontSize(UiFont::FormNote)),inset,0,width,available);
 }
 void App::texture(lv_obj_t *object, std::shared_ptr<ImageFrame> frame,
                   bool premultiplied) {
@@ -373,148 +378,6 @@ lv_obj_t *App::icon(lv_obj_t *parent, const std::string &kind, int x, int y,
     lv_obj_set_clickable(object, false);
   return object;
 }
-void App::closeAttachments() {
-  if (popupKind_ == "attachments") { ++sessionInfoGeneration_; sessionInfoPending_ = false; }
-  contextUsageArc_ = contextUsageLabel_ = nullptr;
-  attachmentPanel_ = nullptr;
-  attachmentEntries_.clear();
-  popupKind_.clear();
-  if (!attachments_)
-    return;
-  auto object = attachments_;
-  attachments_ = nullptr;
-  lv_obj_delete(object);
-}
-void App::toggleAttachments() {
-  if(view_!="chat"||!chatControls_)return;
-  if (contextBusy_) {
-    contextProgress("正在整理历史，请稍候…");
-    return;
-  }
-  if (attachments_) {
-    closeAttachments();
-    return;
-  }
-  resetPull();
-  // Finish the composer transition so a click during its animation uses the
-  // actual resting capsule, with enough physical room for the 10px overlap.
-  if(chatControls_){lv_anim_delete(chatControls_,nullptr);lv_obj_set_y(chatControls_,chatComposerY());}
-  lv_obj_update_layout(screenObj_);
-  lv_area_t capsule;lv_obj_get_coords(chatControls_,&capsule);
-  attachments_ = box(lv_screen_active(),0,0,screen_.width,screen_.height);
-  popupKind_ = "attachments";
-  lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::palette().scrim), 0);
-  lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
-  lv_obj_set_scrollable(attachments_, false);
-  onClick(attachments_, [this] { closeAttachments(); });
-  std::vector<std::string> names{"拍照", "相册", "模型", "推理强度"};
-  std::vector<std::string> icons{"camera", "album", "settings", "gauge"};
-  std::vector<std::string> ids{"camera", "album", "models", "effort", "compress", "summary"};
-  names.push_back("压缩上下文（计算中）");
-  icons.push_back("history");
-  names.push_back("查看上下文摘要");
-  icons.push_back("context-summary");
-  if (db_.settings().value("presets_enabled", false)) {
-    ids.push_back("presets");
-    names.push_back("预设");
-    icons.push_back("settings");
-  }
-  ids.push_back("web");
-  names.push_back(webEnabled(sessionPreferences_, db_.settings()) ? "联网搜索 · 已开启"
-                                                                  : "联网搜索 · 已关闭");
-  icons.push_back("globe");
-  ids.push_back("session_info");
-  names.push_back("会话信息");
-  icons.push_back("info");
-  int measuredWidth=0;
-  for(const auto &name:names) {
-    lv_point_t measured{};lv_text_get_size(&measured,name.c_str(),font(uiMetrics_.fontSize(UiFont::SettingsTitle)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
-    measuredWidth=std::max(measuredWidth,int(measured.x)+uiMetrics_.dp(76));
-  }
-  const auto area=attachmentMenuArea(layout(),{capsule.x1,capsule.y1,capsule.x2-capsule.x1+1,capsule.y2-capsule.y1+1},
-                                    measuredWidth,int(names.size())*uiMetrics_.dp(44)+uiMetrics_.dp(8));
-  const int menuWidth=area.width;
-  auto menu=box(attachments_,area.x,area.y,area.width,area.height,theme::palette().surface);
-  attachmentPanel_=menu;
-  lv_obj_set_style_radius(menu,uiMetrics_.dp(16),0);
-  lv_obj_set_scroll_dir(menu,LV_DIR_VER);
-  lv_obj_set_scroll_elastic(menu,false);lv_obj_set_scroll_momentum(menu,false);
-  for (int i = 0; i < int(names.size()); ++i) {
-    const auto actionId = ids[i];
-    auto action = [this, actionId] {
-      if (actionId == "session_info") {
-        if(!finishChatEditorForNavigation())return;
-        openSessionInfo();
-        return;
-      }
-      if (actionId == "web") {
-        const bool enabled = webEnabled(sessionPreferences_, db_.settings());
-        sessionPreferences_["web_enabled"] = !enabled;
-        db_.setting("last_web_enabled", !enabled);
-        savePreferences();
-        closeAttachments();
-        if (generating_)
-          modal("已修改联网搜索", "当前回复继续使用发送时的配置，下一次提问生效。");
-        return;
-      }
-      if (actionId == "camera") {
-        if(!finishChatEditorForNavigation())return;show("camera");
-      }
-      else if (actionId == "album") {
-        if(!finishChatEditorForNavigation())return;show("album");
-      }
-      else if (actionId == "models")
-        modelPicker();
-      else if (actionId == "compress") {
-        if(!finishChatEditorForNavigation())return;startContext(true);
-      }
-      else if (actionId == "summary")
-        contextDetails();
-      else if (actionId == "presets")
-        presetPicker();
-      else {
-        bool enabled =
-            sessionPreferences_.value("gauge", !effortMemory_.empty());
-        if (enabled)
-          chooseEffort("");
-        sessionPreferences_["gauge"] = !enabled;
-        savePreferences();
-        build();
-      }
-    };
-    if (ids[i] == "compress") {
-      auto control = button(menu, "", uiMetrics_.dp(4), uiMetrics_.dp(4) + i * uiMetrics_.dp(44), uiMetrics_.dp(44), uiMetrics_.dp(44), action, theme::palette().surface);
-      contextUsageArc_ = lv_arc_create(control);
-      lv_obj_remove_style_all(contextUsageArc_);
-      lv_obj_set_scrollable(contextUsageArc_, false);
-      lv_obj_set_clickable(contextUsageArc_, false);
-      lv_obj_set_size(contextUsageArc_, uiMetrics_.dp(24), uiMetrics_.dp(24));
-      lv_obj_center(contextUsageArc_);
-      lv_arc_set_rotation(contextUsageArc_, 270);
-      lv_arc_set_bg_angles(contextUsageArc_, 0, 360);
-      lv_arc_set_range(contextUsageArc_, 0, 1000);
-      lv_arc_set_value(contextUsageArc_, 0);
-      lv_obj_set_style_arc_color(contextUsageArc_, lv_color_hex(theme::palette().muted), LV_PART_MAIN);
-      lv_obj_set_style_arc_opa(contextUsageArc_, LV_OPA_50, LV_PART_MAIN);
-      lv_obj_set_style_arc_width(contextUsageArc_, uiMetrics_.dp(2), LV_PART_MAIN);
-      lv_obj_set_style_arc_color(contextUsageArc_, lv_color_hex(theme::palette().link), LV_PART_INDICATOR);
-      lv_obj_set_style_arc_opa(contextUsageArc_, LV_OPA_TRANSP, LV_PART_INDICATOR);
-      lv_obj_set_style_arc_width(contextUsageArc_, uiMetrics_.dp(2), LV_PART_INDICATOR);
-      lv_obj_set_style_arc_rounded(contextUsageArc_, true, LV_PART_INDICATOR);
-      lv_obj_set_style_bg_opa(contextUsageArc_, LV_OPA_TRANSP, LV_PART_KNOB);
-    } else
-      icon(menu, icons[i], uiMetrics_.dp(4), uiMetrics_.dp(4) + i * uiMetrics_.dp(44), uiMetrics_.dp(44), uiMetrics_.dp(44), action, theme::palette().surface);
-    auto entry = button(menu, names[i], uiMetrics_.dp(48), uiMetrics_.dp(4) + i * uiMetrics_.dp(44), menuWidth - uiMetrics_.dp(52), uiMetrics_.dp(44), action, theme::palette().surface,
-                        LV_TEXT_ALIGN_LEFT);
-    attachmentEntries_[ids[i]] = entry;
-    if (ids[i] == "compress")
-      contextUsageLabel_ = lv_obj_get_child(entry, 0);
-  }
-  ++sessionInfoGeneration_;
-  sessionInfoSession_ = session_;
-  sessionInfoData_ = Json::object();
-  refreshSessionInfo();
-}
 Json App::currentModel() {
   auto id = sessionPreferences_.value("model_id", std::string());
   Json model = Json::object();
@@ -560,233 +423,6 @@ void App::chooseEffort(const std::string &key) {
   sessionPreferences_["preset_adjusted"] = true;
   effortMemory_ = key;
   savePreferences();
-}
-void App::modelPicker(bool forTitles) {
-  closeAttachments();
-  resetPull();
-  const bool portrait=layout().portrait();
-  auto models=db_.models();
-  const auto providers=db_.providers();
-  attachments_ = box(portrait?lv_screen_active():screenObj_,layout().gutter(),0,screen_.width-layout().gutter(),screen_.height);
-  popupKind_ = forTitles ? "title_models" : "models";
-  lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::palette().scrim), 0);
-  lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
-  lv_obj_set_scrollable(attachments_, false);
-  onClick(attachments_, [this] { closeAttachments(); });
-  int naturalHeight=uiMetrics_.dp(8)+(forTitles?uiMetrics_.dp(48):0),naturalWidth=uiMetrics_.dp(264);
-  if(portrait) {
-    for(const auto &provider:providers) {
-      if(models.empty())break;
-      naturalHeight+=uiMetrics_.dp(30);
-      lv_point_t measured{};
-      lv_text_get_size(&measured,provider.value("name",std::string("Provider")).c_str(),font(uiMetrics_.fontSize(UiFont::FormNote)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
-      naturalWidth=std::max(naturalWidth,int(measured.x)+uiMetrics_.dp(40));
-    }
-    for(const auto &model:models) {
-      naturalHeight+=uiMetrics_.dp(46);
-      lv_point_t measured{};
-      lv_text_get_size(&measured,model.value("display_name",model.value("name",std::string())).c_str(),font(uiMetrics_.fontSize(UiFont::Button)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
-      naturalWidth=std::max(naturalWidth,int(measured.x)+uiMetrics_.dp(76));
-    }
-    if(models.empty())naturalHeight+=uiMetrics_.dp(48);
-    if(forTitles&&!models.empty())naturalHeight+=uiMetrics_.dp(30);
-  }
-  const LayoutRect anchor=portrait&&view_=="chat"?LayoutRect{layout().safeSide(),chatComposerY(),1,1}:
-      LayoutRect{lastTouch_.value("x",screen_.width/2),lastTouch_.value("y",screen_.height/2),1,1};
-  const auto area=portrait?placeContextPopup(screen_.width,screen_.height,roundedDisplay_,anchor,
-      std::min(uiMetrics_.dp(440),naturalWidth),std::min(uiMetrics_.dp(360),naturalHeight),keepChatEditor()?editorLayout().panelTop:0,uiMetrics_):
-      pickerArea(std::min(uiMetrics_.dp(650),screen_.width-uiMetrics_.dp(130)));
-  const int panelWidth=area.width;
-  auto panel=box(attachments_,area.x,area.y,panelWidth,area.height,theme::palette().popup);
-  attachmentPanel_=panel;stylePopupPanel(panel,layout().portrait(),uiMetrics_);
-  lv_obj_set_scroll_dir(panel, LV_DIR_VER);
-  lv_obj_set_scroll_elastic(panel,false);
-  lv_obj_set_scroll_chain_ver(panel,false);
-  auto current = currentModel();
-  if (forTitles)
-    current = {{"id", db_.settings().value("title_model_id", std::string())}};
-  int y = uiMetrics_.dp(4);
-  if (forTitles) {
-    button(
-        panel, "跟随当前聊天模型", uiMetrics_.dp(8), y, panelWidth - uiMetrics_.dp(30), uiMetrics_.dp(44),
-        [this] {
-          db_.setting("title_model_id", "");
-          build();
-        },
-        theme::palette().surface, LV_TEXT_ALIGN_LEFT);
-    y += uiMetrics_.dp(48);
-  }
-  std::sort(models.begin(), models.end(), [](const Json &a, const Json &b) {
-    return a.value("name", std::string()) < b.value("name", std::string());
-  });
-  for (const auto &provider : providers) {
-    if(portrait&&models.empty())break;
-    auto caption=label(panel, provider.value("name", std::string("Provider")), uiMetrics_.dp(14), y, panelWidth - uiMetrics_.dp(40),
-          uiMetrics_.fontSize(UiFont::FormNote), theme::palette().muted);
-    lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_height(caption,font(uiMetrics_.fontSize(UiFont::FormNote))->line_height);
-    y += uiMetrics_.dp(30);
-    for (const auto &model : models)
-      if (model["provider_id"] == provider["id"]) {
-        auto id = model["id"].get<std::string>();
-        auto held = std::make_shared<bool>(false);
-        auto item = button(
-            panel,
-            (portrait?std::string():current.value("id", std::string()) == id ? "● " : "○ ") +
-                model.value("display_name",model.value("name",std::string())),
-            uiMetrics_.dp(8), y, panelWidth - uiMetrics_.dp(30), uiMetrics_.dp(44),
-            [this, id, forTitles, held] {
-              if (*held) return;
-              if (forTitles)
-                db_.setting("title_model_id", id);
-              else
-                chooseModel(id);
-              build();
-            },
-            theme::palette().surface, LV_TEXT_ALIGN_LEFT);
-        if(portrait){selected(item,current.value("id",std::string())==id);stylePopupRow(item);}
-        if (forTitles) {
-          auto action = new std::function<void()>([this, id, held] {
-            *held = true;
-            events_.push("title_model_detail", {{"id", id}});
-          });
-          lv_obj_add_event_cb(item, [](lv_event_t *e) {
-            auto callback = *static_cast<std::function<void()> *>(lv_event_get_user_data(e));
-            callback();
-          }, LV_EVENT_LONG_PRESSED, action);
-          lv_obj_add_event_cb(item, [](lv_event_t *e) {
-            delete static_cast<std::function<void()> *>(lv_event_get_user_data(e));
-          }, LV_EVENT_DELETE, action);
-        }
-        y += uiMetrics_.dp(46);
-      }
-  }
-  if (models.empty())
-    button(panel, "添加 Provider / 模型", uiMetrics_.dp(10), portrait?y:uiMetrics_.dp(50), panelWidth - uiMetrics_.dp(30), uiMetrics_.dp(48),
-           [this] { if(finishChatEditorForNavigation())show("provider"); });
-  if (forTitles && !models.empty())
-    label(portrait?panel:attachments_, "长按模型查看完整名称", uiMetrics_.dp(portrait?14:24),
-          portrait?y+uiMetrics_.dp(4):screen_.height-uiMetrics_.dp(50), panelWidth-uiMetrics_.dp(28), uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
-}
-void App::effortPicker() {
-  auto model = currentModel();
-  if (model.empty()) {
-    modal("选择模型", "请先选择一个可用模型。");
-    return;
-  }
-  auto options = effortChoices(model);
-  closeAttachments();
-  resetPull();
-  attachments_ = box(screenObj_,layout().gutter(),0,screen_.width-layout().gutter(),screen_.height);
-  popupKind_ = "effort";
-  lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::palette().scrim), 0);
-  lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
-  lv_obj_set_scrollable(attachments_, false);
-  onClick(attachments_, [this] { closeAttachments(); });
-  const bool portrait=layout().portrait();
-  const bool stagger=portrait && options.size()>6;
-  // A slider has a natural height; the available reader height is not its
-  // content height, especially with the portrait keyboard closed.
-  const auto area=portrait?placeContextPopup(screen_.width,screen_.height,roundedDisplay_,
-      {layout().safeSide(),chatComposerY(),1,1},std::min(uiMetrics_.dp(520),screen_.width-uiMetrics_.dp(32)),uiMetrics_.dp(stagger?218:194),
-      keepChatEditor()?editorLayout().panelTop:0,uiMetrics_):pickerArea(screen_.width-uiMetrics_.dp(130));
-  const int panelWidth=area.width,sliderWidth=panelWidth-uiMetrics_.dp(80);
-  auto panel=box(attachments_,area.x,area.y,panelWidth,area.height,theme::palette().popup);
-  attachmentPanel_=panel;lv_obj_set_scrollable(panel,false);stylePopupPanel(panel,layout().portrait(),uiMetrics_);
-  auto selected = model.value("effective_effort", std::string());
-  if (selected.empty())
-    selected = "api_default";
-  auto title =
-      label(panel, effortLabel(selected) + " · 推理强度", uiMetrics_.dp(24), uiMetrics_.dp(14), panelWidth - uiMetrics_.dp(portrait?178:230), uiMetrics_.fontSize(portrait?UiFont::Body:UiFont::Heading));
-  button(panel, "跟随设置", panelWidth - uiMetrics_.dp(portrait?138:166), uiMetrics_.dp(4), uiMetrics_.dp(portrait?128:156), uiMetrics_.dp(44), [this] {
-    chooseEffort("");
-    build();
-  });
-  auto slider = lv_slider_create(panel);
-  lv_obj_set_pos(slider, uiMetrics_.dp(40), uiMetrics_.dp(76));
-  lv_obj_set_size(slider, sliderWidth, uiMetrics_.dp(44));
-  lv_slider_set_range(slider, 0,
-                      options.size() == 1 ? 2 : int(options.size()) - 1);
-  auto found = std::find(options.begin(), options.end(), selected);
-  lv_slider_set_value(slider,
-                      options.size() == 1      ? 1
-                      : found == options.end() ? 0
-                                               : int(found - options.begin()),
-                      LV_ANIM_OFF);
-  lv_obj_set_style_bg_color(slider, lv_color_hex(theme::palette().border), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(slider, lv_color_hex(theme::palette().accent),
-                            LV_PART_INDICATOR);
-  lv_obj_set_style_bg_color(slider, lv_color_hex(theme::palette().text), LV_PART_KNOB);
-  lv_obj_set_style_radius(slider, uiMetrics_.dp(22), LV_PART_MAIN);
-  lv_obj_set_style_radius(slider, uiMetrics_.dp(22), LV_PART_INDICATOR);
-  if (selected.empty()) {
-    lv_obj_set_style_bg_opa(slider, 0, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(slider, 0, LV_PART_KNOB);
-  }
-  struct Choice {
-    App *app;
-    lv_obj_t *title;
-    std::vector<std::string> options;
-    bool selected;
-  };
-  auto data = new Choice{this, title, options, !selected.empty()};
-  lv_obj_add_event_cb(
-      slider,
-      [](lv_event_t *e) {
-        auto data = static_cast<Choice *>(lv_event_get_user_data(e));
-        if (lv_event_get_code(e) == LV_EVENT_DELETE) {
-          delete data;
-          return;
-        }
-        auto slider = static_cast<lv_obj_t *>(lv_event_get_target(e));
-        int index = std::min(int(data->options.size()) - 1,
-                             int(lv_slider_get_value(slider)));
-        const auto key = data->options[index];
-        if (lv_event_get_code(e) == LV_EVENT_DRAW_MAIN) {
-          lv_area_t area;
-          lv_obj_get_coords(slider, &area);
-          for (size_t i = 0; i < data->options.size(); ++i) {
-            if (data->selected && int(i) == index)
-              continue;
-            int x = data->options.size() == 1
-                        ? (area.x1 + area.x2) / 2
-                        : area.x1 + int(i) * (area.x2 - area.x1) /
-                                        int(data->options.size() - 1);
-            int y = (area.y1 + area.y2) / 2;
-            lv_draw_rect_dsc_t dot;
-            lv_draw_rect_dsc_init(&dot);
-            dot.bg_color = lv_color_hex(theme::palette().muted);
-            dot.bg_opa = 150;
-            dot.radius = 4;
-            lv_area_t bounds{x - 4, y - 4, x + 4, y + 4};
-            lv_draw_rect(lv_event_get_layer(e), &dot, &bounds);
-          }
-        } else if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
-          lv_label_set_text(data->title,
-                            (effortLabel(key) + " · 推理强度").c_str());
-          data->selected = true;
-          if (data->options.size() == 1)
-            lv_slider_set_value(slider, 1, LV_ANIM_OFF);
-          lv_obj_set_style_bg_opa(slider, 255, LV_PART_KNOB);
-          lv_obj_set_style_bg_opa(slider, 255, LV_PART_INDICATOR);
-        } else if (lv_event_get_code(e) == LV_EVENT_RELEASED) {
-          data->app->chooseEffort(key);
-          lv_label_set_text(data->title,
-                            (effortLabel(key) + " · 推理强度").c_str());
-          data->selected = true;
-          if (data->options.size() == 1)
-            lv_slider_set_value(slider, 1, LV_ANIM_OFF);
-          lv_obj_set_style_bg_opa(slider, 255, LV_PART_KNOB);
-          lv_obj_set_style_bg_opa(slider, 255, LV_PART_INDICATOR);
-        }
-      },
-      LV_EVENT_ALL, data);
-  for (size_t i = 0; i < options.size(); ++i) {
-    int x =
-        options.size() == 1 ? panelWidth / 2 : uiMetrics_.dp(40) + int(i) * sliderWidth / int(options.size() - 1);
-    auto caption = label(panel, effortLabel(options[i]), x - uiMetrics_.dp(38), uiMetrics_.dp(138)+(stagger?int(i%2)*uiMetrics_.dp(28):0), uiMetrics_.dp(76), uiMetrics_.fontSize(stagger?UiFont::Detail:UiFont::FormNote));
-    lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
-  }
 }
 void App::modelPage() {
   if (anthropicProtocol(modelForm_)) { anthropicModelPage(); return; }
@@ -956,7 +592,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
   if (!pressed)
     pullTrackActivity_ = false;
   if (attachments_ && popupKind_ == "attachments" && !attachmentMenuTouch_ && pressed && !began &&
-      std::abs(pullStartY_ - y) > 8) {
+      std::abs(pullStartY_ - y) > uiMetrics_.dp(8)) {
     closeAttachments();
     input_.cancel();
   }
@@ -1010,7 +646,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
     lv_arc_set_bg_angles(pullArc_, 0, 360);
     lv_arc_set_range(pullArc_, 0, 100);
     lv_obj_remove_style(pullArc_, nullptr, LV_PART_KNOB);
-    lv_obj_set_style_arc_color(pullArc_, lv_color_hex(0x19284c), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(pullArc_, lv_color_hex(theme::palette().border), LV_PART_MAIN);
     lv_obj_set_style_arc_color(pullArc_, lv_color_hex(theme::palette().accent),
                                LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(pullArc_, uiMetrics_.dp(3), LV_PART_MAIN);
@@ -1062,8 +698,10 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  motion::finishAll();
   if(contextMenuKind_=="balances")cancelBalances();
   closeAttachments();
+  motion::finishAll();
   composerShortcut_.pause();
   if(readGesture_.active())readSuppressed_=readDown_;
   readReset();
@@ -1106,7 +744,7 @@ void App::clear() {
     lv_anim_delete(chatControls_, nullptr);
   if (body_)
     lv_anim_delete(body_, nullptr);
-  chatControls_ = toBottom_ = nullptr;
+  chatControls_ = toBottom_ = composerGauge_ = nullptr;
   chatControlsTarget_ = -1;
   rasters_.clear();
   archiveViewButtons_.clear();
@@ -1143,6 +781,7 @@ void App::build() {
   chatLayout_ = true;
   clear();
   lv_obj_set_scrollable(lv_screen_active(), false);
+  lv_obj_set_style_bg_color(lv_screen_active(),lv_color_hex(theme::palette().background),0);
   const bool photo = view_ == "camera" || view_ == "crop";
   const int canvasW = photo ? photoWidth() : screen_.width;
   const int canvasH = photo ? photoHeight() : screen_.height;
@@ -1157,7 +796,7 @@ void App::build() {
     onboardingPage();builtView_=view_;builtPageKey_=pageKey();syncScanner();syncBackPolicy();return;
   }
   lv_obj_t *navigation=nullptr;
-  if(view_!="crop"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", layout().portrait()?layout().navigationX():uiMetrics_.dp(16), layout().portrait()?layout().safeTop():uiMetrics_.dp(8), std::max(44,uiMetrics_.dp(48)), std::max(44,uiMetrics_.dp(48)), [this] {
+  if(view_!="crop"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", layout().portrait()?layout().navigationX():uiMetrics_.dp(16), layout().portrait()?layout().safeTop():uiMetrics_.dp(8), uiMetrics_.touchTarget(48), uiMetrics_.touchTarget(48), [this] {
     if(editor_.active){editorAccept();return;}
     if (view_ == "chat") {
       if(!messageEdit_.empty())cancelMessageEdit();else toggleNavigation();
@@ -1235,7 +874,7 @@ void App::build() {
   }
   if (view_ == "chat" && scanner_.available()) {
     const bool portrait = layout().portrait();
-    auto hint = box(portrait?chatHeader_:screenObj_, portrait?screen_.width-layout().navigationX()-uiMetrics_.dp(88):uiMetrics_.dp(12), portrait?layout().safeTop():uiMetrics_.dp(60), portrait?uiMetrics_.dp(88):uiMetrics_.dp(64), portrait?std::max(44,uiMetrics_.dp(48)):uiMetrics_.dp(64));
+    auto hint = box(portrait?chatHeader_:screenObj_, portrait?screen_.width-layout().navigationX()-uiMetrics_.dp(88):uiMetrics_.dp(12), portrait?layout().safeTop():uiMetrics_.dp(60), portrait?uiMetrics_.dp(88):uiMetrics_.dp(64), portrait?uiMetrics_.touchTarget(48):uiMetrics_.dp(64));
     lv_obj_set_scrollable(hint, false);
     scanHint_ = label(hint, portrait?"扫描准备中":"扫描\n准备中", uiMetrics_.dp(4), portrait?uiMetrics_.dp(14):uiMetrics_.dp(5), portrait?uiMetrics_.dp(80):uiMetrics_.dp(60), uiMetrics_.dp(portrait?16:14), theme::palette().muted);
     lv_label_set_long_mode(scanHint_, LV_LABEL_LONG_MODE_DOTS);
@@ -1379,7 +1018,7 @@ void App::chat() {
   messageContent_ = box(body_, 0, 0, width, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(messageContent_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(messageContent_, uiMetrics_.dp(10), 0);
-  lv_obj_set_style_pad_bottom(messageContent_, chatComposerHeight()+uiMetrics_.composer().messageBottom+layout().safeBottom(), 0);
+  syncChatBottomPadding();
   if(layout().portrait()) {
     lv_obj_set_style_pad_left(messageContent_,uiMetrics_.dp(8),0);
     lv_obj_set_style_pad_right(messageContent_,uiMetrics_.dp(8),0);
@@ -1397,7 +1036,7 @@ void App::chat() {
 void App::rebuildChatControls() {
   if (chatControls_) { lv_anim_delete(chatControls_, nullptr); lv_obj_delete(chatControls_); }
   if (toBottom_) lv_obj_delete(toBottom_);
-  composer_ = chatControls_ = toBottom_ = nullptr;
+  composer_ = chatControls_ = toBottom_ = composerGauge_ = nullptr;
   chatControlsTarget_ = -1;
   const auto geometry = layout();
   const auto c = uiMetrics_.composer();
@@ -1413,8 +1052,7 @@ void App::rebuildChatControls() {
   lv_obj_set_ext_click_area(attachment, c.attachmentHitGrow);
   const int entryLeft = geometry.composerEntryLeft();
   const bool gauge = sessionPreferences_.value("gauge", !effortMemory_.empty());
-  if (gauge)
-    icon(
+  composerGauge_=icon(
         chatControls_, "gauge", composerWidth - (geometry.portrait()?geometry.composerInset()+c.initialGaugeTrailing:c.initialGaugeTrailing), c.initialTop, c.control, c.control, [this] { effortPicker(); },
         theme::palette().surface, theme::palette().muted);
   auto compose = [this] {
@@ -1464,7 +1102,7 @@ void App::rebuildChatControls() {
       [this] { jumpToBottom(); }, theme::palette().surface);
   lv_obj_set_style_border_color(toBottom_, lv_color_hex(theme::palette().border), 0);
   lv_obj_set_style_border_width(toBottom_, c.border, 0);
-  layoutChatComposer();
+  layoutChatComposer();syncEffortGauge();
   updateChatControls(false);
   if(editor_.active&&editorInPlace()&&editorRoot_) {
     editorViewport();editorSyncText();lv_obj_move_foreground(editorRoot_);if(attachments_&&popupKind_=="attachments")lv_obj_move_foreground(attachments_);
@@ -1577,6 +1215,7 @@ void App::chatScrolled() {
   paintVisible();
 }
 void App::updateChatControls(bool animate) {
+  syncChatBottomPadding();
   if (!chatControls_ || !toBottom_)
     return;
   lv_obj_set_hidden(toBottom_, !hasConversationContent_ || chatFollowing_ || atLatestBottom() || pulling_);
@@ -1675,13 +1314,28 @@ void App::newChat(bool inherit) {
 void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
                       bool subdued, const std::string &context) {
   readBegin(parent,context);
+  // Block margins are collapsed explicitly; the flex container adds no gap.
+  lv_obj_set_style_pad_row(parent, 0, 0);
+  Block previousBlock;
+  bool hasPreviousBlock = false;
+  auto beginBlock = [&](const Block &block) {
+    const int gap = rich_.blockGap(hasPreviousBlock ? &previousBlock : nullptr, block, readingFontSize());
+    if (gap) {
+      auto space = box(parent, 0, 0, width, gap, theme::palette().background);
+      lv_obj_set_style_bg_opa(space, LV_OPA_TRANSP, 0);
+      lv_obj_set_scrollable(space, false);
+    }
+    previousBlock = block;
+    hasPreviousBlock = true;
+  };
   auto doc = parseMarkdown(text, generating_ && parent == liveContent_);
   const int size = readingFontSize();
   rich_.prepare(doc, width - uiMetrics_.dp(4), size);
   auto appendText = [&](const Block &b) {
     if (b.runs.empty() && b.cells.empty() && b.kind != "hr")
       return;
-    auto layout = rich_.layout(b, width - uiMetrics_.dp(4), size);
+    beginBlock(b);
+    auto layout = rich_.layout(b, width - uiMetrics_.dp(4), size, false, subdued);
     auto holder = box(parent, 0, 0, width, layout.height, theme::palette().background);
     readRich(parent,holder,b,width-uiMetrics_.dp(4),size,layout);
     lv_obj_set_scroll_dir(holder, LV_DIR_HOR);
@@ -1733,6 +1387,7 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
       part.runs.clear();
       part.marker.clear();
       split = true;
+      beginBlock(b);
       const auto metadata = webMetadata(context);
       if (r.link.compare(0, 14, "penchat-image:") == 0) {
         const auto ref = r.link.substr(14);
@@ -1779,7 +1434,7 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
               theme::palette().muted);
       } else {
         auto h = box(parent, 0, 0, width, uiMetrics_.dp(145), theme::palette().background);
-        image(h, r.link, 0, 0, width, 145);
+        image(h, r.link, 0, 0, width, uiMetrics_.dp(145));
       }
     }
     if (split)
@@ -1801,26 +1456,46 @@ void App::replyContent(lv_obj_t *parent, const std::string &text, int width,
                  : name == "web_read_image" ? "正在获取图片…"
                                             : "正在阅读…";
       }
+    const bool expanded = expandedWeb_.count(id);
     auto row = box(parent, 0, 0, width, uiMetrics_.dp(44), theme::palette().background);
     lv_obj_set_scrollable(row, false);
-    icon(
-        row, expandedWeb_.count(id) ? "chevron-down" : "chevron-right", 0, 0, uiMetrics_.dp(44), uiMetrics_.dp(44),
+    auto arrow = icon(
+        row, "chevron-right", 0, 0, uiMetrics_.dp(44), uiMetrics_.dp(44),
         [this, id] { events_.push("web_toggle", {{"id", id}}); }, theme::palette().background);
+    setDisclosureProgress(arrow, expanded ? 1000 : 0);
     button(
         row, status, uiMetrics_.dp(44), 0, width - uiMetrics_.dp(44), uiMetrics_.dp(44),
         [this, id] { events_.push("web_toggle", {{"id", id}}); }, theme::palette().background,
         LV_TEXT_ALIGN_LEFT);
-    if (expandedWeb_.count(id)) {
-      for (const auto &source : web.value("web_sources", Json::array())) {
-        auto sourceButton=button(
-            parent, source.value("title", source.value("url", std::string())), 0, 0, width, uiMetrics_.dp(44),
-            [this, source] { openWebSource(source); }, theme::palette().background, LV_TEXT_ALIGN_LEFT);
-        readLinkText(lv_obj_get_child(sourceButton,0),source.value("title",source.value("url",std::string())),source.value("url",std::string()));
-      }
-      button(
-          parent, "查看完整检索记录", 0, 0, width, uiMetrics_.dp(44), [this, id] { openWebDetails(id); },
-          theme::palette().background, LV_TEXT_ALIGN_LEFT);
+    ReasoningControl control;
+    control.arrow = arrow;
+    control.wrap = parent;
+    control.width = width;
+    control.expanded = expanded;
+    control.detail = box(parent, 0, 0, width, LV_SIZE_CONTENT);
+    lv_obj_set_scrollable(control.detail, false);
+    lv_obj_set_flex_flow(control.detail, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(control.detail, 0, 0);
+    for (const auto &source : web.value("web_sources", Json::array())) {
+      auto sourceButton = button(
+          control.detail, source.value("title", source.value("url", std::string())), 0, 0, width, uiMetrics_.dp(44),
+          [this, source] { openWebSource(source); }, theme::palette().background, LV_TEXT_ALIGN_LEFT);
+      readLinkText(lv_obj_get_child(sourceButton, 0), source.value("title", source.value("url", std::string())), source.value("url", std::string()));
     }
+    button(
+        control.detail, "查看完整检索记录", 0, 0, width, uiMetrics_.dp(44), [this, id] { openWebDetails(id); },
+        theme::palette().background, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_hidden(control.detail, !expanded);
+    auto cleanup = new std::pair<App *, std::string>(this, id);
+    lv_obj_add_event_cb(control.detail, [](lv_event_t *event) {
+      if (lv_event_get_target_obj(event) != lv_event_get_current_target_obj(event)) return;
+      auto owner = static_cast<std::pair<App *, std::string> *>(lv_event_get_user_data(event));
+      auto found = owner->first->webControls_.find(owner->second);
+      if (found != owner->first->webControls_.end() && found->second.detail == lv_event_get_target_obj(event))
+        owner->first->webControls_.erase(found);
+      delete owner;
+    }, LV_EVENT_DELETE, cleanup);
+    webControls_[id] = std::move(control);
   }
   if (!text.empty()) {
     richMessage(parent, text, width, false, id);
@@ -1865,7 +1540,7 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
       auto original = stringValue(m, "stored_path");
       if (original.empty()) original = stringValue(m, "original_path");
       if (original.empty()) original = path;
-      image(photoGroup, path, 0, 0, width, 140,
+      image(photoGroup, path, 0, 0, width, uiMetrics_.dp(140),
             [this,original] { requestImageViewer(original); }, false, true,
             !readOnly&&m["seq"].get<int>() > lastAssistant ? m["id"].get<std::string>() : "",readOnly||m.value("edit_virtual",false)?"":m["id"].get<std::string>());
       if(!readOnly && source==session_)scaleMessageRows_[m["id"].get<std::string>()]=lv_obj_get_child(photoGroup,-1);
@@ -1879,7 +1554,7 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
       const auto text = stringValue(m, "output_text");
       lv_text_get_size(&measured, text.c_str(), font(readingFontSize()), 0, 0, LV_COORD_MAX,
                        LV_TEXT_FLAG_NONE);
-      contentWidth = std::min(contentWidth, std::max(48, int(measured.x) + 24));
+      contentWidth = std::min(contentWidth, std::max(uiMetrics_.dp(48), int(measured.x) + uiMetrics_.dp(24)));
     }
     auto row = box(parent, 0, 0, width, LV_SIZE_CONTENT);
     lv_obj_set_scrollable(row, false);
@@ -1937,8 +1612,7 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
         };
         auto arrow=icon(header,"chevron-right",0,0,uiMetrics_.dp(44),uiMetrics_.dp(44),toggle,theme::palette().background,theme::palette().muted);
         lv_obj_set_style_bg_color(arrow,lv_color_hex(theme::palette().surface),LV_STATE_PRESSED);
-        lv_obj_set_style_transform_pivot_x(arrow,22,0);lv_obj_set_style_transform_pivot_y(arrow,22,0);
-        lv_obj_set_style_transform_rotation(arrow,expanded?900:0,0);
+        setDisclosureProgress(arrow, expanded ? 1000 : 0);
         lv_obj_set_clickable(header,false);
         auto caption=label(header,title,uiMetrics_.dp(52),uiMetrics_.dp(10),std::max(1,textWidth-uiMetrics_.dp(52)),uiMetrics_.fontSize(UiFont::SettingsTitle),theme::palette().reasoning);
         lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(caption,font(uiMetrics_.fontSize(UiFont::SettingsTitle))->line_height);
@@ -1948,7 +1622,7 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
           control.detail=box(wrap,0,0,textWidth,LV_SIZE_CONTENT);
           lv_obj_set_scrollable(control.detail,false);lv_obj_set_flex_flow(control.detail,LV_FLEX_FLOW_COLUMN);
           lv_obj_set_style_pad_left(control.detail,uiMetrics_.dp(52),0);lv_obj_set_style_pad_top(control.detail,uiMetrics_.dp(2),0);lv_obj_set_style_pad_bottom(control.detail,uiMetrics_.dp(8),0);
-          richMessage(control.detail,control.text,std::max(44,textWidth-52),true,id+":reasoning");
+          richMessage(control.detail,control.text,std::max(uiMetrics_.dp(44),textWidth-uiMetrics_.dp(52)),true,id+":reasoning");
         }
         reasoningControls_[id]=std::move(control);
       } else
@@ -1965,7 +1639,7 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
       auto original = stringValue(m, "stored_path");
       if (original.empty()) original = stringValue(m, "original_path");
       if (original.empty()) original = path;
-      image(imgBox, path, 0, 0, textWidth, 140,
+      image(imgBox, path, 0, 0, textWidth, uiMetrics_.dp(140),
             [this,original] { requestImageViewer(original); }, user, true);
     }
     if (!content.empty() || (live && receivingReply_) ||
@@ -1992,56 +1666,88 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
     if(!readOnly&&stringValue(m,"role")=="assistant")replyBar(wrap,m,textWidth,m["seq"].get<int64_t>()>questionSeq);
   }
 }
-void App::toggleReasoning(const std::string &id,bool expanded) {
-  auto found=reasoningControls_.find(id);if(found==reasoningControls_.end())return;
-  auto &control=found->second;
-  const int scroll=lv_obj_get_scroll_y(body_);const bool previous=chatLayout_;chatLayout_=true;
-  readReset();control.expanded=expanded;
-  if(expanded)expandedReasoning_.insert(id);else expandedReasoning_.erase(id);
-  auto arrow=control.arrow;
-  const int angle=lv_obj_get_style_transform_rotation(arrow,LV_PART_MAIN);
-  lv_anim_delete(arrow,nullptr);
-  lv_anim_t turn;lv_anim_init(&turn);lv_anim_set_var(&turn,arrow);lv_anim_set_values(&turn,angle,expanded?900:0);
-  lv_anim_set_duration(&turn,180);lv_anim_set_path_cb(&turn,lv_anim_path_ease_out);
-  lv_anim_set_exec_cb(&turn,[](void *object,int32_t value){lv_obj_set_style_transform_rotation(static_cast<lv_obj_t *>(object),value,0);});
-  lv_anim_start(&turn);
-  const bool fresh=!control.detail;
-  if(fresh) {
-    control.detail=box(control.wrap,0,0,control.width,LV_SIZE_CONTENT);
-    lv_obj_set_scrollable(control.detail,false);lv_obj_set_flex_flow(control.detail,LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_left(control.detail,uiMetrics_.dp(52),0);lv_obj_set_style_pad_top(control.detail,uiMetrics_.dp(2),0);lv_obj_set_style_pad_bottom(control.detail,uiMetrics_.dp(8),0);
-    richMessage(control.detail,control.text,std::max(44,control.width-52),true,id+":reasoning");
-    lv_obj_move_to_index(control.detail,lv_obj_get_index(lv_obj_get_parent(arrow))+1);
+void App::animateDisclosure(ReasoningControl &control, bool expanded) {
+  auto detail = control.detail;
+  if (!detail) return;
+  control.expanded = expanded;
+  // Preserve selections outside a section that is being collapsed.
+  if (!expanded) {
+    auto region = readRegion(readActive_);
+    for (auto object = region ? region->root : nullptr; object; object = lv_obj_get_parent(object))
+      if (object == detail) { readReset(); break; }
   }
-  auto detail=control.detail;
-  const int start=fresh||lv_obj_is_hidden(detail)?0:lv_obj_get_height(detail);
-  lv_anim_delete(detail,nullptr);lv_obj_set_hidden(detail,false);lv_obj_set_height(detail,LV_SIZE_CONTENT);
-  lv_obj_update_layout(detail);control.naturalHeight=std::max(1,int(lv_obj_get_height(detail)));
-  lv_obj_set_height(detail,start);
-  lv_anim_t reveal;lv_anim_init(&reveal);lv_anim_set_var(&reveal,detail);lv_anim_set_user_data(&reveal,this);
-  lv_anim_set_values(&reveal,start,expanded?control.naturalHeight:0);lv_anim_set_duration(&reveal,180);
-  lv_anim_set_path_cb(&reveal,lv_anim_path_ease_out);
-  lv_anim_set_custom_exec_cb(&reveal,[](lv_anim_t *animation,int32_t value){
-    auto app=static_cast<App *>(lv_anim_get_user_data(animation));
-    const bool old=app->chatLayout_;app->chatLayout_=true;
-    auto widget=static_cast<lv_obj_t *>(animation->var);lv_obj_set_height(widget,value);
-    lv_obj_update_layout(widget);app->paintVisible();app->chatLayout_=old;
-  });
-  lv_anim_set_completed_cb(&reveal,[](lv_anim_t *animation){
-    auto app=static_cast<App *>(lv_anim_get_user_data(animation));
-    for(auto &entry:app->reasoningControls_)if(entry.second.detail==animation->var) {
-      const bool old=app->chatLayout_;app->chatLayout_=true;
-      if(entry.second.expanded)lv_obj_set_height(entry.second.detail,LV_SIZE_CONTENT);
-      else lv_obj_set_hidden(entry.second.detail,true);
-      lv_obj_update_layout(entry.second.wrap);app->chatLayout_=old;
-      if(app->view_=="chat"){app->chatScroll_=lv_obj_get_scroll_y(app->body_);app->updateChatControls(true);}
-      app->paintVisible();break;
-    }
-  });
-  lv_anim_start(&reveal);
-  lv_obj_update_layout(control.wrap);lv_obj_scroll_to_y(body_,scroll,LV_ANIM_OFF);
-  if(view_=="chat")chatScroll_=lv_obj_get_scroll_y(body_);
-  chatLayout_=previous;
+  const int scroll = lv_obj_get_scroll_y(body_);
+  const bool previousLayout = chatLayout_;
+  chatLayout_ = true;
+  const int start = lv_obj_is_hidden(detail) ? 0 : lv_obj_get_height(detail);
+  motion::cancel(detail);
+  lv_obj_set_hidden(detail, false);
+  lv_obj_set_height(detail, LV_SIZE_CONTENT);
+  lv_obj_update_layout(detail);
+  control.naturalHeight = std::max(1, int(lv_obj_get_height(detail)));
+  lv_obj_set_height(detail, start);
+  auto wrap = control.wrap;
+  motion::animate(detail, start, expanded ? control.naturalHeight : 0, 180,
+      [this, detail, wrap](int height) {
+        const bool previous = chatLayout_;
+        chatLayout_ = true;
+        const int scroll = lv_obj_get_scroll_y(body_);
+        lv_obj_set_height(detail, height);
+        lv_obj_update_layout(wrap);
+        lv_obj_scroll_to_y(body_, scroll, LV_ANIM_OFF);
+        paintVisible();
+        if (readActive_ && readSelection_.selected()) readDraw(readMenuWanted_);
+        chatLayout_ = previous;
+      },
+      [this, detail, wrap, expanded] {
+        const bool previous = chatLayout_;
+        chatLayout_ = true;
+        const int scroll = lv_obj_get_scroll_y(body_);
+        if (expanded) lv_obj_set_height(detail, LV_SIZE_CONTENT);
+        else lv_obj_set_hidden(detail, true);
+        lv_obj_update_layout(wrap);
+        lv_obj_scroll_to_y(body_, scroll, LV_ANIM_OFF);
+        chatLayout_ = previous;
+        if (view_ == "chat") {
+          chatScroll_ = lv_obj_get_scroll_y(body_);
+          updateChatControls(true);
+        }
+        paintVisible();
+        if (readActive_ && readSelection_.selected()) readDraw(readMenuWanted_);
+      });
+  if (control.arrow) {
+    auto arrow = control.arrow;
+    motion::animate(arrow, disclosureProgress(arrow), expanded ? 1000 : 0, 180,
+        [arrow](int progress) { setDisclosureProgress(arrow, progress); });
+  }
+  lv_obj_update_layout(wrap);
+  lv_obj_scroll_to_y(body_, scroll, LV_ANIM_OFF);
+  if (view_ == "chat") chatScroll_ = lv_obj_get_scroll_y(body_);
+  chatLayout_ = previousLayout;
+}
+void App::toggleWeb(const std::string &id, bool expanded) {
+  auto found = webControls_.find(id);
+  if (found == webControls_.end()) return;
+  if (expanded) expandedWeb_.insert(id); else expandedWeb_.erase(id);
+  animateDisclosure(found->second, expanded);
+}
+void App::toggleReasoning(const std::string &id, bool expanded) {
+  auto found = reasoningControls_.find(id);
+  if (found == reasoningControls_.end()) return;
+  auto &control = found->second;
+  if (expanded) expandedReasoning_.insert(id); else expandedReasoning_.erase(id);
+  if (!control.detail) {
+    control.detail = box(control.wrap, 0, 0, control.width, LV_SIZE_CONTENT);
+    lv_obj_set_scrollable(control.detail, false);
+    lv_obj_set_flex_flow(control.detail, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_left(control.detail, uiMetrics_.dp(52), 0);
+    lv_obj_set_style_pad_top(control.detail, uiMetrics_.dp(2), 0);
+    lv_obj_set_style_pad_bottom(control.detail, uiMetrics_.dp(8), 0);
+    richMessage(control.detail, control.text, std::max(uiMetrics_.dp(44), control.width-uiMetrics_.dp(52)), true, id+":reasoning");
+    lv_obj_move_to_index(control.detail, lv_obj_get_index(lv_obj_get_parent(control.arrow))+1);
+    lv_obj_set_hidden(control.detail, true);
+  }
+  animateDisclosure(control, expanded);
 }
 
 void App::renderMessages(bool bottom, bool cached) {
@@ -2087,15 +1793,12 @@ void App::renderMessages(bool bottom, bool cached) {
       renderMessages(true);
     });
   if (messages.empty()) {
-    auto welcome = box(messageContent_, 0, 0, width, uiMetrics_.dp(166));
-    lv_obj_set_scrollable(welcome, false);
-    auto title = label(welcome, PENCHAT_NAME, 0, uiMetrics_.dp(42), width, uiMetrics_.fontSize(UiFont::Hero));
-    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-    auto hint = label(welcome,
-                      db_.models().empty() ? "请在设置中添加 Provider 和模型"
-                                           : "有什么可以帮你？",
-                      0, uiMetrics_.dp(86), width, uiMetrics_.fontSize(UiFont::EmptyTitle), theme::palette().muted);
-    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+    const auto detail=db_.models().empty()
+        ? "先到设置添加服务商，获取或填写模型并保存，即可开始提问。发送第一条消息后会生成历史记录。"
+        : "输入问题，或从加号添加图片，再点击发送。发送第一条消息后会生成历史记录，未发送的草稿会保留在这里。";
+    const int available=std::max(0,int(lv_obj_get_height(body_))-chatComposerHeight()-layout().safeBottom()-uiMetrics_.dp(16));
+    statusState(messageContent_,{StatusKind::Empty,PENCHAT_NAME,detail,""},uiMetrics_,
+                font(uiMetrics_.fontSize(UiFont::Hero)),font(uiMetrics_.fontSize(UiFont::FormNote)),0,0,width,available);
   }
   if (!cached)
     lastAssistantSeq_ =
@@ -2169,7 +1872,7 @@ void App::flushChatRender() {
     if (!finish.value("error", std::string()).empty()) {
       modal("生成失败", finish["error"]);
       const auto message = finish["id"], session = finish["session"];
-      button(modal_, "重试", screen_.width - 325, screen_.height - 66, 100, 44,
+      button(modal_, "重试", screen_.width - uiMetrics_.dp(325), screen_.height - uiMetrics_.dp(66), uiMetrics_.dp(100), uiMetrics_.touchTarget(),
              [this, message, session] { events_.push("retry_request", {{"id", message}, {"session", session}}); });
     }
   } else if ((chatRenderPending_ || dirty_) && ticks() >= renderDue_) {
@@ -2495,7 +2198,7 @@ void App::settingsPage() {
     value["autoSendCapturedContent"] = !enabled;
     db_.setting("penchat_settings", value); build();
   }, settings.value("autoSendCapturedContent", false));
-  const auto historyMode = config.value("history_time_display", std::string("time"));
+  const auto historyMode = historyTimeDisplay(config,layout().portrait());
   row("history_time", "历史时间显示", historyMode == "title" ? "会话标题优先" : historyMode == "off" ? "关闭时间显示" : "时间显示优先",
       [this] { historyTimePicker(); });
   const auto editDefault = config.value("message_edit_default", std::string("ask"));
@@ -2514,6 +2217,10 @@ void App::settingsPage() {
       [this] { composerShortcutPicker(); }, -1, false, true);
 
   section("app", "应用");
+  row("theme", "主题", theme::mode()==theme::Mode::Light?"浅色":"深色", [this] {
+    choiceMenu("theme",{{"dark","深色"},{"light","浅色"}},theme::name(theme::mode()),
+      [this](const std::string &name){events_.push("theme_apply",{{"mode",name}});});
+  });
   row("ui_scale", "界面缩放", std::to_string(uiMetrics_.scalePercent())+"% · 全应用", [this] {
     uiScaleDraft_=uiMetrics_.scalePercent();uiScaleError_.clear();show("ui_scale");
   });
@@ -2586,7 +2293,7 @@ void App::fontSizePage() {
     app->updateFontPreview(lv_slider_get_value(app->fontSlider_) * 5);
   }, LV_EVENT_VALUE_CHANGED, this);
   fontPreview_ = label(pageContent_, "文字大小预览 Aa 123\n让阅读更轻松，按自己的习惯调整。",
-                        uiMetrics_.dp(10), uiMetrics_.dp(104)+extra, width - uiMetrics_.dp(20), 21);
+                        uiMetrics_.dp(10), uiMetrics_.dp(104)+extra, width - uiMetrics_.dp(20), readingFontSize());
   updateFontPreview(readingFontDraft_);
 }
 void App::reasoningDisplayPicker() {
@@ -2595,6 +2302,7 @@ void App::reasoningDisplayPicker() {
     [this](const std::string &key){events_.push("reasoning_display",{{"mode",key}});});
 }
 void App::goBack() {
+  if(!themeRequest_.empty())return;
   if(view_=="ui_scale"&&!uiScaleRequest_.empty())return;
   if (view_ == "web_source") {
     show("web_details");
@@ -2675,99 +2383,6 @@ void App::toggleNavigation() {
   navigationOpen_ = true;
   historyDrawer();
 }
-void App::historyDrawer() {
-  // Only the drawer is replaced when paging, keeping the underlying form/draft.
-  if (navigationList_)
-    navigationScroll_ = std::max(0, int(lv_obj_get_scroll_y(navigationList_)));
-  historyRows_.clear();historyCaptions_.clear();navigationFooter_.clear();
-  auto previous = navigation_;
-  navigation_ = navigationList_ = navigationActive_ = nullptr;
-  if (previous)
-    lv_obj_delete(previous);
-  navigation_ = box(screenObj_, 0, 0, screen_.width, screen_.height, 0x000000);
-  lv_obj_set_scrollable(navigation_, false);
-  lv_obj_set_style_bg_opa(navigation_, 120, 0);
-  lv_obj_set_clickable(navigation_, true);
-  const int panelWidth = screen_.width * 2 / 3;
-  const int listLeft=layout().portrait()?layout().navigationX():uiMetrics_.dp(12);
-  const int listTop=layout().portrait()?layout().safeTop():uiMetrics_.dp(8);
-  const int footerHeight=std::max(44,uiMetrics_.dp(48));
-  const int footerY=screen_.height-footerHeight-(layout().portrait()?layout().safeBottom():uiMetrics_.dp(6));
-  const int listWidth = panelWidth - listLeft - uiMetrics_.dp(12);
-  auto panel =
-      box(navigation_, 0, 0, panelWidth, screen_.height, theme::palette().sidebar);
-  lv_obj_set_scrollable(panel, false);
-  navigationList_ =
-      box(panel, listLeft, listTop, listWidth, footerY-listTop-uiMetrics_.dp(8), theme::palette().sidebar);
-  lv_obj_set_scroll_dir(navigationList_, LV_DIR_VER);
-  lv_obj_set_scroll_elastic(navigationList_, true);
-  lv_obj_set_scroll_momentum(navigationList_, true);
-  lv_obj_set_scroll_chain_ver(navigationList_, false);
-  lv_obj_set_scroll_chain_hor(navigationList_, false);
-  lv_obj_set_scrollbar_mode(navigationList_, LV_SCROLLBAR_MODE_AUTO);
-  auto sessions = db_.sessions(historyOffset_);
-  if (sessions.empty()) {
-    label(navigationList_, "暂无历史对话", uiMetrics_.dp(12), uiMetrics_.dp(8), listWidth - uiMetrics_.dp(24), uiMetrics_.fontSize(UiFont::Body),
-          theme::palette().muted);
-    label(navigationList_, "发送文字或图片后会自动保存", uiMetrics_.dp(12), uiMetrics_.dp(44), listWidth - uiMetrics_.dp(24),
-          uiMetrics_.fontSize(UiFont::FormNote), theme::palette().muted);
-  }
-  int y = 0;
-  for (const auto &s : sessions) {
-    auto id = s["id"].get<std::string>();
-    auto row = historyRow(navigationList_, s, y, listWidth);
-    if (id == session_)
-      navigationActive_ = row;
-    y += uiMetrics_.dp(50);
-  }
-  if (historyOffset_ > 0)
-    button(navigationList_, "上一页", 0, y, uiMetrics_.dp(160), uiMetrics_.dp(44), [this] {
-      historyOffset_ = std::max(0, historyOffset_ - 30);
-      navigationScroll_ = 0;
-      historyDrawer();
-    });
-  if (sessions.size() == 30)
-    button(navigationList_, "下一页", uiMetrics_.dp(180), y, uiMetrics_.dp(160), uiMetrics_.dp(44), [this] {
-      historyOffset_ += 30;
-      navigationScroll_ = 0;
-      historyDrawer();
-    });
-  const int footerSpace = panelWidth - listLeft - uiMetrics_.dp(12) - (layout().portrait()?footerHeight+2*uiMetrics_.dp(8):uiMetrics_.dp(16));
-  lv_point_t settingsText{};lv_text_get_size(&settingsText,"设置",font(uiMetrics_.fontSize(UiFont::SettingsTitle)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
-  const int settingsMinimum=settingsText.x+uiMetrics_.dp(56);
-  const int footerWidth=layout().portrait()?std::min(footerSpace*3/5,std::max(uiMetrics_.dp(48),footerSpace-settingsMinimum)):footerSpace/2;
-  const int walletX = listLeft + footerWidth + uiMetrics_.dp(8);
-  auto footerAction = [&](int x, int width, const char *kind, const char *title,
-                          std::function<void()> action) {
-    auto control=button(panel,title,x,footerY,width,footerHeight,std::move(action),theme::palette().sidebar,LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_style_radius(control,uiMetrics_.dp(24),0);
-    auto caption=lv_obj_get_child(control,0);
-    lv_obj_set_width(caption,std::max(1,width-uiMetrics_.dp(56)));lv_obj_align(caption,LV_ALIGN_LEFT_MID,uiMetrics_.dp(44),0);
-    lv_obj_set_clickable(caption,false);
-    auto glyph=icon(control,kind,uiMetrics_.dp(8),(footerHeight-uiMetrics_.dp(32))/2,uiMetrics_.dp(32),uiMetrics_.dp(32),{},theme::palette().sidebar);
-    lv_obj_set_style_bg_opa(glyph,LV_OPA_TRANSP,0);lv_obj_set_clickable(glyph,false);
-    navigationFooter_[kind]=control;
-  };
-  footerAction(listLeft, footerWidth, "newchat", "新建聊天", [this] { newChat(); });
-  if(layout().portrait())balanceButton(panel,walletX,footerY,theme::palette().sidebar);
-  const int settingsX=walletX+(layout().portrait()?footerHeight+uiMetrics_.dp(8):uiMetrics_.dp(8));
-  footerAction(settingsX,panelWidth-12-settingsX,"settings","设置",[this]{show("settings");});
-  lv_obj_update_layout(navigation_);
-  // LVGL needs scrollable extent before it will start an elastic gesture.
-  // A transparent one-pixel tail also enables bounce for short/empty lists.
-  if (lv_obj_get_scroll_bottom(navigationList_) <= 0) {
-    auto tail =
-        box(navigationList_, 0, lv_obj_get_height(navigationList_), uiMetrics_.dp(1), uiMetrics_.dp(1));
-    lv_obj_set_style_bg_opa(tail, LV_OPA_TRANSP, 0);
-    lv_obj_set_scrollable(tail, false);
-    lv_obj_set_clickable(tail, false);
-    lv_obj_update_layout(navigationList_);
-  }
-  const int end = std::max(0, int(lv_obj_get_scroll_y(navigationList_) +
-                                  lv_obj_get_scroll_bottom(navigationList_)));
-  lv_obj_scroll_to_y(navigationList_, std::min(navigationScroll_, end),
-                     LV_ANIM_OFF);
-}
 lv_point_t App::photoPoint(lv_point_t point) const {
   if(layout().portrait())return point;
   // LVGL hit testing follows the rotated container; custom crop geometry needs
@@ -2827,8 +2442,8 @@ void App::cameraPage() {
     auto mark=box(visual,stacked?(visualWidth-uiMetrics_.dp(28))/2:uiMetrics_.dp(6),stacked?uiMetrics_.dp(4):(area.height-uiMetrics_.dp(28))/2,uiMetrics_.dp(28),uiMetrics_.dp(28));
     lv_obj_set_style_bg_opa(mark,LV_OPA_TRANSP,0);lv_obj_set_scrollable(mark,false);lv_obj_set_clickable(mark,false);
     attachIcon(mark,name,theme::palette().text, 1.f, uiMetrics_);
-    auto caption=label(visual,title,stacked?2:uiMetrics_.dp(36),stacked?uiMetrics_.dp(40):(area.height-uiMetrics_.dp(24))/2,
-      visualWidth-(stacked?uiMetrics_.dp(4):uiMetrics_.dp(40)),stacked?16:15,theme::palette().muted);
+    auto caption=label(visual,title,stacked?uiMetrics_.dp(2):uiMetrics_.dp(36),stacked?uiMetrics_.dp(40):(area.height-uiMetrics_.dp(24))/2,
+      visualWidth-(stacked?uiMetrics_.dp(4):uiMetrics_.dp(40)),uiMetrics_.fontSize(stacked?UiFont::Detail:UiFont::FieldTitle),theme::palette().muted);
     lv_obj_set_height(caption,uiMetrics_.dp(24));lv_label_set_long_mode(caption,LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);
     lv_obj_set_clickable(caption,false);
@@ -2891,11 +2506,11 @@ void App::albumPage() {
   int begin = albumPage_ * 12, end = std::min(int(files.size()), begin + 12);
   for (int i = begin; i < end; ++i) {
     auto path = files[i].second;
-    const int columns=layout().portrait()?std::max(1,w/160):3;
+    const int columns=layout().portrait()?std::max(1,w/uiMetrics_.dp(160)):3;
     int pos = i - begin, x = uiMetrics_.dp(10) + (pos % columns) * (w / columns), y = uiMetrics_.dp(4) + (pos / columns) * uiMetrics_.dp(145);
     auto preview =
         scanPreviews.count(path) ? scanPreviews[path] : std::string();
-    image(pageContent_, preview.empty() ? path : preview, x, y, w / (layout().portrait()?std::max(1,w/160):3) - 15, 105,
+    image(pageContent_, preview.empty() ? path : preview, x, y, w / columns - uiMetrics_.dp(15), uiMetrics_.dp(105),
           [this, path, preview] {
             Json image = {{"path", path}, {"source", "album"}};
             if (!preview.empty())
@@ -2907,7 +2522,7 @@ void App::albumPage() {
     lv_obj_set_height(caption, font(uiMetrics_.fontSize(UiFont::FieldTitle))->line_height);
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
   }
-  const int columns=layout().portrait()?std::max(1,w/160):3;
+  const int columns=layout().portrait()?std::max(1,w/uiMetrics_.dp(160)):3;
   int y = uiMetrics_.dp(4) + ((end - begin + columns-1) / columns) * uiMetrics_.dp(145);
   if (albumPage_)
     button(pageContent_, "上一页", uiMetrics_.dp(10), y, uiMetrics_.dp(140), uiMetrics_.dp(44), [this] {
@@ -3146,6 +2761,7 @@ void App::updateInputFocus() {
   }
 }
 void App::suspend(bool value) {
+  if(value)motion::finishAll();
   if (value) composerShortcut_.reset();
   if(value)readReset();
   if(value)readDown_=readSuppressed_=false;
@@ -3182,6 +2798,7 @@ void App::suspend(bool value) {
     closeNavigation(false);
   }
   closeAttachments();
+  if(value)motion::finishAll();
   resetPull();
   touchDown_ = false;
   pullTrackActivity_ = false;
@@ -3203,6 +2820,7 @@ void App::suspend(bool value) {
 void App::windowFocus(bool focused) {
   if(windowFocused_==focused)return;
   windowFocused_=focused;
+  if(!focused)motion::finishAll();
   updateInputFocus();
 }
 void App::shutdown() {
@@ -3211,6 +2829,7 @@ void App::shutdown() {
 #endif
   if (shutdownComplete_) return;
   shutdownComplete_ = true;
+  motion::finishAll();
   cancelWebReader();
   cancelBalances();
   if (balanceService_) balanceService_->stop();
@@ -3395,7 +3014,7 @@ void App::handle(const Json &m) {
   }
 #endif
   if (type == "init") {
-    bridge_.generation(m.value("generation", 0));
+    bridge_.generation(m.value("generation", 0));sendAppearance();
     editorOcrCapabilities(m.value("ocrCapabilities",Json::object()));
     startupReadyPending_ = true;
     syncBackPolicy();
@@ -3549,7 +3168,7 @@ void App::tick() {
     bridge_.send("ready");
   }
   const int reservedTop = display_.systemOverlaySafe() && !editor_.active && !imageViewer_ && view_ != "crop"
-      ? std::max(8, std::min(screen_.width, screen_.height) / 25) : 0;
+      ? std::max(uiMetrics_.dp(8), std::min(screen_.width, screen_.height) / 25) : 0;
   auto touches=touchInput_.poll(visible_ && !keyboard_ && touchLeaseActive_, reservedTop);
   for(const auto &touch:touches){
     if(!visible_ || keyboard_ || !inputFocused_ || !inputFocus_.allowed(ticks())) { updateInputFocus();touchInput_.close();break; }
@@ -3557,6 +3176,7 @@ void App::tick() {
   }
   imageReturnTick();
   for (const auto &saved : db_.saveEvents()) {
+    if(saved.data.value("key",std::string())=="theme_mode"){themeSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="ui_scale_percent"){uiScaleSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="onboarding"){onboardingSaved(saved);continue;}
     if (saved.type == "message_saved") {
@@ -3583,7 +3203,7 @@ void App::tick() {
       diagnosticRecord("storage", "save_error");
       notice_ = saved.data.value("error", std::string("保存失败"));
       modal("内容尚未保存", notice_);
-      button(modal_, "重试保存", screen_.width - 335, screen_.height - 66, 120, 44,
+      button(modal_, "重试保存", screen_.width - uiMetrics_.dp(335), screen_.height - uiMetrics_.dp(66), uiMetrics_.dp(120), uiMetrics_.touchTarget(),
              [this] {
                db_.retrySaves();
                if (modal_)
@@ -3591,6 +3211,7 @@ void App::tick() {
              });
     }
   }
+  themeTick();
   uiScaleTick();
   editorTick();
   readTick();
@@ -3655,15 +3276,9 @@ void App::tick() {
       continue;
     }
     if (e.type == "web_toggle") {
-      const auto id = e.data.value("id", std::string());
-      if (expandedWeb_.count(id))
-        expandedWeb_.erase(id);
-      else
-        expandedWeb_.insert(id);
-      if (view_ == "chat")
-        renderMessages(false, true);
-      else if (view_ == "archive_chat")
-        build();
+      const auto id=e.data.value("id",std::string());
+      auto control=webControls_.find(id);
+      if(control!=webControls_.end())toggleWeb(id,!control->second.expanded);
       continue;
     }
     if (e.type == "pinyin_clear_confirm") {if(view_=="keyboard_settings"){input_.cancel();modal("正在清除拼音记忆","请稍候…");pinyin_.clear();}continue;}
@@ -3718,11 +3333,11 @@ void App::tick() {
             },
             LV_EVENT_DELETE, this);
         auto close = lv_obj_get_child(modal_, -1);
-        lv_obj_set_height(close, uiMetrics_.dp(44));
+        lv_obj_set_height(close, uiMetrics_.touchTarget());
         lv_label_set_text(lv_obj_get_child(close, 0), "取消");
         const auto session = session_;
         auto remove = button(
-            modal_, "删除", screen_.width - 325, screen_.height - 66, 100, 44,
+            modal_, "删除", screen_.width - uiMetrics_.dp(325), screen_.height - uiMetrics_.dp(66), uiMetrics_.dp(100), uiMetrics_.touchTarget(),
             [this, session, id] {
               events_.push("image_delete_confirm",
                            {{"session", session}, {"message", id}});
@@ -3756,7 +3371,7 @@ void App::tick() {
       auto found=reasoningControls_.find(id);
       const auto source=e.data.value("session",std::string());
       if(found!=reasoningControls_.end() && ((view_=="archive_chat"&&source==archiveReaderId_) || (view_=="chat"&&source==session_))) {
-        input_.cancel();lv_obj_stop_scroll_anim(body_);
+        lv_obj_stop_scroll_anim(body_);
         const bool expanded=!found->second.expanded;
         (view_=="archive_chat"?archiveReasoningOverrides_:reasoningOverrides_)[id]=expanded;
         if(view_=="chat")chatFollowing_=false;
@@ -3795,6 +3410,8 @@ void App::tick() {
         composerShortcut_.configure(mode);
         build();
       }
+    } else if (e.type == "theme_apply") {
+      requestTheme(e.data.value("mode",std::string()));
     } else if (e.type == "ui_scale_save") {
       saveUiScale();
     } else if (e.type == "reading_font_apply" && view_ == "font_size") {
@@ -4038,7 +3655,7 @@ Json App::diagnostics() const {
   for(const auto &entry:reasoningControls_) {
     const auto &c=entry.second;
     reasonControls.push_back({{"id",entry.first},{"arrow",bounds(c.arrow)},{"title",bounds(lv_obj_get_child(lv_obj_get_parent(c.arrow),1))},
-      {"expanded",c.expanded},{"angle",lv_obj_get_style_transform_rotation(c.arrow,LV_PART_MAIN)},
+      {"expanded",c.expanded},{"angle",disclosureProgress(c.arrow)*900/1000},
       {"detail",c.detail?bounds(c.detail):Json()}});
   }
   for(const auto &entry:navigationFooter_)footer[entry.first]={{"bounds",bounds(entry.second)},
@@ -4172,7 +3789,7 @@ Json App::diagnostics() const {
       {"effort_choices",
        model.empty() ? std::vector<std::string>() : effortChoices(model)},
       {"reasoning_header_count", reasoningHeaders_.size()},{"reasoning_controls",reasonControls},{"navigation_footer",footer},
-      {"reasoning_header_x", reasonHeader.x1 + 22},
+      {"reasoning_header_x", reasonHeader.x1 + uiMetrics_.dp(22)},
       {"reasoning_header_y", (reasonHeader.y1 + reasonHeader.y2) / 2},
       {"reasoning_observed", reasoningMetadata_.value("reasoning_observed", false)},
       {"reasoning_expanded_count", expandedReasoning_.size()},
@@ -4248,6 +3865,7 @@ Json App::diagnostics() const {
         {"pending",!uiScaleRequest_.empty()},{"ready",uiScaleReady_},{"error",!uiScaleError_.empty()},
         {"changes",uiScaleChanges_},{"slider",bounds(uiScaleSlider_)},{"preview",bounds(uiScalePreview_)},
         {"anchor",{{"message",scaleAnchor_.message},{"region",scaleAnchor_.region},{"offset",scaleAnchor_.offset},{"y",scaleAnchor_.y},{"pending",scaleAnchor_.pending}}}}},
+      {"appearance",{{"theme",theme::name(theme::mode())},{"pending",!themeRequest_.empty()},{"ready",themeReady_}}},
       {"font_cache",fontCacheInfo()},
       {"reading_font", {{"percent", readingFontPercent_}, {"size", readingFontSize()},
                         {"draft", readingFontDraft_}, {"slider", bounds(fontSlider_)},

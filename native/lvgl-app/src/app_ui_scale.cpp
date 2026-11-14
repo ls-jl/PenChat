@@ -33,7 +33,7 @@ void App::uiScalePage() {
       left,uiMetrics_.dp(8),width,uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);
   lv_obj_update_layout(description);
   int y=lv_obj_get_y(description)+lv_obj_get_height(description)+uiMetrics_.dp(12);
-  const int height=std::max(44,uiMetrics_.dp(44)),side=std::max(44,uiMetrics_.dp(56));
+  const int height=uiMetrics_.touchTarget(),side=uiMetrics_.touchTarget(56);
   uiScaleCaption_=label(pageContent_,"",left+side,y,width-2*side,uiMetrics_.fontSize(UiFont::PageTitle));
   lv_obj_set_style_text_align(uiScaleCaption_,LV_TEXT_ALIGN_CENTER,0);
   auto step=[this](int delta){if(uiScaleRequest_.empty())updateUiScalePreview(uiScaleDraft_+delta);};
@@ -118,7 +118,7 @@ void App::uiScaleTick() {
     editorLayoutCache_.reset();++uiScaleChanges_;
     scaleAnchor_.pending=scaleAnchor_.session==session_&&!scaleAnchor_.following;
   }
-  show("settings");
+  show("settings");sendAppearance();
   auto row=settingsControls_.find("ui_scale");
   if(row!=settingsControls_.end()) {
     lv_obj_update_layout(screenObj_);

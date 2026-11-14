@@ -1,12 +1,13 @@
 #include "app.hpp"
 #include "icons.hpp"
+#include "ui_motion.hpp"
 #include <cmath>
 namespace penchat {
 bool App::keepChatEditor() const {
   return layout().portrait() && view_=="chat" && editor_.active && editorInlineChat_ && editorInPlace();
 }
 LayoutRect App::pickerArea(int desiredWidth) const {
-  if(!keepChatEditor())return {20,12,desiredWidth,screen_.height-78};
+  if(!keepChatEditor())return {uiMetrics_.dp(20),uiMetrics_.dp(12),desiredWidth,screen_.height-uiMetrics_.dp(78)};
   const int top=std::max(uiMetrics_.dp(12),layout().safeTop());
   const int height=std::max(uiMetrics_.dp(44),chatComposerY()-top-uiMetrics_.dp(8));
   return placeContextPopup(screen_.width,screen_.height,roundedDisplay_,
@@ -60,7 +61,7 @@ void App::choiceMenu(const std::string &kind,
 }
 lv_obj_t *App::contextMenu(const std::string &kind,int rows,int width) {
   readReset();closeAttachments();resetPull();
-  if(modal_)lv_obj_delete(modal_);
+  if(modal_)closeHistoryContext();
   contextMenuKind_=kind;
   contextMenuOpening_=lastTouch_.value("pressed",false);
   input_.cancel();
@@ -71,6 +72,8 @@ lv_obj_t *App::contextMenu(const std::string &kind,int rows,int width) {
   lv_obj_add_event_cb(layer,[](lv_event_t *event){
     auto self=static_cast<App *>(lv_event_get_user_data(event));
     if(lv_event_get_code(event)==LV_EVENT_DELETE && lv_event_get_target_obj(event)==lv_event_get_current_target_obj(event)) {
+      // An outgoing layer may finish after its replacement has opened.
+      if(self->modal_!=lv_event_get_target_obj(event))return;
       if(self->contextMenuKind_=="balances"){self->readReset();self->cancelBalances();}
       self->balanceRefresh_=nullptr;self->balanceDetailActions_.clear();
       self->modal_=self->modalScroll_=self->contextMenuPanel_=self->contextMenuList_=nullptr;
@@ -93,12 +96,13 @@ lv_obj_t *App::contextMenu(const std::string &kind,int rows,int width) {
   auto list=box(panel,padding,padding,area.width-2*padding,
                 std::max(uiMetrics_.dp(44),area.height-2*padding),theme::palette().popup);
   contextMenuList_=list;lv_obj_set_scroll_dir(list,LV_DIR_VER);
-  lv_obj_set_style_width(list,3,LV_PART_SCROLLBAR);
+  lv_obj_set_style_width(list,uiMetrics_.dp(3),LV_PART_SCROLLBAR);
   lv_obj_set_style_bg_color(list,lv_color_hex(theme::palette().border),LV_PART_SCROLLBAR);
   lv_obj_set_scroll_elastic(list,false);lv_obj_set_scroll_chain_ver(list,false);
   // Callers size their rows from this reader immediately. Resolve percentage
   // and content geometry before they inspect its width.
   lv_obj_update_layout(layer);
+  motion::present(panel,1,uiMetrics_);
   return list;
 }
 bool App::popupTouch(const Json &message) {
@@ -106,6 +110,12 @@ bool App::popupTouch(const Json &message) {
   if(popupConsumeTouch_||contextMenuOpening_) {
     if(!down){popupConsumeTouch_=contextMenuOpening_=false;input_.cancel();}
     return true;
+  }
+  if(!contextMenuPanel_&&!attachmentPanel_&&motion::retiring()) {
+    // Native keyboard arbitration happens before LVGL hit testing. Consume a
+    // contact that starts during exit as well as the release that closed it.
+    if(down)popupConsumeTouch_=true;
+    editorCancelKeys();input_.cancel();return true;
   }
   if(contextMenuKind_=="balances" && readTouch(message.value("x",0),message.value("y",0),down,message.value("cancelled",false)))return true;
   auto panel=contextMenuPanel_?contextMenuPanel_:((keepChatEditor()||popupKind_=="attachments")?attachmentPanel_:nullptr);

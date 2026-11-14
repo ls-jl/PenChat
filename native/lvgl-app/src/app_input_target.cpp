@@ -101,6 +101,18 @@ int App::chatComposerY(int composerHeight) const {
   const int bottom=docked?editorLayout().panelTop-uiMetrics_.composer().dockGap:screen_.height-geometry.safeBottom();
   return bottom-composerHeight;
 }
+void App::syncChatBottomPadding() {
+  if(view_!="chat"||!messageContent_)return;
+  const auto geometry=layout();
+  const bool docked=editor_.active&&editorLayout().docked;
+  // Use resting geometry and visibility policy. Pull and keyboard-push offsets
+  // only transform the viewport; they must never change its scroll extent.
+  const bool shown=geometry.portrait()||atLatestBottom()||composerShortcut_.shown();
+  const int tail=uiMetrics_.dp(16);
+  const int padding=tail+(!docked&&shown?chatComposerHeight()+geometry.safeBottom():0);
+  if(lv_obj_get_style_pad_bottom(messageContent_,LV_PART_MAIN)!=padding)
+    lv_obj_set_style_pad_bottom(messageContent_,padding,0);
+}
 void App::layoutChatComposer() {
   if(!chatControls_||!composer_)return;
   const auto geometry=layout();
@@ -146,6 +158,7 @@ void App::layoutChatComposer() {
     lv_anim_delete(chatControls_,nullptr);chatControlsTarget_=chatComposerY(height);
     lv_obj_set_y(chatControls_,chatControlsTarget_);
   }
+  syncChatBottomPadding();
   lv_obj_update_layout(chatControls_);chatLayout_=previous;
 }
 void App::editorAttachTarget() {

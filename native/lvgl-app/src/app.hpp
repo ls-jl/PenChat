@@ -29,8 +29,21 @@ namespace penchat {
 class App {
 #ifndef PENCHAT_NATIVE_DEVICE
   friend struct UiControlsTest;
+  friend struct MenusMotionTest;
 #endif
   UiMetrics uiMetrics_;
+  std::string themeRequest_;
+  theme::Mode themeTarget_=theme::Mode::Dark;
+  bool themeReady_=false;
+  void requestTheme(const std::string &name);
+  void themeSaved(const Event &event);
+  void themeTick();
+  void sendAppearance();
+  lv_obj_t *composerGauge_=nullptr;
+  bool effortPreview_=false;
+  void syncEffortGauge();
+  void layoutBalances();
+  void syncChatBottomPadding();
   int uiScaleSaved_=100,uiScaleDraft_=100;
   std::string uiScaleRequest_,uiScaleError_;
   bool uiScaleReady_=false;
@@ -327,6 +340,9 @@ class App {
   };
   std::map<std::string,ReasoningControl> reasoningControls_;
   void toggleReasoning(const std::string &id, bool expanded);
+  std::map<std::string,ReasoningControl> webControls_;
+  void toggleWeb(const std::string &id,bool expanded);
+  void animateDisclosure(ReasoningControl &control,bool expanded);
   std::map<std::string,lv_obj_t *> navigationFooter_;
   bool modelAdvanced_ = false, hasConversationContent_ = false;
   bool navigationPointerDown_ = false, navigationBackdrop_ = false;

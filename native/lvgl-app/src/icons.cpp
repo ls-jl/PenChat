@@ -13,6 +13,8 @@ struct Icon {
   UiMetrics metrics = UiMetrics();
   std::shared_ptr<GearMask> gear;
   float gearScale=0;
+  float gaugePosition=.5f;
+  int disclosure=0;
   int stemTop = 0;
   int cornerY = 0,cornerX = 0;
   int diameterX=24,diameterY=24,side=0;
@@ -243,8 +245,13 @@ void paint(lv_event_t *event) {
     line(0,direction*4,7,-direction*3);
   } else if (k == "chevron-right" || k == "chevron-left") {
     const int direction=k=="chevron-right"?1:-1;
-    line(-2*direction, -5, 3*direction, 0);
-    line(3*direction, 0, -2*direction, 5);
+    const float angle=icon->disclosure*.001f*1.5707963267948966f;
+    auto turn=[&](float x,float y,float u,float v){
+      line(x*std::cos(angle)-y*std::sin(angle),x*std::sin(angle)+y*std::cos(angle),
+           u*std::cos(angle)-v*std::sin(angle),u*std::sin(angle)+v*std::cos(angle));
+    };
+    turn(-2*direction, -5, 3*direction, 0);
+    turn(3*direction, 0, -2*direction, 5);
   } else if (k == "chevron-down") {
     line(-5, -2, 0, 3);
     line(0, 3, 5, -2);
@@ -253,7 +260,9 @@ void paint(lv_event_t *event) {
   else if (k == "gauge") {
     arc(140, 400, 11);
     circle(0, 1, 2);
-    line(-1, -1, -5, -6);
+    const float angle=(140.f+260.f*icon->gaugePosition)*.0174532925199433f;
+    line(std::cos(angle)*2,1+std::sin(angle)*2,
+         std::cos(angle)*8,1+std::sin(angle)*8);
   } else if (k == "history") {
     arc(215, 535, 10);
     line(-9, -6, -9, 0);
@@ -398,6 +407,36 @@ void setIcon(lv_obj_t *object, const std::string &name, uint32_t ink, float scal
     return;
   }
   attachIcon(object,name,ink,scale,metrics);lv_obj_invalidate(object);
+}
+namespace {
+Icon *iconData(lv_obj_t *object) {
+  if(!object)return nullptr;
+  for(uint32_t i=0;i<lv_obj_get_event_count(object);++i) {
+    auto event=lv_obj_get_event_dsc(object,i);
+    if(lv_event_dsc_get_cb(event)==paint)
+      return static_cast<Icon *>(lv_event_dsc_get_user_data(event));
+  }
+  return nullptr;
+}
+}
+void setGaugePosition(lv_obj_t *object,int index,int count) {
+  auto data=iconData(object);if(!data||data->name!="gauge")return;
+  const float position=count<=1?.5f:float(std::max(0,std::min(count-1,index)))/float(count-1);
+  if(data->gaugePosition==position)return;
+  data->gaugePosition=position;lv_obj_invalidate(object);
+}
+float gaugePosition(lv_obj_t *object) {
+  auto data=iconData(object);return data?data->gaugePosition:.5f;
+}
+void setDisclosureProgress(lv_obj_t *object,int progress) {
+  auto data=iconData(object);if(!data)return;
+  const int value=std::max(0,std::min(1000,progress));
+  if(data->disclosure==value&&data->name=="chevron-right")return;
+  data->name="chevron-right";data->disclosure=value;lv_obj_invalidate(object);
+}
+int disclosureProgress(lv_obj_t *object) {
+  auto data=iconData(object);if(!data)return 0;
+  return data->name=="chevron-down"?1000:data->disclosure;
 }
 void setSelectionHandleTop(lv_obj_t *object, int top, int corner, int x, int diameterX, int diameterY) {
   for (uint32_t i=0;i<lv_obj_get_event_count(object);++i) {

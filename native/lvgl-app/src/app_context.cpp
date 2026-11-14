@@ -266,8 +266,7 @@ void App::contextSummaryPage() {
     lv_obj_update_layout(line);y+=lv_obj_get_height(line)+uiMetrics_.dp(20);
   };
   if(checkpoint.empty()) {
-    text("尚未压缩",UiFont::LargeCaption,theme::palette().text);
-    text("完整历史将用于后续请求。可从加号菜单手动压缩上下文。",UiFont::SettingsTitle,theme::palette().muted);
+    emptyState("还没有上下文摘要", "先进行一段对话，再从加号菜单选择压缩上下文。生成的摘要会显示在这里；压缩前的完整历史会保留在归档中。");
     return;
   }
   const auto archive=checkpoint.value("archive_id",std::string());

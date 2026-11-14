@@ -1,4 +1,6 @@
 #include "app.hpp"
+#include "empty_state.hpp"
+#include "ui_motion.hpp"
 #include <cassert>
 #include <iostream>
 #include <unistd.h>
@@ -147,12 +149,13 @@ struct UiControlsTest {
       a.show(view);lv_obj_update_layout(a.screenObj_);
       assert(lv_obj_get_width(a.body_)>0 && lv_obj_get_height(a.body_)>0);
       if(a.view_=="context_summary") {
-        auto title=lv_obj_get_child(a.pageContent_,0),detail=lv_obj_get_child(a.pageContent_,1);
-        assert(lv_obj_get_y(title)==m.dp(12));
-        assert(lv_obj_get_x(title)==m.dp(a.layout().portrait()?16:10));
-        assert(lv_obj_get_style_text_font(title,LV_PART_MAIN)==font(m.fontSize(UiFont::LargeCaption)));
-        assert(lv_obj_get_style_text_font(detail,LV_PART_MAIN)==font(m.fontSize(UiFont::SettingsTitle)));
-        assert(lv_obj_get_y(detail)==lv_obj_get_y(title)+lv_obj_get_height(title)+m.dp(20));
+        auto state=lv_obj_get_child(a.pageContent_,0);
+        assert(isStatusState(state));
+        auto title=lv_obj_get_child(state,0),detail=lv_obj_get_child(state,1);
+        assert(lv_obj_get_style_text_font(title,LV_PART_MAIN)==font(m.fontSize(UiFont::EmptyTitle)));
+        assert(lv_obj_get_style_text_font(detail,LV_PART_MAIN)==font(m.fontSize(UiFont::FormNote)));
+        assert(lv_obj_get_y(detail)>=lv_obj_get_y(title)+lv_obj_get_height(title));
+        assert(lv_obj_get_y(detail)+lv_obj_get_height(detail)<=lv_obj_get_height(state));
       }
       for(const auto &target:a.inputTargets_) {
         auto object=target.first;lv_area_t bounds;lv_obj_get_coords(object,&bounds);
@@ -180,6 +183,65 @@ struct UiControlsTest {
     auto explanation=lv_obj_get_child(a.pageContent_,0);
     assert(lv_obj_get_y(explanation)+lv_obj_get_height(explanation)<=lv_obj_get_y(a.fontPercentLabel_));
     a.clear();
+    // Exercise the actual message tree: collapsed margins have a single owner,
+    // and disclosures retain answer/read/editor objects through reversal.
+    a.view_ = "markdown-ui-test";
+    a.screenObj_ = a.box(lv_screen_active(), 0, 0, a.screen_.width, a.screen_.height);
+    a.body_ = a.box(a.screenObj_, 0, 0, a.screen_.width, a.screen_.height);
+    auto messages = a.box(a.body_, 0, 0, a.screen_.width, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(messages, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_scrollable(messages, false);
+    a.editorRoot_ = a.box(lv_screen_active(), 0, 0, 120, 80);
+    auto retainedKey = a.button(a.editorRoot_, "a", 0, 0, 80, 44, [] {});
+    const auto fixture = Json::array({{
+      {"id", "rich-ui-fixture"}, {"role", "assistant"}, {"seq", 1}, {"status", "complete"},
+      {"output_text", "First paragraph.\n\n# Heading\n\nAnother paragraph with **strong** text.\n\n| A | B |\n|---|---|\n| C | D |\n"},
+      {"reasoning_text", "Public reasoning with $x^2$."},
+      {"metadata_json", {{"reasoning_observed", true}, {"reasoning_complete", true},
+        {"web_records", Json::array({{{"status", "complete"}, {"name", "web_search"}}})},
+        {"web_sources", Json::array({{{"title", "Source"}, {"url", "https://example.test"}}})}}}
+    }});
+    a.renderMessageRows(messages, fixture, "fixture", a.screen_.width, true, 0, 0);
+    lv_obj_update_layout(messages);
+    assert(a.rasters_.size() == 5);
+    auto answer = a.rasters_.front().owner;
+    auto answerHolder = a.rasters_.front().holder;
+    assert(lv_obj_get_style_pad_row(answer, LV_PART_MAIN) == 0);
+    for (size_t i = 1; i < a.rasters_.size(); ++i) {
+      const auto &before = a.rasters_[i - 1];
+      const auto &after = a.rasters_[i];
+      const int gap = a.rich_.blockGap(&before.block, after.block, a.readingFontSize());
+      assert(lv_obj_get_y(after.holder) == lv_obj_get_y(before.holder) + before.height + gap);
+    }
+    auto &region = a.readRegions_.at(answer);
+    const auto regionId = region.id;
+    a.readActive_ = regionId;
+    a.readSelection_.text = region.text;
+    a.readSelection_.select(0, 5);
+    a.toggleReasoning("rich-ui-fixture", true);
+    auto detail = a.reasoningControls_.at("rich-ui-fixture").detail;
+    const auto naturalHeight = a.reasoningControls_.at("rich-ui-fixture").naturalHeight;
+    motion::state(detail)->paint(naturalHeight / 2);
+    a.toggleReasoning("rich-ui-fixture", false);
+    a.toggleReasoning("rich-ui-fixture", true);
+    a.toggleWeb("rich-ui-fixture", true);
+    motion::finishAll();
+    assert(a.reasoningControls_.at("rich-ui-fixture").detail == detail);
+    assert(!lv_obj_is_hidden(detail));
+    assert(disclosureProgress(a.reasoningControls_.at("rich-ui-fixture").arrow) == 1000);
+    assert(a.webControls_.at("rich-ui-fixture").expanded);
+    assert(a.readActive_ == regionId && a.readSelection_.selection() == "First");
+    assert(a.rasters_.front().holder == answerHolder && a.rasters_.front().owner == answer);
+    assert(lv_obj_get_child(a.editorRoot_, 0) == retainedKey);
+    auto webDetail = a.webControls_.at("rich-ui-fixture").detail;
+    a.toggleWeb("rich-ui-fixture", false);
+    a.toggleReasoning("rich-ui-fixture", false);
+    motion::finishAll();
+    assert(lv_obj_is_hidden(detail) && lv_obj_is_hidden(webDetail));
+    assert(a.readActive_ == regionId && a.readSelection_.selection() == "First");
+    assert(lv_obj_get_child(a.editorRoot_, 0) == retainedKey);
+    a.clear();
+    assert(a.webControls_.empty());
   }
 };
 }

@@ -36,6 +36,23 @@ inline std::vector<std::string> effortChoices(const Json &model) {
                  "api_default");
   return options;
 }
+// Invalid or absent settings follow the current logical layout; explicit user
+// choices survive rotation. This does not mutate settings or migrate history.
+inline std::string historyTimeDisplay(const Json &settings,bool portrait) {
+  auto found=settings.find("history_time_display");
+  if(found!=settings.end()&&found->is_string()) {
+    const auto value=found->get<std::string>();
+    if(value=="time"||value=="title"||value=="off")return value;
+  }
+  return portrait?"off":"time";
+}
+inline int effortChoiceIndex(const Json &model) {
+  const auto options=effortChoices(model);
+  auto key=model.value("effective_effort",std::string());
+  if(key.empty())key="api_default";
+  const auto found=std::find(options.begin(),options.end(),key);
+  return found==options.end()?0:int(found-options.begin());
+}
 inline Json resolveReasoning(Json model, const Json &preferences,
                              const std::string &memory) {
   auto caps = reasoningCapabilities(model);
