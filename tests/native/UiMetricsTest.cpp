@@ -7,6 +7,12 @@
 using namespace penchat;
 int main() {
   const UiMetrics identity;
+  assert(identity.identity() && UiMetrics(200,50).identity());
+  assert(!UiMetrics(100,125).identity());
+  assert(identity.fontSize(UiFont::FormHint)==17);
+  assert(identity.fontSize(UiFont::FormNote)==18);
+  assert(identity.fontSize(UiFont::FormCaption)==19);
+  assert(identity.fontSize(UiFont::EmptyTitle)==23);
   for (int v : {-123, -2, 0, 1, 21, 44, 960}) assert(identity.dp(v) == v);
   assert(identity.dp(std::numeric_limits<int>::max()) == std::numeric_limits<int>::max());
   assert(identity.dp(std::numeric_limits<int>::min()) == std::numeric_limits<int>::min());
@@ -19,6 +25,9 @@ int main() {
     assert(m.dp(44) == (44 * percent + 50) / 100);
     assert(m.dp(-44) == -m.dp(44));
     assert(m.dp(0) == 0);
+    assert(m.form().settingsPitch == (64*percent+50)/100);
+    assert(m.form().actionSize == m.dp(44));
+    assert(m.form().inset == m.dp(16));
     assert(m.button().captionPadding == (24 * percent + 50) / 100);
     assert(m.field().height == (48 * percent + 50) / 100);
     assert(m.page().headerHeight == m.field().height);

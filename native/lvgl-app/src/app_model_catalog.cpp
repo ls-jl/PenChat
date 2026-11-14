@@ -50,7 +50,7 @@ void App::saveModelForm() {
   if(!found)throw std::runtime_error("模型草稿已失效，请返回服务商重试");
 }
 void App::modelCapabilityRows(int y) {
-  const int width = layout().contentWidth(), col = (width - 36) / 2, right = col + 26;
+  const int width = layout().contentWidth(), col = (width - uiMetrics_.dp(36)) / 2, right = col + uiMetrics_.dp(26);
   const auto recommendation = modelRecommendation(modelForm_);
   const auto match = recommendation.at("match"), fields = recommendation.at("fields");
   const auto stored = objectField(modelForm_, "capabilities_json");
@@ -76,9 +76,9 @@ void App::modelCapabilityRows(int y) {
   };
   auto row = [&](const std::string &key, const std::string &title, const std::string &detail,
                  int x, int at, std::function<void()> action) {
-    settingsRow("model_" + key, title, detail, x, at, col - 52, std::move(action));
+    settingsRow("model_" + key, title, detail, x, at, col - uiMetrics_.dp(52), std::move(action));
     auto held = std::make_shared<bool>(false);
-    auto object = button(pageContent_, "", x + col - 44, at + 6, 44, 44,
+    auto object = button(pageContent_, "", x + col - uiMetrics_.dp(44), at + uiMetrics_.dp(6), uiMetrics_.dp(44), uiMetrics_.dp(44),
                          [fill, held, key] { if (*held) { *held = false; return; } fill(key); });
     attachIcon(object, "autofill", theme::text);
     if(layout().portrait()||layout().compact()) {
@@ -108,7 +108,7 @@ void App::modelCapabilityRows(int y) {
     lv_obj_add_event_cb(object, [](lv_event_t *e) { delete static_cast<Help *>(lv_event_get_user_data(e)); }, LV_EVENT_DELETE, help);
   };
   row("context_budget", "最大上下文", std::to_string(value("context_budget").is_number_integer() ? value("context_budget").get<int>() : contextBudget(modelForm_)) + " token · 用于压缩判断",
-      10, y, [this, value] {
+      uiMetrics_.dp(10), y, [this, value] {
     const auto current = value("context_budget");
     edit(current.is_number_integer() ? std::to_string(current.get<int>()) : std::to_string(contextBudget(modelForm_)),
          "最大上下文（1024～2097152）", [this](const std::string &text) {
@@ -131,18 +131,18 @@ void App::modelCapabilityRows(int y) {
     int at = 0;
     for (const auto &choice : {std::make_pair("unknown", "未知"), {"yes", "支持图片"}, {"no", "仅文本"}}) {
       const std::string key = choice.first;
-      button(list, choice.second, 4, at, screen_.width - 145, 44, [this, key, inputs] {
+      button(list, choice.second, uiMetrics_.dp(4), at, screen_.width - uiMetrics_.dp(145), uiMetrics_.dp(44), [this, key, inputs] {
         auto next = inputs.is_array() ? inputs : Json::array({"text"});
         next.erase(std::remove(next.begin(), next.end(), "image"), next.end());
         if (key == "yes") next.push_back("image");
         modelForm_["input_modalities"] = key == "unknown" ? Json() : next;
         modelForm_["vision"] = key == "unknown" ? Json() : Json(key == "yes"); build();
       });
-      at += 48;
+      at += uiMetrics_.dp(48);
     }
   });
   row("max_input_tokens", "最大输入", value("max_input_tokens").is_number_integer() ? value("max_input_tokens").dump() + " token" : "未知 · 可手填",
-      10, y + 64, [this, value] {
+      uiMetrics_.dp(10), y + uiMetrics_.dp(64), [this, value] {
     edit(value("max_input_tokens").is_number_integer() ? value("max_input_tokens").dump() : "", "最大输入 token（留空为未知）", [this](const std::string &text) {
       try {
         if (text.empty()) modelForm_["max_input_tokens"] = nullptr;
@@ -157,7 +157,7 @@ void App::modelCapabilityRows(int y) {
   });
   const auto mode = modelForm_.at("reasoning").value("mode", std::string("off"));
   row("reasoning.mode", "思考模式", mode == "adaptive" ? "自适应" : mode == "budget" ? "固定预算" : mode == "toggle" ? "思考开关 · 无强度档位" : "强度档位 · 手动配置优先",
-      right, y + 64, [this, match] {
+      right, y + uiMetrics_.dp(64), [this, match] {
     std::string detail = match.value("status", std::string()) == "matched" ? "命中：" + match.value("rule", std::string()) : "没有唯一可靠的匹配结果";
     detail += "\n点击右侧填充图标，仅替换对应字段。";
     if (match.contains("sources")) for (const auto &s : match["sources"]) detail += "\n" + s.get<std::string>();
@@ -171,17 +171,17 @@ void App::modelCapabilityRows(int y) {
   for (const auto &key : supportedEfforts(editedModel))
     levels += (levels.empty() ? "" : "、") + effortLabel(key);
   row("reasoning.levels", "支持的强度", levels.empty() ? "无已配置档位" : levels,
-      10, y + 128, [this, levels] { modal("支持的强度", levels.empty() ? "未配置强度档位，可在上方手动选择。" : levels); });
+      uiMetrics_.dp(10), y + uiMetrics_.dp(128), [this, levels] { modal("支持的强度", levels.empty() ? "未配置强度档位，可在上方手动选择。" : levels); });
   row("reasoning.summary", "公开思考总结", modelForm_["reasoning"].value("summary", false) ? "请求总结" : "不请求总结",
-      right, y + 128, [this] { auto &r = modelForm_["reasoning"]; r["summary"] = !r.value("summary", false); build(); });
+      right, y + uiMetrics_.dp(128), [this] { auto &r = modelForm_["reasoning"]; r["summary"] = !r.value("summary", false); build(); });
   row("reasoning.disable", "支持关闭思考", modelForm_["reasoning"].value("disable", false) ? "支持" : "未声明支持",
-      10, y + 192, [this] { auto &r = modelForm_["reasoning"]; r["disable"] = !r.value("disable", false); build(); });
+      uiMetrics_.dp(10), y + uiMetrics_.dp(192), [this] { auto &r = modelForm_["reasoning"]; r["disable"] = !r.value("disable", false); build(); });
   const auto tools = value("tool_support");
   settingsRow("model_tools", "工具调用",
               tools == "supported"     ? "明确支持"
               : tools == "unsupported" ? "不支持"
                                        : "自动 · 使用能力匹配",
-              right, y + 192, col, [this, tools] {
+              right, y + uiMetrics_.dp(192), col, [this, tools] {
                 modelForm_["tool_support"] = tools == "supported"     ? "unsupported"
                                              : tools == "unsupported" ? "auto"
                                                                       : "supported";
@@ -192,14 +192,14 @@ void App::modelCapabilityRows(int y) {
   if (required != "standard" && modelAdapter(modelForm_) == required && !anthropicProtocol(modelForm_)) {
     const auto request = reasoning.value("request_mode", std::string());
     settingsRow("thinking_request", "思考开关", request == "enabled" ? "明确开启" : request == "disabled" ? "明确关闭" : "API 默认 · 不发送开关",
-                10, y + 256, col, [this, request] {
+                uiMetrics_.dp(10), y + uiMetrics_.dp(256), col, [this, request] {
       auto &r = modelForm_["reasoning"];
       r["request_mode"] = request.empty() ? "enabled" : request == "enabled" && r.value("disable", false) ? "disabled" : "";
       build();
     });
     if (reasoning.value("budget_supported", false)) {
       settingsRow("thinking_budget", "思考 token 预算", reasoning.contains("token_budget") ? reasoning["token_budget"].dump() : "API 默认 · 不发送预算",
-                  right, y + 256, col, [this] {
+                  right, y + uiMetrics_.dp(256), col, [this] {
         const auto &r = modelForm_["reasoning"];
         edit(r.contains("token_budget") ? r["token_budget"].dump() : "", "思考预算（留空为API默认）", [this](const std::string &text) {
           try {

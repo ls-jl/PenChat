@@ -206,23 +206,34 @@ void App::primary(lv_obj_t *object) {
   lv_obj_set_style_opa(object, LV_OPA_COVER, LV_STATE_DISABLED);
   lv_obj_set_style_text_color(lv_obj_get_child(object, 0), lv_color_hex(theme::primaryText), 0);
 }
+UiMetrics::Field App::fieldMetrics(const UiMetrics &metrics) const {
+  auto field = metrics.field();
+  // Preserve the established identity-scale frames, including compact's
+  // measured two-line fields. Scaled forms must fit the real font line boxes.
+  if (layout().compact() || !metrics.identity()) {
+    field.captionHeight = font(metrics.fontSize(UiFont::FieldTitle))->line_height;
+    field.valueHeight = font(metrics.fontSize(UiFont::FieldValue))->line_height;
+    field.valueTop = field.top + field.captionHeight + field.gap;
+    field.height = std::max(field.height, field.valueTop + field.valueHeight + field.top);
+  }
+  return field;
+}
 lv_obj_t *App::fieldButton(lv_obj_t *parent, const std::string &caption,
                             const std::string &value, int x, int y, int width,
                             std::function<void()> action) {
   const auto &metrics = controlMetrics(parent);
-  const auto field = metrics.field();
+  const auto field = fieldMetrics(metrics);
   auto object = button(parent, value, x, y, width, field.height, std::move(action), theme::surface, LV_TEXT_ALIGN_LEFT);
   auto text = lv_obj_get_child(object, 0);
   lv_obj_set_style_text_font(text, font(metrics.fontSize(UiFont::FieldValue)), 0);
-  const int captionHeight = layout().compact() ? font(metrics.fontSize(UiFont::FieldTitle))->line_height : field.captionHeight;
-  const int valueHeight = layout().compact() ? font(metrics.fontSize(UiFont::FieldValue))->line_height : field.valueHeight;
-  const int valueY = layout().compact() ? field.top + captionHeight + field.gap : field.valueTop;
+  const int captionHeight = field.captionHeight;
+  const int valueHeight = field.valueHeight;
+  const int valueY = field.valueTop;
   lv_obj_set_height(text, valueHeight);
   lv_obj_align(text, LV_ALIGN_TOP_LEFT, field.inset, valueY);
   auto name = label(object, caption, field.inset, field.top, std::max(1, width - metrics.button().captionPadding), UiFont::FieldTitle, theme::muted);
   lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(name, captionHeight);
-  if (layout().compact()) lv_obj_set_height(object, std::max(field.height, valueY + valueHeight + field.top));
   lv_obj_set_clickable(name, false);
   if(layout().portrait())inputTarget(object,"field:"+caption+":"+std::to_string(inputOrdinal_-1),1);
   return object;
@@ -230,9 +241,9 @@ lv_obj_t *App::fieldButton(lv_obj_t *parent, const std::string &caption,
 void App::emptyState(const std::string &title, const std::string &hint) {
   const int width = layout().contentWidth();
   auto parent = pageContent_ ? pageContent_ : body_;
-  auto heading = label(parent, title, 10, 62, width, 23);
+  auto heading = label(parent, title, uiMetrics_.dp(10), uiMetrics_.dp(62), width, uiMetrics_.fontSize(UiFont::EmptyTitle));
   lv_obj_set_style_text_align(heading, LV_TEXT_ALIGN_CENTER, 0);
-  auto description = label(parent, hint, 26, 99, width - 32, 17, theme::muted);
+  auto description = label(parent, hint, uiMetrics_.dp(26), uiMetrics_.dp(99), width - uiMetrics_.dp(32), uiMetrics_.fontSize(UiFont::FormHint), theme::muted);
   lv_obj_set_style_text_align(description, LV_TEXT_ALIGN_CENTER, 0);
 }
 void App::texture(lv_obj_t *object, std::shared_ptr<ImageFrame> frame,
@@ -741,9 +752,9 @@ void App::effortPicker() {
 void App::modelPage() {
   if (anthropicProtocol(modelForm_)) { anthropicModelPage(); return; }
   pageHeader("模型设置");
-  const int width = layout().contentWidth(), column = (width - 14) / 2;
+  const int width = layout().contentWidth(), column = (width - uiMetrics_.dp(14)) / 2;
   const auto id = modelForm_.value("id", std::string());
-  auto save = pageAction("完成", 24, 130, [this, id] {
+  auto save = pageAction("完成", uiMetrics_.dp(24), uiMetrics_.dp(130), [this, id] {
     try { saveModelForm(); returnProvider(); }
     catch (const std::exception &e) { modal("模型设置未保存", e.what()); }
   });
@@ -756,8 +767,8 @@ void App::modelPage() {
     if (modelAdvanced_) {
       if (levels.contains(key)) {
         auto control = button(
-            pageContent_, effortLabel(key) + "：" + levels[key].get<std::string>(), 10,
-            identityHeight + n * 48, width, 44,
+            pageContent_, effortLabel(key) + "：" + levels[key].get<std::string>(), uiMetrics_.dp(10),
+            identityHeight + n * uiMetrics_.dp(48), width, uiMetrics_.dp(44),
             [this, key] {
               edit(
                   modelForm_["reasoning"]["levels"][key].get<std::string>(),
@@ -777,7 +788,7 @@ void App::modelPage() {
       auto control = button(
           pageContent_,
           std::string(levels.contains(key) ? "● " : "○ ") + effortLabel(key),
-          10 + (n % 2) * (column + 14), identityHeight + (n / 2) * 48, column, 44,
+          uiMetrics_.dp(10) + (n % 2) * (column + uiMetrics_.dp(14)), identityHeight + (n / 2) * uiMetrics_.dp(48), column, uiMetrics_.dp(44),
           [this, key] {
             auto &levels = modelForm_["reasoning"]["levels"];
             if (levels.contains(key))
@@ -794,14 +805,14 @@ void App::modelPage() {
   if (!modelAdvanced_)
     button(
         pageContent_, caps.value("summary", false) ? "公开总结：开" : "公开总结：关",
-        10, identityHeight + ((n + 1) / 2) * 48, width, 44,
+        uiMetrics_.dp(10), identityHeight + ((n + 1) / 2) * uiMetrics_.dp(48), width, uiMetrics_.dp(44),
         [this] {
           auto &caps = modelForm_["reasoning"];
           caps["summary"] = !caps.value("summary", false);
           build();
         },
         theme::surface, LV_TEXT_ALIGN_LEFT);
-  const int capabilityY = modelAdvanced_ ? identityHeight + 6 + n * 48 : identityHeight + 58 + ((n + 1) / 2) * 48;
+  const int capabilityY = modelAdvanced_ ? identityHeight + uiMetrics_.dp(6) + n * uiMetrics_.dp(48) : identityHeight + uiMetrics_.dp(58) + ((n + 1) / 2) * uiMetrics_.dp(48);
   modelCapabilityRows(capabilityY);
 
 }
@@ -2353,24 +2364,25 @@ Json App::settingsDiagnostic() const {
 }
 void App::settingsPage() {
   pageHeader("设置");
+  const auto flow=uiMetrics_.form();
   settingsHeading_ = pageHeading_;
   const int width = layout().contentWidth();
   const bool twoColumns = layout().category() == LayoutClass::WideLandscape;
-  const int left = twoColumns ? 10 : 16, gap = 16, column = (width - gap) / 2;
-  int y = 4;
+  const int left = twoColumns ? uiMetrics_.dp(10) : uiMetrics_.dp(16), gap = flow.columnGap, column = (width - gap) / 2;
+  int y = flow.settingsTop;
   bool secondColumn = false;
   auto finishRow = [&] {
-    if (secondColumn) { y += 64; secondColumn = false; }
+    if (secondColumn) { y += flow.settingsPitch; secondColumn = false; }
   };
   auto section = [&](const std::string &id, const std::string &name) {
     finishRow();
     // Completed rows already include 8px spacing; add 8px for the 16px group gap.
-    if (!settingsGroups_.empty()) y += 8;
-    auto heading = label(pageContent_, name, left, y, width, 16, theme::muted);
-    const int height = std::max(20, int(font(16)->line_height));
+    if (!settingsGroups_.empty()) y += flow.settingsGap;
+    auto heading = label(pageContent_, name, left, y, width, uiMetrics_.fontSize(UiFont::Detail), theme::muted);
+    const int height = std::max(flow.sectionMinimum, int(font(uiMetrics_.fontSize(UiFont::Detail))->line_height));
     lv_obj_set_height(heading, height);
     settingsGroups_.push_back({id, heading});
-    y += height + 8;
+    y += height + flow.settingsGap;
   };
   auto row = [&](const std::string &id, const std::string &title, const std::string &detail,
                  std::function<void()> action, int checked = -1, bool unavailable = false,
@@ -2378,12 +2390,12 @@ void App::settingsPage() {
     if (!twoColumns || fullWidth) {
       finishRow();
       settingsRow(id, title, detail, left, y, width, std::move(action), checked, unavailable);
-      y += 64;
+      y += flow.settingsPitch;
     } else {
       settingsRow(id, title, detail, left + (secondColumn ? column + gap : 0), y, column,
                   std::move(action), checked, unavailable);
       secondColumn = !secondColumn;
-      if (!secondColumn) y += 64;
+      if (!secondColumn) y += flow.settingsPitch;
     }
   };
   const auto config = db_.settings();
@@ -2475,7 +2487,7 @@ void App::settingsPage() {
           "作者：" PENCHAT_AUTHOR "\n"
           "AI 协作：" PENCHAT_AI_CONTRIBUTOR "\n"
           "项目地址：" PENCHAT_PROJECT_URL);
-    button(modal_,"使用引导",16,screen_.height-66,112,44,[this]{events_.push("open_onboarding");});
+    button(modal_,"使用引导",uiMetrics_.dp(16),screen_.height-uiMetrics_.dp(66),uiMetrics_.dp(112),uiMetrics_.dp(44),[this]{events_.push("open_onboarding");});
   }, -1, false, true);
   finishRow();
   lv_obj_set_height(pageContent_, std::max(y, int(lv_obj_get_style_min_height(pageContent_, LV_PART_MAIN))));
@@ -2491,23 +2503,23 @@ void App::updateFontPreview(int percent) {
 }
 void App::fontSizePage() {
   pageHeader("字体大小");
-  pageAction("恢复默认", 96, 120, [this] { updateFontPreview(100); });
-  primary(pageAction("保存", 0, 84, [this] { events_.push("reading_font_apply"); }));
+  pageAction("恢复默认", uiMetrics_.dp(96), uiMetrics_.dp(120), [this] { updateFontPreview(100); });
+  primary(pageAction("保存", 0, uiMetrics_.dp(84), [this] { events_.push("reading_font_apply"); }));
   const int width = layout().contentWidth();
   auto description = label(pageContent_, "聊天正文、思考过程与公式同步缩放；菜单和键盘保持原大小。",
-        10, 4, width - 20, 16, theme::muted);
+        uiMetrics_.dp(10), uiMetrics_.dp(4), width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::muted);
   lv_obj_update_layout(description);
-  const int extra = layout().compact() ? std::max(0, int(lv_obj_get_height(description))-19) : 0;
-  fontPercentLabel_ = label(pageContent_, "", 10, 29+extra, width - 20, 20);
+  const int extra = layout().compact() ? std::max(0, int(lv_obj_get_height(description))-uiMetrics_.dp(19)) : 0;
+  fontPercentLabel_ = label(pageContent_, "", uiMetrics_.dp(10), uiMetrics_.dp(29)+extra, width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::SettingsTitle));
   lv_obj_set_style_text_align(fontPercentLabel_, LV_TEXT_ALIGN_CENTER, 0);
-  label(pageContent_, "75%", 10, 59+extra, 70, 18, theme::muted);
-  auto maximum = label(pageContent_, "150%", width - 80, 59+extra, 70, 18, theme::muted);
+  label(pageContent_, "75%", uiMetrics_.dp(10), uiMetrics_.dp(59)+extra, uiMetrics_.dp(70), uiMetrics_.fontSize(UiFont::FormNote), theme::muted);
+  auto maximum = label(pageContent_, "150%", width - uiMetrics_.dp(80), uiMetrics_.dp(59)+extra, uiMetrics_.dp(70), uiMetrics_.fontSize(UiFont::FormNote), theme::muted);
   lv_obj_set_style_text_align(maximum, LV_TEXT_ALIGN_RIGHT, 0);
   fontSlider_ = lv_slider_create(pageContent_);
   lv_obj_remove_style_all(fontSlider_);
-  lv_obj_set_pos(fontSlider_, 100, 64+extra);
-  lv_obj_set_size(fontSlider_, width - 200, 16);
-  lv_obj_set_ext_click_area(fontSlider_, 16);
+  lv_obj_set_pos(fontSlider_, uiMetrics_.dp(100), uiMetrics_.dp(64)+extra);
+  lv_obj_set_size(fontSlider_, width - uiMetrics_.dp(200), uiMetrics_.dp(16));
+  lv_obj_set_ext_click_area(fontSlider_, uiMetrics_.dp(16));
   lv_slider_set_range(fontSlider_, 15, 30);
   for (auto part : {LV_PART_MAIN, LV_PART_INDICATOR, LV_PART_KNOB}) {
     lv_obj_set_style_bg_opa(fontSlider_, LV_OPA_COVER, part);
@@ -2515,13 +2527,13 @@ void App::fontSizePage() {
     lv_obj_set_style_bg_color(fontSlider_, lv_color_hex(part == LV_PART_MAIN ? theme::border :
                                                      part == LV_PART_KNOB ? theme::text : theme::accent), part);
   }
-  lv_obj_set_style_pad_all(fontSlider_, 7, LV_PART_KNOB);
+  lv_obj_set_style_pad_all(fontSlider_, uiMetrics_.dp(7), LV_PART_KNOB);
   lv_obj_add_event_cb(fontSlider_, [](lv_event_t *event) {
     auto app = static_cast<App *>(lv_event_get_user_data(event));
     app->updateFontPreview(lv_slider_get_value(app->fontSlider_) * 5);
   }, LV_EVENT_VALUE_CHANGED, this);
   fontPreview_ = label(pageContent_, "文字大小预览 Aa 123\n让阅读更轻松，按自己的习惯调整。",
-                        10, 104+extra, width - 20, 21);
+                        uiMetrics_.dp(10), uiMetrics_.dp(104)+extra, width - uiMetrics_.dp(20), 21);
   updateFontPreview(readingFontDraft_);
 }
 void App::reasoningDisplayPicker() {

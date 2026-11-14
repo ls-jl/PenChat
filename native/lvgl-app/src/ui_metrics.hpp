@@ -7,7 +7,7 @@
 namespace penchat {
 // These are design dimensions, not Falcon coordinates, image pixels or LVGL
 // encoded sizes. Convert once, then pass the resolved logical pixels unchanged.
-enum class UiFont { Body, Button, PageTitle, FieldTitle, FieldValue, SettingsTitle, Detail, Composer };
+enum class UiFont { Body, Button, PageTitle, FieldTitle, FieldValue, SettingsTitle, Detail, Composer, FormHint, FormNote, FormCaption, EmptyTitle };
 class UiMetrics {
 public:
   explicit UiMetrics(int densityPercent = 100, int scalePercent = 100)
@@ -17,6 +17,7 @@ public:
   }
   int densityPercent() const { return density_; }
   int scalePercent() const { return scale_; }
+  bool identity() const { return density_ * scale_ == 10000; }
   int dp(int designPixels) const {
     const int64_t product = int64_t(designPixels) * density_ * scale_;
     const int64_t rounded = product < 0 ? -((-product + 5000) / 10000) : (product + 5000) / 10000;
@@ -35,6 +36,10 @@ public:
     case UiFont::SettingsTitle: size = 20; break;
     case UiFont::Detail: size = 16; break;
     case UiFont::Composer: size = 20; break;
+    case UiFont::FormHint: size = 17; break;
+    case UiFont::FormNote: size = 18; break;
+    case UiFont::FormCaption: size = 19; break;
+    case UiFont::EmptyTitle: size = 23; break;
     }
     return std::max(1, dp(size));
   }
@@ -58,8 +63,15 @@ public:
     return {dp(56), dp(12), dp(12), dp(3), dp(31), dp(80),
             dp(56), dp(16), dp(44), dp(24), dp(-2), dp(50), dp(6), dp(44)};
   }
-  struct Form { int leadingCaptionPadding, captionPadding; };
-  Form form() const { return {dp(52), dp(28)}; }
+  struct Form {
+    int leadingCaptionPadding, captionPadding, top, inset, gap, minimumItemHeight;
+    int actionReserve, actionSize, actionTop, bottom;
+    int settingsTop, settingsGap, settingsPitch, columnGap, sectionMinimum;
+  };
+  Form form() const {
+    return {dp(52), dp(28), dp(8), dp(16), dp(10), dp(20), dp(56), dp(44),
+            dp(6), dp(12), dp(4), dp(8), dp(64), dp(16), dp(20)};
+  }
   struct Composer {
     int control, portraitSend, portraitInset, landscapeInset;
     int expandedPad, textInset, textTop, textToolsGap, dockGap, readerGap;

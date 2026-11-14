@@ -20,17 +20,18 @@ void App::selected(lv_obj_t *object,bool value) {
   if(value)lv_obj_add_state(object,LV_STATE_CHECKED);
   else lv_obj_remove_state(object,LV_STATE_CHECKED);
   lv_obj_set_style_bg_color(object,lv_color_hex(theme::surface),LV_STATE_CHECKED);
+  const auto &metrics=controlMetrics(object);
   auto caption=lv_obj_get_child(object,0);
   if(caption) {
     // Newly created controls have not necessarily resolved their width yet.
     // Measuring before layout collapsed captions to the 24px minimum ("...").
     lv_obj_update_layout(object);
-    lv_obj_set_width(caption,std::max(24,int(lv_obj_get_width(object))-52));
-    lv_obj_align(caption,LV_ALIGN_LEFT_MID,36,0);
+    lv_obj_set_width(caption,std::max(metrics.dp(24),int(lv_obj_get_width(object))-metrics.dp(52)));
+    lv_obj_align(caption,LV_ALIGN_LEFT_MID,metrics.dp(36),0);
     lv_obj_set_style_text_color(caption,lv_color_hex(theme::text),0);
   }
   if(value) {
-    auto mark=box(object,8,(lv_obj_get_height(object)-24)/2,24,24,theme::surface);
+    auto mark=box(object,metrics.dp(8),(lv_obj_get_height(object)-metrics.dp(24))/2,metrics.dp(24),metrics.dp(24),theme::surface);
     lv_obj_set_scrollable(mark,false);lv_obj_set_clickable(mark,false);
     attachIcon(mark,"check",theme::accent);
   }

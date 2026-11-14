@@ -155,9 +155,10 @@ void App::editorAttachTarget() {
   auto value=lv_obj_get_child(editorTarget_,style==2?1:0);
   if(value)lv_obj_set_hidden(value,true);
   const bool chat=editorInlineChat_;
-  const int y=chat?0:style==1?23:style==2?28:2;
-  const int x=chat?0:style==1?12:style==2?12:4;
-  const int h=chat?lv_obj_get_height(editorTarget_):style==3?44:std::max(24,int(lv_obj_get_height(editorTarget_))-y-(chat?layout().composerInset():2));
+  const auto field=fieldMetrics(uiMetrics_);
+  const int y=chat?0:style==1?field.valueTop:style==2?uiMetrics_.dp(28):uiMetrics_.dp(2);
+  const int x=chat?0:style==1?field.inset:style==2?uiMetrics_.dp(12):uiMetrics_.dp(4);
+  const int h=chat?lv_obj_get_height(editorTarget_):style==3?uiMetrics_.dp(44):std::max(uiMetrics_.dp(24),int(lv_obj_get_height(editorTarget_))-y-uiMetrics_.dp(2));
   if(!editorText_) {
     editorText_=lv_textarea_create(editorTarget_);
     editorBindCaret();
@@ -165,7 +166,7 @@ void App::editorAttachTarget() {
       auto self=static_cast<App *>(lv_event_get_user_data(e));
       if(self->editorText_==lv_event_get_target_obj(e))self->editorText_=nullptr;
     },LV_EVENT_DELETE,this);
-    lv_obj_set_style_text_font(editorText_,font(chat?uiMetrics_.fontSize(UiFont::Composer):editorFontSize(style==1?KeyboardFont::InlineField:KeyboardFont::Editor)),0);
+    lv_obj_set_style_text_font(editorText_,font(uiMetrics_.fontSize(chat?UiFont::Composer:style==1?UiFont::FieldValue:UiFont::Button)),0);
     lv_obj_set_style_text_color(editorText_,lv_color_hex(keyboardDesign().style(KeyboardRole::Input).foreground),0);
     lv_obj_set_style_bg_opa(editorText_,LV_OPA_TRANSP,0);
     lv_obj_set_style_border_width(editorText_,0,0);lv_obj_set_style_radius(editorText_,0,0);
@@ -185,7 +186,7 @@ void App::editorAttachTarget() {
     lv_textarea_set_placeholder_text(editorText_,editor_.placeholder.c_str());
     lv_obj_add_state(editorText_,LV_STATE_FOCUSED);
   }
-  lv_obj_set_pos(editorText_,x,y);lv_obj_set_size(editorText_,std::max(44,int(lv_obj_get_width(editorTarget_))-2*x),h);
+  lv_obj_set_pos(editorText_,x,y);lv_obj_set_size(editorText_,std::max(uiMetrics_.dp(44),int(lv_obj_get_width(editorTarget_))-2*x),h);
   lv_textarea_set_password_mode(editorText_,editor_.secret&&!editor_.reveal);
   if(editor_.text!=lv_textarea_get_text(editorText_))lv_textarea_set_text(editorText_,editor_.text.c_str());
   lv_textarea_set_cursor_pos(editorText_,editor_.cursor);

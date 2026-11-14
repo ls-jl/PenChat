@@ -34,7 +34,7 @@ struct UiControlsTest {
     assert(lv_obj_get_style_width(automaticSize, LV_PART_MAIN) == LV_PCT(50));
     assert(lv_obj_get_style_height(automaticSize, LV_PART_MAIN) == LV_SIZE_CONTENT);
     const auto f = m.field();
-    const bool compact = a.layout().compact();
+    const bool compact = a.layout().compact() || !m.identity();
     const int titleHeight = compact ? font(m.fontSize(UiFont::FieldTitle))->line_height : f.captionHeight;
     const int valueHeight = compact ? font(m.fontSize(UiFont::FieldValue))->line_height : f.valueHeight;
     const int valueTop = compact ? f.top + titleHeight + f.gap : f.valueTop;
@@ -98,6 +98,48 @@ struct UiControlsTest {
       if(gauge) {
         auto gaugeButton=lv_obj_get_child(a.chatControls_,1);
         assert(lv_obj_get_x(gaugeButton)+lv_obj_get_width(gaugeButton)<=lv_obj_get_x(send));
+      }
+    }
+    a.clear();
+    a.show("provider");a.beginProvider();a.providerAdvanced_=true;a.build();
+    lv_obj_update_layout(a.screenObj_);
+    for (const auto &key : {"name","baseURL","apiKey"}) {
+      auto field=a.pageActions_.at(std::string("field:")+key);
+      auto value=lv_obj_get_child(field,0),title=lv_obj_get_child(field,1);
+      assert(lv_obj_get_style_text_font(title,LV_PART_MAIN)==font(m.fontSize(UiFont::FieldTitle)));
+      assert(lv_obj_get_style_text_font(value,LV_PART_MAIN)==font(m.fontSize(UiFont::FieldValue)));
+      if(!m.identity()) {
+        assert(lv_obj_get_height(title)>=font(m.fontSize(UiFont::FieldTitle))->line_height);
+        assert(lv_obj_get_height(value)>=font(m.fontSize(UiFont::FieldValue))->line_height);
+        assert(lv_obj_get_y(title)+lv_obj_get_height(title)<=lv_obj_get_y(value));
+        assert(lv_obj_get_y(value)+lv_obj_get_height(value)<=lv_obj_get_height(field));
+      }
+    }
+    for (const auto &protocol : {"responses","anthropic"}) {
+      a.providerForm_["api"]=protocol;
+      a.editModel({{"id","fixture"},{"name","gpt-5"},{"display_name","测试模型"},
+                   {"capabilities_json",{{"reasoning",{{"levels",{{"high","high"}}},{"summary",true}}}}}});
+      for (bool advanced : {false,true}) {
+        a.modelAdvanced_=advanced;a.build();lv_obj_update_layout(a.screenObj_);
+        for(const auto &entry:a.settingsControls_) {
+          const auto &control=entry.second;
+          assert(lv_obj_get_style_text_font(control.title,LV_PART_MAIN)==font(m.fontSize(UiFont::SettingsTitle)));
+          assert(lv_obj_get_style_text_font(control.detail,LV_PART_MAIN)==font(m.fontSize(UiFont::Detail)));
+          assert(lv_obj_get_y(control.detail)+lv_obj_get_height(control.detail)<=lv_obj_get_height(control.row));
+        }
+        for(unsigned i=0;i<lv_obj_get_child_count(a.pageContent_);++i) {
+          auto object=lv_obj_get_child(a.pageContent_,i);
+          if(lv_obj_is_floating(object)&&lv_obj_get_user_data(object)) {
+            auto anchor=static_cast<lv_obj_t *>(lv_obj_get_user_data(object));
+            assert(lv_obj_get_x(object)>=lv_obj_get_x(anchor)+lv_obj_get_width(anchor));
+            assert(lv_obj_get_y(object)==lv_obj_get_y(anchor)+m.form().actionTop);
+            assert(lv_obj_get_width(object)==m.form().actionSize);
+          }
+        }
+        if(a.layout().portrait()&&!m.identity()) {
+          for(const auto &entry:a.pageActions_)if(lv_obj_get_parent(entry.second)==a.pageHeader_)
+            assert(lv_obj_get_x(entry.second)>=a.layout().navigationX()+m.page().actionHeight);
+        }
       }
     }
     a.clear();

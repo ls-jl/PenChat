@@ -1731,20 +1731,20 @@ Json App::editorDiagnostic() const {
 namespace penchat {
 void App::keyboardSettingsPage() {
   pageHeader("键盘与输入");
-  const int width=layout().contentWidth(), column=(width-16)/2;
+  const int width=layout().contentWidth(), column=(width-uiMetrics_.dp(16))/2;
   const bool learning=db_.settings().value("pinyin_learning",true);
-  label(pageContent_,"本地拼音",10,4,width,16,theme::muted);
-  settingsRow("pinyin_learning","拼音学习",learning?"完成输入后记住词频和新词":"暂停学习，保留已有记忆",10,28,column,[this,learning]{db_.setting("pinyin_learning",!learning);build();},learning);
-  settingsRow("clear_pinyin","清除拼音记忆","恢复基础词典排序",26+column,28,column,[this]{
+  label(pageContent_,"本地拼音",uiMetrics_.dp(10),uiMetrics_.dp(4),width,uiMetrics_.fontSize(UiFont::Detail),theme::muted);
+  settingsRow("pinyin_learning","拼音学习",learning?"完成输入后记住词频和新词":"暂停学习，保留已有记忆",uiMetrics_.dp(10),uiMetrics_.dp(28),column,[this,learning]{db_.setting("pinyin_learning",!learning);build();},learning);
+  settingsRow("clear_pinyin","清除拼音记忆","恢复基础词典排序",uiMetrics_.dp(26)+column,uiMetrics_.dp(28),column,[this]{
     modal("清除拼音记忆","将清除已学习的词频和新词。基础词典、聊天和输入偏好都会保留。");
-    auto confirm=button(modal_,"清除记忆",16,screen_.height-66,200,44,[this]{events_.push("pinyin_clear_confirm");});
+    auto confirm=button(modal_,"清除记忆",uiMetrics_.dp(16),screen_.height-uiMetrics_.dp(66),uiMetrics_.dp(200),uiMetrics_.dp(44),[this]{events_.push("pinyin_clear_confirm");});
     lv_obj_set_style_text_color(lv_obj_get_child(confirm,0),lv_color_hex(theme::danger),0);
   });
   const bool correction=db_.settings().value("pinyin_correction",true);
-  settingsRow("pinyin_correction","拼音纠错","为26键拼音补充错键候选",10,92,column,[this,correction]{db_.setting("pinyin_correction",!correction);build();},correction);
+  settingsRow("pinyin_correction","拼音纠错","为26键拼音补充错键候选",uiMetrics_.dp(10),uiMetrics_.dp(92),column,[this,correction]{db_.setting("pinyin_correction",!correction);build();},correction);
   const bool swapSides=wideKeyboardSwap_;
-  settingsRow("wide_keyboard_swap","横屏键盘左右互换","左右分区时：键盘在右，编辑区在左",26+column,92,column,[this,swapSides]{wideKeyboardSwap_=!swapSides;db_.queueSetting("wide_keyboard_swap",wideKeyboardSwap_);build();},swapSides);
+  settingsRow("wide_keyboard_swap","横屏键盘左右互换","左右分区时：键盘在右，编辑区在左",uiMetrics_.dp(26)+column,uiMetrics_.dp(92),column,[this,swapSides]{wideKeyboardSwap_=!swapSides;db_.queueSetting("wide_keyboard_swap",wideKeyboardSwap_);build();},swapSides);
   const auto preferred=editor_.preferredChinese==2?std::string("zh9"):std::string("zh26");
-  label(pageContent_,std::string("常用中文布局：")+(preferred=="zh9"?"9键拼音":"26键拼音")+"\n实际输入后自动记住；长按地球可直接选择布局。",10,168,width-20,18,theme::muted);
+  label(pageContent_,std::string("常用中文布局：")+(preferred=="zh9"?"9键拼音":"26键拼音")+"\n实际输入后自动记住；长按地球可直接选择布局。",uiMetrics_.dp(10),uiMetrics_.dp(168),width-uiMetrics_.dp(20),uiMetrics_.fontSize(UiFont::FormNote),theme::muted);
 }
 } // namespace penchat

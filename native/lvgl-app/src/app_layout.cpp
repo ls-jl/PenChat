@@ -37,11 +37,11 @@ void App::portraitPage() {
   std::stable_sort(items.begin(),items.end(),[](const Item &a,const Item &b){return a.y==b.y?a.x<b.x:a.y<b.y;});
   const auto form = uiMetrics_.form();
   const auto settings = uiMetrics_.settings();
-  int y=8;const int width=layout().contentWidth();
+  int y=form.top;const int width=layout().contentWidth();
   for(const auto &item:items) {
-    auto o=item.o;const int rowWidth=width-(anchors.count(o)?56:0);
-    lv_obj_set_pos(o,16,y);lv_obj_set_width(o,rowWidth);
-    if(anchors.count(o)){auto control=anchors.at(o);lv_obj_set_pos(control,16+width-44,y+6);lv_obj_set_size(control,44,44);}
+    auto o=item.o;const int rowWidth=width-(anchors.count(o)?form.actionReserve:0);
+    lv_obj_set_pos(o,form.inset,y);lv_obj_set_width(o,rowWidth);
+    if(anchors.count(o)){auto control=anchors.at(o);lv_obj_set_pos(control,form.inset+width-form.actionSize,y+form.actionTop);lv_obj_set_size(control,form.actionSize,form.actionSize);}
     if(lv_obj_check_type(o,&lv_label_class)) {
       lv_label_set_long_mode(o,LV_LABEL_LONG_MODE_WRAP);lv_obj_set_height(o,LV_SIZE_CONTENT);
     } else {
@@ -50,7 +50,7 @@ void App::portraitPage() {
       for(unsigned i=0;i<lv_obj_get_child_count(o);++i){auto child=lv_obj_get_child(o,i);
         if(lv_obj_check_type(child,&lv_label_class)) {
           const int padding=lv_obj_get_style_align(child,LV_PART_MAIN)==LV_ALIGN_LEFT_MID?form.leadingCaptionPadding:form.captionPadding;
-          lv_obj_set_width(child,std::max(44,rowWidth-padding));
+          lv_obj_set_width(child,std::max(form.actionSize,rowWidth-padding));
         }
       }
       for(auto &entry:settingsControls_)if(entry.second.row==o){
@@ -58,9 +58,9 @@ void App::portraitPage() {
         lv_obj_set_x(c.indicator,rowWidth-(c.toggle?settings.toggleTrailing:settings.arrowTrailing));
       }
     }
-    lv_obj_update_layout(o);y+=std::max(20,int(lv_obj_get_height(o)))+10;
+    lv_obj_update_layout(o);y+=std::max(form.minimumItemHeight,int(lv_obj_get_height(o)))+form.gap;
   }
-  const int viewport=std::max(0,int(lv_obj_get_height(body_))-int(lv_obj_get_y(pageContent_))-12);
+  const int viewport=std::max(0,int(lv_obj_get_height(body_))-int(lv_obj_get_y(pageContent_))-form.bottom);
   lv_obj_set_style_min_height(pageContent_,viewport,0);
   lv_obj_set_height(pageContent_,std::max(y,viewport));
 }
