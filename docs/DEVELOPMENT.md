@@ -145,3 +145,37 @@ Y07 通过驱动 LED 类控制白灯，使用厂商模式值1，不套用 ORANGE
 新增用例覆盖多字号、窄栏、样式边界、公式、表格、长单词及显式换行。
 `penchat-markdown-wrap-tests <字体> <MicroTeX资源目录> <已有输出目录>`
 可额外生成几种阅读宽度的排版截图；截图不入库。
+
+### DPI 与全局缩放基础（实验分支）
+
+`ui_metrics.hpp` 的 `UiMetrics` 统一设计尺寸和语义字号，默认 density/UI scale
+均为 100%。两者先组合，再统一四舍五入到 Falcon 逻辑像素；不根据分辨率推测
+物理 DPI。生产设备固定 100%，本阶段没有用户设置或数据库迁移。
+
+- `dp()` 只接受设计尺寸。坐标、已计算的宽高、图片像素、LVGL 百分比和
+  `LV_SIZE_CONTENT` 直接传递，不能再次转换。普通 helper 的外部 x/y/w/h 均为
+  已解析逻辑像素，例如调用方先计算 `metrics.dp(44)`，按钮内部不再缩放高度。
+- `label(..., UiFont)` 使用语义字号；原 `label(..., int)` 和 `font(int)` 继续接受
+  最终像素字号。阅读字体百分比、Markdown 和键盘的既有字号路径保持独立。
+- 本阶段仅迁移通用按钮、字段、页面标题/动作、设置行的内部度量及 box 默认
+  字体。键盘复用 helper 时使用 100% 兼容指标。完整页面、composer、图标和手势
+  尚未整体迁移，不能把局部试验当作全应用缩放验收。
+- 主机程序仅在 `--headless` 下接受 `--ui-scale-percent 75..150` 整数参数；设备
+  构建拒绝该参数。App 度量启动时确定，不支持运行中更改。
+
+定向检查（先完成 host 构建）：
+
+```bash
+cmake --build build/host --target penchat-ui-metrics-tests penchat-ui-controls-tests -j6
+ctest --test-dir build/host -R '^penchat-ui-metrics$' --output-on-failure
+python3 tests/test_ui_controls.py
+# 基线必须由改造前的独立程序生成，不能用当前结果更新后再比较。
+python3 tests/test_ui_metrics_baseline.py --binary /absolute/path/to/baseline \
+  --output .work/ui-metrics/baseline
+python3 tests/test_ui_metrics_baseline.py --baseline .work/ui-metrics/baseline
+```
+
+控件检查在临时数据目录中运行真实 LVGL，每个进程只创建一个 App，遵循
+MicroTeX 的进程级生命周期；覆盖三种布局与四档倍率。基线比较使用相同字体、
+资源和确定性的 PNG 编码，比较稳定界面的几何及完整图片字节。截图和基线
+可执行文件保留在忽略目录，不提交到 Git。

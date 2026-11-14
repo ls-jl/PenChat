@@ -35,6 +35,8 @@ void App::portraitPage() {
     if(lv_obj_is_floating(o)&&lv_obj_get_user_data(o))anchors[static_cast<lv_obj_t *>(lv_obj_get_user_data(o))]=o;
     else items.push_back({o,lv_obj_get_x(o),lv_obj_get_y(o)});}
   std::stable_sort(items.begin(),items.end(),[](const Item &a,const Item &b){return a.y==b.y?a.x<b.x:a.y<b.y;});
+  const auto form = uiMetrics_.form();
+  const auto settings = uiMetrics_.settings();
   int y=8;const int width=layout().contentWidth();
   for(const auto &item:items) {
     auto o=item.o;const int rowWidth=width-(anchors.count(o)?56:0);
@@ -47,13 +49,13 @@ void App::portraitPage() {
       // measured frame changes. Labels preserve the same typography.
       for(unsigned i=0;i<lv_obj_get_child_count(o);++i){auto child=lv_obj_get_child(o,i);
         if(lv_obj_check_type(child,&lv_label_class)) {
-          const int padding=lv_obj_get_style_align(child,LV_PART_MAIN)==LV_ALIGN_LEFT_MID?52:28;
+          const int padding=lv_obj_get_style_align(child,LV_PART_MAIN)==LV_ALIGN_LEFT_MID?form.leadingCaptionPadding:form.captionPadding;
           lv_obj_set_width(child,std::max(44,rowWidth-padding));
         }
       }
       for(auto &entry:settingsControls_)if(entry.second.row==o){
-        auto &c=entry.second;lv_obj_set_width(c.title,rowWidth-80);lv_obj_set_width(c.detail,rowWidth-80);
-        lv_obj_set_x(c.indicator,rowWidth-(c.toggle?56:50));
+        auto &c=entry.second;lv_obj_set_width(c.title,std::max(1,rowWidth-settings.textTrailing));lv_obj_set_width(c.detail,std::max(1,rowWidth-settings.textTrailing));
+        lv_obj_set_x(c.indicator,rowWidth-(c.toggle?settings.toggleTrailing:settings.arrowTrailing));
       }
     }
     lv_obj_update_layout(o);y+=std::max(20,int(lv_obj_get_height(o)))+10;

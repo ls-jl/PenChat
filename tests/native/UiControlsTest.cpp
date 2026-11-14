@@ -1,0 +1,103 @@
+#include "app.hpp"
+#include <cassert>
+#include <iostream>
+#include <unistd.h>
+namespace penchat {
+struct UiControlsTest {
+  static void run(App &a) {
+    a.clear();
+    const auto &m = a.uiMetrics_;
+    a.screenObj_ = a.box(lv_screen_active(), 0, 0, a.screen_.width, a.screen_.height);
+    a.body_ = a.box(a.screenObj_, 0, 0, a.screen_.width, a.screen_.height);
+    a.pageHeader("度量测试", 0);
+    int clicks = 0;
+    auto action = a.pageAction("动作", 0, m.dp(80), [&] { ++clicks; });
+    auto button = a.button(a.pageContent_, "很长的按钮标题 Long caption", 7, 9, m.dp(180), m.dp(44), [&] { ++clicks; });
+    auto caption = lv_obj_get_child(button, 0);
+    auto field = a.fieldButton(a.pageContent_, "字段", "值 value", 7, m.dp(60), m.dp(200), [&] { ++clicks; });
+    a.settingsRow("fixture", "设置", "说明", 7, m.dp(130), m.dp(230), [&] { ++clicks; }, 1);
+    a.settingsRow("arrow", "更多", "说明", 7, m.dp(190), m.dp(230), [&] { ++clicks; }, -1);
+    auto &setting = a.settingsControls_.at("fixture");
+    auto narrow = a.button(a.pageContent_, "长标题", 0, 0, 8, m.dp(44), [] {});
+    auto explicitPixels = a.label(a.pageContent_, "pixels", 3, 4, 80, 19);
+    auto automaticSize = a.box(a.pageContent_, 0, 0, LV_PCT(50), LV_SIZE_CONTENT);
+    lv_obj_update_layout(a.screenObj_);
+    assert(lv_obj_get_x(button) == 7 && lv_obj_get_y(button) == 9);
+    assert(lv_obj_get_width(button) == m.dp(180) && lv_obj_get_height(button) == m.dp(44));
+    assert(lv_obj_get_style_radius(button, LV_PART_MAIN) == m.button().radius);
+    assert(lv_obj_get_width(caption) == m.dp(180) - m.button().captionPadding);
+    assert(lv_label_get_long_mode(caption) == LV_LABEL_LONG_MODE_DOTS);
+    assert(lv_obj_get_height(caption) == font(m.fontSize(UiFont::Button))->line_height);
+    assert(lv_obj_get_style_text_font(caption, LV_PART_MAIN) == font(m.fontSize(UiFont::Button)));
+    assert(lv_obj_get_width(lv_obj_get_child(narrow, 0)) == 1);
+    assert(lv_obj_get_style_text_font(explicitPixels, LV_PART_MAIN) == font(19));
+    assert(lv_obj_get_style_width(automaticSize, LV_PART_MAIN) == LV_PCT(50));
+    assert(lv_obj_get_style_height(automaticSize, LV_PART_MAIN) == LV_SIZE_CONTENT);
+    const auto f = m.field();
+    const bool compact = a.layout().compact();
+    const int titleHeight = compact ? font(m.fontSize(UiFont::FieldTitle))->line_height : f.captionHeight;
+    const int valueHeight = compact ? font(m.fontSize(UiFont::FieldValue))->line_height : f.valueHeight;
+    const int valueTop = compact ? f.top + titleHeight + f.gap : f.valueTop;
+    assert(lv_obj_get_height(field) == (compact ? std::max(f.height, valueTop + valueHeight + f.top) : f.height));
+    assert(lv_obj_get_y(lv_obj_get_child(field, 0)) == valueTop);
+    assert(lv_obj_get_style_text_font(lv_obj_get_child(field, 1), LV_PART_MAIN) == font(m.fontSize(UiFont::FieldTitle)));
+    assert(lv_obj_get_height(a.pageHeader_) == m.page().headerHeight);
+    assert(lv_obj_get_y(a.pageContent_) == a.layout().safeTop() + m.page().headerHeight);
+    assert(lv_obj_get_height(action) == m.page().actionHeight);
+    assert(lv_obj_get_height(setting.row) == m.settings().height);
+    assert(lv_obj_get_x(setting.indicator) == m.dp(230) - m.settings().toggleTrailing);
+    assert(lv_obj_get_width(setting.title) == m.dp(230) - m.settings().textTrailing);
+    assert(lv_obj_get_width(setting.indicator) == m.settings().toggleWidth);
+    assert(!lv_obj_is_clickable(setting.indicator));
+    assert(!lv_obj_is_clickable(setting.title));
+    assert(lv_obj_get_x(a.settingsControls_.at("arrow").indicator) == m.dp(230) - m.settings().arrowTrailing);
+    lv_obj_send_event(button, LV_EVENT_CLICKED, nullptr);
+    lv_obj_send_event(field, LV_EVENT_CLICKED, nullptr);
+    lv_obj_send_event(setting.row, LV_EVENT_CLICKED, nullptr);
+    lv_obj_send_event(action, LV_EVENT_CLICKED, nullptr);
+    assert(clicks == 4);
+    // Existing compact/portrait form reflow must not restore unscaled internals.
+    a.view_ = "provider";
+    a.providerForm_ = {{"name", "fixture"}};
+    a.portraitPage();
+    lv_obj_update_layout(a.screenObj_);
+    assert(lv_obj_get_width(setting.title) == lv_obj_get_width(setting.row) - m.settings().textTrailing);
+    // Keyboard helpers must remain in their existing design coordinate space.
+    a.editorRoot_ = a.box(a.screenObj_, 0, 0, 240, 120);
+    auto key = a.button(a.editorRoot_, "a", 0, 0, 80, 44, [] {});
+    lv_obj_update_layout(a.screenObj_);
+    assert(lv_obj_get_style_text_font(lv_obj_get_child(key, 0), LV_PART_MAIN) == font(20));
+    assert(lv_obj_get_style_radius(key, LV_PART_MAIN) == 10);
+    assert(lv_obj_get_width(lv_obj_get_child(key, 0)) == 56);
+    lv_obj_delete(a.editorRoot_);
+    a.editorRoot_ = nullptr;
+    a.clear();
+  }
+};
+}
+int main(int argc, char **argv) {
+  using namespace penchat;
+  assert(argc == 6);
+  lv_init();
+  lv_tick_set_cb([]() -> uint32_t { return uint32_t(ticks()); });
+  initializeFonts(join(argv[1], ".deps/chinese.ttf"), join(argv[1], "assets/fonts/DejaVuSans.ttf"));
+  {
+    const UiMetrics metrics(100, std::stoi(argv[3]));
+    {
+      const auto size = std::make_pair(std::stoi(argv[4]), std::stoi(argv[5]));
+      const auto directory = join(argv[2], std::to_string(size.first));
+      ensureDirectory(directory);
+      Screen screen; screen.width=size.first; screen.height=size.second;
+      Display display(screen, true);
+      Input input;
+      Bridge bridge(-1);
+      Database db(join(directory, "penchat.db"));
+      App app(db, bridge, display, input, screen, argv[1], directory,
+              join(argv[1], ".deps/chinese.ttf"), join(argv[1], ".deps/microtex/res"), false, Json::object(), metrics);
+      UiControlsTest::run(app);
+    }
+  }
+  lv_deinit();
+  shutdownFonts();
+  std::cout << "UI_CONTROLS_LAYOUT_FONT_HIT_AND_KEYBOARD_ISOLATION_OK\n";
+}

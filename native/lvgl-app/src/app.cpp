@@ -59,8 +59,8 @@ std::string basename(const std::string &p) {
 } // namespace
 App::App(Database &db, Bridge &bridge, Display &display, Input &input,
          const Screen &s, std::string workspace, std::string dataDir,
-         const std::string &fontPath, const std::string &resources, bool nativeTouch, const Json &configuration)
-    : db_(db), bridge_(bridge), display_(display), input_(input), screen_(s), touchInput_(s, nativeTouch),
+         const std::string &fontPath, const std::string &resources, bool nativeTouch, const Json &configuration, const UiMetrics &metrics)
+    : uiMetrics_(metrics), db_(db), bridge_(bridge), display_(display), input_(input), screen_(s), touchInput_(s, nativeTouch),
       pinyin_(events_, join(workspace, "assets/pinyin"), dataDir),
       images_(events_), camera_(events_, join(dataDir, "camera-tmp"), workspace, s.height > s.width),
       scanner_(events_, workspace, dataDir),
@@ -126,15 +126,32 @@ App::~App() {
   shutdown();
   clear();
 }
+bool App::keyboardControl(lv_obj_t *parent) const {
+  for (auto ancestor = parent; editorRoot_ && ancestor; ancestor = lv_obj_get_parent(ancestor))
+    if (ancestor == editorRoot_) return true;
+  return false;
+}
+const UiMetrics &App::controlMetrics(lv_obj_t *parent) const {
+  static const UiMetrics compatibility;
+  return keyboardControl(parent) ? compatibility : uiMetrics_;
+}
+lv_obj_t *App::label(lv_obj_t *parent, const std::string &text, int x, int y,
+                     int w, UiFont role, uint32_t color) {
+  return label(parent, text, x, y, w, controlMetrics(parent).fontSize(role), color);
+}
 lv_obj_t *App::box(lv_obj_t *parent, int x, int y, int w, int h,
                    uint32_t color) {
+  return box(parent, x, y, w, h, color, controlMetrics(parent));
+}
+lv_obj_t *App::box(lv_obj_t *parent, int x, int y, int w, int h,
+                   uint32_t color, const UiMetrics &metrics) {
   auto o = lv_obj_create(parent);
   lv_obj_remove_style_all(o);
   lv_obj_set_pos(o, x, y);
   lv_obj_set_size(o, w, h);
   lv_obj_set_style_bg_color(o, lv_color_hex(color), 0);
   lv_obj_set_style_bg_opa(o, 255, 0);
-  lv_obj_set_style_text_font(o, font(21), 0);
+  lv_obj_set_style_text_font(o, font(metrics.fontSize(UiFont::Body)), 0);
   lv_obj_set_style_text_color(o, lv_color_hex(theme::text), 0);
   return o;
 }
@@ -151,13 +168,13 @@ lv_obj_t *App::label(lv_obj_t *parent, const std::string &text, int x, int y,
 lv_obj_t *App::button(lv_obj_t *parent, const std::string &text, int x, int y,
                       int w, int h, std::function<void()> click, uint32_t color,
                       lv_text_align_t align) {
-  auto o = box(parent, x, y, w, h, color);
+  const bool keyboard = keyboardControl(parent);
+  const UiMetrics metrics = keyboard ? UiMetrics() : uiMetrics_;
+  const auto style = metrics.button();
+  auto o = box(parent, x, y, w, h, color, metrics);
   lv_obj_set_scrollable(o, false);
-  lv_obj_set_style_radius(o, 10, 0);
+  lv_obj_set_style_radius(o, style.radius, 0);
   lv_obj_set_style_bg_color(o, lv_color_hex(theme::border), LV_STATE_PRESSED);
-  bool keyboard=false;
-  for(auto ancestor=parent;editorRoot_&&ancestor;ancestor=lv_obj_get_parent(ancestor))
-    if(ancestor==editorRoot_){keyboard=true;break;}
   std::string caption=text;int checked=-1;
   if(!keyboard)for(const auto &prefix:{std::make_pair(std::string("● "),true),
       {"○ ",false},{"✓ ",true},{"□ ",false}}) {
@@ -165,17 +182,17 @@ lv_obj_t *App::button(lv_obj_t *parent, const std::string &text, int x, int y,
       checked=prefix.second;caption.erase(0,prefix.first.size());break;
     }
   }
-  auto l = label(o, caption, 0, 0, w - 24, 20);
+  const auto captionFont = font(metrics.fontSize(UiFont::Button));
+  auto l = label(o, caption, 0, 0, std::max(1, w - style.captionPadding), metrics.fontSize(UiFont::Button));
   // A fixed-height action must never center an arbitrarily tall wrapped label.
   lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(l, font(20)->line_height);
+  lv_obj_set_height(l, captionFont->line_height);
   lv_obj_set_style_text_align(l, align, 0);
   lv_obj_align(l, LV_ALIGN_CENTER, 0, 0);
   if(!keyboard)styleDisabledButton(o);
   if(checked>=0)selected(o,checked);
   if(layout().portrait()) {
-    bool local=false;for(auto p=parent;p;p=lv_obj_get_parent(p))if(p==editorRoot_){local=true;break;}
-    if(!local) {
+    if(!keyboard) {
       inputTarget(o,"button:"+std::to_string(inputOrdinal_++));
       onClick(o,[this,o,click]{inputAction(o,click);});
     } else onClick(o,std::move(click));
@@ -192,18 +209,20 @@ void App::primary(lv_obj_t *object) {
 lv_obj_t *App::fieldButton(lv_obj_t *parent, const std::string &caption,
                             const std::string &value, int x, int y, int width,
                             std::function<void()> action) {
-  auto object = button(parent, value, x, y, width, 48, std::move(action), theme::surface, LV_TEXT_ALIGN_LEFT);
+  const auto &metrics = controlMetrics(parent);
+  const auto field = metrics.field();
+  auto object = button(parent, value, x, y, width, field.height, std::move(action), theme::surface, LV_TEXT_ALIGN_LEFT);
   auto text = lv_obj_get_child(object, 0);
-  lv_obj_set_style_text_font(text, font(19), 0);
-  const int captionHeight = layout().compact() ? font(15)->line_height : 19;
-  const int valueHeight = layout().compact() ? font(19)->line_height : 23;
-  const int valueY = layout().compact() ? 3 + captionHeight + 2 : 23;
+  lv_obj_set_style_text_font(text, font(metrics.fontSize(UiFont::FieldValue)), 0);
+  const int captionHeight = layout().compact() ? font(metrics.fontSize(UiFont::FieldTitle))->line_height : field.captionHeight;
+  const int valueHeight = layout().compact() ? font(metrics.fontSize(UiFont::FieldValue))->line_height : field.valueHeight;
+  const int valueY = layout().compact() ? field.top + captionHeight + field.gap : field.valueTop;
   lv_obj_set_height(text, valueHeight);
-  lv_obj_align(text, LV_ALIGN_TOP_LEFT, 12, valueY);
-  auto name = label(object, caption, 12, 3, width - 24, 15, theme::muted);
+  lv_obj_align(text, LV_ALIGN_TOP_LEFT, field.inset, valueY);
+  auto name = label(object, caption, field.inset, field.top, std::max(1, width - metrics.button().captionPadding), UiFont::FieldTitle, theme::muted);
   lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(name, captionHeight);
-  if (layout().compact()) lv_obj_set_height(object, std::max(48, valueY + valueHeight + 3));
+  if (layout().compact()) lv_obj_set_height(object, std::max(field.height, valueY + valueHeight + field.top));
   lv_obj_set_clickable(name, false);
   if(layout().portrait())inputTarget(object,"field:"+caption+":"+std::to_string(inputOrdinal_-1),1);
   return object;
@@ -2227,31 +2246,33 @@ std::string App::pageKey() const {
 void App::pageHeader(const std::string &title, int top) {
   // Header and business content share one full-height reader. No overlay may
   // cover the space released when the title scrolls out.
+  const auto metrics = uiMetrics_.page();
   const int width = layout().bodyWidth();
   top+=layout().safeTop();
-  pageHeader_ = box(body_, 0, top, width, 48);
+  pageHeader_ = box(body_, 0, top, width, metrics.headerHeight);
   lv_obj_set_scrollable(pageHeader_, false);
-  if(layout().portrait())icon(pageHeader_,"back",layout().navigationX(),2,44,44,[this]{if(editor_.active){editorAccept();return;}goBack();});
-  const int titleX=layout().portrait()?layout().navigationX()+56:10;
-  pageHeading_ = label(pageHeader_, title, titleX, 7,
-    width-titleX-(layout().safety().enabled()?layout().navigationX():10),26);
+  if(layout().portrait())icon(pageHeader_,"back",layout().navigationX(),metrics.actionTop,metrics.actionHeight,metrics.actionHeight,[this]{if(editor_.active){editorAccept();return;}goBack();});
+  const int titleX=layout().portrait()?layout().navigationX()+metrics.navigationGap:metrics.titleInset;
+  pageHeading_ = label(pageHeader_, title, titleX, metrics.titleTop,
+    width-titleX-(layout().safety().enabled()?layout().navigationX():metrics.titleInset),UiFont::PageTitle);
   readLabel(pageHeading_,title);
   lv_label_set_long_mode(pageHeading_, LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(pageHeading_,font(26)->line_height);
-  pageContent_ = box(body_, 0, top + 48, width, LV_SIZE_CONTENT);
+  lv_obj_set_height(pageHeading_,font(uiMetrics_.fontSize(UiFont::PageTitle))->line_height);
+  pageContent_ = box(body_, 0, top + metrics.headerHeight, width, LV_SIZE_CONTENT);
   lv_obj_set_scrollable(pageContent_, false);
-  lv_obj_set_style_min_height(pageContent_, screen_.height - top - 60, 0);
+  lv_obj_set_style_min_height(pageContent_, screen_.height - top - metrics.minimumTail, 0);
   lv_obj_set_style_pad_bottom(body_, layout().readerBottomSpace(), 0);
-  lv_obj_set_style_width(body_, 3, LV_PART_SCROLLBAR);
+  lv_obj_set_style_width(body_, metrics.scrollWidth, LV_PART_SCROLLBAR);
   lv_obj_set_style_bg_color(body_, lv_color_hex(theme::muted), LV_PART_SCROLLBAR);
-  lv_obj_set_style_radius(body_, 3, LV_PART_SCROLLBAR);
+  lv_obj_set_style_radius(body_, metrics.scrollWidth, LV_PART_SCROLLBAR);
 }
 lv_obj_t *App::pageAction(const std::string &title, int right, int width, std::function<void()> action) {
+  const auto metrics = uiMetrics_.page();
   const int x = layout().portrait()?layout().bodyWidth()-right-width-layout().navigationX():screen_.width-86-right-width;
-  auto result = button(pageHeader_, title, x, 2, width, 44, std::move(action));
+  auto result = button(pageHeader_, title, x, metrics.actionTop, width, metrics.actionHeight, std::move(action));
   pageActions_[title] = result;
   const int titleWidth = lv_obj_get_style_width(pageHeading_,LV_PART_MAIN);
-  lv_obj_set_width(pageHeading_, std::max(40,std::min(titleWidth,x-(layout().portrait()?80:24))));
+  lv_obj_set_width(pageHeading_, std::max(metrics.minimumTitle,std::min(titleWidth,x-(layout().portrait()?metrics.portraitActionGap:metrics.actionGap))));
   return result;
 }
 Json App::pageDiagnostic() const {
@@ -2269,12 +2290,13 @@ Json App::pageDiagnostic() const {
 void App::settingsRow(const std::string &id, const std::string &title,
                       const std::string &detail, int x, int y, int width,
                       std::function<void()> action, int checked, bool unavailable) {
-  auto row = box(pageContent_, x, y, width, 56, theme::surface);
+  const auto metrics = uiMetrics_.settings();
+  auto row = box(pageContent_, x, y, width, metrics.height, theme::surface);
   lv_obj_set_scrollable(row, false);
-  lv_obj_set_style_radius(row, 12, 0);
+  lv_obj_set_style_radius(row, metrics.radius, 0);
   lv_obj_set_style_bg_color(row, lv_color_hex(theme::border), LV_STATE_PRESSED);
-  auto caption = label(row, title, 12, 3, width - 80, 20);
-  auto value = label(row, detail, 12, 31, width - 80, 16,
+  auto caption = label(row, title, metrics.inset, metrics.titleTop, std::max(1, width - metrics.textTrailing), UiFont::SettingsTitle);
+  auto value = label(row, detail, metrics.inset, metrics.detailTop, std::max(1, width - metrics.textTrailing), UiFont::Detail,
                      unavailable ? theme::danger : theme::muted);
   for (auto text : {caption, value}) {
     lv_label_set_long_mode(text, LV_LABEL_LONG_MODE_DOTS);
@@ -2284,16 +2306,16 @@ void App::settingsRow(const std::string &id, const std::string &title,
   lv_obj_t *indicator;
   if (checked >= 0) {
     indicator = lv_switch_create(row);
-    lv_obj_set_pos(indicator, width - 56, 16);
-    lv_obj_set_size(indicator, 44, 24);
+    lv_obj_set_pos(indicator, width - metrics.toggleTrailing, metrics.toggleTop);
+    lv_obj_set_size(indicator, metrics.toggleWidth, metrics.toggleHeight);
     lv_obj_set_style_bg_color(indicator, lv_color_hex(theme::border), 0);
     lv_obj_set_style_bg_color(indicator, lv_color_hex(theme::border), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(indicator, lv_color_hex(theme::accent), LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_set_style_bg_color(indicator, lv_color_hex(theme::text), LV_PART_KNOB);
-    lv_obj_set_style_pad_all(indicator, -2, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(indicator, metrics.knobPadding, LV_PART_KNOB);
     if (checked) lv_obj_add_state(indicator, LV_STATE_CHECKED);
   } else {
-    indicator = box(row, width - 50, 6, 44, 44, theme::surface);
+    indicator = box(row, width - metrics.arrowTrailing, metrics.arrowTop, metrics.arrowSize, metrics.arrowSize, theme::surface);
     lv_obj_set_style_bg_opa(indicator, LV_OPA_TRANSP, 0);
     lv_obj_set_scrollable(indicator, false);
     attachIcon(indicator, "chevron-right", theme::muted);

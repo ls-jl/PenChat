@@ -8,6 +8,7 @@
 #include "update.hpp"
 #include "onboarding.hpp"
 #include "layout.hpp"
+#include "ui_metrics.hpp"
 #include "editor.hpp"
 #include "pinyin.hpp"
 #include "editor_layout.hpp"
@@ -26,6 +27,12 @@
 #include <set>
 namespace penchat {
 class App {
+#ifndef PENCHAT_NATIVE_DEVICE
+  friend struct UiControlsTest;
+#endif
+  const UiMetrics uiMetrics_;
+  bool keyboardControl(lv_obj_t *parent) const;
+  const UiMetrics &controlMetrics(lv_obj_t *parent) const;
   struct Texture {
     lv_image_dsc_t descriptor{};
     std::shared_ptr<ImageFrame> frame;
@@ -440,8 +447,13 @@ class App {
   std::vector<std::string> modelNames_;
   lv_obj_t *box(lv_obj_t *parent, int x, int y, int w, int h,
                 uint32_t color = theme::background);
+  lv_obj_t *box(lv_obj_t *parent, int x, int y, int w, int h,
+                uint32_t color, const UiMetrics &metrics);
+  // Geometry and the integer-size overload are already resolved logical pixels.
   lv_obj_t *label(lv_obj_t *parent, const std::string &text, int x, int y,
                   int w, int size = 21, uint32_t color = theme::text);
+  lv_obj_t *label(lv_obj_t *parent, const std::string &text, int x, int y,
+                  int w, UiFont role, uint32_t color = theme::text);
   lv_obj_t *button(lv_obj_t *parent, const std::string &text, int x, int y,
                    int w, int h, std::function<void()> click,
                    uint32_t color = theme::surface,
@@ -834,7 +846,8 @@ class App {
 public:
   App(Database &, Bridge &, Display &, Input &, const Screen &,
       std::string workspace, std::string dataDir, const std::string &fontPath,
-      const std::string &resources, bool nativeTouch, const Json &configuration = Json::object());
+      const std::string &resources, bool nativeTouch, const Json &configuration = Json::object(),
+      const UiMetrics &metrics = UiMetrics());
   ~App();
   void tick();
   void waitInput(unsigned milliseconds) const { touchInput_.wait(milliseconds); }
