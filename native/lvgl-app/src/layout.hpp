@@ -62,9 +62,15 @@ struct AppLayout {
       : width(w), height(h), rounded(round), metrics(ui) {}
   int dp(int value) const { return metrics.dp(value); }
   ScreenSafety safety() const { return {width,height,rounded}; }
-  LayoutRect edgeRect(LayoutRect rect) const { return safety().fit(rect); }
+  LayoutRect edgeRect(LayoutRect rect) const {
+    if(safety().enabled()&&metrics.scalePercent()<100) {
+      const int w=std::max(44,rect.width),h=std::max(44,rect.height);
+      rect.x-=(w-rect.width)/2;rect.y-=(h-rect.height)/2;rect.width=w;rect.height=h;
+    }
+    return safety().fit(rect);
+  }
   int edgeSide(int y,int h) const { return std::max(safeSide(),safety().sideInset(y,h)); }
-  int navigationX() const { return edgeSide(safeTop(),dp(48)); }
+  int navigationX() const { return edgeSide(safeTop(),std::max(44,dp(48))); }
   LayoutClass category() const { return classifyLayout(width,height); }
   bool portrait() const { return category() == LayoutClass::Portrait; }
   bool compact() const { return category() == LayoutClass::CompactLandscape; }
@@ -75,12 +81,12 @@ struct AppLayout {
   int composerInset() const { const auto c=metrics.composer();return portrait()?c.portraitInset:c.landscapeInset; }
   int composerSendDiameter() const { const auto c=metrics.composer();return portrait()?c.portraitSend:c.control; }
   int composerHeight() const { return metrics.composer().control+2*composerInset(); }
-  int composerEntryLeft() const { return portrait() ? composerInset()+dp(56) : dp(62); }
-  int composerEntryRight(bool gauge) const { return portrait() ? composerInset()+dp(56)+(gauge?dp(50):0) : dp(gauge?106:54); }
+  int composerEntryLeft() const { return portrait() ? composerInset()+metrics.composer().control+dp(12) : metrics.composer().control+dp(18); }
+  int composerEntryRight(bool gauge) const { const int control=metrics.composer().control;return portrait() ? composerInset()+control+dp(12)+(gauge?control+dp(6):0) : control+(gauge?control+dp(18):dp(10)); }
   int composerY() const { return height - composerHeight() - safeBottom(); }
   int gutter() const { return portrait() ? 0 : dp(86); }
   int bodyWidth() const { return std::max(1,width - gutter() - dp(4)); }
-  int chatReaderTop() const { return portrait() ? safeTop() + dp(56) : 0; }
+  int chatReaderTop() const { return portrait() ? safeTop() + std::max(52,dp(56)) : 0; }
   int chatMessageWidth() const { return std::max(1,portrait() ? bodyWidth() - dp(16) : width - dp(112)); }
   int contentWidth() const { return std::max(1,width - dp(portrait()?32:118)); }
   int composerX() const { return portrait() ? safeSide() : dp(106); }
@@ -95,10 +101,10 @@ struct AppLayout {
     if(portrait()) {
       if(!safety().enabled())return {{dp(72),dp(16),width-dp(88),dp(24)},{dp(10),dp(56),width-dp(20),height-dp(186)},
         {dp(16),dp(28),width-dp(32),dp(24)},{dp(16),height-dp(112),width-dp(32),dp(44)},{dp(16),height-dp(58),width-dp(32),dp(44)},dp(48),height-dp(130)};
-      const int top=safeTop(),cancelY=height-safeBottom()-dp(44),useY=cancelY-dp(52);
+      const int control=std::max(44,dp(44)),top=safeTop(),cancelY=height-safeBottom()-control,useY=cancelY-control-dp(8);
       return {{navigationX()+dp(56),top+dp(8),width-navigationX()-dp(80),dp(24)},
         {dp(10),top+dp(48),width-dp(20),useY-top-dp(64)},{dp(16),top+dp(28),width-dp(32),dp(24)},
-        edgeRect({dp(16),useY,width-dp(32),dp(44)}),edgeRect({dp(16),cancelY,width-dp(32),dp(44)}),top+dp(40),useY-dp(16)};
+        edgeRect({dp(16),useY,width-dp(32),control}),edgeRect({dp(16),cancelY,width-dp(32),control}),top+dp(40),useY-dp(16)};
     }
     return {{dp(10),0,width-dp(120),dp(24)},{dp(10),dp(32),width-dp(330),height-dp(88)},
       {dp(10),dp(28),width-dp(330),dp(24)},{width-dp(305),dp(32),dp(200),dp(44)},{width-dp(305),dp(86),dp(200),dp(44)},dp(28),height-dp(56)};
@@ -120,12 +126,13 @@ struct AppLayout {
   }
   CropWorkspace cropWorkspace(int w,int h) const {
     if(portrait()) {
-      const int side=edgeSide(safeTop(),dp(44)),available=w-2*side;
-      const int y=h-safeBottom()-dp(12)-dp(48),albumY=y-dp(56);
+      const int control=std::max(44,dp(48)),album=std::max(44,dp(44));
+      const int side=edgeSide(safeTop(),album),available=w-2*side;
+      const int y=h-safeBottom()-dp(12)-control,albumY=y-album-dp(12);
       const int buttonWidth=(available-dp(24))/3;
       return {{side,safeTop(),available,albumY-safeTop()-dp(16)},
-        {side,y,buttonWidth,dp(48)},{side+buttonWidth+dp(12),y,buttonWidth,dp(48)},
-        {side,albumY,available,dp(44)},{w-side-buttonWidth,y,buttonWidth,dp(48)}};
+        {side,y,buttonWidth,control},{side+buttonWidth+dp(12),y,buttonWidth,control},
+        {side,albumY,available,album},{w-side-buttonWidth,y,buttonWidth,control}};
     }
     const bool narrow=w<dp(440);const int y=h-dp(52),bw=narrow?(w-dp(32))/3:dp(72);
     return {{dp(8),dp(8),w-dp(16),h-(narrow?dp(120):dp(68))},{dp(8),y,bw,dp(44)},
@@ -135,7 +142,7 @@ struct AppLayout {
   GuideWorkspace guideWorkspace() const {
     const bool p=portrait();const int split=p?width-dp(4):width/2,right=p?dp(20):split+dp(20);
     const int side=safety().enabled()?navigationX():right;
-    return {p,split,side,width-side-(p?side:dp(20)),height-(safety().enabled()?safeBottom()+dp(44):dp(56)),p?std::min(dp(520),height*43/100):height-dp(80)};
+    return {p,split,side,width-side-(p?side:dp(20)),height-std::max(44,dp(44))-(safety().enabled()?safeBottom():dp(12)),p?std::min(dp(520),height*43/100):height-dp(80)};
   }
 };
 } // namespace penchat

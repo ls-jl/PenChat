@@ -165,6 +165,21 @@ struct UiControlsTest {
     for(int i=0;i<100;++i)a.editorLayout();
     assert(a.editorLayoutResolves_==resolves);
     a.clear();
+    const auto original=a.rich_.formula("x^2",21);
+    const UiMetrics changed(100,m.scalePercent()==150?75:150);
+    a.rich_.setMetrics(changed);
+    const auto resized=a.rich_.formula("x^2",21);
+    assert(resized.width-original.width==changed.dp(4)-m.dp(4));
+    a.rich_.setMetrics(m);
+    assert(a.rich_.formula("x^2",21).pixels==original.pixels);
+    a.show("ui_scale");
+    a.uiScaleError_="未能保存，本次调整未生效。请检查存储空间后重试。";
+    a.uiScaleBusy(false);lv_obj_update_layout(a.screenObj_);
+    assert(lv_obj_get_y(a.uiScalePreview_)>=lv_obj_get_y(a.uiScaleStatus_)+lv_obj_get_height(a.uiScaleStatus_));
+    a.show("font_size");lv_obj_update_layout(a.screenObj_);
+    auto explanation=lv_obj_get_child(a.pageContent_,0);
+    assert(lv_obj_get_y(explanation)+lv_obj_get_height(explanation)<=lv_obj_get_y(a.fontPercentLabel_));
+    a.clear();
   }
 };
 }

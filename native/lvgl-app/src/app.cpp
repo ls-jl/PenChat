@@ -1,5 +1,6 @@
 #include "attachment_layout.hpp"
 #include "app.hpp"
+#include "ui_scale_settings.hpp"
 #include "chat_text.hpp"
 #include "chat_time.hpp"
 #include "context.hpp"
@@ -84,6 +85,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   transfer_->start("init");
   clearCrop();
   auto config = db_.settings();
+  uiScaleSaved_=savedUiScale(config);uiScaleDraft_=uiMetrics_.scalePercent();
   composerShortcut_.configure(stringValue(config, "landscape_composer_shortcut", "auto"));
   wideKeyboardSwap_=config.value("wide_keyboard_swap",false);
   const auto idleSeconds = config.value("http_idle_seconds", Json());
@@ -1073,6 +1075,8 @@ void App::clear() {
   chatRenderPending_ = chatRefreshPending_ = chatImagesPending_ = false;
   chatFinishPending_ = Json::object();
   fontSlider_ = fontPercentLabel_ = fontPreview_ = nullptr;
+  uiScaleSlider_=uiScaleCaption_=uiScalePreview_=uiScaleStatus_=nullptr;uiScaleControls_.clear();
+  scaleMessageRows_.clear();
   cropActions_.clear();cropViewport_=cropBitmap_=cropSelection_=nullptr;
   if(!imageViewer_)imageGesture_={};
   settingsControls_.clear();settingsGroups_.clear();
@@ -1153,7 +1157,7 @@ void App::build() {
     onboardingPage();builtView_=view_;builtPageKey_=pageKey();syncScanner();syncBackPolicy();return;
   }
   lv_obj_t *navigation=nullptr;
-  if(view_!="crop"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", layout().portrait()?layout().navigationX():uiMetrics_.dp(16), layout().portrait()?layout().safeTop():uiMetrics_.dp(8), uiMetrics_.dp(48), uiMetrics_.dp(48), [this] {
+  if(view_!="crop"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", layout().portrait()?layout().navigationX():uiMetrics_.dp(16), layout().portrait()?layout().safeTop():uiMetrics_.dp(8), std::max(44,uiMetrics_.dp(48)), std::max(44,uiMetrics_.dp(48)), [this] {
     if(editor_.active){editorAccept();return;}
     if (view_ == "chat") {
       if(!messageEdit_.empty())cancelMessageEdit();else toggleNavigation();
@@ -1170,6 +1174,8 @@ void App::build() {
     chat();
   else if (view_ == "settings")
     settingsPage();
+  else if (view_ == "ui_scale")
+    uiScalePage();
   else if (view_ == "font_size")
     fontSizePage();
   else if (view_ == "http_settings")
@@ -1229,7 +1235,7 @@ void App::build() {
   }
   if (view_ == "chat" && scanner_.available()) {
     const bool portrait = layout().portrait();
-    auto hint = box(portrait?chatHeader_:screenObj_, portrait?screen_.width-layout().navigationX()-uiMetrics_.dp(88):uiMetrics_.dp(12), portrait?layout().safeTop():uiMetrics_.dp(60), portrait?uiMetrics_.dp(88):uiMetrics_.dp(64), portrait?uiMetrics_.dp(48):uiMetrics_.dp(64));
+    auto hint = box(portrait?chatHeader_:screenObj_, portrait?screen_.width-layout().navigationX()-uiMetrics_.dp(88):uiMetrics_.dp(12), portrait?layout().safeTop():uiMetrics_.dp(60), portrait?uiMetrics_.dp(88):uiMetrics_.dp(64), portrait?std::max(44,uiMetrics_.dp(48)):uiMetrics_.dp(64));
     lv_obj_set_scrollable(hint, false);
     scanHint_ = label(hint, portrait?"扫描准备中":"扫描\n准备中", uiMetrics_.dp(4), portrait?uiMetrics_.dp(14):uiMetrics_.dp(5), portrait?uiMetrics_.dp(80):uiMetrics_.dp(60), uiMetrics_.dp(portrait?16:14), theme::muted);
     lv_label_set_long_mode(scanHint_, LV_LABEL_LONG_MODE_DOTS);
@@ -1272,6 +1278,7 @@ void App::build() {
   if (imageViewer_) lv_obj_move_foreground(imageViewer_);
 }
 void App::show(const std::string &view) {
+  if(view_=="chat" && view!="chat")captureScaleAnchor();
   if (view != view_) composerShortcut_.reset();
   if ((view_ == "web_source" || view_ == "web_details") && view != "web_source")
     cancelWebReader();
@@ -1861,6 +1868,7 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
       image(photoGroup, path, 0, 0, width, 140,
             [this,original] { requestImageViewer(original); }, false, true,
             !readOnly&&m["seq"].get<int>() > lastAssistant ? m["id"].get<std::string>() : "",readOnly||m.value("edit_virtual",false)?"":m["id"].get<std::string>());
+      if(!readOnly && source==session_)scaleMessageRows_[m["id"].get<std::string>()]=lv_obj_get_child(photoGroup,-1);
       continue;
     }
     photoGroup = nullptr;
@@ -1887,6 +1895,7 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
     if(user&&!readOnly)messageLongPress(wrap,m["id"].get<std::string>());
     const int textWidth = contentWidth - (hasImage ? 0 : (user ? uiMetrics_.dp(24) : uiMetrics_.dp(16)));
     auto id = m["id"].get<std::string>();
+    if(!readOnly && source==session_)scaleMessageRows_[id]=row;
     const bool live=!readOnly&&id==assistant_;
     std::string content =
         live ? output_ : stringValue(m, "output_text");
@@ -2051,6 +2060,7 @@ void App::renderMessages(bool bottom, bool cached) {
   rasters_.clear();
   liveContent_ = nullptr;
   reasoningHeaders_.clear();reasoningControls_.clear();
+  scaleMessageRows_.clear();
   lv_obj_clean(messageContent_);
   auto messages = cached ? rows_ : messageEdit_.empty()?db_.messages(session_, messageOffset_, 30):editedMessages();
   lv_obj_set_style_pad_top(messageContent_, messages.empty() ? 0 : uiMetrics_.dp(8), 0);
@@ -2115,6 +2125,7 @@ void App::renderMessages(bool bottom, bool cached) {
                      LV_ANIM_OFF);
   chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
   chatFollowing_ = follow || (messageOffset_ == 0 && maximum == 0);
+  restoreScaleAnchor();
   chatLayout_ = previousLayout;
   updateChatControls(true);
   paintVisible();
@@ -2503,6 +2514,9 @@ void App::settingsPage() {
       [this] { composerShortcutPicker(); }, -1, false, true);
 
   section("app", "应用");
+  row("ui_scale", "界面缩放", std::to_string(uiMetrics_.scalePercent())+"% · 全应用", [this] {
+    uiScaleDraft_=uiMetrics_.scalePercent();uiScaleError_.clear();show("ui_scale");
+  });
   row("font_size", "字体大小", std::to_string(readingFontPercent_) + "% · 聊天、思考和公式", [this] {
     readingFontDraft_ = readingFontPercent_; show("font_size");
   });
@@ -2545,10 +2559,10 @@ void App::fontSizePage() {
   pageAction("恢复默认", uiMetrics_.dp(96), uiMetrics_.dp(120), [this] { updateFontPreview(100); });
   primary(pageAction("保存", 0, uiMetrics_.dp(84), [this] { events_.push("reading_font_apply"); }));
   const int width = layout().contentWidth();
-  auto description = label(pageContent_, "聊天正文、思考过程与公式同步缩放；菜单和键盘保持原大小。",
+  auto description = label(pageContent_, "聊天正文、思考过程与公式同步缩放；不单独调整菜单和键盘；基于界面缩放倍率。",
         uiMetrics_.dp(10), uiMetrics_.dp(4), width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::muted);
   lv_obj_update_layout(description);
-  const int extra = layout().compact() ? std::max(0, int(lv_obj_get_height(description))-uiMetrics_.dp(19)) : 0;
+  const int extra = std::max(0,int(lv_obj_get_height(description))-int(font(uiMetrics_.fontSize(UiFont::Detail))->line_height));
   fontPercentLabel_ = label(pageContent_, "", uiMetrics_.dp(10), uiMetrics_.dp(29)+extra, width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::SettingsTitle));
   lv_obj_set_style_text_align(fontPercentLabel_, LV_TEXT_ALIGN_CENTER, 0);
   label(pageContent_, "75%", uiMetrics_.dp(10), uiMetrics_.dp(59)+extra, uiMetrics_.dp(70), uiMetrics_.fontSize(UiFont::FormNote), theme::muted);
@@ -2581,6 +2595,7 @@ void App::reasoningDisplayPicker() {
     [this](const std::string &key){events_.push("reasoning_display",{{"mode",key}});});
 }
 void App::goBack() {
+  if(view_=="ui_scale"&&!uiScaleRequest_.empty())return;
   if (view_ == "web_source") {
     show("web_details");
     return;
@@ -2604,7 +2619,7 @@ void App::goBack() {
   }
   if (view_ == "api_compatibility" || view_ == "anthropic_connection") {
     show("provider"); lv_obj_scroll_to_y(body_, providerScroll_, LV_ANIM_OFF);
-  } else if (view_ == "font_size" || view_ == "keyboard_settings" || view_ == "http_settings")
+  } else if (view_ == "ui_scale" || view_ == "font_size" || view_ == "keyboard_settings" || view_ == "http_settings")
     show("settings");
   else if (view_ == "presets")
     show("settings");
@@ -2676,7 +2691,8 @@ void App::historyDrawer() {
   const int panelWidth = screen_.width * 2 / 3;
   const int listLeft=layout().portrait()?layout().navigationX():uiMetrics_.dp(12);
   const int listTop=layout().portrait()?layout().safeTop():uiMetrics_.dp(8);
-  const int footerY=screen_.height-uiMetrics_.dp(48)-(layout().portrait()?layout().safeBottom():uiMetrics_.dp(6));
+  const int footerHeight=std::max(44,uiMetrics_.dp(48));
+  const int footerY=screen_.height-footerHeight-(layout().portrait()?layout().safeBottom():uiMetrics_.dp(6));
   const int listWidth = panelWidth - listLeft - uiMetrics_.dp(12);
   auto panel =
       box(navigation_, 0, 0, panelWidth, screen_.height, theme::sidebar);
@@ -2716,25 +2732,25 @@ void App::historyDrawer() {
       navigationScroll_ = 0;
       historyDrawer();
     });
-  const int footerSpace = panelWidth - listLeft - uiMetrics_.dp(12) - (layout().portrait()?uiMetrics_.dp(64):uiMetrics_.dp(16));
+  const int footerSpace = panelWidth - listLeft - uiMetrics_.dp(12) - (layout().portrait()?footerHeight+2*uiMetrics_.dp(8):uiMetrics_.dp(16));
   lv_point_t settingsText{};lv_text_get_size(&settingsText,"设置",font(uiMetrics_.fontSize(UiFont::SettingsTitle)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
   const int settingsMinimum=settingsText.x+uiMetrics_.dp(56);
   const int footerWidth=layout().portrait()?std::min(footerSpace*3/5,std::max(uiMetrics_.dp(48),footerSpace-settingsMinimum)):footerSpace/2;
   const int walletX = listLeft + footerWidth + uiMetrics_.dp(8);
   auto footerAction = [&](int x, int width, const char *kind, const char *title,
                           std::function<void()> action) {
-    auto control=button(panel,title,x,footerY,width,uiMetrics_.dp(48),std::move(action),theme::sidebar,LV_TEXT_ALIGN_LEFT);
+    auto control=button(panel,title,x,footerY,width,footerHeight,std::move(action),theme::sidebar,LV_TEXT_ALIGN_LEFT);
     lv_obj_set_style_radius(control,uiMetrics_.dp(24),0);
     auto caption=lv_obj_get_child(control,0);
     lv_obj_set_width(caption,std::max(1,width-uiMetrics_.dp(56)));lv_obj_align(caption,LV_ALIGN_LEFT_MID,uiMetrics_.dp(44),0);
     lv_obj_set_clickable(caption,false);
-    auto glyph=icon(control,kind,uiMetrics_.dp(8),uiMetrics_.dp(8),uiMetrics_.dp(32),uiMetrics_.dp(32),{},theme::sidebar);
+    auto glyph=icon(control,kind,uiMetrics_.dp(8),(footerHeight-uiMetrics_.dp(32))/2,uiMetrics_.dp(32),uiMetrics_.dp(32),{},theme::sidebar);
     lv_obj_set_style_bg_opa(glyph,LV_OPA_TRANSP,0);lv_obj_set_clickable(glyph,false);
     navigationFooter_[kind]=control;
   };
   footerAction(listLeft, footerWidth, "newchat", "新建聊天", [this] { newChat(); });
   if(layout().portrait())balanceButton(panel,walletX,footerY,theme::sidebar);
-  const int settingsX=walletX+(layout().portrait()?uiMetrics_.dp(56):uiMetrics_.dp(8));
+  const int settingsX=walletX+(layout().portrait()?footerHeight+uiMetrics_.dp(8):uiMetrics_.dp(8));
   footerAction(settingsX,panelWidth-12-settingsX,"settings","设置",[this]{show("settings");});
   lv_obj_update_layout(navigation_);
   // LVGL needs scrollable extent before it will start an elastic gesture.
@@ -3541,6 +3557,7 @@ void App::tick() {
   }
   imageReturnTick();
   for (const auto &saved : db_.saveEvents()) {
+    if(saved.data.value("key",std::string())=="ui_scale_percent"){uiScaleSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="onboarding"){onboardingSaved(saved);continue;}
     if (saved.type == "message_saved") {
       const auto session = saved.data.value("session", std::string());
@@ -3574,6 +3591,7 @@ void App::tick() {
              });
     }
   }
+  uiScaleTick();
   editorTick();
   readTick();
   if (afterScanRelease_ && scanner_.released()) {
@@ -3777,6 +3795,8 @@ void App::tick() {
         composerShortcut_.configure(mode);
         build();
       }
+    } else if (e.type == "ui_scale_save") {
+      saveUiScale();
     } else if (e.type == "reading_font_apply" && view_ == "font_size") {
       input_.cancel();
       db_.setting("reading_font_percent", readingFontDraft_);
@@ -4224,6 +4244,11 @@ Json App::diagnostics() const {
       {"scroll_y", body_ ? lv_obj_get_scroll_y(body_) : 0},
       {"settings", settingsDiagnostic()},
       {"balances", balanceDiagnostic()},
+      {"ui_scale", {{"saved",uiScaleSaved_},{"applied",uiMetrics_.scalePercent()},{"draft",uiScaleDraft_},
+        {"pending",!uiScaleRequest_.empty()},{"ready",uiScaleReady_},{"error",!uiScaleError_.empty()},
+        {"changes",uiScaleChanges_},{"slider",bounds(uiScaleSlider_)},{"preview",bounds(uiScalePreview_)},
+        {"anchor",{{"message",scaleAnchor_.message},{"region",scaleAnchor_.region},{"offset",scaleAnchor_.offset},{"y",scaleAnchor_.y},{"pending",scaleAnchor_.pending}}}}},
+      {"font_cache",fontCacheInfo()},
       {"reading_font", {{"percent", readingFontPercent_}, {"size", readingFontSize()},
                         {"draft", readingFontDraft_}, {"slider", bounds(fontSlider_)},
                         {"preview", bounds(fontPreview_)}}},

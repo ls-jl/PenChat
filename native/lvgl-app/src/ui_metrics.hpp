@@ -62,7 +62,7 @@ public:
   };
   Gesture gestures() const { return {dp(12),dp(12),dp(12)}; }
   struct Popup { int margin, gap, minimum, row, portraitRow, padding, portraitPadding, width, portraitWidth; };
-  Popup popup() const { return {dp(8),dp(8),dp(44),dp(48),dp(64),dp(4),dp(8),dp(224),dp(320)}; }
+  Popup popup() const { return {dp(8),dp(8),dp(44),std::max(44+dp(4),dp(48)),std::max(44+dp(4),dp(64)),dp(4),dp(8),dp(224),dp(320)}; }
   struct Button { int radius, captionPadding; };
   Button button() const { return {dp(10), dp(24)}; }
   struct Field { int height, inset, top, captionHeight, valueHeight, valueTop, gap; };
@@ -72,7 +72,7 @@ public:
     int minimumTail, scrollWidth, minimumTitle, portraitActionGap, actionGap;
   };
   Page page() const {
-    return {dp(48), dp(2), dp(44), dp(56), dp(10), dp(7), dp(60), dp(3), dp(40), dp(80), dp(24)};
+    return {std::max(48,dp(48)), dp(2), std::max(44,dp(44)), std::max(52,dp(56)), dp(10), dp(7), dp(60), dp(3), dp(40), dp(80), dp(24)};
   }
   struct Settings {
     int height, radius, inset, titleTop, detailTop, textTrailing;
@@ -102,8 +102,9 @@ public:
     int textPadding() const { return 2 * textInset; }
   };
   Composer composer() const {
-    return {dp(44), dp(54), dp(25), dp(2), dp(14), dp(12), dp(32), dp(8),
-            dp(4), dp(8), dp(16), dp(12), dp(2), dp(8), dp(96), dp(100), dp(50), dp(2), dp(1)};
+    const int control=std::max(44,dp(44));
+    return {control, std::max(44,dp(54)), dp(25), dp(2), dp(14), dp(12), dp(32), dp(8),
+            dp(4), dp(8), dp(16), dp(12), dp(2), dp(8), 2*control+dp(8), 2*control+dp(12), control+dp(6), dp(2), dp(1)};
   }
 private:
   int density_, scale_;

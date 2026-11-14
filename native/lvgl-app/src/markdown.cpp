@@ -420,6 +420,11 @@ RichText::~RichText() {
   FT_Done_Face(p_->face);
   FT_Done_FreeType(p_->library);
 }
+void RichText::setMetrics(const UiMetrics &metrics) {
+  if(p_->metrics.densityPercent()==metrics.densityPercent() && p_->metrics.scalePercent()==metrics.scalePercent())return;
+  clearCache();p_->pieces.clear();p_->metrics=metrics;
+  p_->cacheIdentity=std::to_string(metrics.densityPercent())+":"+std::to_string(metrics.scalePercent())+":";
+}
 void RichText::clearCache() {
   p_->cache.clear();
   p_->order.clear();

@@ -24,7 +24,7 @@ def fixture():
 
 def exercise():
     d.open_settings();assert d.state()['scroll_y']==0
-    rows=d.state()['settings']['rows'];assert len(rows)==23
+    rows=d.state()['settings']['rows'];assert len(rows)==24
     for name in ('models','presets','reasoning','image_auto_send','auto_title','title_model'):
         a=locate(d.state,d.settings_swipe,name)['bounds'];assert 0<=a[1] and a[3]<d.state()['height']
     d.to_chat();d.open_settings();capture('first-screen')

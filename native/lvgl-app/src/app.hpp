@@ -30,7 +30,29 @@ class App {
 #ifndef PENCHAT_NATIVE_DEVICE
   friend struct UiControlsTest;
 #endif
-  const UiMetrics uiMetrics_;
+  UiMetrics uiMetrics_;
+  int uiScaleSaved_=100,uiScaleDraft_=100;
+  std::string uiScaleRequest_,uiScaleError_;
+  bool uiScaleReady_=false;
+  uint64_t uiScaleChanges_=0;
+  lv_obj_t *uiScaleSlider_=nullptr,*uiScaleCaption_=nullptr,*uiScalePreview_=nullptr,*uiScaleStatus_=nullptr;
+  std::vector<lv_obj_t *> uiScaleControls_;
+  void uiScalePage();
+  void updateUiScalePreview(int percent);
+  void saveUiScale();
+  void uiScaleSaved(const Event &event);
+  void uiScaleTick();
+  void uiScaleBusy(bool busy);
+  struct ScaleAnchor {
+    std::string session,message,region;
+    size_t offset=0;
+    double fraction=0;
+    int y=0;
+    bool label=false,following=true,pending=false;
+  } scaleAnchor_;
+  std::map<std::string,lv_obj_t *> scaleMessageRows_;
+  void captureScaleAnchor();
+  void restoreScaleAnchor();
   bool keyboardControl(lv_obj_t *parent) const;
   const UiMetrics &controlMetrics(lv_obj_t *parent) const;
   struct Texture {

@@ -11,7 +11,7 @@ OUT = pathlib.Path(os.environ.get('PENCHAT_SETTINGS_ARTIFACTS', ROOT/'.work/sett
 OUT.mkdir(parents=True, exist_ok=True)
 SWITCHES = ('image_auto_send', 'auto_title', 'auto_context', 'persistent_exports')
 ROWS = ('models','presets','reasoning','image_auto_send','auto_title','title_model',
-        'auto_context','archives','history_time','message_edit','retry_archive_prompt','font_size','keyboard','pull_sensitivity','compression_threshold','composer_shortcut','transfer','persistent_exports','http_idle','about','feedback','update','web_policy')
+        'auto_context','archives','history_time','message_edit','retry_archive_prompt','ui_scale','font_size','keyboard','pull_sensitivity','compression_threshold','composer_shortcut','transfer','persistent_exports','http_idle','about','feedback','update','web_policy')
 
 def shot(app, name):
     path = app.directory/'lvgl-diagnostic.png'

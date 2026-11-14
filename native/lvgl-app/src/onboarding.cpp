@@ -43,7 +43,7 @@ lv_obj_t *Onboarding::text(lv_obj_t *p,const std::string &s,int x,int y,int w,in
   lv_label_set_text(o,s.c_str());lv_obj_set_clickable(o,false);return o;
 }
 lv_obj_t *Onboarding::control(const std::string &id,const std::string &s,int x,int y,int w,bool primary) {
-  const auto area=safety_.fit({x,y,w,metrics_.dp(44)});
+  const auto area=safety_.fit({x,y,w,std::max(44,metrics_.dp(44))});
   auto o=rect(root_,area.x,area.y,area.width,area.height,primary?theme::text:theme::surface,metrics_.dp(8));
   auto l=text(o,s,0,0,area.width-metrics_.dp(8),18,primary?theme::primaryText:theme::text);
   lv_label_set_long_mode(l,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(l,font(metrics_.dp(18))->line_height);lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(l);
@@ -188,25 +188,25 @@ Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool repla
     renderFailed_=true;
   }
   const int top=portrait?demoH+metrics_.dp(92)+demoY-metrics_.dp(12):metrics_.dp(13);
-  const int end=safety_.enabled()?layout.edgeSide(footer,metrics_.dp(44)):metrics_.dp(20);
+  const int end=safety_.enabled()?layout.edgeSide(footer,std::max(44,metrics_.dp(44))):metrics_.dp(20);
   std::vector<std::pair<std::string,std::string>> navigation;
   if(step>0)navigation.push_back({"back","上一步"});
   navigation.push_back({"next",step==6?"开始使用":"下一步"});
   if(step==2)navigation.push_back({"configure","去配置"});
   else if(step>=3||replaying)navigation.push_back({"finish",replaying?"关闭引导":"结束引导"});
   const int navWidth=width-right-end,navGap=metrics_.dp(8);
-  int naturalWidth=metrics_.dp(44);
+  int naturalWidth=std::max(44,metrics_.dp(44));
   for(const auto &item:navigation) {
     lv_point_t textSize{};lv_text_get_size(&textSize,item.second.c_str(),font(metrics_.dp(18)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
     naturalWidth=std::max(naturalWidth,int(textSize.x)+metrics_.dp(16));
   }
   const bool twoRows=!metrics_.identity()&&navigation.size()>2&&
     int(navigation.size())*naturalWidth+int(navigation.size()-1)*navGap>navWidth;
-  const int footerTop=footer-(twoRows?metrics_.dp(44)+navGap:0);
+  const int footerTop=footer-(twoRows?std::max(44,metrics_.dp(44))+navGap:0);
   auto reader=root_;
   int textX=right,textY=top;
   if(!metrics_.identity()) {
-    reader=rect(root_,right,top,measure,std::max(metrics_.dp(44),footerTop-top-metrics_.dp(12)),theme::background,0);
+    reader=rect(root_,right,top,measure,std::max(std::max(44,metrics_.dp(44)),footerTop-top-metrics_.dp(12)),theme::background,0);
     lv_obj_set_scrollable(reader,true);lv_obj_set_scroll_dir(reader,LV_DIR_VER);
     textX=textY=0;
   }

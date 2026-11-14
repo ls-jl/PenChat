@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "ui_scale_settings.hpp"
 #include "device_profile.h"
 #include <csignal>
 #include <fcntl.h>
@@ -146,6 +147,10 @@ int main(int argc, char **argv) {
     Input input;
     startup("data");
     Database db(join(data, "penchat.db"));
+#ifndef PENCHAT_NATIVE_DEVICE
+    if (!uiScaleSpecified)
+#endif
+      uiMetrics = UiMetrics(100, savedUiScale(db.settings()));
     startup("interface");
     App app(db, bridge, display, input, screen, workspace, data, fontPath,
             resources, !headless, parsedConfiguration, uiMetrics);

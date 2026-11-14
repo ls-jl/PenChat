@@ -17,7 +17,7 @@ void App::cancelBalances() {
 }
 void App::balanceButton(lv_obj_t *parent,int x,int y,uint32_t background) {
   auto held=std::make_shared<bool>(false);
-  auto wallet=icon(parent,"wallet",x,y,uiMetrics_.dp(48),uiMetrics_.dp(48),[this,held]{if(!*held)openBalances();},background);
+  auto wallet=icon(parent,"wallet",x,y,std::max(44,uiMetrics_.dp(48)),std::max(44,uiMetrics_.dp(48)),[this,held]{if(!*held)openBalances();},background);
   balanceShortcut_=wallet;
   struct Press {App *app;std::shared_ptr<bool> held;};
   auto press=new Press{this,held};

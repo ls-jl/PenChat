@@ -165,7 +165,7 @@ inline KeyboardDesign resolveKeyboardDesign(const KeyboardDesign &base,const UiM
   result.keys.touchX=metrics.dp(base.keys.touchX);
   result.keys.touchY=metrics.dp(base.keys.touchY);
   result.keys.filterWidth=metrics.dp(base.keys.filterWidth);
-  result.keys.utilitySize=metrics.dp(base.keys.utilitySize);
+  result.keys.utilitySize=std::max(44,metrics.dp(base.keys.utilitySize));
   result.keys.utilityGrow=metrics.dp(base.keys.utilityGrow);
   result.keys.utilityShiftX=metrics.dp(base.keys.utilityShiftX);
   result.keys.utilityShiftY=metrics.dp(base.keys.utilityShiftY);
@@ -178,7 +178,7 @@ inline KeyboardDesign resolveKeyboardDesign(const KeyboardDesign &base,const UiM
   result.composition.portraitExpandWidth=metrics.dp(base.composition.portraitExpandWidth);
   result.composition.portraitExpandHeight=metrics.dp(base.composition.portraitExpandHeight);
   result.composition.portraitRight=metrics.dp(base.composition.portraitRight);
-  result.controls.height=metrics.dp(base.controls.height);
+  result.controls.height=std::max(44,metrics.dp(base.controls.height));
   result.controls.gap=metrics.dp(base.controls.gap);
   result.controls.doneWidth=metrics.dp(base.controls.doneWidth);
   result.controls.clipboardWidth=metrics.dp(base.controls.clipboardWidth);
@@ -198,10 +198,10 @@ inline KeyboardDesign resolveKeyboardDesign(const KeyboardDesign &base,const UiM
   result.wide.textActionGap=metrics.dp(base.wide.textActionGap);
   result.wide.keyTop=metrics.dp(base.wide.keyTop);
   result.wide.bottomInset=metrics.dp(base.wide.bottomInset);
-  result.compact.headerHeight=metrics.dp(base.compact.headerHeight);
+  result.compact.headerHeight=std::max(result.controls.height,metrics.dp(base.compact.headerHeight));
   result.compact.headerGap=metrics.dp(base.compact.headerGap);
-  result.compact.textLeading=metrics.dp(base.compact.textLeading);
-  result.compact.textTrailing=metrics.dp(base.compact.textTrailing);
+  result.compact.textLeading=std::max(metrics.dp(base.compact.textLeading),2*result.controls.height+3*result.controls.gap);
+  result.compact.textTrailing=std::max(metrics.dp(base.compact.textTrailing),result.controls.height+2*result.controls.gap);
   result.compact.doneWidth=metrics.dp(base.compact.doneWidth);
   result.compact.bottomInset=metrics.dp(base.compact.bottomInset);
   result.portrait.rowMin=metrics.dp(base.portrait.rowMin);

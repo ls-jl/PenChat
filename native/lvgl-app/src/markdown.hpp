@@ -69,5 +69,6 @@ public:
                int size = 21, int left = 0, int windowWidth = 0,
                bool subdued = false);
   void clearCache();
+  void setMetrics(const UiMetrics &metrics);
 };
 } // namespace penchat

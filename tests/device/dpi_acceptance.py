@@ -3,7 +3,7 @@
 import argparse,hashlib,json,pathlib,shlex,sqlite3,subprocess,tempfile,time,zipfile
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text())
-p=argparse.ArgumentParser(description=__doc__);p.add_argument('--serial',required=True);p.add_argument('--package',type=pathlib.Path,required=True);args=p.parse_args()
+p=argparse.ArgumentParser(description=__doc__);p.add_argument('--serial',required=True);p.add_argument('--package',type=pathlib.Path,required=True);p.add_argument('--scale-settings',action='store_true');args=p.parse_args()
 if args.serial not in ('7G12000010905426','JDA0700006552216','MEB0400008900794','MEA2300009007113'):raise SystemExit('Device is not in the explicit acceptance allowlist.')
 s6=args.serial=='JDA0700006552216';target='cv1826-s' if s6 else 'rk3562'
 OUT=ROOT/'.work'/('dpi-device-'+args.serial);OUT.mkdir(parents=True,exist_ok=True)
@@ -35,7 +35,9 @@ def state():
     native=pid()
     if not native:return None
     wait(lambda:int(sh("awk '/SigCgt/{print $2}' /proc/"+native+'/status'),16)&(1<<11))
-    try:previous=json.loads(sh('cat '+DATA+'/lvgl-diagnostic.json')).get('diagnostic_time',-1)
+    try:
+        old=json.loads(sh('cat '+DATA+'/lvgl-diagnostic.json'))
+        previous=old.get('diagnostic_time',-1) if str(old.get('pid'))==native else -1
     except (ValueError,subprocess.CalledProcessError):previous=-1
     sh('kill -USR2 '+native)
     def read():
@@ -90,8 +92,9 @@ helper=OUT/'tap';subprocess.run([compiler,'-std=c++11','-Os',str(ROOT/'tests/dev
 push(helper,HELPER);sh('chmod 755 '+HELPER)
 event=sh(HELPER+' --discover')
 assert event.startswith('/dev/input/event') and event.rsplit('event',1)[1].isdigit()
+original_scale=None
 if pid():
-    d=state();assert not d['generating'] and not d.get('compressing') and not d['keyboard'] and not d['editor']['active'] and not d['draft_length'] and not d['storage']['unsaved'] and not d.get('provider_workspace',{}).get('dirty'), 'Pending input/work preserved; acceptance deferred'
+    d=state();original_scale=d.get('ui_scale',{}).get('applied',100);assert not d['generating'] and not d.get('compressing') and not d['keyboard'] and not d['editor']['active'] and not d['draft_length'] and not d['storage']['unsaved'] and not d.get('ui_scale',{}).get('pending') and not d.get('provider_workspace',{}).get('dirty'), 'Pending input/work preserved; acceptance deferred'
 host=sh('pidof miniapp');boot=sh('cat /proc/sys/kernel/random/boot_id')
 if sh('test ! -e '+SAVED+' && test ! -e '+PUBSAVED+' && echo safe')!='safe':raise RuntimeError('Previous isolation needs recovery')
 has_data=sh('test -d '+DATA+' && echo yes')=='yes';has_public=sh('test -d '+PUBLIC+' && echo yes')=='yes'
@@ -131,7 +134,39 @@ try:
     touch(W-12,H//2);wait(lambda:not state()['modal'])
     tap_bounds(state()['navigation_footer']['settings']['bounds'])
     wait(lambda:state()['view']=='settings');capture('settings')
-    assert len(state()['settings']['rows'])==23
+    assert len(state()['settings']['rows'])==24
+    if args.scale_settings:
+        result['scale_settings']=[]
+        for percent in (75,125,150,100):
+            reveal(lambda:state()['settings']['rows']['ui_scale']['bounds'])
+            tap_bounds(state()['settings']['rows']['ui_scale']['bounds'])
+            wait(lambda:state()['view']=='ui_scale')
+            reveal(lambda:state()['ui_scale']['slider'])
+            b=state()['ui_scale']['slider'];touch(b[0]+round((percent-75)*(b[2]-b[0])/75),(b[1]+b[3])//2)
+            for _ in range(4):
+                value=state()['ui_scale']['draft']
+                if value==percent:break
+                page_action('增大' if value<percent else '减小')
+            assert state()['ui_scale']['draft']==percent
+            page_action('保存');wait(lambda:state()['view']=='settings' and state()['ui_scale']['applied']==percent)
+            capture('scale-'+str(percent))
+            # A normal native restart verifies the stored setting; Falcon stays alive.
+            close();sh('miniapp_cli start '+APP['appid']);wait(pid)
+            wait(lambda:state()['visible']);d=state()
+            assert d['ui_scale']['saved']==percent and d['ui_scale']['applied']==percent
+            tap_bounds(d['composer_text_bounds'])
+            wait(lambda:state()['editor']['active'] and state()['editor']['keys'])
+            e=state()['editor'];assert e['requested_scale']==percent and min(100,percent)<=e['effective_scale']<=percent
+            space=e['coordinate_space']
+            for k in e['keys']:
+                a,b,c,d=k['bounds'];assert 0<=a<c<space['width'] and 0<=b<d<space['height']
+            capture('scale-keyboard-'+str(percent));action('done');wait(lambda:not state()['editor']['active'])
+            d=state();dp=lambda n:(n*percent+50)//100
+            x=d['screen_safety']['navigation_x'] if H>W else dp(16)
+            y=d['safe_insets'][1] if H>W else dp(8)
+            touch(x+max(44,dp(48))//2,y+max(44,dp(48))//2);wait(lambda:state()['navigation_open'])
+            tap_bounds(state()['navigation_footer']['settings']['bounds']);wait(lambda:state()['view']=='settings')
+            result['scale_settings'].append({'percent':percent,'restart':True,'keyboard_effective':e['effective_scale']})
     reveal(lambda:state()['settings']['rows']['models']['bounds'])
     tap_bounds(state()['settings']['rows']['models']['bounds'])
     wait(lambda:state()['view']=='provider')
@@ -168,7 +203,7 @@ try:
     result['native_alive_after_official']=bool(pid())
     result['layout']='compact' if s6 else 'portrait' if H>W else 'wide'
     result['typed_letters']=4
-    result['settings_rows']=23
+    result['settings_rows']=24
     result['history_menu']=True
     result['provider_field']=True
 finally:
@@ -192,7 +227,8 @@ with zipfile.ZipFile(args.package) as package:
     expected=hashlib.sha256(package.read('assets/bin/penchat-lvgl')).hexdigest()
 actual=sh('sha256sum /proc/'+pid()+'/exe').split()[0]
 assert actual==expected, 'Live executable does not match the installed payload'
-assert d['editor']['requested_scale']==100 and d['editor']['effective_scale']==100
-result.update(native_ready_after_restore=True,native_sha256=actual,production_scale=100)
+if original_scale is None:original_scale=d.get('ui_scale',{}).get('saved',100)
+assert d['editor']['requested_scale']==original_scale and min(100,original_scale)<=d['editor']['effective_scale']<=original_scale
+result.update(native_ready_after_restore=True,native_sha256=actual,restored_scale=original_scale)
 (OUT/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
 print(json.dumps(result,ensure_ascii=False))

@@ -1,4 +1,5 @@
 #include "ui_metrics.hpp"
+#include "ui_scale_settings.hpp"
 #include "layout.hpp"
 #include "pull_geometry.hpp"
 #include <cassert>
@@ -6,6 +7,16 @@
 #include <limits>
 using namespace penchat;
 int main() {
+  assert(savedUiScale(Json::object())==100);
+  for(const auto &bad:{Json(),Json(true),Json("125"),Json(125.5)})assert(savedUiScale({{"ui_scale_percent",bad}})==100);
+  assert(savedUiScale({{"ui_scale_percent",-300}})==75);
+  assert(savedUiScale({{"ui_scale_percent",uint64_t(-1)}})==150);
+  for(int percent=75;percent<=150;++percent) {
+    assert(savedUiScale({{"ui_scale_percent",percent}})==percent);
+    const UiMetrics ui(100,percent);
+    assert(ui.page().actionHeight>=44 && ui.page().headerHeight>=ui.page().actionHeight+ui.page().actionTop);
+    assert(ui.popup().row-ui.dp(4)>=44 && ui.popup().portraitRow-ui.dp(4)>=44);
+  }
   const UiMetrics identity;
   assert(UiMetrics(100,125).readingFontSize(80)==21);
   assert(UiMetrics(100,150).readingFontSize(150)==47);
@@ -35,7 +46,7 @@ int main() {
     assert(m.form().inset == m.dp(16));
     assert(m.button().captionPadding == (24 * percent + 50) / 100);
     assert(m.field().height == (48 * percent + 50) / 100);
-    assert(m.page().headerHeight == m.field().height);
+    assert(m.page().headerHeight >= m.field().height);
     assert(m.settings().height == (56 * percent + 50) / 100);
     assert(m.fontSize(UiFont::Button) == (20 * percent + 50) / 100);
   }
@@ -62,6 +73,14 @@ int main() {
       const AppLayout unscaledRounded(size.first,size.second,true);
       assert(rounded.safety().radius()==unscaledRounded.safety().radius());
       assert(rounded.safety().margin()==unscaledRounded.safety().margin());
+      if(rounded.portrait()) {
+        const auto scan=rounded.scanWorkspace();
+        const auto crop=rounded.cropWorkspace(size.first,size.second);
+        assert(scan.use.height>=44 && scan.cancel.height>=44);
+        assert(scan.use.y+scan.use.height<=scan.cancel.y);
+        assert(crop.confirm.height>=44 && crop.album.height>=44);
+        assert(crop.album.y+crop.album.height<=crop.confirm.y);
+      }
       // Relative pull thresholds consume the resulting reader once; there is
       // deliberately no scale argument or physical-touch multiplier here.
       auto g=pullGeometry({layout.gutter(),layout.chatReaderTop(),size.first,size.second},
