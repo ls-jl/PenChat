@@ -1,4 +1,5 @@
 #include "scanner.hpp"
+#include "scanner_lease.hpp"
 #include "../../scanner/src/hardware.hpp"
 #include <algorithm>
 #include <chrono>
@@ -289,7 +290,7 @@ struct ScanService::Impl {
           }
           if (type == "lease") {
             lease = j.at("lease");
-            if(sharedMedia)atomicText(join(data,"scanner-lease.json"),lease.dump());
+            if(sharedMedia)scan_recovery::persist(join(data,"scanner-lease.json"),lease);
             Json ack = j;
             ack["type"] = "lease_ack";
             ack.erase("lease");
@@ -341,12 +342,14 @@ void ScanService::recoverHardware(const std::string &data) {
   if(access(path.c_str(),F_OK))return;
   const int lock=acquireScanProcessLock(2000);
   struct Close {int fd;~Close(){::close(fd);}} guard{lock};
-  const auto lease=Json::parse(fileText(path,65536));
-  if(lease.value("profile",std::string())!=detectedScanProfile().id)
-    throw std::runtime_error("Unexpected capture recovery profile");
-  restoreScanLease(lease);
-  if(!scanLeaseRestored(lease))throw std::runtime_error("System capture recovery failed");
-  unlink(path.c_str());
+  scan_recovery::recover(path,detectedScanProfile().id,[](const Json &lease) {
+    restoreScanLease(lease);
+    if(!scanLeaseRestored(lease))throw std::runtime_error("System capture recovery failed");
+  },[] {
+    // This only inspects strict process identities, pause state and configured
+    // light state. It neither opens the CVI ISP nor guesses a PID to resume.
+    scanLeaseSnapshot();
+  });
 }
 ScanService::ScanService(Events &e, const std::string &w, const std::string &d)
     : p_(new Impl(e, w, d)) {}
