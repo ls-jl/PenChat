@@ -46,7 +46,7 @@ void App::messageLongPress(lv_obj_t *object, const std::string &id) {
     if(code==LV_EVENT_PRESSED){p->start=point;p->distance=0;}
     int dx=point.x-p->start.x,dy=point.y-p->start.y;
     p->distance=std::max(p->distance,dx*dx+dy*dy);
-    if(code==LV_EVENT_LONG_PRESSED&&p->distance<=144)
+    if(code==LV_EVENT_LONG_PRESSED&&p->distance<=p->app->uiMetrics_.gestures().tapSquared())
       p->app->events_.push("message_menu",{{"session",p->session},{"id",p->id}});
   },LV_EVENT_ALL,state);
 }
@@ -57,12 +57,12 @@ void App::messageMenu(const std::string &id) {
   const auto text=assistant&&id==assistant_?output_:messageText(rows[0]);
   auto list=contextMenu("message",assistant?2:3);
   messageContextId_=id;messageContextText_=text;messageActions_.clear();
-  const int width=lv_obj_get_width(list),rowHeight=layout().portrait()?theme::portraitPopupRowHeight:theme::popupRowHeight;
+  const int width=lv_obj_get_width(list),rowHeight=layout().portrait()?uiMetrics_.popup().portraitRow:uiMetrics_.popup().row;
   std::vector<std::pair<std::string,std::string>> actions={{"copy",assistant?"复制全文":"复制"},{"select","选择文本"}};
   if(!assistant)actions.push_back({"edit","编辑消息"});
   int y=0;
   for(const auto &a:actions) {
-    auto b=button(list,a.second,0,y,width,rowHeight-4,[this,id,key=a.first]{events_.push("message_action",{{"session",session_},{"id",id},{"action",key}});},theme::popup,LV_TEXT_ALIGN_LEFT);
+    auto b=button(list,a.second,0,y,width,rowHeight-uiMetrics_.dp(4),[this,id,key=a.first]{events_.push("message_action",{{"session",session_},{"id",id},{"action",key}});},theme::popup,LV_TEXT_ALIGN_LEFT);
     stylePopupRow(b);messageActions_[a.first]=b;y+=rowHeight;
     if((a.first!="edit"&&text.empty())||(a.first=="edit"&&(generating_||contextBusy_||saveInFlight_||!messageEdit_.empty())))lv_obj_add_state(b,LV_STATE_DISABLED);
   }
@@ -78,9 +78,9 @@ void App::messageEditWarning(const std::string &id) {
   if(mode=="archive"||mode=="overwrite"){beginMessageEdit(id,mode=="archive");return;}
   modal("从这条消息继续", "发送修改后的消息时，这条消息及后续对话将被覆盖。发送前可随时取消；也可以先保留一份归档。");
   auto close=lv_obj_get_child(modal_,-1);lv_label_set_text(lv_obj_get_child(close,0),"取消");
-  const int width=(screen_.width-262)/2;
-  button(modal_,"归档当前聊天并继续",14,screen_.height-66,width,44,[this,id]{events_.push("message_begin",{{"session",session_},{"id",id},{"archive",true}});});
-  button(modal_,"继续",26+width,screen_.height-66,width,44,[this,id]{events_.push("message_begin",{{"session",session_},{"id",id},{"archive",false}});});
+  const int width=(screen_.width-uiMetrics_.dp(262))/2;
+  button(modal_,"归档当前聊天并继续",uiMetrics_.dp(14),screen_.height-uiMetrics_.dp(66),width,uiMetrics_.dp(44),[this,id]{events_.push("message_begin",{{"session",session_},{"id",id},{"archive",true}});});
+  button(modal_,"继续",uiMetrics_.dp(26)+width,screen_.height-uiMetrics_.dp(66),width,uiMetrics_.dp(44),[this,id]{events_.push("message_begin",{{"session",session_},{"id",id},{"archive",false}});});
 }
 void App::messageEditDefaultPicker() {
   choiceMenu("message_edit", {{"ask","每次询问"},{"archive","发送时先归档"},{"overwrite","发送时直接覆盖"}},
@@ -185,9 +185,9 @@ bool App::messageEvent(const Event &e) {
     const auto text=messageContextText_,action=e.data.value("action",std::string());
     input_.cancel();auto layer=modal_;lv_obj_delete(layer);
     if(action=="copy"){if(editorClipboard_.copy(text)) {
-      auto toast=box(screenObj_,screen_.width/2-70,screen_.height-116,140,44,theme::surface);
-      lv_obj_set_scrollable(toast,false);lv_obj_set_clickable(toast,false);lv_obj_set_style_radius(toast,16,0);
-      auto caption=label(toast,"已复制",8,8,124,20);lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);
+      auto toast=box(screenObj_,screen_.width/2-uiMetrics_.dp(70),screen_.height-uiMetrics_.dp(116),uiMetrics_.dp(140),uiMetrics_.dp(44),theme::surface);
+      lv_obj_set_scrollable(toast,false);lv_obj_set_clickable(toast,false);lv_obj_set_style_radius(toast,uiMetrics_.dp(16),0);
+      auto caption=label(toast,"已复制",uiMetrics_.dp(8),uiMetrics_.dp(8),uiMetrics_.dp(124),uiMetrics_.fontSize(UiFont::SettingsTitle));lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);
       lv_obj_delete_delayed(toast,1200);
     }else modal("无法复制","消息过长，请选择需要的部分复制。");}
     else if(action=="select")selectMessageText(text);

@@ -8,6 +8,7 @@
 #include "update.hpp"
 #include "onboarding.hpp"
 #include "layout.hpp"
+#include "ui_metrics.hpp"
 #include "editor.hpp"
 #include "pinyin.hpp"
 #include "editor_layout.hpp"
@@ -26,6 +27,12 @@
 #include <set>
 namespace penchat {
 class App {
+#ifndef PENCHAT_NATIVE_DEVICE
+  friend struct UiControlsTest;
+#endif
+  const UiMetrics uiMetrics_;
+  bool keyboardControl(lv_obj_t *parent) const;
+  const UiMetrics &controlMetrics(lv_obj_t *parent) const;
   struct Texture {
     lv_image_dsc_t descriptor{};
     std::shared_ptr<ImageFrame> frame;
@@ -39,7 +46,8 @@ class App {
     std::string tableKey;
     std::map<std::pair<int, int>, lv_obj_t *> tiles;
   };
-  AppLayout layout() const { return {screen_.width,screen_.height,roundedDisplay_}; }
+  AppLayout layout() const { return {screen_.width,screen_.height,roundedDisplay_,uiMetrics_}; }
+  uint64_t formLayoutBatches_=0,formLayoutRows_=0;
   void portraitPage();
   void arrangeModal();
   bool roundedDisplay_ = false, contextMenuOpening_ = false, popupConsumeTouch_ = false;
@@ -400,7 +408,7 @@ class App {
   std::string builtView_;
   int settingsScroll_ = 0;
   int readingFontPercent_ = 100, readingFontDraft_ = 100;
-  int readingFontSize() const { return (21 * readingFontPercent_ + 50) / 100; }
+  int readingFontSize() const { return uiMetrics_.readingFontSize(readingFontPercent_); }
   void fontSizePage();
   void updateFontPreview(int percent);
   lv_obj_t *fontSlider_ = nullptr, *fontPercentLabel_ = nullptr, *fontPreview_ = nullptr;
@@ -440,8 +448,13 @@ class App {
   std::vector<std::string> modelNames_;
   lv_obj_t *box(lv_obj_t *parent, int x, int y, int w, int h,
                 uint32_t color = theme::background);
+  lv_obj_t *box(lv_obj_t *parent, int x, int y, int w, int h,
+                uint32_t color, const UiMetrics &metrics);
+  // Geometry and the integer-size overload are already resolved logical pixels.
   lv_obj_t *label(lv_obj_t *parent, const std::string &text, int x, int y,
-                  int w, int size = 21, uint32_t color = theme::text);
+                  int w, int size = -1, uint32_t color = theme::text);
+  lv_obj_t *label(lv_obj_t *parent, const std::string &text, int x, int y,
+                  int w, UiFont role, uint32_t color = theme::text);
   lv_obj_t *button(lv_obj_t *parent, const std::string &text, int x, int y,
                    int w, int h, std::function<void()> click,
                    uint32_t color = theme::surface,
@@ -450,6 +463,7 @@ class App {
   lv_obj_t *fieldButton(lv_obj_t *parent, const std::string &caption,
                         const std::string &value, int x, int y, int width,
                         std::function<void()> action);
+  UiMetrics::Field fieldMetrics(const UiMetrics &metrics) const;
   void emptyState(const std::string &title, const std::string &hint);
   lv_obj_t *imageWidget(lv_obj_t *parent);
   void image(lv_obj_t *parent, const std::string &path, int x, int y, int w,
@@ -596,7 +610,7 @@ class App {
   void readLabel(lv_obj_t *,const std::string &);
   void readLinkText(lv_obj_t *,const std::string &,const std::string &);
   void readSlice(lv_obj_t *,const std::string &,size_t);
-  lv_obj_t *readableLabel(lv_obj_t *,const std::string &,int,int,int,int=21,uint32_t=theme::text);
+  lv_obj_t *readableLabel(lv_obj_t *,const std::string &,int,int,int,int=-1,uint32_t=theme::text);
   ReadRegion *readRegion(uint64_t);
   lv_area_t readClip(lv_obj_t *) const;
   size_t readPosition(ReadRegion &,int,int,bool word=false,std::pair<size_t,size_t> *atom=nullptr);
@@ -630,6 +644,7 @@ class App {
   void inputAction(lv_obj_t *,const std::function<void()> &);
   int chatComposerHeight() const;
   int chatComposerY() const;
+  int chatComposerY(int composerHeight) const;
   void layoutChatComposer();
   void editorAttachTarget();
   void editorDetachTarget();
@@ -664,11 +679,14 @@ class App {
   void editorCompactView(bool expanded);
   void editorCompactEnsureCaret();
 
-  EditorLayout editorLayout() const {
-    EditorLayout result(screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,editorSwapSides_,editorCompactExpanded_,editor_.secret,keyboardDesign(),roundedDisplay_);
-    if(officialDocked_&&keyboard_&&officialHeight_>0)result.panelTop=screen_.height-officialHeight_;
-    return result;
-  }
+  const EditorLayout &editorLayout() const;
+  const KeyboardDesign &editorDesign() const { editorLayout();return editorDesignCache_; }
+  const UiMetrics &editorMetrics() const { editorLayout();return editorMetricsCache_; }
+  mutable std::array<int,11> editorLayoutKey_{};
+  mutable std::unique_ptr<EditorLayout> editorLayoutCache_;
+  mutable KeyboardDesign editorDesignCache_;
+  mutable UiMetrics editorMetricsCache_;
+  mutable uint64_t editorLayoutResolves_=0,editorLayoutCacheHits_=0;
   bool wideKeyboardSwap_=false, editorSwapSides_=false;
   EditorState editor_;
   TextGesture editorTextGesture_;
@@ -835,7 +853,8 @@ class App {
 public:
   App(Database &, Bridge &, Display &, Input &, const Screen &,
       std::string workspace, std::string dataDir, const std::string &fontPath,
-      const std::string &resources, bool nativeTouch, const Json &configuration = Json::object());
+      const std::string &resources, bool nativeTouch, const Json &configuration = Json::object(),
+      const UiMetrics &metrics = UiMetrics());
   ~App();
   void tick();
   void waitInput(unsigned milliseconds) const { touchInput_.wait(milliseconds); }

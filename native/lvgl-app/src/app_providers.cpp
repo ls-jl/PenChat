@@ -43,24 +43,24 @@ void App::providerPage() {
   pageHeader(providerForm_.empty()          ? "模型管理"
              : providerForm_.contains("id") ? "编辑服务商"
                                             : "添加服务商",
-             8);
+             uiMetrics_.dp(8));
   if (providerForm_.empty()) {
-    pageAction("添加 Provider",17,168,[this]{beginProvider();});
+    pageAction("添加 Provider",uiMetrics_.dp(17),uiMetrics_.dp(168),[this]{beginProvider();});
     const auto providers=db_.providers();
-    int y=4;
+    int y=uiMetrics_.dp(4);
     for(const auto &provider:providers) {
       const auto id=provider.at("id").get<std::string>();
       const auto meta=objectField(provider,"metadata_json");
       settingsRow("provider-open:"+id,provider.value("name",std::string("Provider")),protocolName(meta),
-                  10,y,width-20,[this,id]{editProvider(id);});
+                  uiMetrics_.dp(10),y,width-uiMetrics_.dp(20),[this,id]{editProvider(id);});
       pageActions_["provider-open:"+id]=settingsControls_.at("provider-open:"+id).row;
-      y+=64;
+      y+=uiMetrics_.form().settingsPitch;
     }
     if(providers.empty())emptyState("还没有服务商","填写连接信息并添加模型，最后统一保存。");
     return;
   }
-  primary(pageAction("保存", 24, 130, [this] { saveProvider(); }));
-  const int column = (width - 30) / 2, right = 20 + column;
+  primary(pageAction("保存", uiMetrics_.dp(24), uiMetrics_.dp(130), [this] { saveProvider(); }));
+  const int column = (width - uiMetrics_.dp(30)) / 2, right = uiMetrics_.dp(20) + column;
   auto field = [&](const std::string &key, const std::string &name, int x, int y, int span,
                    bool secret = false) {
     const auto value = providerForm_.value(key, std::string());
@@ -83,28 +83,31 @@ void App::providerPage() {
                               });
     pageActions_["field:" + key] = object;
   };
-  field("name", "名称", 10, 4, column);
+  const int connectionHeight = uiMetrics_.identity()?uiMetrics_.dp(48):fieldMetrics(uiMetrics_).height;
+  const int secondY = uiMetrics_.dp(4)+connectionHeight+uiMetrics_.dp(6);
+  const int optionsY = secondY+connectionHeight+uiMetrics_.dp(16);
+  field("name", "名称", uiMetrics_.dp(10), uiMetrics_.dp(4), column);
   auto api = button(
-      pageContent_, "接口：" + protocolName(providerForm_), right, 58, column, 48,
+      pageContent_, "接口：" + protocolName(providerForm_), right, secondY, column, connectionHeight,
       [this] { protocolPicker(); }, theme::surface, LV_TEXT_ALIGN_LEFT);
   pageActions_["provider-protocol"] = api;
-  field("baseURL", "Base URL", right, 4, column);
-  field("apiKey", "API Key", 10, 58, column, true);
+  field("baseURL", "Base URL", right, uiMetrics_.dp(4), column);
+  field("apiKey", "API Key", uiMetrics_.dp(10), secondY, column, true);
   settingsRow("balance_vendor", "余额查询厂商",
               balanceVendorName(providerForm_.value("balance_vendor", std::string())),
-              10, 122, width - 20, [this] { balanceVendorPicker(); });
+              uiMetrics_.dp(10), optionsY, width - uiMetrics_.dp(20), [this] { balanceVendorPicker(); });
   settingsRow("provider_advanced", "更多连接选项",
               providerAdvanced_ ? "已展开 · 返回此页后仍需保存"
                                 : "默认推理强度、兼容模式与厂商适配",
-              10, 186, width - 20, [this] {
+              uiMetrics_.dp(10), optionsY+uiMetrics_.form().settingsPitch, width - uiMetrics_.dp(20), [this] {
                 providerAdvanced_ = !providerAdvanced_;
                 build();
               });
-  int y = 250;
+  int y = optionsY+2*uiMetrics_.form().settingsPitch;
   if (providerAdvanced_) {
     settingsRow("provider_effort", "默认推理强度",
-                effortLabel(providerForm_.value("default_effort", std::string())), 10, y,
-                width - 20, [this] {
+                effortLabel(providerForm_.value("default_effort", std::string())), uiMetrics_.dp(10), y,
+                width - uiMetrics_.dp(20), [this] {
                   const auto current = providerForm_.value("default_effort", std::string());
                   std::vector<std::pair<std::string,std::string>> options;
                   options.push_back({"",effortLabel("")});
@@ -113,33 +116,33 @@ void App::providerPage() {
                     providerForm_["default_effort"]=key;build();
                   });
                 });
-    y += 64;
+    y += uiMetrics_.form().settingsPitch;
     settingsRow("api_compatibility", "API 兼容模式",
                 objectField(providerForm_, "compatibility").value("enabled", false)
                     ? "已启用 · 按需调整连接与扩展"
                     : "标准模式 · 不自动重发请求",
-                10, y, width - 20, [this] {
+                uiMetrics_.dp(10), y, width - uiMetrics_.dp(20), [this] {
                   providerScroll_ = lv_obj_get_scroll_y(body_);
                   show("api_compatibility");
                 });
-    y += 64;
+    y += uiMetrics_.form().settingsPitch;
     const bool anthropic = providerForm_.value("api", std::string()) == "anthropic";
     if (anthropic) {
-      settingsRow("anthropic_connection", "Anthropic 连接设置", "鉴权、API 版本与自定义请求头", 10,
-                  y, width - 20, [this] {
+      settingsRow("anthropic_connection", "Anthropic 连接设置", "鉴权、API 版本与自定义请求头", uiMetrics_.dp(10),
+                  y, width - uiMetrics_.dp(20), [this] {
                     providerScroll_ = lv_obj_get_scroll_y(body_);
                     show("anthropic_connection");
                   });
-      y += 64;
+      y += uiMetrics_.form().settingsPitch;
     }
     settingsRow("model_adapter", "厂商参数适配",
-                providerForm_.value("model_adapter", std::string("auto")), 10, y, width - 20,
+                providerForm_.value("model_adapter", std::string("auto")), uiMetrics_.dp(10), y, width - uiMetrics_.dp(20),
                 [this] { modelAdapterPicker(); });
-    y += 64;
+    y += uiMetrics_.form().settingsPitch;
     if (anthropic) {
       const auto maximum = providerForm_.value("max_output_tokens", 16384);
       settingsRow("provider_output", "新模型输出额度",
-                  std::to_string(maximum) + " token · 仅用于之后添加的模型", 10, y, width - 20,
+                  std::to_string(maximum) + " token · 仅用于之后添加的模型", uiMetrics_.dp(10), y, width - uiMetrics_.dp(20),
                   [this, maximum] {
                     edit(
                         std::to_string(maximum), "新模型输出额度（必填）",
@@ -157,12 +160,12 @@ void App::providerPage() {
                         },
                         7, "EnUSOnly", {}, false);
                   });
-      y += 64;
+      y += uiMetrics_.form().settingsPitch;
     }
   }
-  auto hint=readableLabel(pageContent_,"连接与模型修改均在点击本页保存后生效。",10,y,width-20,17,theme::muted);
+  auto hint=readableLabel(pageContent_,"连接与模型修改均在点击本页保存后生效。",uiMetrics_.dp(10),y,width-uiMetrics_.dp(20),uiMetrics_.fontSize(UiFont::FormHint),theme::muted);
   lv_obj_update_layout(hint);
-  providerModelsSection(y+lv_obj_get_height(hint)+16,width);
+  providerModelsSection(y+lv_obj_get_height(hint)+uiMetrics_.dp(16),width);
 }
 bool App::providerDirty() const {
   return !providerForm_.empty() && (providerForm_!=providerOriginal_.value("form",Json::object()) ||
@@ -195,32 +198,32 @@ Json App::draftModel(const Json &source) const {
   return model;
 }
 void App::providerModelsSection(int y,int width) {
-  auto list=box(pageContent_,10,y,width,LV_SIZE_CONTENT);
+  auto list=box(pageContent_,uiMetrics_.dp(10),y,width,LV_SIZE_CONTENT);
   lv_obj_set_scrollable(list,false);
-  auto title=label(list,"模型",10,10,width-180,20);
-  lv_obj_set_height(title,font(20)->line_height);
-  pageActions_["provider-add-models"]=button(list,"添加模型",width-160,0,140,44,[this]{openProviderModels(providerForm_.value("id",providerWorkspaceId_));});
-  int top=56;
+  auto title=label(list,"模型",uiMetrics_.dp(10),uiMetrics_.dp(10),width-uiMetrics_.dp(180),uiMetrics_.fontSize(UiFont::SettingsTitle));
+  lv_obj_set_height(title,font(uiMetrics_.fontSize(UiFont::SettingsTitle))->line_height);
+  pageActions_["provider-add-models"]=button(list,"添加模型",width-uiMetrics_.dp(160),0,uiMetrics_.dp(140),uiMetrics_.dp(44),[this]{openProviderModels(providerForm_.value("id",providerWorkspaceId_));});
+  int top=uiMetrics_.dp(56);
   for(const auto &model:providerDraftModels_) {
     const auto id=model.at("id").get<std::string>();const bool deleted=model.value("workspace_deleted",false);
-    const int nameWidth=width-80;
-    auto edit=button(list,model.value("display_name",model.value("name",std::string())),10,top,nameWidth,48,
+    const int nameWidth=width-uiMetrics_.dp(80);
+    auto edit=button(list,model.value("display_name",model.value("name",std::string())),uiMetrics_.dp(10),top,nameWidth,uiMetrics_.dp(48),
       [this,model]{editModel(model);},theme::surface,LV_TEXT_ALIGN_LEFT);
     pageActions_["model-edit:"+id]=edit;if(deleted)lv_obj_add_state(edit,LV_STATE_DISABLED);
     lv_obj_t *remove;
-    if(deleted)remove=icon(list,"retry",width-64,top+2,44,44,[this,id]{for(auto &m:providerDraftModels_)if(m.at("id")==id)m["workspace_deleted"]=false;build();});
-    else remove=icon(list,"trash",width-64,top+2,44,44,[this,model]{removeModel(model);});
+    if(deleted)remove=icon(list,"retry",width-uiMetrics_.dp(64),top+2,uiMetrics_.dp(44),uiMetrics_.dp(44),[this,id]{for(auto &m:providerDraftModels_)if(m.at("id")==id)m["workspace_deleted"]=false;build();});
+    else remove=icon(list,"trash",width-uiMetrics_.dp(64),top+2,uiMetrics_.dp(44),uiMetrics_.dp(44),[this,model]{removeModel(model);});
     pageActions_["model-delete:"+id]=remove;
     const auto state=deleted?"待删除 · 点击回转箭头撤销":model.value("workspace_new",false)?"新增待保存":"模型配置随本页统一保存";
-    auto status=label(list,state,12,top+50,nameWidth-12,16,deleted?theme::danger:theme::muted);
-    lv_label_set_long_mode(status,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(status,font(16)->line_height);
-    top+=80;
+    auto status=label(list,state,uiMetrics_.dp(12),top+uiMetrics_.dp(50),nameWidth-uiMetrics_.dp(12),uiMetrics_.fontSize(UiFont::Detail),deleted?theme::danger:theme::muted);
+    lv_label_set_long_mode(status,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(status,font(uiMetrics_.fontSize(UiFont::Detail))->line_height);
+    top+=uiMetrics_.dp(80);
   }
   if(providerDraftModels_.empty()) {
-    auto hint=label(list,"尚未添加模型。可先获取列表或手动填写，最后统一保存。",10,top,width-20,17,theme::muted);
-    lv_obj_update_layout(hint);top+=lv_obj_get_height(hint)+16;
+    auto hint=label(list,"尚未添加模型。可先获取列表或手动填写，最后统一保存。",uiMetrics_.dp(10),top,width-uiMetrics_.dp(20),uiMetrics_.fontSize(UiFont::FormHint),theme::muted);
+    lv_obj_update_layout(hint);top+=lv_obj_get_height(hint)+uiMetrics_.dp(16);
   }
-  auto save=button(list,"保存",10,top,width-20,48,[this]{saveProvider();});primary(save);
+  auto save=button(list,"保存",uiMetrics_.dp(10),top,width-uiMetrics_.dp(20),uiMetrics_.dp(48),[this]{saveProvider();});primary(save);
   pageActions_["provider-save-bottom"]=save;
 }
 void App::saveProvider(bool returnToList) {
@@ -258,22 +261,22 @@ void App::openProviderModels(const std::string &id) {
 }
 void App::providerModelsPage() {
   pageHeader("添加模型");
-  auto add = pageAction("加入草稿", 24, 140, [this] { addProviderModels(); });
+  auto add = pageAction("加入草稿", uiMetrics_.dp(24), uiMetrics_.dp(140), [this] { addProviderModels(); });
   primary(add);
   if (providerModelSelection_.empty())
     lv_obj_add_state(add, LV_STATE_DISABLED);
-  const int left = layout().portrait() ? layout().safeSide() : 10,
+  const int left = layout().portrait() ? layout().safeSide() : uiMetrics_.dp(10),
             width = layout().contentWidth() - 2 * left;
   auto title = readableLabel(pageContent_,
                              providerForm_.value("name", std::string()) + " · " +
                                  std::to_string(providerModelSelection_.size()) + " 个待添加",
-                             left, 4, width, 19, theme::muted);
+                             left, uiMetrics_.dp(4), width, uiMetrics_.fontSize(UiFont::FormCaption), theme::muted);
   lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(title, font(19)->line_height);
+  lv_obj_set_height(title, font(uiMetrics_.fontSize(UiFont::FormCaption))->line_height);
   auto manual = fieldButton(
       pageContent_, "手动模型 ID",
       providerManualModels_.empty() ? "可填写多个，逗号或换行分隔" : providerManualModels_, left,
-      36, width, [this] {
+      uiMetrics_.dp(36), width, [this] {
         edit(
             providerManualModels_, "填写模型 ID",
             [this](const std::string &value) {
@@ -299,16 +302,19 @@ void App::providerModelsPage() {
             4096, "EnUSPreferred", {}, true);
       });
   pageActions_["models-manual"] = manual;
-  const int fetchWidth = std::min(180, width);
-  auto fetch = button(pageContent_, modelsBusy_ ? "正在获取…" : "获取模型列表", left, 94,
-                      fetchWidth, 48, [this] { fetchModels(); });
+  const int fieldHeight = fieldMetrics(uiMetrics_).height;
+  const int fetchY = uiMetrics_.identity()?uiMetrics_.dp(94):uiMetrics_.dp(36)+fieldHeight+uiMetrics_.dp(10);
+  const int statusY = uiMetrics_.identity()?uiMetrics_.dp(154):fetchY+fieldHeight+uiMetrics_.dp(12);
+  const int fetchWidth = std::min(uiMetrics_.dp(180), width);
+  auto fetch = button(pageContent_, modelsBusy_ ? "正在获取…" : "获取模型列表", left, fetchY,
+                      fetchWidth, uiMetrics_.identity()?uiMetrics_.dp(48):fieldHeight, [this] { fetchModels(); });
   pageActions_["models-fetch"] = fetch;
   if (modelsBusy_)
     lv_obj_add_state(fetch, LV_STATE_DISABLED);
   auto filter =
       fieldButton(pageContent_, "筛选",
                   providerModelFilter_.empty() ? "输入模型 ID 关键词" : providerModelFilter_,
-                  left + fetchWidth + 12, 94, width - fetchWidth - 12, [this] {
+                  left + fetchWidth + uiMetrics_.dp(12), fetchY, width - fetchWidth - uiMetrics_.dp(12), [this] {
                     edit(
                         providerModelFilter_, "筛选模型",
                         [this](const std::string &value) {
@@ -321,9 +327,9 @@ void App::providerModelsPage() {
   pageActions_["models-filter"] = filter;
   auto status = readableLabel(
       pageContent_, notice_.empty() ? "获取列表后勾选要添加的模型，不会自动导入全部。" : notice_,
-      left, 154, width, 17, theme::muted);
+      left, statusY, width, uiMetrics_.fontSize(UiFont::FormHint), theme::muted);
   lv_obj_update_layout(status);
-  int y = 154 + lv_obj_get_height(status) + 12;
+  int y = statusY + lv_obj_get_height(status) + uiMetrics_.dp(12);
   std::vector<std::string> active;
   for (const auto &model : providerDraftModels_)
     if (!model.value("workspace_deleted",false))
@@ -345,19 +351,19 @@ void App::providerModelsPage() {
                   "第 " + std::to_string(providerModelPage_ / pageSize + 1) + " / " +
                       std::to_string((names.size() + pageSize - 1) / pageSize) + " 页 · " +
                       std::to_string(names.size()) + " 个匹配",
-                  left, y, width, 17, theme::muted);
-    y += 30;
+                  left, y, width, uiMetrics_.fontSize(UiFont::FormHint), theme::muted);
+    y += uiMetrics_.dp(30);
     if (providerModelPage_)
-      pageActions_["models-prev"] = button(pageContent_, "上一页", left, y, 120, 44, [this] {
+      pageActions_["models-prev"] = button(pageContent_, "上一页", left, y, uiMetrics_.dp(120), uiMetrics_.dp(44), [this] {
         providerModelPage_ -= 30;
         build();
       });
     if (providerModelPage_ + pageSize < names.size())
-      pageActions_["models-next"] = button(pageContent_, "下一页", left + 132, y, 120, 44, [this] {
+      pageActions_["models-next"] = button(pageContent_, "下一页", left + uiMetrics_.dp(132), y, uiMetrics_.dp(120), uiMetrics_.dp(44), [this] {
         providerModelPage_ += 30;
         build();
       });
-    y += 54;
+    y += uiMetrics_.dp(54);
   }
   for (size_t i = providerModelPage_; i < std::min(names.size(), providerModelPage_ + pageSize);
        ++i) {
@@ -365,7 +371,7 @@ void App::providerModelsPage() {
     const bool exists = std::find(active.begin(), active.end(), name) != active.end(),
                selected = providerModelSelection_.count(name);
     auto row = button(
-        pageContent_, "", left, y, width, 56,
+        pageContent_, "", left, y, width, uiMetrics_.dp(56),
         [this, name, exists] {
           if (exists)
             return;
@@ -377,33 +383,33 @@ void App::providerModelsPage() {
         },
         theme::surface);
     lv_obj_set_scrollable(row, false);
-    lv_obj_set_style_radius(row, 10, 0);
-    auto caption = label(row, name, 12, 4, width - 68, 20, exists ? theme::muted : theme::text);
+    lv_obj_set_style_radius(row, uiMetrics_.dp(10), 0);
+    auto caption = label(row, name, uiMetrics_.dp(12), uiMetrics_.dp(4), width - uiMetrics_.dp(68), uiMetrics_.fontSize(UiFont::SettingsTitle), exists ? theme::muted : theme::text);
     lv_label_set_long_mode(caption, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_height(caption, font(20)->line_height);
+    lv_obj_set_height(caption, font(uiMetrics_.fontSize(UiFont::SettingsTitle))->line_height);
     lv_obj_set_clickable(caption, false);
     auto detail = label(row,
                         exists     ? "已添加"
                         : selected ? "已选择"
                                    : "点击选择",
-                        12, 31, width - 68, 16, theme::muted);
+                        uiMetrics_.dp(12), uiMetrics_.dp(31), width - uiMetrics_.dp(68), uiMetrics_.fontSize(UiFont::Detail), theme::muted);
     lv_obj_set_clickable(detail, false);
-    auto mark = box(row, width - 42, 17, 24, 24, selected ? theme::accent : theme::surface);
+    auto mark = box(row, width - uiMetrics_.dp(42), uiMetrics_.dp(17), uiMetrics_.dp(24), uiMetrics_.dp(24), selected ? theme::accent : theme::surface);
     lv_obj_set_clickable(mark, false);
     lv_obj_set_scrollable(mark, false);
-    lv_obj_set_style_radius(mark, 5, 0);
-    lv_obj_set_style_border_width(mark, 1, 0);
+    lv_obj_set_style_radius(mark, uiMetrics_.dp(5), 0);
+    lv_obj_set_style_border_width(mark, uiMetrics_.dp(1), 0);
     lv_obj_set_style_border_color(mark, lv_color_hex(theme::muted), 0);
     if (exists || selected)
-      attachIcon(mark, "check", exists ? theme::muted : theme::text);
+      attachIcon(mark, "check", exists ? theme::muted : theme::text, 1.f, uiMetrics_);
     pageActions_["model-option:" + name] = row;
-    y += 64;
+    y += uiMetrics_.form().settingsPitch;
   }
   if (modelNames_.empty())
     readableLabel(pageContent_, "也可以直接手动填写模型 ID，无需服务商支持模型列表接口。", left, y,
-                  width, 18, theme::muted);
+                  width, uiMetrics_.fontSize(UiFont::FormNote), theme::muted);
   else if (names.empty())
-    readableLabel(pageContent_, "没有匹配的模型，换个关键词或手动填写。", left, y, width, 18,
+    readableLabel(pageContent_, "没有匹配的模型，换个关键词或手动填写。", left, y, width, uiMetrics_.fontSize(UiFont::FormNote),
                   theme::muted);
 }
 void App::addProviderModels() {
@@ -504,8 +510,8 @@ void App::editModel(const Json &model) {
   show("model");
 }
 int App::modelIdentityFields() {
-  const int width = layout().contentWidth(), column = (width - 30) / 2;
-  settingsRow("model_identity", "模型 ID", modelForm_.value("name", std::string()), 10, 0, column,
+  const int width = layout().contentWidth(), column = (width - uiMetrics_.dp(30)) / 2;
+  settingsRow("model_identity", "模型 ID", modelForm_.value("name", std::string()), uiMetrics_.dp(10), 0, column,
               [this] {
                 edit(
                     modelForm_.value("name", std::string()), "模型 ID（用于 API 请求）",
@@ -525,7 +531,7 @@ int App::modelIdentityFields() {
               });
   settingsRow("model_display_name", "显示名称",
               modelForm_.value("display_name", modelForm_.value("name", std::string())),
-              20 + column, 0, column, [this] {
+              uiMetrics_.dp(20) + column, 0, column, [this] {
                 edit(
                     modelForm_.value("display_name", std::string()), "显示名称（不影响 API 请求）",
                     [this](const std::string &value) {
@@ -541,13 +547,17 @@ int App::modelIdentityFields() {
     modelAdvanced_ = !modelAdvanced_;
     build();
   };
-  if (layout().compact()) {
-    pageActions_[label] = button(pageContent_, label, 10, 64, width - 20, 44, toggle,
+  const auto geometry = layout();
+  const bool crowdedHeader = !uiMetrics_.identity() && geometry.portrait() &&
+      geometry.bodyWidth()-uiMetrics_.dp(170)-uiMetrics_.dp(140)-geometry.navigationX() <
+          geometry.navigationX()+uiMetrics_.page().navigationGap+uiMetrics_.page().minimumTitle;
+  if (geometry.compact() || crowdedHeader) {
+    pageActions_[label] = button(pageContent_, label, uiMetrics_.dp(10), uiMetrics_.dp(64), width - uiMetrics_.dp(20), uiMetrics_.dp(44), toggle,
                                  theme::surface, LV_TEXT_ALIGN_LEFT);
-    return 116;
+    return uiMetrics_.dp(116);
   }
-  pageAction(label, 170, 140, toggle);
-  return 64;
+  pageAction(label, uiMetrics_.dp(170), uiMetrics_.dp(140), toggle);
+  return uiMetrics_.dp(64);
 }
 void App::removeModel(const Json &model) {
   const auto id=model.at("id").get<std::string>();

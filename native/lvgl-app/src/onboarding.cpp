@@ -39,14 +39,14 @@ lv_obj_t *Onboarding::rect(lv_obj_t *p,int x,int y,int w,int h,uint32_t c,int ra
 }
 lv_obj_t *Onboarding::text(lv_obj_t *p,const std::string &s,int x,int y,int w,int size,uint32_t ink) {
   auto o=lv_label_create(p);lv_obj_set_pos(o,x,y);lv_obj_set_width(o,w);
-  lv_obj_set_style_text_font(o,font(size),0);lv_obj_set_style_text_color(o,lv_color_hex(ink),0);
+  lv_obj_set_style_text_font(o,font(metrics_.dp(size)),0);lv_obj_set_style_text_color(o,lv_color_hex(ink),0);
   lv_label_set_text(o,s.c_str());lv_obj_set_clickable(o,false);return o;
 }
 lv_obj_t *Onboarding::control(const std::string &id,const std::string &s,int x,int y,int w,bool primary) {
-  const auto area=safety_.fit({x,y,w,44});
-  auto o=rect(root_,area.x,area.y,area.width,area.height,primary?theme::text:theme::surface);
-  auto l=text(o,s,0,0,area.width-8,18,primary?theme::primaryText:theme::text);
-  lv_label_set_long_mode(l,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(l,font(18)->line_height);lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(l);
+  const auto area=safety_.fit({x,y,w,metrics_.dp(44)});
+  auto o=rect(root_,area.x,area.y,area.width,area.height,primary?theme::text:theme::surface,metrics_.dp(8));
+  auto l=text(o,s,0,0,area.width-metrics_.dp(8),18,primary?theme::primaryText:theme::text);
+  lv_label_set_long_mode(l,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(l,font(metrics_.dp(18))->line_height);lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(l);
   lv_obj_set_style_bg_color(o,lv_color_hex(theme::border),LV_STATE_PRESSED);
   lv_obj_set_style_opa(o,LV_OPA_50,LV_STATE_DISABLED);
   click(o,[this,id]{if(!busy_)action_(id);});actions_[id]=o;return o;
@@ -57,7 +57,7 @@ lv_obj_t *Onboarding::part(lv_obj_t *p,int x,int y,int w,int h,uint32_t c,int r)
 }
 void Onboarding::words(lv_obj_t *p,const std::string &s,int x,int y,int w,int size,uint32_t ink) {
   auto o=text(p,s,x*sceneWidth_/400,y*sceneHeight_/150,w*sceneWidth_/400,size,ink);
-  lv_label_set_long_mode(o,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(o,font(size)->line_height);
+  lv_label_set_long_mode(o,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(o,font(metrics_.dp(size))->line_height);
 }
 void Onboarding::symbol(lv_obj_t *p,const std::string &s,int x,int y,int size,uint32_t ink) {
   auto o=part(p,x,y,size,size,theme::sidebar,0);lv_obj_set_style_bg_opa(o,LV_OPA_TRANSP,0);attachIcon(o,s,ink);
@@ -151,27 +151,27 @@ void Onboarding::scene(int phase,lv_obj_t *p) {
     motions_[phase].push_back({touch,(phase==0?25:310)*sceneWidth_/400,(phase==0?12:112)*sceneHeight_/150,phase==0?45:-24,0});
   }
 }
-Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool replaying,bool configured,std::function<void(const std::string &)> action,bool rounded)
-  : safety_{width,height,rounded},action_(std::move(action)),step_(step) {
+Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool replaying,bool configured,std::function<void(const std::string &)> action,bool rounded,const UiMetrics &metrics)
+  : metrics_(metrics),safety_{width,height,rounded},action_(std::move(action)),step_(step) {
   root_=rect(parent,0,0,width,height,theme::background,0);
-  const AppLayout layout{width,height,rounded};
+  const AppLayout layout{width,height,rounded,metrics_};
   const auto geometry=layout.guideWorkspace();
   const bool portrait=geometry.portrait;
   const int split=geometry.split,right=geometry.right,measure=geometry.measure;
   const int footer=geometry.footer,demoH=geometry.demoHeight;
-  const int demoY=safety_.enabled()?layout.safeTop():12;
-  const int demoX=safety_.enabled()?layout.navigationX():16;
-  const int demoWidth=portrait?width-2*demoX:split-28;
-  auto demo=rect(root_,demoX,demoY,demoWidth,demoH,theme::sidebar,14);
-  text(demo,"操作演示",14,8,demoWidth-32,16,theme::muted);
-  sceneWidth_=std::min(640,demoWidth-16);
-  sceneHeight_=std::min(360,portrait?sceneWidth_*150/400:height-130);
-  const int sceneY=portrait?42+(demoH-50-sceneHeight_)/2:42;
-  for(int n=0;n<4;++n){stages_[n]=rect(demo,8,sceneY,sceneWidth_,sceneHeight_,theme::background,0);scene(n,stages_[n]);lv_obj_set_hidden(stages_[n],true);}
+  const int demoY=safety_.enabled()?layout.safeTop():metrics_.dp(12);
+  const int demoX=safety_.enabled()?layout.navigationX():metrics_.dp(16);
+  const int demoWidth=portrait?width-2*demoX:split-metrics_.dp(28);
+  auto demo=rect(root_,demoX,demoY,demoWidth,demoH,theme::sidebar,metrics_.dp(14));
+  text(demo,"操作演示",metrics_.dp(14),metrics_.dp(8),demoWidth-metrics_.dp(32),16,theme::muted);
+  sceneWidth_=std::min(640,demoWidth-metrics_.dp(16));
+  sceneHeight_=std::min(360,portrait?sceneWidth_*150/400:height-metrics_.dp(130));
+  const int sceneY=portrait?metrics_.dp(42)+(demoH-metrics_.dp(50)-sceneHeight_)/2:metrics_.dp(42);
+  for(int n=0;n<4;++n){stages_[n]=rect(demo,metrics_.dp(8),sceneY,sceneWidth_,sceneHeight_,theme::background,0);scene(n,stages_[n]);lv_obj_set_hidden(stages_[n],true);}
   // Snapshot only the active synthetic stage into one reused texture. The image
   // owns no GPU/display resources and is deleted before its backing buffers.
   try {
-    const int canvasH=std::min(360,demoH-40);
+    const int canvasH=std::min(360,demoH-metrics_.dp(40));
     renderer_.reset(new Onboarding3D(std::min(640,sceneWidth_),canvasH));
     texture_=lv_snapshot_create_draw_buf(stages_[0],LV_COLOR_FORMAT_ARGB8888);
     if(!texture_)throw std::bad_alloc();
@@ -181,27 +181,66 @@ Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool repla
     renderDescriptor_.header.stride=renderer_->width()*4;
     renderDescriptor_.data_size=renderer_->width()*renderer_->height()*4;
     renderDescriptor_.data=reinterpret_cast<const uint8_t *>(renderer_->pixels());
-    renderImage_=lv_image_create(demo);lv_obj_set_pos(renderImage_,8,32+(demoH-40-canvasH)/2);
+    renderImage_=lv_image_create(demo);lv_obj_set_pos(renderImage_,metrics_.dp(8),metrics_.dp(32)+(demoH-metrics_.dp(40)-canvasH)/2);
     lv_obj_set_clickable(renderImage_,false);lv_image_set_src(renderImage_,&renderDescriptor_);
   } catch(const std::exception &) {
     renderer_.reset();if(texture_){lv_draw_buf_destroy(texture_);texture_=nullptr;}
     renderFailed_=true;
   }
-  const int top=portrait?demoH+92+demoY-12:13;
-  text(root_,std::to_string(step+1)+" / 7"+(step<3?" · 必看":" · 功能介绍"),right,top,measure,16,theme::muted);
-  text(root_,titles[step],right,top+30,measure,portrait?28:24);
-  auto description=text(root_,copy[step],right,top+70,measure,portrait?21:(measure<340?16:18));
-  lv_obj_set_style_text_line_space(description,measure<340&&!portrait?3:5,0);
-  if(step==2&&configured)text(root_,"已配置模型，可直接继续",right,portrait?top+176:174,measure,16,theme::link);
-  if(step==6)text(root_,"可在“关于 PenChat”中重看引导",right,portrait?top+176:174,measure,16,theme::muted);
-  const int playbackY=portrait?demoH+28+demoY-12:footer;
-  pause_=control("pause","暂停",16,playbackY,80);control("replay","重播",104,playbackY,80);
-  auto phaseCaption=text(demo,captions[step][0],126,8,safety_.enabled()?demoWidth-158:portrait?width-190:split-166,16,theme::link);actions_["caption"]=phaseCaption;
-  const int end=safety_.enabled()?layout.edgeSide(footer,44):20;
-  if(step>0)control("back","上一步",width-end-200,footer,92);
-  control("next",step==6?"开始使用":"下一步",width-end-100,footer,100,true);
-  if(step==2)control("configure","去配置",right,footer,100);
-  else if(step>=3||replaying)control("finish",replaying?"关闭引导":"结束引导",right,footer,112);
+  const int top=portrait?demoH+metrics_.dp(92)+demoY-metrics_.dp(12):metrics_.dp(13);
+  const int end=safety_.enabled()?layout.edgeSide(footer,metrics_.dp(44)):metrics_.dp(20);
+  std::vector<std::pair<std::string,std::string>> navigation;
+  if(step>0)navigation.push_back({"back","上一步"});
+  navigation.push_back({"next",step==6?"开始使用":"下一步"});
+  if(step==2)navigation.push_back({"configure","去配置"});
+  else if(step>=3||replaying)navigation.push_back({"finish",replaying?"关闭引导":"结束引导"});
+  const int navWidth=width-right-end,navGap=metrics_.dp(8);
+  int naturalWidth=metrics_.dp(44);
+  for(const auto &item:navigation) {
+    lv_point_t textSize{};lv_text_get_size(&textSize,item.second.c_str(),font(metrics_.dp(18)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+    naturalWidth=std::max(naturalWidth,int(textSize.x)+metrics_.dp(16));
+  }
+  const bool twoRows=!metrics_.identity()&&navigation.size()>2&&
+    int(navigation.size())*naturalWidth+int(navigation.size()-1)*navGap>navWidth;
+  const int footerTop=footer-(twoRows?metrics_.dp(44)+navGap:0);
+  auto reader=root_;
+  int textX=right,textY=top;
+  if(!metrics_.identity()) {
+    reader=rect(root_,right,top,measure,std::max(metrics_.dp(44),footerTop-top-metrics_.dp(12)),theme::background,0);
+    lv_obj_set_scrollable(reader,true);lv_obj_set_scroll_dir(reader,LV_DIR_VER);
+    textX=textY=0;
+  }
+  text(reader,std::to_string(step+1)+" / 7"+(step<3?" · 必看":" · 功能介绍"),textX,textY,measure,16,theme::muted);
+  auto heading=text(reader,titles[step],textX,textY+metrics_.dp(30),measure,portrait?28:24);
+  int descriptionY=textY+metrics_.dp(70);
+  if(!metrics_.identity()) {
+    lv_obj_update_layout(heading);
+    descriptionY=std::max(descriptionY,int(lv_obj_get_y(heading)+lv_obj_get_height(heading))+metrics_.dp(8));
+  }
+  auto description=text(reader,copy[step],textX,descriptionY,measure,portrait?21:(measure<metrics_.dp(340)?16:18));
+  lv_obj_set_style_text_line_space(description,measure<metrics_.dp(340)&&!portrait?metrics_.dp(3):metrics_.dp(5),0);
+  int hintY=portrait?textY+metrics_.dp(176):174;
+  if(!metrics_.identity()) {lv_obj_update_layout(description);hintY=descriptionY+lv_obj_get_height(description)+metrics_.dp(12);}
+  if(step==2&&configured)text(reader,"已配置模型，可直接继续",textX,hintY,measure,16,theme::link);
+  if(step==6)text(reader,"可在“关于 PenChat”中重看引导",textX,hintY,measure,16,theme::muted);
+  const int playbackY=portrait?demoH+metrics_.dp(28)+demoY-metrics_.dp(12):footer;
+  pause_=control("pause","暂停",metrics_.dp(16),playbackY,metrics_.dp(80));control("replay","重播",metrics_.dp(104),playbackY,metrics_.dp(80));
+  auto phaseCaption=text(demo,captions[step][0],metrics_.dp(126),metrics_.dp(8),safety_.enabled()?demoWidth-metrics_.dp(158):portrait?width-metrics_.dp(190):split-metrics_.dp(166),16,theme::link);actions_["caption"]=phaseCaption;
+  if(metrics_.identity()) {
+  if(step>0)control("back","上一步",width-end-metrics_.dp(200),footer,metrics_.dp(92));
+  control("next",step==6?"开始使用":"下一步",width-end-metrics_.dp(100),footer,metrics_.dp(100),true);
+  if(step==2)control("configure","去配置",right,footer,metrics_.dp(100));
+  else if(step>=3||replaying)control("finish",replaying?"关闭引导":"结束引导",right,footer,metrics_.dp(112));
+  } else {
+    const int columns=twoRows?2:int(navigation.size());
+    const int cell=(navWidth-(columns-1)*navGap)/columns;
+    for(size_t i=0;i<navigation.size();++i) {
+      const bool upper=twoRows&&int(i)>=columns;
+      control(navigation[i].first,navigation[i].second,
+              right+(upper?0:int(i))*(cell+navGap),upper?footerTop:footer,
+              upper?navWidth:cell,navigation[i].first=="next");
+    }
+  }
   tick(true);
 }
 Onboarding::~Onboarding(){

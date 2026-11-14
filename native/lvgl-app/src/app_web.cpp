@@ -37,11 +37,11 @@ void App::webDetailsPage() {
                  : state == "complete"  ? "已完成"
                  : state == "cancelled" ? "已停止"
                                         : "未能完成");
-    readableLabel(pageContent_, text, 10, y, w - 20, 18, theme::muted);
-    y += 30;
+    readableLabel(pageContent_, text, uiMetrics_.dp(10), y, w - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::FormNote), theme::muted);
+    y += uiMetrics_.dp(30);
     if (record.value("status", std::string()) == "error") {
       auto error = record.value("result", Json::object()).value("error", std::string("工具失败"));
-      auto item = readableLabel(pageContent_, error, 10, y, w - 20, 17, theme::danger);
+      auto item = readableLabel(pageContent_, error, uiMetrics_.dp(10), y, w - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::FormHint), theme::danger);
       lv_obj_update_layout(item);
       y += lv_obj_get_height(item) + 12;
     }
@@ -49,13 +49,13 @@ void App::webDetailsPage() {
   for (const auto &source : webDetails_.value("web_sources", Json::array())) {
     auto title = source.value("title", source.value("url", std::string()));
     auto sourceButton=button(
-        pageContent_, title, 10, y, w - 20, 48, [this, source] { openWebSource(source); },
+        pageContent_, title, uiMetrics_.dp(10), y, w - uiMetrics_.dp(20), uiMetrics_.dp(48), [this, source] { openWebSource(source); },
         theme::surface, LV_TEXT_ALIGN_LEFT);
     readLinkText(lv_obj_get_child(sourceButton,0),title,source.value("url",std::string()));
-    y += 56;
+    y += uiMetrics_.dp(56);
   }
   if (!y)
-    readableLabel(pageContent_, "还没有可查看的检索记录", 10, 8, w - 20, 20, theme::muted);
+    readableLabel(pageContent_, "还没有可查看的检索记录", uiMetrics_.dp(10), uiMetrics_.dp(8), w - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::SettingsTitle), theme::muted);
 }
 void App::openWebSource(Json source) {
   if (view_ != "web_details" && view_ != "web_source") {
@@ -71,7 +71,7 @@ void App::webSourcePage() {
   const int w = layout().contentWidth();
   int y = 0;
   auto address =
-      readableLabel(pageContent_, webSource_.value("url", std::string()), 10, y, w - 20, 16, theme::muted);
+      readableLabel(pageContent_, webSource_.value("url", std::string()), uiMetrics_.dp(10), y, w - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::muted);
   lv_obj_update_layout(address);
   y += lv_obj_get_height(address) + 8;
   const auto stamp = webSource_.value("fetched_at", int64_t(0));
@@ -81,18 +81,18 @@ void App::webSourcePage() {
     char formatted[32]{};
     localtime_r(&seconds, &local);
     strftime(formatted, sizeof(formatted), "%Y-%m-%d %H:%M", &local);
-    readableLabel(pageContent_, std::string("获取时间：") + formatted, 10, y, w - 20, 16, theme::muted);
-    y += 28;
+    readableLabel(pageContent_, std::string("获取时间：") + formatted, uiMetrics_.dp(10), y, w - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::muted);
+    y += uiMetrics_.dp(28);
   }
-  button(pageContent_, "重新获取网页", 10, y, w - 20, 44,
+  button(pageContent_, "重新获取网页", uiMetrics_.dp(10), y, w - uiMetrics_.dp(20), uiMetrics_.dp(44),
          [this] { fetchWebSource(webSource_.value("url", std::string())); });
-  y += 52;
-  auto content = box(pageContent_, 10, y, w - 20, LV_SIZE_CONTENT, theme::background);
+  y += uiMetrics_.dp(52);
+  auto content = box(pageContent_, uiMetrics_.dp(10), y, w - uiMetrics_.dp(20), LV_SIZE_CONTENT, theme::background);
   lv_obj_set_scrollable(content, false);
   lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
   const auto text = webSource_.value("text", std::string());
   if (text.empty())
-    readableLabel(content, "暂无正文快照，点击重新获取；网页不执行脚本。", 0, 0, w - 20, 18, theme::muted);
+    readableLabel(content, "暂无正文快照，点击重新获取；网页不执行脚本。", 0, 0, w - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::FormNote), theme::muted);
   else {
     auto begin = std::min(webSourceOffset_, text.size());
     while (begin && begin < text.size() && (static_cast<unsigned char>(text[begin]) & 0xc0) == 0x80)
@@ -101,20 +101,20 @@ void App::webSourcePage() {
     while (end < text.size() && (static_cast<unsigned char>(text[end]) & 0xc0) == 0x80)
       --end;
     if (text.size() > 16384) {
-      readableLabel(content, "正文分段阅读 · 第 " + std::to_string(begin / 16384 + 1) + " 段", 0, 0, w - 20,
-            16, theme::muted);
+      readableLabel(content, "正文分段阅读 · 第 " + std::to_string(begin / 16384 + 1) + " 段", 0, 0, w - uiMetrics_.dp(20),
+            uiMetrics_.fontSize(UiFont::Detail), theme::muted);
       if (begin)
-        button(content, "上一段", 0, 0, w - 20, 44, [this] {
+        button(content, "上一段", 0, 0, w - uiMetrics_.dp(20), uiMetrics_.dp(44), [this] {
           webSourceOffset_ = webSourceOffset_ > 16384 ? webSourceOffset_ - 16384 : 0;
           build();
         });
       if (end < text.size())
-        button(content, "下一段", 0, 0, w - 20, 44, [this, end] {
+        button(content, "下一段", 0, 0, w - uiMetrics_.dp(20), uiMetrics_.dp(44), [this, end] {
           webSourceOffset_ = end;
           build();
         });
     }
-    auto body=readableLabel(content, text.substr(begin, end - begin), 0, 0, w - 20, readingFontSize());
+    auto body=readableLabel(content, text.substr(begin, end - begin), 0, 0, w - uiMetrics_.dp(20), readingFontSize());
     readSlice(body,text,begin);
   }
   for (const auto &link : webSource_.value("links", Json::array())) {
@@ -125,7 +125,7 @@ void App::webSourcePage() {
     if (title.empty())
       title = url;
     auto linkButton=button(
-        content, title, 0, 0, w - 20, 44, [this, url] { fetchWebSource(url); }, theme::surface,
+        content, title, 0, 0, w - uiMetrics_.dp(20), uiMetrics_.dp(44), [this, url] { fetchWebSource(url); }, theme::surface,
         LV_TEXT_ALIGN_LEFT);
     readLinkText(lv_obj_get_child(linkButton,0),title,url);
   }

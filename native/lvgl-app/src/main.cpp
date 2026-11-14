@@ -34,6 +34,10 @@ int main(int argc, char **argv) {
   std::string data, workspace, fontPath, resources, screenshot, demo,
       screenConfig = "/etc/miniapp/resources/cfg.json";
   int fd = -1, frames = 0;
+  UiMetrics uiMetrics;
+#ifndef PENCHAT_NATIVE_DEVICE
+  bool uiScaleSpecified = false;
+#endif
 #ifdef PENCHAT_CVI_PLATFORM
   int compositorFd = -1, compositorMemory = -1;
 #endif
@@ -61,6 +65,19 @@ int main(int argc, char **argv) {
       fontPath = value();
     else if (arg == "--tex-resources")
       resources = value();
+    else if (arg == "--ui-scale-percent") {
+#ifdef PENCHAT_NATIVE_DEVICE
+      throw std::runtime_error("UI scaling is only available in host headless tests");
+#else
+      const auto raw = value();
+      size_t consumed = 0;
+      const int percent = std::stoi(raw, &consumed);
+      if (consumed != raw.size() || percent < 75 || percent > 150)
+        throw std::runtime_error("UI scale must be an integer between 75 and 150");
+      uiMetrics = UiMetrics(100, percent);
+      uiScaleSpecified = true;
+#endif
+    }
     else if (arg == "--headless")
       headless = true;
     else if (arg == "--screen-config")
@@ -72,6 +89,10 @@ int main(int argc, char **argv) {
     else if (arg == "--frames")
       frames = std::stoi(value());
   }
+#ifndef PENCHAT_NATIVE_DEVICE
+    if (uiScaleSpecified && !headless)
+      throw std::runtime_error("UI scaling requires host headless mode");
+#endif
     if (data.empty())
       throw std::runtime_error("Missing data directory");
     ensureDirectory(data);
@@ -127,7 +148,7 @@ int main(int argc, char **argv) {
     Database db(join(data, "penchat.db"));
     startup("interface");
     App app(db, bridge, display, input, screen, workspace, data, fontPath,
-            resources, !headless, parsedConfiguration);
+            resources, !headless, parsedConfiguration, uiMetrics);
     if (!demo.empty())
       app.demo(fileText(demo));
     startup("frame");

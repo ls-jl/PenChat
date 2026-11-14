@@ -138,6 +138,7 @@ void App::readSlice(lv_obj_t *object, const std::string &text, size_t byteOffset
 }
 lv_obj_t *App::readableLabel(lv_obj_t *parent, const std::string &text, int x, int y, int width,
                              int size, uint32_t color) {
+  if(size<0)size=controlMetrics(parent).fontSize(UiFont::Body);
   auto object = label(parent, text, x, y, width, size, color);
   readLabel(object, text);
   return object;
@@ -304,22 +305,22 @@ void App::readDraw(bool menu) {
         },
         LV_EVENT_DELETE, this);
     for (int i = 0; i < 2; ++i) {
-      readHandles_[i] = box(readOverlay_, 0, 0, 44, 44);
+      readHandles_[i] = box(readOverlay_, 0, 0, uiMetrics_.dp(44), uiMetrics_.dp(44));
       lv_obj_set_style_bg_opa(readHandles_[i], LV_OPA_TRANSP, 0);
       lv_obj_set_clickable(readHandles_[i], false);
       lv_obj_set_scrollable(readHandles_[i], false);
-      attachIcon(readHandles_[i], i ? "selection-end" : "selection-start", theme::accent);
+      attachIcon(readHandles_[i], i ? "selection-end" : "selection-start", theme::accent, 1.f, uiMetrics_);
     }
-    readMenu_ = box(readOverlay_, 0, 0, 188, 52, theme::sidebar);
-    stylePopupPanel(readMenu_);
+    readMenu_ = box(readOverlay_, 0, 0, uiMetrics_.dp(188), uiMetrics_.dp(52), theme::sidebar);
+    stylePopupPanel(readMenu_,false,uiMetrics_);
     lv_obj_set_scrollable(readMenu_, false);
-    auto all=button(readMenu_, "全选", 4, 4, 88, 44, [this] {
+    auto all=button(readMenu_, "全选", uiMetrics_.dp(4), uiMetrics_.dp(4), uiMetrics_.dp(88), uiMetrics_.dp(44), [this] {
       if (!readRegion(readActive_))
         return;
       readSelection_.select(0, editLength(readSelection_.text));
       readDraw(true);
     });
-    auto copy=button(readMenu_, "复制", 96, 4, 88, 44, [this] {
+    auto copy=button(readMenu_, "复制", uiMetrics_.dp(96), uiMetrics_.dp(4), uiMetrics_.dp(88), uiMetrics_.dp(44), [this] {
       if (!readRegion(readActive_))
         return;
       if (editorClipboard_.copy(readSelection_.selection()))
@@ -386,7 +387,7 @@ void App::readDraw(bool menu) {
         const lv_area_t glyph{x - (i ? 1 : 0), y, x + (i ? 0 : 1), y + h - 1};
         found[i] = selectionVisibleAnchor(clip, glyph, i, endpoints[i]);
         endpointTops[i] = std::max(clip.y1, glyph.y1);
-        endpointSizes[i]=std::max(18,std::min(40,int(glyph.y2-glyph.y1+1)));
+        endpointSizes[i]=std::max(uiMetrics_.dp(18),std::min(uiMetrics_.dp(40),int(glyph.y2-glyph.y1+1)));
       }
       continue;
     }
@@ -426,11 +427,11 @@ void App::readDraw(bool menu) {
                             oy + hit->y + hit->h - 1};
       found[i] = selectionVisibleAnchor(clip, glyph, i, endpoints[i]);
       endpointTops[i] = std::max(clip.y1, glyph.y1);
-      endpointSizes[i]=std::max(18,std::min(40,int(glyph.y2-glyph.y1+1)));
+      endpointSizes[i]=std::max(uiMetrics_.dp(18),std::min(uiMetrics_.dp(40),int(glyph.y2-glyph.y1+1)));
     }
   }
   while (readMarks_.size() < marks.size()) {
-    auto mark = box(readOverlay_, 0, 0, 1, 1, theme::accent);
+    auto mark = box(readOverlay_, 0, 0, uiMetrics_.dp(1), uiMetrics_.dp(1), theme::accent);
     lv_obj_set_style_bg_opa(mark, LV_OPA_40, 0);
     lv_obj_set_clickable(mark, false);
     lv_obj_set_scrollable(mark, false);
@@ -461,14 +462,14 @@ void App::readDraw(bool menu) {
   }
   readSelectionBounds_ = selectedBounds;
   const auto candidate = placeSelectionMenu(
-      selectedBounds, selectionMenuSafeArea(screen_.width, screen_.height,roundedDisplay_), 188, 52,0,layout().safety());
+      selectedBounds, selectionMenuSafeArea(screen_.width, screen_.height,roundedDisplay_,uiMetrics_), uiMetrics_.dp(188), uiMetrics_.dp(52),0,layout().safety(),uiMetrics_);
   int clearance=0;
   for(auto handle:readHandles_)if(!lv_obj_is_hidden(handle)) {
     const auto shape=selectionHandleShape(handle);
     clearance=std::max(clearance,selectionMenuClearance(selectedBounds,candidate,
       {shape.x1,shape.y1,shape.x2-shape.x1+1,shape.y2-shape.y1+1}));
   }
-  const auto placement=placeSelectionMenu(selectedBounds,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_),188,52,clearance,layout().safety());
+  const auto placement=placeSelectionMenu(selectedBounds,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_,uiMetrics_),uiMetrics_.dp(188),uiMetrics_.dp(52),clearance,layout().safety(),uiMetrics_);
   const auto &popup = placement.bounds;
   lv_obj_set_pos(readMenu_, popup.x, popup.y);
   lv_obj_set_size(readMenu_, popup.width, popup.height);
@@ -599,7 +600,7 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
         readSavedCursor_ = readSelection_.cursor;
         readSavedAnchor_ = readSelection_.anchor;
         readSavedAll_ = readSelection_.all;
-        readGesture_.begin(x, y, ticks(), false);
+        readGesture_.begin(x, y, ticks(), false, false,uiMetrics_.gestures().drag);
         readScrollPassthrough_ = true;
         readDraw(false);
       } else if (readActive_)
@@ -617,7 +618,7 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
     readSavedAll_ = readSelection_.all;
     readHadSelection_ = readSelection_.selected();
     readPreview_ = false;
-    readGesture_.begin(x, y, ticks(), false, readHandle_ >= 0);
+    readGesture_.begin(x, y, ticks(), false, readHandle_ >= 0,uiMetrics_.gestures().drag);
     readLinkDue_ = 0;
     if (readHandle_ >= 0) {
       auto r = readSelection_.range();
@@ -639,7 +640,7 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
     readGesture_.lastY = y;
     readGesture_.distance = std::max(readGesture_.distance, std::max(std::abs(x - readGesture_.x),
                                                                      std::abs(y - readGesture_.y)));
-    if (readGesture_.distance > 12)
+    if (readGesture_.distance > readGesture_.slop)
       readGesture_.mode = TextGesture::Scroll;
     if (!down) {
       const bool scrolled = readGesture_.mode == TextGesture::Scroll;
@@ -695,7 +696,7 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
     const auto mode = readGesture_.mode;
     readGesture_.end();
     if (mode == TextGesture::Pending) {
-      if (readGesture_.doubleTap(x, y, ticks())) {
+      if (readGesture_.doubleTap(x, y, ticks(),uiMetrics_.gestures().tap)) {
         readWord(*region, x, y);
         readDraw(true);
       } else if (readHadSelection_)

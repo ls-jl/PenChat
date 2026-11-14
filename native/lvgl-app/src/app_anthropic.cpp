@@ -23,24 +23,24 @@ void App::protocolPicker() {
 }
 void App::anthropicConnectionPage() {
   pageHeader("Anthropic 连接设置");
-  const int width = layout().contentWidth(), column = (width - 16) / 2;
+  const int width = layout().contentWidth(), column = (width - uiMetrics_.dp(16)) / 2;
   const auto config = objectField(providerForm_, "anthropic");
   const auto auth = config.value("auth", std::string("x-api-key"));
   const auto version = config.value("version", std::string("2023-06-01"));
   settingsRow("anthropic_auth", "鉴权方式", auth == "bearer" ? "Authorization · Bearer" : "x-api-key",
-              10, 4, column, [this, auth] {
+              uiMetrics_.dp(10), uiMetrics_.dp(4), column, [this, auth] {
     auto next = objectField(providerForm_, "anthropic");
     next["auth"] = auth == "bearer" ? "x-api-key" : "bearer";
     providerForm_["anthropic"] = next; build();
   });
-  settingsRow("anthropic_version", "API 版本", version, 26 + column, 4, column, [this, version] {
+  settingsRow("anthropic_version", "API 版本", version, uiMetrics_.dp(26) + column, uiMetrics_.dp(4), column, [this, version] {
     auto next = objectField(providerForm_, "anthropic");
     next["version"] = version == "2023-06-01" ? "2026-10-21" : "2023-06-01";
     providerForm_["anthropic"] = next; build();
   });
   const auto headers = providerForm_.value("headers", Json::object());
   settingsRow("anthropic_headers", "自定义请求头", headers.empty() ? "未设置 · 可填写 Workspace 或中转参数" :
-              "已设置 " + std::to_string(headers.size()) + " 项 · 点击编辑", 10, 68, width - 20, [this, headers] {
+              "已设置 " + std::to_string(headers.size()) + " 项 · 点击编辑", uiMetrics_.dp(10), uiMetrics_.dp(68), width - uiMetrics_.dp(20), [this, headers] {
     edit(headers.empty() ? "{}" : headers.dump(), "自定义请求头（JSON 对象）", [this](const std::string &value) {
       const auto parsed = Json::parse(value, nullptr, false);
       bool valid = parsed.is_object() && parsed.size() <= 32;
@@ -53,14 +53,14 @@ void App::anthropicConnectionPage() {
   });
   label(pageContent_, "返回后保存 Provider 才会生效。两种鉴权不能同时发送；自定义请求头不进入聊天导出或诊断。"
         "\n\n2023-06-01 用于广泛兼容；2026-10-21 按官方新版协议发送。连接失败不会自动切换版本或重试。",
-        10, 140, width - 20, 17, theme::muted);
+        uiMetrics_.dp(10), uiMetrics_.dp(140), width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::FormHint), theme::muted);
 }
 void App::anthropicModelPage() {
   pageHeader("模型设置");
-  const int width = layout().contentWidth(), column = (width - 16) / 2;
+  const int width = layout().contentWidth(), column = (width - uiMetrics_.dp(16)) / 2;
   auto &caps = modelForm_["reasoning"];
   const auto mode = caps.value("mode", std::string("off"));
-  auto save = pageAction("完成", 24, 130, [this] {
+  auto save = pageAction("完成", uiMetrics_.dp(24), uiMetrics_.dp(130), [this] {
     try {
       saveModelForm();
       returnProvider();
@@ -69,7 +69,7 @@ void App::anthropicModelPage() {
   primary(save);
   const int identityHeight=modelIdentityFields();
   settingsRow("thinking_mode", "思考模式", mode == "adaptive" ? "自适应强度" : mode == "budget" ? "固定 token 预算" : "不声明 · API 默认",
-              10, identityHeight, column, [this, mode] {
+              uiMetrics_.dp(10), identityHeight, column, [this, mode] {
     const auto nextMode = mode == "off" ? "adaptive" : mode == "adaptive" ? "budget" : "off";
     Json levels = Json::object();
     if (std::string(nextMode) != "off") levels = {{"medium", std::string(nextMode) == "budget" ? "4096" : "medium"},
@@ -79,7 +79,7 @@ void App::anthropicModelPage() {
   });
   auto maximum = modelForm_.value("max_output_tokens", anthropicMaxOutput(modelForm_));
   settingsRow("max_output", "最大输出 token", std::to_string(maximum) + " · 含思考和正文",
-              26 + column, identityHeight, column, [this, maximum] {
+              uiMetrics_.dp(26) + column, identityHeight, column, [this, maximum] {
     edit(std::to_string(maximum), "最大输出 token", [this](const std::string &value) {
       try {
         size_t used; const int n = std::stoi(value, &used);
@@ -88,7 +88,7 @@ void App::anthropicModelPage() {
       } catch (const std::exception &e) { modal("最大输出未修改", e.what()); }
     }, 7, "EnUSOnly", {}, false);
   });
-  int y = identityHeight+72, n = 0;
+  int y = identityHeight+uiMetrics_.dp(72), n = 0;
   if (mode != "off") {
     auto levels = caps.value("levels", Json::object());
     for (const auto &key : effortOrder()) {
@@ -96,16 +96,16 @@ void App::anthropicModelPage() {
       if (modelAdvanced_ && !levels.contains(key)) continue;
       if (modelAdvanced_) {
         settingsRow("thinking_" + key, effortLabel(key), levels[key].get<std::string>() + (mode == "budget" && key != "none" ? " token" : ""),
-                    10, y, width - 20, [this, key] {
+                    uiMetrics_.dp(10), y, width - uiMetrics_.dp(20), [this, key] {
           edit(modelForm_["reasoning"]["levels"][key].get<std::string>(), "此档 API 参数值", [this, key](const std::string &value) {
             if (value.find_first_not_of(" \t\r\n") != std::string::npos) modelForm_["reasoning"]["levels"][key] = value;
             build();
           }, 32, "EnUSOnly", {}, false);
         });
-        y += 64;
+        y += uiMetrics_.form().settingsPitch;
       } else {
         auto b = button(pageContent_, std::string(levels.contains(key) ? "● " : "○ ") + effortLabel(key),
-               10 + (n % 2) * (column + 16), y + (n / 2) * 48, column, 44, [this, key, mode] {
+               uiMetrics_.dp(10) + (n % 2) * (column + uiMetrics_.dp(16)), y + (n / 2) * uiMetrics_.dp(48), column, uiMetrics_.dp(44), [this, key, mode] {
           auto &choices = modelForm_["reasoning"]["levels"];
           if (choices.contains(key)) choices.erase(key);
           else choices[key] = mode == "budget" || key == "none" ? anthropicBudget(key) : key;
@@ -115,25 +115,25 @@ void App::anthropicModelPage() {
         ++n;
       }
     }
-    if (!modelAdvanced_) y += ((n + 1) / 2) * 48;
-    y += 8;
-    settingsRow("thinking_disable", "支持关闭思考", "仅在模型确实支持时启用即时档", 10, y, column, [this] {
+    if (!modelAdvanced_) y += ((n + 1) / 2) * uiMetrics_.dp(48);
+    y += uiMetrics_.dp(8);
+    settingsRow("thinking_disable", "支持关闭思考", "仅在模型确实支持时启用即时档", uiMetrics_.dp(10), y, column, [this] {
       auto &next = modelForm_["reasoning"]; const bool enabled = next.value("disable", false);
       next["disable"] = !enabled; if (enabled) next["levels"].erase("none"); build();
     }, caps.value("disable", false));
-    settingsRow("thinking_summary", "请求可读思考", "仅影响下一次请求", 26 + column, y, column, [this] {
+    settingsRow("thinking_summary", "请求可读思考", "仅影响下一次请求", uiMetrics_.dp(26) + column, y, column, [this] {
       auto &next = modelForm_["reasoning"]; const bool enabled = next.value("summary", false);
       next["summary"] = !enabled; build();
-    }, caps.value("summary", false)); y += 64;
+    }, caps.value("summary", false)); y += uiMetrics_.form().settingsPitch;
     if (modelAdvanced_) {
-      settingsRow("thinking_display", "支持 display 参数", "未知中转默认不发送该扩展", 10, y, width - 20, [this] {
+      settingsRow("thinking_display", "支持 display 参数", "未知中转默认不发送该扩展", uiMetrics_.dp(10), y, width - uiMetrics_.dp(20), [this] {
         auto &next = modelForm_["reasoning"]; const bool enabled = next.value("display_supported", false);
         next["display_supported"] = !enabled; build();
-      }, caps.value("display_supported", false)); y += 64;
+      }, caps.value("display_supported", false)); y += uiMetrics_.form().settingsPitch;
     }
   }
   modelCapabilityRows(y);
   label(pageContent_, "API默认省略思考参数。输出额度为Messages必填项，匹配不修改它。固定思考预算须小于输出额度。",
-        10, y + 264, width - 20, 16, theme::muted);
+        uiMetrics_.dp(10), y + uiMetrics_.dp(264), width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::muted);
 }
 } // namespace penchat

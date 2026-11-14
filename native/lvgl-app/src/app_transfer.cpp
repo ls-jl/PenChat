@@ -144,7 +144,7 @@ void App::transferEvent(const Event &e) {
     transferScreen_ = "preview";
   } else if (op == "export" && data.value("needs_missing", false)) {
     modal("部分附件不可用", "可取消并检查原图，也可明确选择仅导出可用内容。");
-    button(modal_, "仅导出可用内容", 20, 200, 260, 44, [this] {
+    button(modal_, "仅导出可用内容", uiMetrics_.dp(20), uiMetrics_.dp(200), uiMetrics_.dp(260), uiMetrics_.dp(44), [this] {
       auto args = transferExportArgs_;
       args["allow_missing"] = true;
       lv_obj_delete(modal_);
@@ -189,8 +189,8 @@ void App::transferBack() {
 }
 void App::transferPage() {
   transferActions_.clear();
-  const int width = layout().contentWidth(), column = (width - 14) / 2,
-            right = 10 + column + 14;
+  const int width = layout().contentWidth(), column = (width - uiMetrics_.dp(14)) / 2,
+            right = uiMetrics_.dp(10) + column + uiMetrics_.dp(14);
   pageHeader(transferScreen_ == "format_index"     ? "格式规范"
              : transferScreen_.compare(0,7,"format_") == 0 ?
                  (transferScreen_ == "format_chats" ? "聊天包规范" : transferScreen_ == "format_presets" ? "预设规范" : "Markdown导入规范")
@@ -202,7 +202,7 @@ void App::transferPage() {
                                                    : "选择导入文件");
   auto action = [&](const std::string &name, int x, int y, std::function<void()> fn,
                     int w = 0) {
-    auto object = button(pageContent_, name, x, y, w ? w : column, 48, std::move(fn), theme::surface,
+    auto object = button(pageContent_, name, x, y, w ? w : column, uiMetrics_.dp(48), std::move(fn), theme::surface,
                          LV_TEXT_ALIGN_LEFT);
     transferActions_[name] = object;
     return object;
@@ -213,15 +213,15 @@ void App::transferPage() {
                               : transferOp_ == "import" ? "正在保存导入内容…"
                               : (transferOp_ == "export" || transferOp_ == "export_format") ? "正在导出…"
                                                         : "正在读取…",
-                              12, 12, width, 23);
-    readableLabel(pageContent_, "正在处理文件，请稍候。", 12, 58, width, 19, theme::muted);
-    action("取消", 10, 114, [this] { transfer_->cancel(); });
+                              uiMetrics_.dp(12), uiMetrics_.dp(12), width, uiMetrics_.fontSize(UiFont::EmptyTitle));
+    readableLabel(pageContent_, "正在处理文件，请稍候。", uiMetrics_.dp(12), uiMetrics_.dp(58), width, uiMetrics_.fontSize(UiFont::FormCaption), theme::muted);
+    action("取消", uiMetrics_.dp(10), uiMetrics_.dp(114), [this] { transfer_->cancel(); });
     return;
   }
   int top = 0;
   if (!transferError_.empty()) {
-    auto hint = readableLabel(pageContent_, transferError_, 12, 4, column, 19, theme::muted);
-    lv_obj_set_height(hint, 44);
+    auto hint = readableLabel(pageContent_, transferError_, uiMetrics_.dp(12), uiMetrics_.dp(4), column, uiMetrics_.fontSize(UiFont::FormCaption), theme::muted);
+    lv_obj_set_height(hint, uiMetrics_.dp(44));
     lv_label_set_long_mode(hint, LV_LABEL_LONG_MODE_DOTS);
     action("查看原因 / 关闭提示", right, 0, [this] {
       auto message = transferError_;
@@ -229,10 +229,10 @@ void App::transferPage() {
       build();
       modal("操作未完成", message);
     });
-    top = 60;
+    top = uiMetrics_.dp(60);
   }
   if (transferScreen_ == "home") {
-    readableLabel(pageContent_, transfer_->root(), 12, top + 4, width, 18, theme::muted);
+    readableLabel(pageContent_, transfer_->root(), uiMetrics_.dp(12), top + uiMetrics_.dp(4), width, uiMetrics_.fontSize(UiFont::FormNote), theme::muted);
     auto choose = [this](const std::string &screen, const std::string &kind,
                          const std::string &op) {
       transferScreen_ = screen;
@@ -243,40 +243,40 @@ void App::transferPage() {
       transferData_ = Json::object();
       transferRequest(op, {{"kind", kind}});
     };
-    action("聊天导出", 10, top + 36,
+    action("聊天导出", uiMetrics_.dp(10), top + uiMetrics_.dp(36),
            [choose] { choose("export_chats", "chats", "choices"); });
-    action("聊天导入", right, top + 36,
+    action("聊天导入", right, top + uiMetrics_.dp(36),
            [choose] { choose("import_chats", "chats", "list"); });
-    action("预设导出", 10, top + 96,
+    action("预设导出", uiMetrics_.dp(10), top + uiMetrics_.dp(96),
            [choose] { choose("export_presets", "presets", "choices"); });
-    action("预设导入", right, top + 96,
+    action("预设导入", right, top + uiMetrics_.dp(96),
            [choose] { choose("import_presets", "presets", "list"); });
-    action("查看格式规范", 10, top + 156, [this] { transferNavigate("format_index"); });
-    action("导出格式规范", right, top + 156, [this] { transferExportFormat(); });
-    readableLabel(pageContent_, "将文件放入对应的导入目录，刷新后选择。", 12, top + 216, width, 18,
+    action("查看格式规范", uiMetrics_.dp(10), top + uiMetrics_.dp(156), [this] { transferNavigate("format_index"); });
+    action("导出格式规范", right, top + uiMetrics_.dp(156), [this] { transferExportFormat(); });
+    readableLabel(pageContent_, "将文件放入对应的导入目录，刷新后选择。", uiMetrics_.dp(12), top + uiMetrics_.dp(216), width, uiMetrics_.fontSize(UiFont::FormNote),
           theme::muted);
     return;
   }
   if (transferScreen_ == "format_index") {
-    readableLabel(pageContent_, "格式版本" + std::to_string(TransferFormatVersion) + " · 离线说明与虚构示例", 12, top + 4, width, 18, theme::muted);
-    action("聊天包", 10, top + 36, [this] { transferNavigate("format_chats"); });
-    action("会话预设", right, top + 36, [this] { transferNavigate("format_presets"); });
-    action("普通 Markdown", 10, top + 96, [this] { transferNavigate("format_markdown"); });
-    action("导出说明与示例 ZIP", right, top + 96, [this] { transferExportFormat(); });
-    readableLabel(pageContent_, "外层规范 ZIP 需要先解压，示例聊天包可直接导入。", 12, top + 158, width, 18, theme::muted);
+    readableLabel(pageContent_, "格式版本" + std::to_string(TransferFormatVersion) + " · 离线说明与虚构示例", uiMetrics_.dp(12), top + uiMetrics_.dp(4), width, uiMetrics_.fontSize(UiFont::FormNote), theme::muted);
+    action("聊天包", uiMetrics_.dp(10), top + uiMetrics_.dp(36), [this] { transferNavigate("format_chats"); });
+    action("会话预设", right, top + uiMetrics_.dp(36), [this] { transferNavigate("format_presets"); });
+    action("普通 Markdown", uiMetrics_.dp(10), top + uiMetrics_.dp(96), [this] { transferNavigate("format_markdown"); });
+    action("导出说明与示例 ZIP", right, top + uiMetrics_.dp(96), [this] { transferExportFormat(); });
+    readableLabel(pageContent_, "外层规范 ZIP 需要先解压，示例聊天包可直接导入。", uiMetrics_.dp(12), top + uiMetrics_.dp(158), width, uiMetrics_.fontSize(UiFont::FormNote), theme::muted);
     return;
   }
   if (transferScreen_.compare(0,7,"format_") == 0) {
-    action("规范目录", 10, top + 4, [this] { transferNavigate("format_index"); });
-    action("导出格式规范", right, top + 4, [this] { transferExportFormat(); });
+    action("规范目录", uiMetrics_.dp(10), top + uiMetrics_.dp(4), [this] { transferNavigate("format_index"); });
+    action("导出格式规范", right, top + uiMetrics_.dp(4), [this] { transferExportFormat(); });
     if (!transferData_.contains("text")) {
-      readableLabel(pageContent_, "规范未读取，请重试。", 12, top + 70, width, 20, theme::muted);
-      action("重新读取", 10, top + 110, [this] { transferRequest("format", {{"topic", transferScreen_.substr(7)}}); });
+      readableLabel(pageContent_, "规范未读取，请重试。", uiMetrics_.dp(12), top + uiMetrics_.dp(70), width, uiMetrics_.fontSize(UiFont::SettingsTitle), theme::muted);
+      action("重新读取", uiMetrics_.dp(10), top + uiMetrics_.dp(110), [this] { transferRequest("format", {{"topic", transferScreen_.substr(7)}}); });
       return;
     }
-    auto content = box(pageContent_, 10, top + 68, width, LV_SIZE_CONTENT, theme::background);
+    auto content = box(pageContent_, uiMetrics_.dp(10), top + uiMetrics_.dp(68), width, LV_SIZE_CONTENT, theme::background);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(content, 8, 0);
+    lv_obj_set_style_pad_row(content,uiMetrics_.dp(8), 0);
     lv_obj_set_scrollable(content, false);
     auto text = transferData_.value("text", std::string());
     // The contextual page title replaces the source H1 on a small screen.
@@ -297,17 +297,17 @@ void App::transferPage() {
               ? (transferData_.value("format_spec", false) ? "格式规范与示例已保存" : "导出文件已保存")
               : "导入完成：新增 " + std::to_string(transferData_.value("added", 0)) +
                     " 项",
-          12, top + 4, width, 24);
+          uiMetrics_.dp(12), top + uiMetrics_.dp(4), width, uiMetrics_.fontSize(UiFont::Heading));
     readableLabel(pageContent_,
           transferData_.value("path", std::string("现有会话和全局默认配置已保留。")),
-          12, top + 44, width, 19, theme::muted);
+          uiMetrics_.dp(12), top + uiMetrics_.dp(44), width, uiMetrics_.fontSize(UiFont::FormCaption), theme::muted);
     if (transferData_.value("format_spec", false)) {
       readableLabel(pageContent_, db_.settings().value("persistent_export_directory", false) ?
             "解压规范 ZIP 后，按使用说明复制示例。" : "持久化导出目录已关闭：退出会清理此 ZIP，请先复制。",
-            12, top + 96, width, 18, theme::muted);
+            uiMetrics_.dp(12), top + uiMetrics_.dp(96), width, uiMetrics_.fontSize(UiFont::FormNote), theme::muted);
     }
     action(transferData_.value("format_spec", false) && transferFormatReturn_ != "home" ? "返回格式规范" : "返回导入与导出",
-           10, top + 140, [this] {
+           uiMetrics_.dp(10), top + uiMetrics_.dp(140), [this] {
       if (transferData_.value("format_spec", false)) transferNavigate(transferFormatReturn_);
       else { transferScreen_ = "home"; build(); }
     });
@@ -315,43 +315,43 @@ void App::transferPage() {
   }
   if (transferScreen_ == "mapping") {
     action(
-        "待配置（保留原模型名称）", 10, top + 4,
+        "待配置（保留原模型名称）", uiMetrics_.dp(10), top + uiMetrics_.dp(4),
         [this] {
           transferMapping_[transferMapKey_] = "";
           transferScreen_ = "preview";
           build();
         },
         width);
-    int y = top + 62;
+    int y = top + uiMetrics_.dp(62);
     for (const auto &m : db_.models()) {
       auto id = m.at("id").get<std::string>();
       action(
           m.value("provider_name", std::string()) + " / " +
               m.value("name", std::string()),
-          10, y,
+          uiMetrics_.dp(10), y,
           [this, id] {
             transferMapping_[transferMapKey_] = id;
             transferScreen_ = "preview";
             build();
           },
           width);
-      y += 56;
+      y += uiMetrics_.dp(56);
     }
     return;
   }
   if (transferScreen_ == "preview") {
     auto &p = transferPreview_;
     auto filename = button(
-        pageContent_, p.value("file", std::string()), 10, top, width, 44,
+        pageContent_, p.value("file", std::string()), uiMetrics_.dp(10), top, width, uiMetrics_.dp(44),
         [this] { modal("完整文件名", transferPreview_.value("file", std::string())); },
         theme::background, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_style_text_font(lv_obj_get_child(filename, 0), font(18), 0);
+    lv_obj_set_style_text_font(lv_obj_get_child(filename, 0), font(uiMetrics_.fontSize(UiFont::FormNote)), 0);
     readableLabel(pageContent_,
           std::to_string(p.at("items").size()) + " 项 / " +
               std::to_string(p.value("pictures", 0)) + " 张图片 / 约 " +
               std::to_string((p.value("bytes", uint64_t(0)) + 1023) / 1024) + " KiB",
-          12, top + 48, width, 20);
-    action("导入所选（" + std::to_string(transferIndices_.size()) + "）", 10, top + 84,
+          uiMetrics_.dp(12), top + uiMetrics_.dp(48), width, uiMetrics_.fontSize(UiFont::SettingsTitle));
+    action("导入所选（" + std::to_string(transferIndices_.size()) + "）", uiMetrics_.dp(10), top + uiMetrics_.dp(84),
            [this] {
              Json indices = Json::array();
              for (auto i : transferIndices_)
@@ -364,14 +364,14 @@ void App::transferPage() {
                               {"default_action", transferDefaultAction_},
                               {"default_confirm", transferDefaultConfirmed_}});
            });
-    action(transferCopy_ ? "重复内容：另存副本" : "重复内容：跳过", right, top + 84,
+    action(transferCopy_ ? "重复内容：另存副本" : "重复内容：跳过", right, top + uiMetrics_.dp(84),
            [this] {
              transferCopy_ = !transferCopy_;
              build();
            });
-    int y = top + 144;
+    int y = top + uiMetrics_.dp(144);
     if (!p.at("missing").empty()) {
-      action("查看缺失附件（" + std::to_string(p["missing"].size()) + "）", 10, y,
+      action("查看缺失附件（" + std::to_string(p["missing"].size()) + "）", uiMetrics_.dp(10), y,
              [this] {
                std::string text;
                for (const auto &file : transferPreview_["missing"])
@@ -383,13 +383,13 @@ void App::transferPage() {
                transferMissing_ = !transferMissing_;
                build();
              });
-      y += 56;
+      y += uiMetrics_.dp(56);
     }
     if (p.contains("default_diff")) {
       auto mode = transferDefaultAction_ == "replace" ? "替换默认预设"
                   : transferDefaultAction_ == "copy"  ? "导为普通预设"
                                                       : "跳过默认预设";
-      action(mode, 10, y, [this] {
+      action(mode, uiMetrics_.dp(10), y, [this] {
         transferDefaultAction_ = transferDefaultAction_ == "replace" ? "copy"
                                  : transferDefaultAction_ == "copy"  ? "skip"
                                                                      : "replace";
@@ -407,18 +407,18 @@ void App::transferPage() {
                                   " · " + presetSummary(after) + "\n" +
                                   after.value("prompt", std::string()));
       });
-      y += 56;
+      y += uiMetrics_.dp(56);
       if (transferDefaultAction_ == "replace") {
         action(
             transferDefaultConfirmed_ ? "✓ 已确认替换默认预设"
                                       : "□ 确认替换当前默认预设",
-            10, y,
+            uiMetrics_.dp(10), y,
             [this] {
               transferDefaultConfirmed_ = !transferDefaultConfirmed_;
               build();
             },
             width);
-        y += 56;
+        y += uiMetrics_.dp(56);
       }
     }
     for (const auto &m : p.at("models")) {
@@ -431,14 +431,14 @@ void App::transferPage() {
       auto title = m["descriptor"].value("provider", std::string()) + " / " +
                    m["descriptor"].value("name", std::string()) + " → " + local;
       action(
-          title, 10, y,
+          title, uiMetrics_.dp(10), y,
           [this, key] {
             transferMapKey_ = key;
             transferScreen_ = "mapping";
             build();
           },
           width);
-      y += 56;
+      y += uiMetrics_.dp(56);
     }
     for (const auto &row : p.at("items")) {
       auto i = row.at("index").get<size_t>();
@@ -449,7 +449,7 @@ void App::transferPage() {
                         ? ""
                         : " · " + row.at("warning").get<std::string>());
       action(
-          title, 10, y,
+          title, uiMetrics_.dp(10), y,
           [this, i] {
             if (transferIndices_.count(i))
               transferIndices_.erase(i);
@@ -458,7 +458,7 @@ void App::transferPage() {
             build();
           },
           width);
-      y += 56;
+      y += uiMetrics_.dp(56);
     }
     return;
   }
@@ -472,13 +472,13 @@ void App::transferPage() {
         ids.push_back(id);
       transferRequest("export", {{"kind", transferKind_}, {"ids", ids}, {"all", all}});
     };
-    action("导出所选（" + std::to_string(transferSelected_.size()) + "）", 10, y,
+    action("导出所选（" + std::to_string(transferSelected_.size()) + "）", uiMetrics_.dp(10), y,
            [send] { send(false); });
     action(transferKind_ == "chats" ? "导出全部（含归档）" : "导出全部预设", right, y,
            [send] { send(true); });
-    y += 56;
+    y += uiMetrics_.dp(56);
     if (transferKind_ == "chats") {
-      action(transferArchived_ ? "归档会话 · 点击切换" : "活动会话 · 点击切换", 10, y,
+      action(transferArchived_ ? "归档会话 · 点击切换" : "活动会话 · 点击切换", uiMetrics_.dp(10), y,
              [this] {
                transferArchived_ = !transferArchived_;
                transferOffset_ = 0;
@@ -491,10 +491,10 @@ void App::transferPage() {
           transferSelected_.insert(r.at("id").get<std::string>());
         build();
       });
-      y += 56;
+      y += uiMetrics_.dp(56);
     }
   } else {
-    action("刷新文件列表", 10, y,
+    action("刷新文件列表", uiMetrics_.dp(10), y,
            [this] { transferRequest("list", {{"kind", transferKind_}}); });
     action("目录说明", right, y, [this] {
       modal("导入目录",
@@ -502,11 +502,11 @@ void App::transferPage() {
                 (transferKind_ == "chats" ? std::string("和 Markdown；原文件保留。")
                                           : std::string("；原文件保留。")));
     });
-    y += 56;
+    y += uiMetrics_.dp(56);
   }
   if (rows.empty()) {
-    readableLabel(pageContent_, "暂无可选内容", 12, y + 8, width, 22, theme::muted);
-    y += 48;
+    readableLabel(pageContent_, "暂无可选内容", uiMetrics_.dp(12), y + uiMetrics_.dp(8), width, uiMetrics_.fontSize(UiFont::LargeCaption), theme::muted);
+    y += uiMetrics_.dp(48);
   }
   for (const auto &row : rows) {
     auto id = row.at(exporting ? "id" : "name").get<std::string>();
@@ -515,7 +515,7 @@ void App::transferPage() {
                           : id;
     action((exporting ? std::string(transferSelected_.count(id) ? "✓ " : "□ ") : "") +
                text,
-           10, y,
+           uiMetrics_.dp(10), y,
            [this, id, exporting] {
              if (exporting) {
                if (transferSelected_.count(id))
@@ -527,11 +527,11 @@ void App::transferPage() {
                transferRequest("preview", {{"kind", transferKind_}, {"name", id}});
            },
            width);
-    y += 56;
+    y += uiMetrics_.dp(56);
   }
   if (exporting && transferKind_ == "chats") {
     if (transferOffset_ > 0)
-      action("上一页", 10, y, [this] {
+      action("上一页", uiMetrics_.dp(10), y, [this] {
         transferOffset_ = std::max(0, transferOffset_ - 30);
         transferRequest("choices", {{"kind", "chats"},
                                     {"offset", transferOffset_},

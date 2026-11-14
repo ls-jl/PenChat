@@ -17,7 +17,7 @@ void App::cancelBalances() {
 }
 void App::balanceButton(lv_obj_t *parent,int x,int y,uint32_t background) {
   auto held=std::make_shared<bool>(false);
-  auto wallet=icon(parent,"wallet",x,y,48,48,[this,held]{if(!*held)openBalances();},background);
+  auto wallet=icon(parent,"wallet",x,y,uiMetrics_.dp(48),uiMetrics_.dp(48),[this,held]{if(!*held)openBalances();},background);
   balanceShortcut_=wallet;
   struct Press {App *app;std::shared_ptr<bool> held;};
   auto press=new Press{this,held};
@@ -33,26 +33,26 @@ void App::openBalances() {
   if (navigationList_) navigationScroll_ = std::max(0, int(lv_obj_get_scroll_y(navigationList_)));
   const bool inDrawer=layout().portrait() && navigationOpen_;
   if(!inDrawer)closeNavigation(false);
-  auto list=contextMenu("balances",layout().portrait()?8:4,layout().portrait()?340:360);
+  auto list=contextMenu("balances",layout().portrait()?8:4,uiMetrics_.dp(layout().portrait()?340:360));
   if(inDrawer) {
     // The wallet is a drawer action, not a navigation away from history. Keep
     // both its reader and selection alive below the dismissible balance layer.
-    const int left=std::max(popupSafeArea(screen_.width,screen_.height,roundedDisplay_).x,
+    const int left=std::max(popupSafeArea(screen_.width,screen_.height,roundedDisplay_,uiMetrics_).x,
         layout().safety().sideInset(lv_obj_get_y(contextMenuPanel_),lv_obj_get_height(contextMenuPanel_)));
-    const int width=std::min(int(lv_obj_get_width(contextMenuPanel_)),screen_.width*2/3-left-8);
+    const int width=std::min(int(lv_obj_get_width(contextMenuPanel_)),screen_.width*2/3-left-uiMetrics_.dp(8));
     lv_obj_set_x(contextMenuPanel_,left);
     lv_obj_set_width(contextMenuPanel_,width);
-    lv_obj_set_width(list,width-16);
+    lv_obj_set_width(list,width-uiMetrics_.dp(16));
   }
-  const int padding=layout().portrait()?8:4;
+  const int padding=uiMetrics_.dp(layout().portrait()?8:4);
   const int width=lv_obj_get_width(contextMenuPanel_);
-  auto title=label(contextMenuPanel_,"账户余额",padding+12,padding+10,width-152,21);
-  lv_obj_set_height(title,font(21)->line_height);
-  balanceRefresh_=button(contextMenuPanel_,"刷新",width-padding-112,padding,112,44,[this]{refreshBalances();},theme::surface);
-  lv_obj_set_style_radius(balanceRefresh_,22,0);
-  auto divider=box(contextMenuPanel_,padding+12,padding+49,width-2*padding-24,1,theme::border);
+  auto title=label(contextMenuPanel_,"账户余额",padding+uiMetrics_.dp(12),padding+uiMetrics_.dp(10),width-uiMetrics_.dp(152),uiMetrics_.fontSize(UiFont::Body));
+  lv_obj_set_height(title,font(uiMetrics_.fontSize(UiFont::Body))->line_height);
+  balanceRefresh_=button(contextMenuPanel_,"刷新",width-padding-uiMetrics_.dp(112),padding,uiMetrics_.dp(112),uiMetrics_.dp(44),[this]{refreshBalances();},theme::surface);
+  lv_obj_set_style_radius(balanceRefresh_,uiMetrics_.dp(22),0);
+  auto divider=box(contextMenuPanel_,padding+uiMetrics_.dp(12),padding+uiMetrics_.dp(49),width-2*padding-uiMetrics_.dp(24),uiMetrics_.dp(1),theme::border);
   lv_obj_set_clickable(divider,false);lv_obj_set_scrollable(divider,false);
-  lv_obj_set_y(list,padding+52);lv_obj_set_height(list,lv_obj_get_height(contextMenuPanel_)-2*padding-52);
+  lv_obj_set_y(list,padding+uiMetrics_.dp(52));lv_obj_set_height(list,lv_obj_get_height(contextMenuPanel_)-2*padding-uiMetrics_.dp(52));
   refreshBalances();
 }
 void App::refreshBalances() {
@@ -124,11 +124,12 @@ void App::balancePage() {
     lv_label_set_text(lv_obj_get_child(balanceRefresh_,0),balancePending_.empty()?"刷新":"刷新中…");
     lv_obj_set_disabled(balanceRefresh_,!balancePending_.empty());
   }
-  const int left=10;
+  const int left=uiMetrics_.dp(10);
   const int width=lv_obj_get_width(reader)-2*left;
   balanceDetailActions_.clear();
-  int y = 4, count = 0;
+  int y = uiMetrics_.dp(4), count = 0;
   auto text = [&](const std::string &value, int size, uint32_t color) {
+    size=uiMetrics_.dp(size);
     auto line = readableLabel(reader, value, left, y, width, size, color);
     lv_obj_update_layout(line); y += lv_obj_get_height(line) + 8;
   };
@@ -136,7 +137,7 @@ void App::balancePage() {
     const auto vendor = objectField(provider, "metadata_json").value("balance_vendor", std::string());
     if (vendor.empty()) continue;
     ++count;
-    if(count>1){auto line=box(reader,left,y-10,width,1,theme::border);lv_obj_set_clickable(line,false);lv_obj_set_scrollable(line,false);}
+    if(count>1){auto line=box(reader,left,y-uiMetrics_.dp(10),width,uiMetrics_.dp(1),theme::border);lv_obj_set_clickable(line,false);lv_obj_set_scrollable(line,false);}
     const auto id = provider.at("id").get<std::string>();
     auto found = balanceResults_.find(id);
     const bool have = found != balanceResults_.end() && found->second.value("identity", std::string()) == balanceIdentity(provider);
@@ -144,18 +145,18 @@ void App::balancePage() {
     const auto balances = result.value("balances", Json::array());
     bool details=false;
     for(const auto &money:balances)details=details||!money.at("details").empty();
-    const int captionY=y+(details?std::max(0,(44-int(font(18)->line_height))/2):0);
-    auto caption=label(reader,provider.value("name",std::string("服务商")),left,captionY,width-(details?52:0),18,theme::muted);
-    lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(caption,font(21)->line_height);
+    const int captionY=y+(details?std::max(0,(uiMetrics_.dp(44)-int(font(uiMetrics_.fontSize(UiFont::FormNote))->line_height))/2):0);
+    auto caption=label(reader,provider.value("name",std::string("服务商")),left,captionY,width-(details?uiMetrics_.dp(52):0),uiMetrics_.fontSize(UiFont::FormNote),theme::muted);
+    lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(caption,font(uiMetrics_.fontSize(UiFont::Body))->line_height);
     if(details) {
-      auto arrow=icon(reader,balanceExpanded_.count(id)?"chevron-down":"chevron-right",left+width-44,y,44,44,[this,id]{
+      auto arrow=icon(reader,balanceExpanded_.count(id)?"chevron-down":"chevron-right",left+width-uiMetrics_.dp(44),y,uiMetrics_.dp(44),uiMetrics_.dp(44),[this,id]{
         if(balanceExpanded_.count(id))balanceExpanded_.erase(id);else balanceExpanded_.insert(id);
         balancePage();
       },theme::popup,theme::muted);
       lv_obj_set_style_bg_color(arrow,lv_color_hex(theme::surface),LV_STATE_PRESSED);
       balanceDetailActions_[id]=arrow;
     }
-    y+=std::max(int(font(18)->line_height),details?44:0)+8;
+    y+=std::max(int(font(uiMetrics_.fontSize(UiFont::FormNote))->line_height),details?44:0)+8;
     const bool pending = balancePending_.count(id);
     if (pending) text(balances.empty() ? "正在查询…" : "正在刷新，以下为上次结果", 17, theme::muted);
     else if (result.value("status", std::string()) == "error") {
@@ -178,7 +179,7 @@ void App::balancePage() {
       localtime_r(&seconds, &local); strftime(formatted, sizeof(formatted), "%Y-%m-%d %H:%M:%S", &local);
       text(std::string("查询时间：") + formatted, 14, theme::muted);
     }
-    y += 20;
+    y += uiMetrics_.dp(20);
   }
   if (!count) text("尚未启用余额查询。请在模型管理 → Provider详情中选择“余额查询厂商”，保存后返回。", 20, theme::muted);
   lv_obj_update_layout(reader);lv_obj_scroll_to_y(reader,scroll,LV_ANIM_OFF);

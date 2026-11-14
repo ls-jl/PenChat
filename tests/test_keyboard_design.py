@@ -10,21 +10,21 @@ from image_gestures import capture
 t.port = 1
 FIELDS = ('keys', 'text_bounds', 'candidate_y', 'function_y', 'panel_top',
           'keyboard_split', 'keyboard_origin', 'coordinate_space',
-          'composition_bounds', 'candidate_bounds')
+          'composition_bounds', 'candidate_bounds', 'keyboard_swapped')
 
 
-def scenario(binary, output, width, height, split=False, swap=False):
+def scenario(binary, output, width, height, split=False, swap=False, scale=100):
     name = f'{width}x{height}-' + ('split' if split else 'default') + ('-swap' if swap else '')
     result = {}
     with tempfile.TemporaryDirectory(prefix='penchat-keyboard-design-') as folder:
         app = t.Native(binary, folder, seed_model=False, official_adapter=False,
-                       screen={'width': width, 'height': height, 'direction': 0})
+                       screen={'width': width, 'height': height, 'direction': 0},
+                       ui_scale_percent=None if scale==100 else scale)
         try:
             if swap:
                 app.open_settings()
                 app.setting('keyboard')
-                bounds=app.diag()['settings']['rows']['wide_keyboard_swap']['bounds']
-                app.tap((bounds[0]+bounds[2])//2, (bounds[1]+bounds[3])//2)
+                app.setting('wide_keyboard_swap')
                 app.to_chat()
             bounds = app.diag()['composer_text_bounds']
             app.tap((bounds[0]+bounds[2])//2, (bounds[1]+bounds[3])//2)
@@ -45,6 +45,10 @@ def scenario(binary, output, width, height, split=False, swap=False):
                 app.editor_action('layout:'+str(value))
             def record(label):
                 current = state()
+                if scale!=100:
+                    assert current['requested_scale']==scale
+                    assert min(100,scale)<=current['effective_scale']<=scale
+                assert current['keyboard_swapped'] == (swap and not current['compact_full'])
                 assert current['session'] == session
                 result[label] = {k: current[k] for k in FIELDS}
                 for item in current['keys']:
@@ -97,4 +101,9 @@ if __name__ == '__main__':
             for state, snapshot in before.items():
                 for field, value in snapshot.items():
                     assert after[state][field] == value, (fixture, state, field, value, after[state][field])
+            width,height,split,swap=fixture
+            prefix=f'{width}x{height}-'+('split' if split else 'default')+('-swap' if swap else '')
+            for state in before:
+                name=prefix+'-'+state+'.png'
+                assert (directory/name).read_bytes()==(args.output/name).read_bytes(), name
         print('Keyboard template geometry, modes and session preserved:', fixture, flush=True)

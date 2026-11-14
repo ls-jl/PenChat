@@ -3,8 +3,8 @@ namespace penchat {
 void App::apiCompatibilityPage() {
   pageHeader("API 兼容模式");
   const int width = layout().contentWidth();
-  const int column = (width - 36) / 2;
-  const int right = 26 + column;
+  const int column = (width - uiMetrics_.dp(36)) / 2;
+  const int right = uiMetrics_.dp(26) + column;
   const auto config = objectField(providerForm_, "compatibility");
   const bool anthropic = providerForm_.value("api", std::string()) == "anthropic";
   const bool enabled = config.value("enabled", false);
@@ -16,20 +16,20 @@ void App::apiCompatibilityPage() {
       next[key] = !checked; providerForm_["compatibility"] = next; build();
     }, checked);
   };
-  toggle("enabled", "启用兼容模式", "仅此 Provider 生效，返回后保存 Provider", 10, 4, width - 20, false);
-  int timeoutY = 76;
+  toggle("enabled", "启用兼容模式", "仅此 Provider 生效，返回后保存 Provider", uiMetrics_.dp(10), uiMetrics_.dp(4), width - uiMetrics_.dp(20), false);
+  int timeoutY = uiMetrics_.dp(76);
   if (enabled) {
-    toggle("streaming", "流式输出", "关闭后等待完整回复", 10, 76, column, true);
-    if (!anthropic) toggle("usage", "流式用量统计", "不支持 stream_options 时关闭", right, 76, column, true);
+    toggle("streaming", "流式输出", "关闭后等待完整回复", uiMetrics_.dp(10), uiMetrics_.dp(76), column, true);
+    if (!anthropic) toggle("usage", "流式用量统计", "不支持 stream_options 时关闭", right, uiMetrics_.dp(76), column, true);
     toggle("summary", anthropic ? "请求可读思考" : "公开思考摘要",
-           anthropic ? "支持 display 参数时请求总结" : "关闭后不请求公开总结", 10, 140, column, true);
-    toggle("replay", "加密思考续传", "关闭后仅用历史正文继续", right, 140, column, true);
-    toggle("http1", "强制 HTTP/1.1", "仅在代理连接不良时启用", 10, 204, column, false);
-    timeoutY = 204;
+           anthropic ? "支持 display 参数时请求总结" : "关闭后不请求公开总结", uiMetrics_.dp(10), uiMetrics_.dp(140), column, true);
+    toggle("replay", "加密思考续传", "关闭后仅用历史正文继续", right, uiMetrics_.dp(140), column, true);
+    toggle("http1", "强制 HTTP/1.1", "仅在代理连接不良时启用", uiMetrics_.dp(10), uiMetrics_.dp(204), column, false);
+    timeoutY = uiMetrics_.dp(204);
   }
   const auto timeout = apiOptions({{"provider_metadata", Json({{"compatibility", config}}).dump()}}).timeout;
   settingsRow("timeout", "请求超时", std::to_string(timeout) + "秒 · 连接超时15秒",
-              enabled ? right : 10, timeoutY, enabled ? column : width - 20,
+              enabled ? right : uiMetrics_.dp(10), timeoutY, enabled ? column : width - uiMetrics_.dp(20),
               [this, timeout] {
     edit(std::to_string(timeout), "请求超时（30～3600秒）", [this](const std::string &value) {
       try {
@@ -41,16 +41,16 @@ void App::apiCompatibilityPage() {
     }, 4, "EnUSOnly", {}, false);
   });
   label(pageContent_, "不自动重发、不降低推理强度。关闭统计或思考扩展会减少对应信息；TLS 校验始终开启。",
-        10, timeoutY + 72, width - 20, 16, theme::muted);
+        uiMetrics_.dp(10), timeoutY + uiMetrics_.dp(72), width - uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::muted);
 }
 void App::httpSettingsPage() {
   pageHeader("连接保留时间");
-  pageAction("恢复默认", 24, 120, [this] {
+  pageAction("恢复默认", uiMetrics_.dp(24), uiMetrics_.dp(120), [this] {
     db_.setting("http_idle_seconds", 90); setHttpIdleSeconds(90); build();
   });
   const int width = layout().contentWidth();
   const auto seconds = httpIdleSeconds();
-  settingsRow("http_idle_seconds", "保留秒数", std::to_string(seconds) + "秒 · 允许15～600秒", 10, 4, width-20, [this, seconds] {
+  settingsRow("http_idle_seconds", "保留秒数", std::to_string(seconds) + "秒 · 允许15～600秒", uiMetrics_.dp(10), uiMetrics_.dp(4), width-uiMetrics_.dp(20), [this, seconds] {
     edit(std::to_string(seconds), "连接保留时间（15～600秒）", [this](const std::string &text) {
       try {
         size_t used=0;const int value=std::stoi(text,&used);
@@ -60,7 +60,7 @@ void App::httpSettingsPage() {
       } catch (...) {modal("保留时间未修改","请输入15～600之间的整数秒数。");}
     },3,"EnUSOnly",{},false);
   });
-  label(pageContent_, "请求结束后计时，服务器可能提前断开", 10, 76, width-20, 18, theme::muted);
-  label(pageContent_, "全应用生效；后台及官方键盘期间保留至到期，退出应用时释放。", 10, 112, width-20, 16, theme::muted);
+  label(pageContent_, "请求结束后计时，服务器可能提前断开", uiMetrics_.dp(10), uiMetrics_.dp(76), width-uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::FormNote), theme::muted);
+  label(pageContent_, "全应用生效；后台及官方键盘期间保留至到期，退出应用时释放。", uiMetrics_.dp(10), uiMetrics_.dp(112), width-uiMetrics_.dp(20), uiMetrics_.fontSize(UiFont::Detail), theme::muted);
 }
 } // namespace penchat

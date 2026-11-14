@@ -18,21 +18,21 @@ bool App::switchDraft(const std::string &next) {
   return true;
 }
 void App::replyToast(const std::string &text) {
-  const int width=std::min(screen_.width-120,std::max(140,int(editLength(text))*20+32));
-  auto toast=box(screenObj_,(screen_.width-width)/2,screen_.height-116,width,44,theme::surface);
-  lv_obj_set_scrollable(toast,false);lv_obj_set_clickable(toast,false);lv_obj_set_style_radius(toast,16,0);
-  auto caption=label(toast,text,8,10,width-16,18);lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(caption,24);lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);lv_obj_delete_delayed(toast,1600);
+  const int width=std::min(screen_.width-uiMetrics_.dp(120),std::max(uiMetrics_.dp(140),int(editLength(text))*uiMetrics_.dp(20)+uiMetrics_.dp(32)));
+  auto toast=box(screenObj_,(screen_.width-width)/2,screen_.height-uiMetrics_.dp(116),width,uiMetrics_.dp(44),theme::surface);
+  lv_obj_set_scrollable(toast,false);lv_obj_set_clickable(toast,false);lv_obj_set_style_radius(toast,uiMetrics_.dp(16),0);
+  auto caption=label(toast,text,uiMetrics_.dp(8),uiMetrics_.dp(10),width-uiMetrics_.dp(16),uiMetrics_.fontSize(UiFont::FormNote));lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);
+  lv_obj_set_height(caption,uiMetrics_.dp(24));lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);lv_obj_delete_delayed(toast,1600);
 }
 void App::replyBar(lv_obj_t *parent,const Json &message,int width,bool question) {
   const auto id=message.at("id").get<std::string>(),session=session_;
   const auto choice=replyChoiceRows_.value(id,Json::object());
   const int ordinal=choice.value("ordinal",1),total=choice.value("total",1);
   if(ordinal>1) {
-    auto hint=label(parent,choice.value("archive",0)?"将从这条回复继续 · 发送时先归档":"将从这条回复继续",0,0,width,16,theme::muted);
-    lv_label_set_long_mode(hint,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(hint,font(16)->line_height);
+    auto hint=label(parent,choice.value("archive",0)?"将从这条回复继续 · 发送时先归档":"将从这条回复继续",0,0,width,uiMetrics_.fontSize(UiFont::Detail),theme::muted);
+    lv_label_set_long_mode(hint,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(hint,font(uiMetrics_.fontSize(UiFont::Detail))->line_height);
   }
-  auto bar=box(parent,0,0,width,48,theme::background);lv_obj_set_scrollable(bar,false);
+  auto bar=box(parent,0,0,width,uiMetrics_.dp(48),theme::background);lv_obj_set_scrollable(bar,false);
   lv_obj_t *buttons[3]{};
   const char *names[]={"copy","retry","branch"};
   const char *titles[]={"复制","重试","创建分支"};
@@ -40,7 +40,7 @@ void App::replyBar(lv_obj_t *parent,const Json &message,int width,bool question)
     struct Press {lv_point_t start{};int distance=0;bool held=false;};
     auto state=std::make_shared<Press>();
     const std::string action=names[i],title=titles[i];
-    buttons[i]=icon(bar,action,i*48,4,44,44,[this,state,session,id,action]{
+    buttons[i]=icon(bar,action,i*uiMetrics_.dp(48),uiMetrics_.dp(4),uiMetrics_.dp(44),uiMetrics_.dp(44),[this,state,session,id,action]{
       if(!state->held&&state->distance<=144)events_.push("reply_action",{{"session",session},{"id",id},{"action",action}});
     },theme::background,theme::muted);
     struct Handler {App *app;std::shared_ptr<Press> press;std::string session,id,title;};
@@ -58,14 +58,14 @@ void App::replyBar(lv_obj_t *parent,const Json &message,int width,bool question)
       }
     },LV_EVENT_ALL,handler);
   }
-  if(!question)label(bar,"无对应问题，无法重试",152,15,width-156,17,theme::muted);
+  if(!question)label(bar,"无对应问题，无法重试",uiMetrics_.dp(152),uiMetrics_.dp(15),width-uiMetrics_.dp(156),uiMetrics_.fontSize(UiFont::FormHint),theme::muted);
   lv_obj_t *previous=nullptr,*next=nullptr;
   if(total>1) {
     auto change=[this,id,session](const char *action){events_.push("reply_action",{{"session",session},{"id",id},{"action",action}});};
-    previous=icon(bar,"chevron-left",width-148,4,44,44,[change]{change("previous");},theme::background,theme::muted);
-    auto count=label(bar,std::to_string(ordinal)+" / "+std::to_string(total),width-104,16,60,16,theme::muted);
-    lv_label_set_long_mode(count,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(count,font(16)->line_height);lv_obj_set_style_text_align(count,LV_TEXT_ALIGN_CENTER,0);
-    next=icon(bar,"chevron-right",width-44,4,44,44,[change]{change("next");},theme::background,theme::muted);
+    previous=icon(bar,"chevron-left",width-uiMetrics_.dp(148),uiMetrics_.dp(4),uiMetrics_.dp(44),uiMetrics_.dp(44),[change]{change("previous");},theme::background,theme::muted);
+    auto count=label(bar,std::to_string(ordinal)+" / "+std::to_string(total),width-uiMetrics_.dp(104),uiMetrics_.dp(16),uiMetrics_.dp(60),uiMetrics_.fontSize(UiFont::Detail),theme::muted);
+    lv_label_set_long_mode(count,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(count,font(uiMetrics_.fontSize(UiFont::Detail))->line_height);lv_obj_set_style_text_align(count,LV_TEXT_ALIGN_CENTER,0);
+    next=icon(bar,"chevron-right",width-uiMetrics_.dp(44),uiMetrics_.dp(4),uiMetrics_.dp(44),uiMetrics_.dp(44),[change]{change("next");},theme::background,theme::muted);
   }
   replyControls_[id]={bar,buttons[0],buttons[1],buttons[2],previous,next,!replyText(message).empty(),question,ordinal,total};
   auto owner=new std::pair<App *,std::string>(this,id);
@@ -119,10 +119,10 @@ void App::retryWarning(const std::string &id) {
     if(lv_event_get_target_obj(e)!=lv_event_get_current_target_obj(e))return;
     auto self=static_cast<App *>(lv_event_get_user_data(e));self->replyConfirmId_.clear();self->replyConfirmModel_=Json::object();
   },LV_EVENT_DELETE,this);
-  const int row=layout().portrait()?theme::portraitPopupRowHeight:theme::popupRowHeight;
+  const int row=layout().portrait()?uiMetrics_.popup().portraitRow:uiMetrics_.popup().row;
   const char *labels[]={"取消","归档当前聊天并重试","直接重试"};
   for(int i=0;i<3;++i) {
-    auto item=button(list,labels[i],0,i*row,lv_obj_get_width(list),row-4,[this,id,i]{
+    auto item=button(list,labels[i],0,i*row,lv_obj_get_width(list),row-uiMetrics_.dp(4),[this,id,i]{
       if(!i){closeHistoryContext();return;}
       events_.push("reply_retry_confirm",{{"session",session_},{"id",id},{"archive",i==1}});
     },theme::popup,LV_TEXT_ALIGN_LEFT);stylePopupRow(item);

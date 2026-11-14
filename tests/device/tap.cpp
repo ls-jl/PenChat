@@ -19,6 +19,22 @@ static bool event(int fd, unsigned short type, unsigned short code, int value)
 
 int main(int argc, char** argv)
 {
+    if (argc == 2 && !strcmp(argv[1], "--discover")) {
+        for (int i=0; i<32; ++i) {
+            char path[64]; snprintf(path,sizeof(path),"/dev/input/event%d",i);
+            int fd=open(path,O_RDONLY|O_CLOEXEC);
+            if(fd<0)continue;
+            unsigned long props[2]={};input_absinfo x={},y={},slot={};
+            bool direct=ioctl(fd,EVIOCGPROP(sizeof(props)),props)>=0 &&
+                (props[0]&(1UL<<INPUT_PROP_DIRECT)) &&
+                ioctl(fd,EVIOCGABS(ABS_MT_SLOT),&slot)==0 && slot.minimum==0 &&
+                ioctl(fd,EVIOCGABS(ABS_MT_POSITION_X),&x)==0 &&
+                ioctl(fd,EVIOCGABS(ABS_MT_POSITION_Y),&y)==0;
+            close(fd);
+            if(direct){puts(path);return 0;}
+        }
+        return 1;
+    }
     const bool hold = argc == 5 && !strcmp(argv[1], "--hold");
     const bool dragHold = argc == 8 && !strcmp(argv[1], "--drag-hold");
     const bool pinch = argc == 10 && !strcmp(argv[1], "--pinch");

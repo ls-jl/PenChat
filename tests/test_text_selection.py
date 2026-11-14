@@ -32,7 +32,14 @@ def screenshot(app,name):
     app.process.send_signal(signal.SIGUSR1);ui.wait_for(path.exists)
     (OUT/(name+'.png')).write_bytes(path.read_bytes())
 
-def bounds_tap(app,b):app.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+def bounds_tap(app,b):
+    d=app.diag()
+    if b==d['composer_bounds'] and d['composer_hidden']:
+        shortcut=d['composer_shortcut']['bounds'];point=((shortcut[0]+shortcut[2])//2,(shortcut[1]+shortcut[3])//2)
+        app.tap(*point);app.tap(*point)
+        ui.wait_for(lambda:not app.diag()['composer_hidden'] and app.diag()['composer_bounds'][3]<d['height'])
+        b=app.diag()['composer_text_bounds']
+    app.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
 def press(app,x,y,down=True,**kw):app.send('touch',x=x,y=y,pressed=down,**kw)
 def ro(app):return app.diag()['text_selection']
 def editor(app):

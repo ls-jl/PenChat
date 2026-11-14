@@ -6,6 +6,7 @@ from anthropic_fixture import Handler,seed,configure,SIGNATURE,REDACTED
 from test_reply_actions import action as reply_action,confirm as confirm_retry,bottom
 from provider_ui import activate as provider_action,commit_model
 from choice_ui import select
+from chat_instruction_checks import assert_chat_prompt
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
 OUT=t.ROOT/'.work/anthropic-ui';OUT.mkdir(parents=True,exist_ok=True)
 def shot(a,name):
@@ -58,6 +59,9 @@ def configuration(w,h):
    assert a.diag()['view']=='provider'
   finally:a.close()
 
+def assert_chat_instructions(request, session):
+    assert_chat_prompt(request['system'],session)
+
 def chat(w,h):
  with http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler) as server,tempfile.TemporaryDirectory(prefix='penchat-anthropic-chat-') as folder:
   threading.Thread(target=server.serve_forever,daemon=True).start();Handler.requests=[];Handler.mode='ok';Handler.delay=0
@@ -72,7 +76,7 @@ def chat(w,h):
   try:
    a.edit('第一条 Messages 问题');a.tap(w-52,h-34);settled(a)
    assert len(Handler.requests)==1 and not a.diag()['modal'],a.read_messages()
-   request=Handler.requests[-1][2];assert request['system']=='CHAT_SYSTEM_ONCE'
+   request=Handler.requests[-1][2];assert_chat_instructions(request,'CHAT_SYSTEM_ONCE')
    assert any(b.get('type')=='image' for m in request['messages'] for b in m['content'])
    assert a.diag()['reasoning_header_count']>=1;shot(a,f'{w}-reply-and-thinking')
    with sqlite3.connect(p/'penchat.db') as db:
@@ -148,10 +152,17 @@ def streaming():
    a.open_settings();a.setting('models');provider_action(a,'provider-open:p')
    provider_action(a,'provider-add-models');before=len(Handler.requests)
    provider_action(a,'models-fetch');t.wait_for(lambda:len(Handler.requests)==before+2);time.sleep(.25)
-   a.tap(40,32);provider_action(a,'provider-save-bottom')
+   # Fetch is review-only: preserve existing models until explicit selection,
+   # addition to the workspace and whole-provider Save.
+   with sqlite3.connect(p/'penchat.db') as db:
+    original=[n for n, in db.execute('select name from model_configs where enabled=1 order by name')]
+   for name in ('claude-fixture','claude-fixture-second'):
+    provider_action(a,'model-option:'+name)
+   provider_action(a,'加入草稿');provider_action(a,'provider-save-bottom')
    with sqlite3.connect(p/'penchat.db') as db:
     names=[n for n, in db.execute('select name from model_configs where enabled=1 order by name')]
-    assert names==['claude-fixture','claude-fixture-second']
+    assert names==sorted(original+['claude-fixture','claude-fixture-second'])
+    assert db.execute("select count(*) from model_configs where id in ('a','b')").fetchone()[0]==2
   finally:a.close();Handler.delay=0
  print('Messages slow stream: live thinking/timing, frozen model, retained draft, budget next request, cancellation and hidden timing passed.',flush=True)
 
@@ -167,7 +178,7 @@ def automatic_title():
   try:
    a.edit('自动命名');a.tap(908,232);settled(a)
    t.wait_for(lambda:len(Handler.requests)==2 and not a.diag()['title_busy'] and not a.diag()['title_pending'])
-   assert Handler.requests[0][2]['system']=='CHAT_ONLY'
+   assert_chat_instructions(Handler.requests[0][2],'CHAT_ONLY')
    title=Handler.requests[1][2];assert '[penchat-title]' in title['system'] and 'CHAT_ONLY' not in json.dumps(title)
    assert 'thinking' not in title and 'output_config' not in title
    with sqlite3.connect(p/'penchat.db') as db:assert db.execute('select title from chat_sessions').fetchone()[0]=='Messages 标题'

@@ -405,3 +405,20 @@ if(NOT CMAKE_CROSSCOMPILING)
   target_compile_options(penchat-photo-orientation-tests PRIVATE -UNDEBUG -Wall -Wextra)
   add_test(NAME penchat-photo-orientation COMMAND penchat-photo-orientation-tests)
 endif()
+
+add_executable(penchat-ui-metrics-tests "${ROOT}/tests/native/UiMetricsTest.cpp")
+target_include_directories(penchat-ui-metrics-tests PRIVATE src)
+target_compile_options(penchat-ui-metrics-tests PRIVATE -UNDEBUG -Wall -Wextra)
+add_test(NAME penchat-ui-metrics COMMAND penchat-ui-metrics-tests)
+
+if(NOT CMAKE_CROSSCOMPILING)
+  # Exercise the actual App helpers, without adding a fixture page or bridge API
+  # to the shipped executable. EXCLUDE_FROM_ALL keeps this a targeted check.
+  get_target_property(UI_CONTROL_APP_SOURCES penchat-lvgl SOURCES)
+  list(REMOVE_ITEM UI_CONTROL_APP_SOURCES src/main.cpp)
+  add_executable(penchat-ui-controls-tests EXCLUDE_FROM_ALL
+    "${ROOT}/tests/native/UiControlsTest.cpp" ${UI_CONTROL_APP_SOURCES})
+  target_include_directories(penchat-ui-controls-tests PRIVATE src "${DEPS}/lvgl")
+  target_link_libraries(penchat-ui-controls-tests PRIVATE penchat_core)
+  target_compile_options(penchat-ui-controls-tests PRIVATE -UNDEBUG)
+endif()

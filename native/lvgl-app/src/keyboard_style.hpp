@@ -30,13 +30,13 @@ inline void keyState(lv_obj_t *object,bool pressed,KeyboardRole role=KeyboardRol
   lv_obj_set_style_bg_opa(object,style.backgroundOpacity,0);
 }
 inline void key(lv_obj_t *object,KeyboardRole role=KeyboardRole::Character,
-                KeyboardVariant variant=KeyboardVariant::Default,bool selected=false) {apply(object,role,variant,selected);}
-inline void input(lv_obj_t *object) {apply(object,KeyboardRole::Input);}
-inline void composition(lv_obj_t *object) {
-  apply(object,KeyboardRole::Composition);lv_obj_set_style_clip_corner(object,true,0);
+                KeyboardVariant variant=KeyboardVariant::Default,bool selected=false,const KeyboardDesign &design=keyboardDesign()) {apply(object,role,variant,selected,design);}
+inline void input(lv_obj_t *object,const KeyboardDesign &design=keyboardDesign()) {apply(object,KeyboardRole::Input,KeyboardVariant::Default,false,design);}
+inline void composition(lv_obj_t *object,const KeyboardDesign &design=keyboardDesign()) {
+  apply(object,KeyboardRole::Composition,KeyboardVariant::Default,false,design);lv_obj_set_style_clip_corner(object,true,0);
 }
-inline void candidates(lv_obj_t *object) {
-  apply(object,KeyboardRole::Candidates);lv_obj_set_style_clip_corner(object,true,0);
+inline void candidates(lv_obj_t *object,const KeyboardDesign &design=keyboardDesign()) {
+  apply(object,KeyboardRole::Candidates,KeyboardVariant::Default,false,design);lv_obj_set_style_clip_corner(object,true,0);
 }
 } // namespace keyboardStyle
 } // namespace penchat

@@ -365,6 +365,8 @@ struct Piece {
   size_t begin = 0, end = 0;
 };
 struct RichText::Impl {
+  UiMetrics metrics;
+  std::string cacheIdentity;
   FT_Library library = nullptr;
   FT_Face face = nullptr, monoFace = nullptr, fallbackFace = nullptr;
   cairo_font_face_t *cairoFace = nullptr, *monoCairo = nullptr, *fallbackCairo = nullptr;
@@ -386,8 +388,10 @@ struct RichText::Impl {
     cairo_set_font_matrix(c, &matrix);
   }
 };
-RichText::RichText(const std::string &fontPath, const std::string &res, const std::string &fallbackPath)
+RichText::RichText(const std::string &fontPath, const std::string &res, const std::string &fallbackPath, const UiMetrics &metrics)
     : p_(new Impl) {
+  p_->metrics=metrics;
+  p_->cacheIdentity=std::to_string(metrics.densityPercent())+":"+std::to_string(metrics.scalePercent())+":";
   if (FT_Init_FreeType(&p_->library) ||
       FT_New_Face(p_->library, fontPath.c_str(), 0, &p_->face))
     throw std::runtime_error("Cannot initialize text renderer");
@@ -422,7 +426,7 @@ void RichText::clearCache() {
   p_->cacheBytes = 0;
 }
 Bitmap RichText::formula(const std::string &source, int size) {
-  auto key = std::to_string(size) + ":" + source;
+  auto key = p_->cacheIdentity + std::to_string(size) + ":" + source;
   auto it = p_->cache.find(key);
   if (it != p_->cache.end())
     return *it->second;
@@ -433,9 +437,9 @@ Bitmap RichText::formula(const std::string &source, int size) {
       tex::LaTeX::parse(tex::utf82wide(source), 4096, formulaSize,
                         formulaSize * .2, (0xff000000u | theme::text)));
   Bitmap b;
-  b.width = std::max(1, r->getWidth() + 4);
-  b.height = std::max(1, r->getHeight() + 4);
-  b.baseline = std::round(r->getBaseline() * r->getHeight()) + 2;
+  b.width = std::max(1, r->getWidth() + p_->metrics.dp(4));
+  b.height = std::max(1, r->getHeight() + p_->metrics.dp(4));
+  b.baseline = std::round(r->getBaseline() * r->getHeight()) + p_->metrics.dp(2);
   if (b.width > 4096 || b.height > 2048)
     throw std::runtime_error("Formula dimensions exceed limits");
   b.pixels.resize(size_t(b.width) * b.height * 4);
@@ -443,7 +447,7 @@ Bitmap RichText::formula(const std::string &source, int size) {
       b.pixels.data(), CAIRO_FORMAT_ARGB32, b.width, b.height, b.width * 4);
   auto c = cairo_create(s);
   CairoGraphics g(c);
-  r->draw(g, 2, 2);
+  r->draw(g, p_->metrics.dp(2), p_->metrics.dp(2));
   cairo_surface_flush(s);
   cairo_destroy(c);
   cairo_surface_destroy(s);
@@ -473,7 +477,7 @@ void RichText::prepare(Document &document, int width, int size) {
            document.blocks[end].kind == "table" &&
            document.blocks[end].tableId == document.blocks[i].tableId) {
       auto &row = document.blocks[end];
-      widths.resize(std::max(widths.size(), row.cells.size()), 140);
+      widths.resize(std::max(widths.size(), row.cells.size()), p_->metrics.dp(140));
       for (size_t column = 0; column < row.cells.size(); ++column) {
         Block cell;
         cell.kind = "code";
@@ -482,7 +486,7 @@ void RichText::prepare(Document &document, int width, int size) {
           for (auto &run : cell.runs)
             run.style |= Bold;
         widths[column] =
-            std::max(widths[column], layout(cell, 1, size).width + 14);
+            std::max(widths[column], layout(cell, 1, size).width + p_->metrics.dp(14));
       }
       ++end;
     }
@@ -508,6 +512,9 @@ std::string blockPlainText(const Block &block) {
   } else for (const auto &run : block.runs) text += runPlainText(run);
   return text;
 }
+static int richHeadingSize(const Block &block,int size) {
+  return block.kind == "h" ? std::max(size, ((31 - block.level * 2) * size + 10) / 21) : size;
+}
 RichLayout RichText::layout(const Block &block, int width, int size, bool textHits) {
   p_->pieces.clear();
   if (block.kind == "table") {
@@ -517,8 +524,8 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
       int height;
     };
     std::vector<CellSpan> spans;
-    int cellX = block.quote * 12 + std::max(0, block.indent - 1) * 20,
-        rowHeight = 20;
+    int cellX = block.quote * p_->metrics.dp(12) + std::max(0, block.indent - 1) * p_->metrics.dp(20),
+        rowHeight = p_->metrics.dp(20);
     const size_t count =
         std::max(block.cells.size(), block.columnWidths.size());
     size_t textOffset = 0;
@@ -533,7 +540,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
       auto cellLayout = layout(cell, 1, size);
       const int cellWidth = column < block.columnWidths.size()
                                 ? block.columnWidths[column]
-                                : std::max(140, cellLayout.width + 14);
+                                : std::max(p_->metrics.dp(140), cellLayout.width + p_->metrics.dp(14));
       const int alignment = column < block.cellAlignments.size()
                                 ? block.cellAlignments[column]
                                 : MD_ALIGN_DEFAULT;
@@ -570,21 +577,21 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
     return result;
   }
   int actualSize =
-      block.kind == "h" ? std::max(size, ((31 - block.level * 2) * size + 10) / 21) : size;
+      richHeadingSize(block,size);
   auto surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
   auto c = cairo_create(surf);
-  float left = block.quote * 12 + std::max(0, block.indent - 1) * 20 + 6;
-  float x = left, y = 5, lineTop = 0, ascent = actualSize, descent = 5,
+  float left = block.quote * p_->metrics.dp(12) + std::max(0, block.indent - 1) * p_->metrics.dp(20) + p_->metrics.dp(6);
+  float x = left, y = p_->metrics.dp(5), lineTop = 0, ascent = actualSize, descent = p_->metrics.dp(5),
         maxWidth = width;
   size_t lineStart = 0;
   auto newline = [&]() {
     for (size_t i = lineStart; i < p_->pieces.size(); ++i)
       p_->pieces[i].y = y + ascent - p_->pieces[i].baseline;
-    y += ascent + descent + 5;
+    y += ascent + descent + p_->metrics.dp(5);
     x = left;
     lineStart = p_->pieces.size();
     ascent = actualSize;
-    descent = 5;
+    descent = p_->metrics.dp(5);
     lineTop = y;
   };
   (void)lineTop;
@@ -623,7 +630,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
         ascent = std::max(ascent, p.baseline);
         descent = std::max(descent, p.height - p.baseline);
         x += p.width;
-        maxWidth = std::max(maxWidth, x + 6);
+        maxWidth = std::max(maxWidth, x + p_->metrics.dp(6));
         p_->pieces.push_back(std::move(p));
         if (run.style & DisplayMath)
           newline();
@@ -646,11 +653,11 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
       if ((cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0xe0100 && cp <= 0xe01ef) || cp == 0x200d || cp == 0x200c || cp == 0x200b) continue;
       float advance = advanceOf(ch, cp, run.style);
       if (block.kind != "code" && (ch == " " || ch == "\t") &&
-          (x == left || x + advance > width - 6)) {
+          (x == left || x + advance > width - p_->metrics.dp(6))) {
         if (x > left) newline();
         continue;
       }
-      if (!forceWidth && block.kind != "code" && x + advance > width - 6 &&
+      if (!forceWidth && block.kind != "code" && x + advance > width - p_->metrics.dp(6) &&
           x > left)
         newline();
       Piece p;
@@ -662,13 +669,13 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
             actualSize * .62 * (4 - int((x - left) / (actualSize * .62)) % 4);
       p.x = x;
       p.baseline = actualSize;
-      p.height = actualSize + 5;
+      p.height = actualSize + p_->metrics.dp(5);
       p.width = advance;
       p.style = run.style | (block.header ? Bold : 0);
       p.target = run.link;
       p_->pieces.push_back(std::move(p));
       x += advance;
-      maxWidth = std::max(maxWidth, x + 6);
+      maxWidth = std::max(maxWidth, x + p_->metrics.dp(6));
     }
     if(run.style&Math)textOffset=formulaEnd;
   };
@@ -717,10 +724,10 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
     bool onlyOpening = false, lastWord = false, joinNext = false;
     auto flush = [&]() {
       if (group.empty()) return;
-      if (keepWords && groupWidth > width - 6 - left) {
+      if (keepWords && groupWidth > width - p_->metrics.dp(6) - left) {
         flow(group, false);
       } else {
-        if (x > left && x + groupWidth > width - 6) newline();
+        if (x > left && x + groupWidth > width - p_->metrics.dp(6)) newline();
         for (const auto &part : group) add(part, 1);
       }
       group.clear(); groupWidth = 0;
@@ -740,7 +747,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
       if (run.style & Math) {
         if (!onlyOpening) flush();
         try {
-          const auto key = std::to_string(actualSize) + ":" + run.text;
+          const auto key = p_->cacheIdentity + std::to_string(actualSize) + ":" + run.text;
           const auto cached = p_->cache.find(key);
           const int advance = cached != p_->cache.end()
               ? cached->second->width : formula(run.text, actualSize).width;
@@ -786,7 +793,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
   newline();
   RichLayout layout;
   layout.width = std::ceil(maxWidth);
-  layout.height = block.kind == "hr" ? 12 : std::max(20, int(std::ceil(y + 4)));
+  layout.height = block.kind == "hr" ? p_->metrics.dp(12) : std::max(p_->metrics.dp(20), int(std::ceil(y + p_->metrics.dp(4))));
   for (auto &p : p_->pieces) {
     if (textHits && p.end > p.begin)
       layout.textHits.push_back({int(p.x),int(p.y),std::max(1,int(std::ceil(p.width))),
@@ -823,9 +830,9 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
   }
   if (block.kind == "table") {
     color(theme::border);
-    cairo_set_line_width(c, 1);
+    cairo_set_line_width(c, p_->metrics.dp(1));
     const float tableLeft =
-        block.quote * 12 + std::max(0, block.indent - 1) * 20;
+        block.quote * p_->metrics.dp(12) + std::max(0, block.indent - 1) * p_->metrics.dp(20);
     float edge = tableLeft + .5f;
     cairo_move_to(c, edge, .5);
     cairo_line_to(c, edge, info.height - .5);
@@ -842,15 +849,15 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
   }
   if (block.quote) {
     color(theme::muted);
-    cairo_rectangle(c, 1, top, 3, height);
+    cairo_rectangle(c, p_->metrics.dp(1), top, p_->metrics.dp(3), height);
     cairo_fill(c);
   }
   if (block.kind == "hr") {
     color(theme::border);
-    cairo_rectangle(c, 3, 5, width - 6, 1);
+    cairo_rectangle(c, p_->metrics.dp(3), p_->metrics.dp(5), width - p_->metrics.dp(6), p_->metrics.dp(1));
     cairo_fill(c);
   }
-  int actual = block.kind == "h" ? std::max(size, ((31 - block.level * 2) * size + 10) / 21) : size;
+  int actual = richHeadingSize(block,size);
   for (auto &p : p_->pieces) {
     if (p.y + p.height < top || p.y > top + height || p.x + p.width < left ||
         p.x > left + b.width)
@@ -883,13 +890,13 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
     cairo_move_to(c, p.x, p.y + p.baseline);
     cairo_show_text(c, p.text.c_str());
     if (p.style & Bold) {
-      cairo_move_to(c, p.x + .5, p.y + p.baseline);
+      cairo_move_to(c, p.x + .5*p_->metrics.factor(), p.y + p.baseline);
       cairo_show_text(c, p.text.c_str());
     }
     if ((p.style & Strike) || !p.target.empty()) {
       cairo_rectangle(
-          c, p.x, p.y + (p.style & Strike ? p.baseline * .6 : p.baseline + 2),
-          p.width, 1);
+          c, p.x, p.y + (p.style & Strike ? p.baseline * .6 : p.baseline + p_->metrics.dp(2)),
+          p.width, p_->metrics.dp(1));
       cairo_fill(c);
     }
   }

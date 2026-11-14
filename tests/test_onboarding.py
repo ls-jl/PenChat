@@ -6,6 +6,7 @@ from test_chat_style import seed
 ROOT=t.ROOT;OUT=ROOT/'.work/onboarding';OUT.mkdir(parents=True,exist_ok=True);t.port=1
 binary=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ROOT/'build/host/penchat-lvgl'))
 from test_onboarding_helpers import action
+from provider_ui import back
 def shot(a,name):
  p=a.directory/'lvgl-diagnostic.png'
  if p.exists():p.unlink()
@@ -44,7 +45,7 @@ for w,h in [(960,266),(936,280),(568,1210)]:
      for i in range(7):a.send('touch',x=10+i*w//40,y=h//2,pressed=True);time.sleep(.025)
      a.send('touch',x=w//5,y=h//2,pressed=False);time.sleep(.12);assert a.diag()['view']=='onboarding'
     if step==2:
-     action(a,'configure');t.wait_for(lambda:a.diag()['view']=='provider');a.tap(40,32)
+     action(a,'configure');t.wait_for(lambda:a.diag()['view']=='provider');back(a)
      t.wait_for(lambda:a.diag()['view']=='onboarding');assert a.diag()['onboarding']['step']==2
     action(a,'next')
     if step<6:t.wait_for(lambda:a.diag()['onboarding']['step']==step+1)

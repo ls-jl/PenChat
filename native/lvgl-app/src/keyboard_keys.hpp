@@ -45,7 +45,7 @@ inline KeySpec keyboardKey(const std::string &action,const std::string &caption,
 }
 // The template declares keys and order, never performs an input action. Shift,
 // punctuation and translated captions are resolved by the existing UI state.
-inline KeyboardKeys keyboardKeys(int mode,bool nine,KeyboardView view) {
+inline KeyboardKeys keyboardKeys(int mode,bool nine,KeyboardView view,const UiMetrics &metrics=UiMetrics()) {
   KeyboardKeys result;result.nine=nine;
   const bool compact=view==KeyboardView::Compact,portrait=view==KeyboardView::Portrait;
   if(nine) {
@@ -75,6 +75,8 @@ inline KeyboardKeys keyboardKeys(int mode,bool nine,KeyboardView view) {
     result.bottom.keys.push_back(keyboardKey("enter","",compact?KeyWidth::fixed(64):KeyWidth::relative(2,-4),"enter"));
   }
   result.bottom.pixelAdvance=true;
+  for(auto &row:result.rows)for(auto &key:row.keys)key.width.offset=metrics.dp(int(std::lround(key.width.offset)));
+  for(auto &key:result.bottom.keys)key.width.offset=metrics.dp(int(std::lround(key.width.offset)));
   return result;
 }
 } // namespace penchat

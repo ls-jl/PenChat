@@ -206,7 +206,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, J
 }
 void App::contextProgress(const std::string &text) {
   modal("上下文压缩", text + "\n完成后保存一份压缩前归档；停止会保留本次输入。");
-  button(modal_, "停止", 16, screen_.height - 66, 120, 44,
+  button(modal_, "停止", uiMetrics_.dp(16), screen_.height - uiMetrics_.dp(66), uiMetrics_.dp(120), uiMetrics_.dp(44),
          [this] { events_.push("context_stop"); });
 }
 void App::contextEvent(Event &event) {
@@ -258,20 +258,20 @@ void App::contextSummaryPage() {
   const auto rows=db_.query("SELECT metadata_json FROM chat_sessions WHERE id=?",{session_});
   const auto checkpoint=rows.empty()?Json::object():objectField(rows[0],"metadata_json")
       .value("context_compression",Json::object());
-  const int left=layout().portrait()?16:10;
+  const int left=uiMetrics_.dp(layout().portrait()?16:10);
   const int width=layout().contentWidth();
-  int y=12;
-  auto text=[&](const std::string &value,int size,uint32_t color) {
-    auto line=readableLabel(pageContent_,value,left,y,width,size,color);
-    lv_obj_update_layout(line);y+=lv_obj_get_height(line)+20;
+  int y=uiMetrics_.dp(12);
+  auto text=[&](const std::string &value,UiFont role,uint32_t color) {
+    auto line=readableLabel(pageContent_,value,left,y,width,uiMetrics_.fontSize(role),color);
+    lv_obj_update_layout(line);y+=lv_obj_get_height(line)+uiMetrics_.dp(20);
   };
   if(checkpoint.empty()) {
-    text("尚未压缩",22,theme::text);
-    text("完整历史将用于后续请求。可从加号菜单手动压缩上下文。",20,theme::muted);
+    text("尚未压缩",UiFont::LargeCaption,theme::text);
+    text("完整历史将用于后续请求。可从加号菜单手动压缩上下文。",UiFont::SettingsTitle,theme::muted);
     return;
   }
   const auto archive=checkpoint.value("archive_id",std::string());
-  if(!archive.empty())pageAction("对应归档",12,120,[this,archive] {
+  if(!archive.empty())pageAction("对应归档",uiMetrics_.dp(12),uiMetrics_.dp(120),[this,archive] {
     const auto found=db_.sessionInfo(archive);
     if(found.empty()){modal("归档已删除","摘要仍有效，当前完整历史仍保留。");return;}
     archiveOffset_=0;archiveHighlight_=archive;
@@ -283,13 +283,13 @@ void App::contextSummaryPage() {
     show("archives");
   });
   text(std::string(checkpoint.value("enabled",true)?"已生效":"已停用，请重新压缩")+
-      " · 覆盖至第 "+std::to_string(checkpoint.value("through",int64_t(0)))+" 条",18,theme::muted);
+      " · 覆盖至第 "+std::to_string(checkpoint.value("through",int64_t(0)))+" 条",UiFont::FormNote,theme::muted);
   const auto time=checkpoint.value("created_at",int64_t(0));
   if(time>0) {
     time_t seconds=time/1000;tm local{};char stamp[64]{};
     localtime_r(&seconds,&local);strftime(stamp,sizeof(stamp),"%Y-%m-%d %H:%M",&local);
-    text(std::string("压缩时间：")+stamp,18,theme::muted);
+    text(std::string("压缩时间：")+stamp,UiFont::FormNote,theme::muted);
   }
-  text(checkpoint.value("summary",std::string()),20,theme::text);
+  text(checkpoint.value("summary",std::string()),UiFont::SettingsTitle,theme::text);
 }
 } // namespace penchat
