@@ -3211,6 +3211,16 @@ void App::shutdown() {
     db_.setting("export_cleanup_failed", true);
 }
 void App::routeTouch(const Json &m) {
+  // A captured page-to-keyboard push owns its cancellation. Selection/read
+  // suppression must not swallow that terminal frame and leave the panel moved.
+  if (m.value("cancelled",false) && editor_.active &&
+      (editorDismissTracking_ || editorDismissing_ || editorDismissReturnAt_)) {
+    editorReaderTouch_=editorPointer_=false;
+    readerDown_=readerPointer_=readerVertical_=false;
+    readerSettle_=true;
+    editorResetDismiss();editorCancelKeys();readReset();input_.cancel();
+    return;
+  }
   if (imageViewer_ || view_=="crop") {
     if(!imageTouch(m))input_.touch(m.value("x",0),m.value("y",0),m.value("pressed",false));
     return;
