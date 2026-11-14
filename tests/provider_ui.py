@@ -28,7 +28,14 @@ def field(app,key,value):activate(app,'field:'+key);enter(app,value)
 
 
 def back(app):
-    s=app.diag();app.tap(48,48) if s['height']>s['width'] else app.tap(40,32)
+    s=app.diag()
+    if s['height']>s['width']:
+        for _ in range(30):
+            if app.diag()['scroll_y']<=0:break
+            app.settings_swipe(s['height']//2)
+        s=app.diag();scale=s.get('editor',{}).get('requested_scale',100)/100
+        app.tap(s['screen_safety']['navigation_x']+round(22*scale),s['page']['heading'][1]+round(17*scale))
+    else:app.tap(40,32)
 
 
 def capture(app,out,name):

@@ -136,6 +136,9 @@ void App::edit(const std::string &text, const std::string &placeholder,
                const char *inputType, std::function<void()> cancelled,
                bool multiline, bool secret, bool selectionOnly, bool inlineChat) {
   if (editor_.active || keyboard_ || replyBusy_ || contextRegenerating_) return;
+  // Entering an editor revokes any chat press captured before a selection/menu
+  // took ownership. Its release is routed to the editor, not back to chatTouch.
+  touchDown_=composerTapAllowed_=pullTrackActivity_=false;
   readReset();
   editorSwapSides_=wideKeyboardSwap_;
   editorCompactExpanded_=editorToolsOpen_=editorRestoreViewScroll_=false;
@@ -903,6 +906,7 @@ void App::editorFinish(bool confirmed) {
     editorChoosing_=editorSelectPending_=false;editorDeferred_.clear();++editorRevision_;
   } else editorInterrupt();
   editorDetachTarget();editor_.active=false; keyboard_=false;editorReaderTouch_=false;
+  touchDown_=composerTapAllowed_=pullTrackActivity_=false;
   editorComposerOpenHeight_=0;
   if(!transfer) {
     editorViewport();
