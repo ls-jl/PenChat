@@ -175,6 +175,7 @@ PenChat is an independent application. Never read external application databases
   uncommitted change is committed or an unpushed commit is pushed.
 
 The user authorizes future Y01 package installation and device testing without asking again. Preserve user data and pending input where possible; never restart the system MiniApp host.
+For authorized device tests, the user explicitly permits discarding unsent editor text, draft and preedit; do not block or ask again merely because characters are present. Continue isolating and restoring saved user data, settings, assets and public transfer files. This does not authorize sending pending input or accessing a device the user has declared unavailable.
 
 Camera captures stay in camera-tmp until crop confirmation. Confirm attaches without auto-send. Persist saveCameraToAlbum; only explicit opt-in creates a new PenChat photo in /userdisk/Pictures. Never alter existing system photos; cancellation and exit discard temporary captures.
 
@@ -280,6 +281,8 @@ commits complete type-B SYN_REPORT frames and maps touch rotation/offsets once.
 Do not reintroduce Falcon page touch forwarding, system backpressed completion or
 a touch fallback. Use read-only, nonexclusive fds; close them on background, official
 IME and shutdown. Native left-edge back handles child pages and root exit.
+Use shared BackGeometry with an origin edge of at least the common 44 logical-pixel
+touch target; preserve existing slop, travel, timing and focus cancellation rules.
 Y07's system panel can open without page onHide or loss of window focus. Observe
 both $am focus and the existing Falcon panel's exported read-only visibility;
 yield the DRM plane and native touch fd through window.focus, without pretending
@@ -378,7 +381,7 @@ releasing scanner ownership; new field IDs reject old OCR/pinyin results. Undo a
 secret visibility stay isolated per field. A non-input action must close a retained
 transfer and clear all pointers/actions into the keyboard it deletes. Cancel
 restores the original value; Provider edits still require explicit Save.
-All native keyboards share a content-sized preedit strip in the candidate row, not a separate floating composition row. Keep a 4px gap and give candidates the remaining row width; no composition means hide the strip and restore portrait function controls. Use native down/up chevrons at one fixed target for candidate expand/collapse. Portrait candidate expansion temporarily replaces the main key area; keep the expand/collapse button at the same candidate-row position and leave the original page visible. Wide landscape expands over its editor; compact full-width expands over keys. Never move the key geometry. Portrait clipboard
+Native preedit placement follows the actual keyboard view, not the device: Wide and CompactExpanded float composition below candidates, Portrait floats it above candidates, and the dedicated Compact full-width keyboard retains its inline strip with a 4px gap. Reserve the floating band without moving keys or candidate controls; clear composition hides it and restores portrait function controls. Global font size applies to every native UI text role through UiMetrics::sp(), independently of dp geometry and combined with UI scale only once. Key-cap text may shrink only when measured ink cannot fit the complete existing key/hit grid; candidate, composition and menu roles retain the selected text factor. Use native down/up chevrons at one fixed target for candidate expand/collapse. Portrait candidate expansion temporarily replaces the main key area; keep the expand/collapse button at the same candidate-row position and leave the original page visible. Wide landscape expands over its editor; compact full-width expands over keys. Never move the key geometry. Portrait clipboard
 replaces only the keyboard panel; landscape clipboard stays in the right editor. Ordinary
 page scrolling and field focus remain available above the keyboard. Rebind focused
 controls by stable page/field identity after a rebuild; cancel a missing target on
