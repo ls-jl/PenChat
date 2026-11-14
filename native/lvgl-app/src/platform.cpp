@@ -1,6 +1,8 @@
 #include "platform.hpp"
 #include "camera_logic.h"
+#include "refresh_policy.hpp"
 #include "stb_image_write.h"
+#include "src/misc/lv_timer_private.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <fcntl.h>
@@ -9,6 +11,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 namespace penchat {
+// LVGL has one global animation timer. The native app owns one Display; newly
+// created inputs must inherit its setting as well as existing inputs.
+static int activeRefreshRate = 30;
 Display::Display(const Screen &s, bool headless)
     : screen_(s), headless_(headless) {
   buffer_.resize(size_t(s.width) * s.height * 4);
@@ -24,11 +29,35 @@ Display::Display(const Screen &s, bool headless)
       display_, [](lv_display_t *d, const lv_area_t *a, uint8_t *p) {
         static_cast<Display *>(lv_display_get_user_data(d))->flush(d, a, p);
       });
+  setRefreshRate(refresh::defaultRate(s.width, s.height));
 }
 Display::~Display() {
   surface_.reset();
   if (display_)
     lv_display_delete(display_);
+}
+void Display::setRefreshRate(int hz) {
+  refreshRate_ = refresh::resolveRate(hz, screen_.width, screen_.height);
+  activeRefreshRate = refreshRate_;
+  const auto period = refresh::periodMs(refreshRate_);
+  if (auto timer = lv_display_get_refr_timer(display_)) lv_timer_set_period(timer, period);
+  if (auto timer = lv_anim_get_timer()) lv_timer_set_period(timer, period);
+  for (auto input = lv_indev_get_next(nullptr); input; input = lv_indev_get_next(input))
+    if (auto timer = lv_indev_get_read_timer(input)) lv_timer_set_period(timer, period);
+  if (surface_) surface_->setRefreshRate(refreshRate_);
+}
+uint32_t Display::refreshPeriod() const {
+  const auto timer = display_ ? lv_display_get_refr_timer(display_) : nullptr;
+  return timer ? timer->period : 0;
+}
+uint32_t Display::animationPeriod() const {
+  const auto timer = lv_anim_get_timer();
+  return timer ? timer->period : 0;
+}
+uint32_t Display::inputPeriod() const {
+  const auto input = lv_indev_get_next(nullptr);
+  const auto timer = input ? lv_indev_get_read_timer(input) : nullptr;
+  return timer ? timer->period : 0;
 }
 void Display::flush(lv_display_t *d, const lv_area_t *, uint8_t *) {
   if (shown_ && !headless_ && surface_) {
@@ -80,6 +109,7 @@ void Display::mediaHandoff(bool release) {
   else if(!surface_&&shown_) {
     surface_=camera::makeDisplaySurface({screen_.width,screen_.height,screen_.rotation,
       screen_.xoffset,screen_.yoffset,screen_.panelWidth,screen_.panelHeight});
+    surface_->setRefreshRate(refreshRate_);
     surface_->topRegion(topHeight_);
     if(shown_)lv_obj_invalidate(lv_screen_active());
   }
@@ -94,6 +124,8 @@ void Display::screenshot(const std::string &path) {
 }
 Input::Input() {
   input_ = lv_indev_create();
+  if (auto timer = lv_indev_get_read_timer(input_))
+    lv_timer_set_period(timer, refresh::periodMs(activeRefreshRate));
   lv_indev_set_type(input_, LV_INDEV_TYPE_POINTER);
   lv_indev_set_user_data(input_, this);
   lv_indev_set_read_cb(input_, [](lv_indev_t *d, lv_indev_data_t *out) {

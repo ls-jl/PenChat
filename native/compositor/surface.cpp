@@ -1,6 +1,8 @@
 #include "surface.hpp"
 #include "composite_wire.hpp"
 #include "display_surface.h"
+#include "refresh_policy.hpp"
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -25,6 +27,7 @@ class Surface final : public camera::DisplaySurface {
   std::atomic<bool> quit_{false};
   bool visible_ = false;
   unsigned revision_ = 0;
+  int refreshRate_ = 30;
   std::string error_;
   void send(const Packet& p) {
     if (!sendPacket(socket_, p)) throw std::runtime_error("S6 compositor connection lost");
@@ -41,11 +44,20 @@ class Surface final : public camera::DisplaySurface {
     try {
       bool free[2] = {true, true}, focused = false, announced = false;
       unsigned slotSequence[2] = {0, 0}, systemSequence = 0, epoch = 0, heartbeat = 0;
-      unsigned outputSequence = 0, sentRevision = 0, sentSystem = 0, sentEpoch = 0, lastOutput = 0;
+      unsigned outputSequence = 0, sentRevision = 0, sentSystem = 0, sentEpoch = 0;
+      penchat::refresh::Pacing pacing;
       int held = -1;
       while (!quit_) {
+        // Retain the bounded idle/exit poll, but land on a pending frame's
+        // deadline instead of rounding a 33/16ms period up to the next 8ms poll.
+        unsigned delay = 8;
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          const auto remaining = pacing.remainingMs(monotonicMs(), refreshRate_);
+          if (remaining) delay = std::min(delay, remaining);
+        }
         pollfd wait{socket_, POLLIN, 0};
-        const auto result = poll(&wait, 1, 8);
+        const auto result = poll(&wait, 1, delay);
         if (result < 0 && errno == EINTR) continue;
         if (result < 0 || wait.revents & (POLLHUP | POLLERR | POLLNVAL))
           throw std::runtime_error("S6 compositor disconnected");
@@ -79,7 +91,7 @@ class Surface final : public camera::DisplaySurface {
         const int slot = free[0] ? 0 : free[1] ? 1 : -1;
         if (!focused || !visible_ || !revision_ || held < 0 || slot < 0 ||
             (sentRevision == revision_ && sentSystem == systemSequence && sentEpoch == epoch) ||
-            std::uint32_t(now - lastOutput) < 33) continue;
+            !pacing.due(now, refreshRate_)) continue;
         const auto start = std::chrono::steady_clock::now();
         // Falcon's premultiplied system pixels are on top (including its hole).
         blendOver(system_ + held * geometry_.slotBytes, native_.data(), output_ + slot * geometry_.slotBytes, geometry_.bytes / 4);
@@ -89,7 +101,7 @@ class Surface final : public camera::DisplaySurface {
         frame.epoch = epoch; frame.value = std::min<std::uint64_t>(micros, UINT32_MAX);
         frame.value2 = revision_; frame.value3 = systemSequence;
         send(frame); free[slot] = false; slotSequence[slot] = frame.sequence;
-        sentRevision = revision_; sentSystem = systemSequence; sentEpoch = epoch; lastOutput = now;
+        sentRevision = revision_; sentSystem = systemSequence; sentEpoch = epoch; pacing.presented(now);
       }
     } catch (const std::exception& e) {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -99,6 +111,7 @@ class Surface final : public camera::DisplaySurface {
 public:
   Surface(const camera::DisplayGeometry& g, int socket, int shared) : socket_(socket), shared_(shared) {
     try {
+      refreshRate_ = penchat::refresh::defaultRate(g.width, g.height);
       pollfd wait{socket_, POLLIN, 0}; Packet hello;
       if (socket_ < 0 || shared_ < 0 || poll(&wait, 1, 3000) <= 0 || receivePacket(socket_, hello) != 1 || hello.type != Wire::Hello)
         throw std::runtime_error("S6 compositor is unavailable");
@@ -136,6 +149,10 @@ public:
     return true;
   }
   void hide() override { std::lock_guard<std::mutex> lock(mutex_); visible_ = false; }
+  void setRefreshRate(int rate) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    refreshRate_ = penchat::refresh::resolveRate(rate, geometry_.width, geometry_.height);
+  }
   void check() override {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!error_.empty()) throw std::runtime_error(error_);

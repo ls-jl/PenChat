@@ -1,6 +1,7 @@
 #pragma once
 #include "input_focus.hpp"
 #include "composer_shortcut.hpp"
+#include "chat_bottom_state.hpp"
 #include "text_gesture.hpp"
 #include "database.hpp"
 #include "transfer.hpp"
@@ -29,11 +30,19 @@ namespace penchat {
 class App {
 #ifndef PENCHAT_NATIVE_DEVICE
   friend struct UiControlsTest;
+  friend struct BottomStabilityTest;
   friend struct UiPerformanceTest;
   friend struct PaintPerformanceTest;
   friend struct MenusMotionTest;
 #endif
   UiMetrics uiMetrics_;
+  int refreshSaved_=0,refreshTarget_=0;
+  std::string refreshRequest_;
+  bool refreshReady_=false,refreshError_=false;
+  uint64_t refreshChanges_=0;
+  void requestRefreshRate(int hz);
+  void refreshRateSaved(const Event &event);
+  void refreshRateTick();
   std::string themeRequest_;
   theme::Mode themeTarget_=theme::Mode::Dark;
   bool themeReady_=false;
@@ -431,6 +440,8 @@ class App {
   bool readerDown_ = false, readerPointer_ = false, readerVertical_ = false, readerSettle_ = false;
   int readerStartX_ = 0, readerStartY_ = 0;
   ComposerShortcut composerShortcut_;
+  ChatBottomState chatBottomState_;
+  void syncChatBottomState(bool immediate=false);
   bool composerShortcutAvailable() const;
   bool composerShortcutTouch(int x, int y, bool pressed, bool cancelled);
   void composerShortcutTick();

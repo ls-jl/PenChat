@@ -8,6 +8,7 @@ class Display {
   lv_display_t *display_ = nullptr;
   std::vector<uint8_t> buffer_;
   Screen screen_;
+  int refreshRate_ = 30;
   int topHeight_ = 0;
   std::string error_;
   bool shown_ = true, headless_ = false, mediaPaused_ = false, pending_ = false, presented_ = false;
@@ -21,6 +22,13 @@ public:
   bool supportsTopRegion() const { return headless_ || (surface_ && surface_->supportsTopRegion()); }
   void mediaHandoff(bool release);
   void check();
+  // Call on the LVGL UI thread. Unsupported values restore the geometry default.
+  void setRefreshRate(int hz);
+  int refreshRate() const { return refreshRate_; }
+  // Diagnostic reads of the actual LVGL timers; zero means no timer exists.
+  uint32_t refreshPeriod() const;
+  uint32_t animationPeriod() const;
+  uint32_t inputPeriod() const;
   bool presented() const {return presented_;}
   bool pending() const {return pending_;}
   bool visible() const { return shown_; }

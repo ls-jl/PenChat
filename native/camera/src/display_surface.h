@@ -19,6 +19,9 @@ public:
   virtual void topRegion(int) {}
   // Poll asynchronous transport failures even when the UI has no dirty pixels.
   virtual void check() {}
+  // UI scheduling target, independent of physical panel mode. Direct planes
+  // present immediately; asynchronous compositors use it to pace latest frames.
+  virtual void setRefreshRate(int) {}
   // Shared-memory displays do not hold video/capture resources across scans.
   virtual bool sharedCaptureSafe() const {return false;}
   // A compositor may retain this lower layer while system windows own input.

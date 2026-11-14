@@ -16,7 +16,7 @@ for w,h in [(960,266),(640,260),(568,1210)]:
         a=t.Native(t.ROOT/'build/host/penchat-lvgl',folder,seed_model=False,official_adapter=False,screen={'width':w,'height':h})
         try:
             for scale in [75,125,150,100]:
-                open_settings(a);assert len(a.diag()['settings']['rows'])==25
+                open_settings(a);assert len(a.diag()['settings']['rows'])==26
                 a.setting('ui_scale');before=a.diag()['ui_scale']['applied']
                 choose(a,scale);d=a.diag();assert d['ui_scale']['applied']==before and d['ui_scale']['draft']==scale
                 capture(a,out/f'{w}-preview-{scale}.png')

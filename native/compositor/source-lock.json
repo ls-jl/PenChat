@@ -15,7 +15,9 @@
     "native/compositor/elf_slot.cpp": "44e9ca2c431e92b8c0b560d82111d1e7ddece37434a0840b42685a4408064d8d",
     "native/compositor/elf_slot.hpp": "c02c3b20bff1728d7b4b1bea725553de3653c9e2c8715db03e9049faee46dbcd",
     "native/compositor/presentation.hpp": "9401c60ba328f50f2231e1623bba9ec9d7f0e20717f094922ef16495096eb3ef",
-    "native/compositor/surface.cpp": "f092dd648f81a0ccf5ad82d6e54ab2edcb9e767a0b6323d94d9120f1309ef94c",
-    "native/compositor/surface.hpp": "3a36551a2bf0df07762f3d08f7635dd754a55fa836f36d16e3b23db141a0151c"
+    "native/compositor/surface.cpp": "b4f93e0c48bdd706f2212a678578fac9b2f1dcce3da0640c709fc6564e7ce14e",
+    "native/compositor/surface.hpp": "3a36551a2bf0df07762f3d08f7635dd754a55fa836f36d16e3b23db141a0151c",
+    "native/camera/src/refresh_policy.hpp": "058f582f60e72db09edd198ef7f9ca8cf660e06ad41fbe00433be210305cae87",
+    "native/camera/src/display_surface.h": "98a4ddf8324b0d708adf463bd50c2f95610b6138c9d8ccada5b42d479e262e90"
   }
 }

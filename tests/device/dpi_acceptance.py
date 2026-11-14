@@ -188,7 +188,7 @@ try:
     touch(W-12,H//2);wait(lambda:not state()['modal'])
     tap_bounds(state()['navigation_footer']['settings']['bounds'])
     wait(lambda:state()['view']=='settings');capture('settings')
-    assert len(state()['settings']['rows'])==25
+    assert len(state()['settings']['rows'])==26
     if args.scale_settings or args.theme_settings:
         result['scale_settings']=[]
         for percent in ((75,125,150,100) if args.scale_settings else (100,)):
@@ -268,7 +268,7 @@ try:
     result['native_alive_after_official']=bool(pid())
     result['layout']='compact' if s6 else 'portrait' if H>W else 'wide'
     result['typed_letters']=4
-    result['settings_rows']=25
+    result['settings_rows']=26
     result['history_menu']=True
     result['provider_field']=True
 except BaseException as error:

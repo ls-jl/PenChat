@@ -105,13 +105,23 @@ void App::syncChatBottomPadding() {
   if(view_!="chat"||!messageContent_)return;
   const auto geometry=layout();
   const bool docked=editor_.active&&editorLayout().docked;
-  // Use resting geometry and visibility policy. Pull and keyboard-push offsets
-  // only transform the viewport; they must never change its scroll extent.
-  const bool shown=geometry.portrait()||atLatestBottom()||composerShortcut_.shown();
+  // Reserve resting composer space even while it is hidden. Using visibility
+  // here feeds the changed scroll extent back into bottom detection and makes
+  // the composer and return button repeatedly reverse at the end of a scroll.
+  // Pull and keyboard-push offsets remain viewport-only transforms.
   const int tail=uiMetrics_.dp(16);
-  const int padding=tail+(!docked&&shown?chatComposerHeight()+geometry.safeBottom():0);
-  if(lv_obj_get_style_pad_bottom(messageContent_,LV_PART_MAIN)!=padding)
+  const int padding=tail+(!docked?chatComposerHeight()+geometry.safeBottom():0);
+  if(lv_obj_get_style_pad_bottom(messageContent_,LV_PART_MAIN)!=padding) {
+    const bool previous=chatLayout_;chatLayout_=true;
     lv_obj_set_style_pad_bottom(messageContent_,padding,0);
+    lv_obj_update_layout(messageContent_);
+    if(chatFollowing_&&body_) {
+      lv_obj_scroll_to_y(body_,LV_COORD_MAX,LV_ANIM_OFF);
+      chatScroll_=std::max(0,int(lv_obj_get_scroll_y(body_)));
+    }
+    chatBottomState_.pause();
+    chatLayout_=previous;
+  }
 }
 void App::layoutChatComposer() {
   if(!chatControls_||!composer_)return;

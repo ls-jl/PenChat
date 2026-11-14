@@ -1,5 +1,6 @@
 #include "attachment_layout.hpp"
 #include "app.hpp"
+#include "refresh_settings.hpp"
 #include "empty_state.hpp"
 #include "ui_motion.hpp"
 #include "ui_scale_settings.hpp"
@@ -89,6 +90,8 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   clearCrop();
   auto config = db_.settings();
   uiScaleSaved_=savedUiScale(config);uiScaleDraft_=uiMetrics_.scalePercent();
+  refreshSaved_=configuredRefreshRate(config);
+  display_.setRefreshRate(savedRefreshRate(config,screen_.width,screen_.height));
   composerShortcut_.configure(stringValue(config, "landscape_composer_shortcut", "auto"));
   wideKeyboardSwap_=config.value("wide_keyboard_swap",false);
   const auto idleSeconds = config.value("http_idle_seconds", Json());
@@ -690,6 +693,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  chatBottomState_.pause();
   motion::finishAll();
   if(contextMenuKind_=="balances")cancelBalances();
   closeAttachments();
@@ -1023,6 +1027,7 @@ void App::chat() {
       },
       LV_EVENT_SCROLL, this);
   renderMessages(chatFollowing_);
+  syncChatBottomState(true);
   rebuildChatControls();
 }
 void App::rebuildChatControls() {
@@ -1103,9 +1108,22 @@ void App::rebuildChatControls() {
 bool App::atLatestBottom() const {
   return view_ == "chat" && body_ && messageOffset_ == 0 && lv_obj_get_scroll_bottom(body_) <= 10;
 }
+void App::syncChatBottomState(bool immediate) {
+  if (view_ != "chat" || !body_) { chatBottomState_.pause(); return; }
+  if (immediate) {
+    chatBottomState_.reset(messageOffset_ == 0 && lv_obj_get_scroll_bottom(body_) <= uiMetrics_.dp(10));
+    return;
+  }
+  if (!visible_ || !inputFocused_ || keyboard_ || imageViewer_ || navigationOpen_ || modal_ || attachments_ || pulling_) {
+    chatBottomState_.pause();
+    return;
+  }
+  chatBottomState_.update(messageOffset_ == 0, lv_obj_get_scroll_bottom(body_),
+                         uiMetrics_.dp(10), uiMetrics_.dp(24), ticks());
+}
 bool App::chatComposerVisible() const {
   if(pulling_)return false;
-  return layout().portrait() || atLatestBottom() || composerShortcut_.shown();
+  return layout().portrait() || chatBottomState_.atBottom() || composerShortcut_.shown();
 }
 bool App::composerShortcutAvailable() const {
   return composerShortcut_.enabled() && !layout().portrait() && view_ == "chat" &&
@@ -1124,11 +1142,13 @@ bool App::composerShortcutTouch(int x, int y, bool pressed, bool cancelled) {
   return consumed;
 }
 void App::composerShortcutTick() {
+  const bool bottomBefore = chatBottomState_.atBottom();
+  syncChatBottomState();
   const bool before = composerShortcut_.shown();
   if (composerShortcutAvailable()) composerShortcut_.tick(ticks());
   else composerShortcut_.pause();
   if (view_ == "chat" && atLatestBottom()) composerShortcut_.reset();
-  if (before != composerShortcut_.shown()) updateChatControls(true);
+  if (before != composerShortcut_.shown() || bottomBefore != chatBottomState_.atBottom()) updateChatControls(true);
 }
 bool App::readerInteracting() const {
   if(readBusy())return true;
@@ -1155,6 +1175,7 @@ void App::readerTouch(int x, int y, bool pressed, bool cancelled) {
     }
     readerStartX_ = x; readerStartY_ = y;
     readerSettle_ = readerPointer_;
+    if (readerPointer_) chatBottomState_.pause();
   }
   if (readerPointer_ && pressed) {
     const int dx = x - readerStartX_, dy = y - readerStartY_;
@@ -1166,7 +1187,10 @@ void App::readerTouch(int x, int y, bool pressed, bool cancelled) {
         chatFollowing_ = false;
     }
   }
-  if (!pressed || cancelled) readerPointer_ = false;
+  if (!pressed || cancelled) {
+    if (cancelled) chatBottomState_.pause();
+    readerPointer_ = false;
+  }
 }
 void App::settleReader() {
   if (view_ != "chat" || keyboard_ || (editor_.active&&!editorLayout().docked) || imageViewer_ || navigationOpen_ || modal_) {
@@ -1208,9 +1232,10 @@ void App::chatScrolled() {
 }
 void App::updateChatControls(bool animate) {
   syncChatBottomPadding();
+  syncChatBottomState();
   if (!chatControls_ || !toBottom_)
     return;
-  lv_obj_set_hidden(toBottom_, !hasConversationContent_ || chatFollowing_ || atLatestBottom() || pulling_);
+  lv_obj_set_hidden(toBottom_, !hasConversationContent_ || chatBottomState_.atBottom() || pulling_);
   bool overContent = false;
   if (messageContent_) {
     lv_area_t buttonArea;
@@ -1264,6 +1289,7 @@ void App::jumpToBottom() {
   lv_obj_scroll_to_y(body_, LV_COORD_MAX, LV_ANIM_OFF);
   chatScroll_ = std::max(0, int(lv_obj_get_scroll_y(body_)));
   chatLayout_ = previous;
+  syncChatBottomState(true);
   updateChatControls(true);
   paintVisible();
 }
@@ -2211,6 +2237,10 @@ void App::settingsPage() {
     choiceMenu("theme",{{"dark","深色"},{"light","浅色"}},theme::name(theme::mode()),
       [this](const std::string &name){events_.push("theme_apply",{{"mode",name}});});
   });
+  row("refresh_rate", "界面刷新率", std::to_string(display_.refreshRate())+"Hz", [this] {
+    choiceMenu("refresh_rate",{{"30","30Hz"},{"60","60Hz"}},std::to_string(display_.refreshRate()),
+      [this](const std::string &rate){events_.push("refresh_rate_apply",{{"hz",rate=="60"?60:30}});});
+  });
   row("ui_scale", "界面缩放", std::to_string(uiMetrics_.scalePercent())+"% · 全应用", [this] {
     uiScaleDraft_=uiMetrics_.scalePercent();uiScaleError_.clear();show("ui_scale");
   });
@@ -2292,7 +2322,7 @@ void App::reasoningDisplayPicker() {
     [this](const std::string &key){events_.push("reasoning_display",{{"mode",key}});});
 }
 void App::goBack() {
-  if(!themeRequest_.empty())return;
+  if(!themeRequest_.empty()||!refreshRequest_.empty())return;
   if(view_=="ui_scale"&&!uiScaleRequest_.empty())return;
   if (view_ == "web_source") {
     show("web_details");
@@ -2707,6 +2737,7 @@ void App::attach(const Json &image) {
   });
 }
 void App::cancelNativeInteraction() {
+  chatBottomState_.pause();
   readReset();
   readDown_=readSuppressed_=false;
   touchInput_.close(); input_.interrupt();
@@ -2751,6 +2782,7 @@ void App::updateInputFocus() {
   }
 }
 void App::suspend(bool value) {
+  if(value)chatBottomState_.pause();
   if(value)motion::finishAll();
   if (value) composerShortcut_.reset();
   if(value)readReset();
@@ -3166,6 +3198,7 @@ void App::tick() {
   }
   imageReturnTick();
   for (const auto &saved : db_.saveEvents()) {
+    if(saved.data.value("key",std::string())=="ui_refresh_hz"){refreshRateSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="theme_mode"){themeSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="ui_scale_percent"){uiScaleSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="onboarding"){onboardingSaved(saved);continue;}
@@ -3201,6 +3234,7 @@ void App::tick() {
              });
     }
   }
+  refreshRateTick();
   themeTick();
   uiScaleTick();
   editorTick();
@@ -3400,6 +3434,8 @@ void App::tick() {
         composerShortcut_.configure(mode);
         build();
       }
+    } else if (e.type == "refresh_rate_apply") {
+      requestRefreshRate(e.data.value("hz",0));
     } else if (e.type == "theme_apply") {
       requestTheme(e.data.value("mode",std::string()));
     } else if (e.type == "ui_scale_save") {
@@ -3856,6 +3892,13 @@ Json App::diagnostics() const {
         {"changes",uiScaleChanges_},{"slider",bounds(uiScaleSlider_)},{"preview",bounds(uiScalePreview_)},
         {"anchor",{{"message",scaleAnchor_.message},{"region",scaleAnchor_.region},{"offset",scaleAnchor_.offset},{"y",scaleAnchor_.y},{"pending",scaleAnchor_.pending}}}}},
       {"appearance",{{"theme",theme::name(theme::mode())},{"pending",!themeRequest_.empty()},{"ready",themeReady_}}},
+      {"refresh_rate",{{"applied",display_.refreshRate()},
+        {"period_ms",display_.refreshPeriod()},
+        {"animation_period_ms",display_.animationPeriod()},
+        {"input_period_ms",display_.inputPeriod()},
+        {"default_hz",refresh::defaultRate(screen_.width,screen_.height)},
+        {"configured",refreshSaved_},{"pending",!refreshRequest_.empty()},
+        {"ready",refreshReady_},{"changes",refreshChanges_},{"error",refreshError_}}},
       {"font_cache",fontCacheInfo()},
       {"reading_font", {{"percent", readingFontPercent_}, {"size", readingFontSize()},
                         {"draft", readingFontDraft_}, {"slider", bounds(fontSlider_)},

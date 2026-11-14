@@ -17,7 +17,7 @@ void App::sendAppearance() {
       {"controlHeight",uiMetrics_.touchTarget(45)},{"radius",uiMetrics_.dp(12)}}}});
 }
 void App::requestTheme(const std::string &name) {
-  if(view_!="settings"||!visible_||!inputFocused_||!themeRequest_.empty()||editor_.active||keyboard_)return;
+  if(view_!="settings"||!visible_||!inputFocused_||!themeRequest_.empty()||!refreshRequest_.empty()||editor_.active||keyboard_)return;
   if(name!="dark"&&name!="light")return;
   themeTarget_=theme::parse(name);
   if(themeTarget_==theme::mode())return;
