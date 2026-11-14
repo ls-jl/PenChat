@@ -8,7 +8,9 @@ ROOT=t.ROOT
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ROOT/'build/host/penchat-lvgl'))
 OUT=ROOT/'.work/key-lag';OUT.mkdir(parents=True,exist_ok=True)
 def state(a):return a.diag()['editor']
-def keys(a):return {k['key']:(k['x'],k['y']) for k in state(a)['keys']}
+def keys(a):
+    t.wait_for(lambda:not a.diag().get('surface_motion',False))
+    return {k['key']:(k['x'],k['y']) for k in state(a)['keys']}
 def burst(a,text,positions,interval=.002):
     for key in text:
         x,y=positions[key]
@@ -93,7 +95,8 @@ def queued_lifecycle():
                 t.wait_for(lambda:state(a)['select_pending'])
                 a.editor_action('cancel');t.wait_for(lambda:not state(a)['active'])
                 assert a.diag()['draft_length']==0
-                a.tap(500,232);assert state(a)['length']==0 and not state(a)['deferred_keys'] and not state(a)['select_pending']
+                t.wait_for(lambda:not a.diag().get('surface_motion',False))
+                a.tap(500,232);assert state(a)['active'] and state(a)['length']==0 and not state(a)['deferred_keys'] and not state(a)['select_pending']
             finally:a.close()
     finally:
         if old is None:os.environ.pop('PENCHAT_TEST_PINYIN_DELAY_MS',None)

@@ -123,6 +123,7 @@ class Native:
             time.sleep(.15);self.send('touch',x=220,y=end,pressed=False);time.sleep(.1)
         raise AssertionError('Attachment item unreachable: '+key)
     def editor_action(self,key):
+        wait_for(lambda:not self.diag().get('surface_motion',False))
         state=self.diag()['editor']
         if key=='official' and 'official' not in state['actions']:
             globe=next(k for k in state['keys'] if k['key']=='language')
@@ -165,7 +166,8 @@ class Native:
             else:self.tap(48,48) if state['height']>state['width'] else self.tap(40,32)
         raise AssertionError('Cannot return to chat')
     def open_navigation(self):
-        self.to_chat();self.tap(40,32)
+        self.to_chat();wait_for(lambda:not self.diag().get('surface_motion',False));self.tap(40,32)
+        wait_for(lambda:not self.diag().get('surface_motion',False))
         assert self.diag()['navigation_open']
     def open_settings(self):
         self.open_navigation();state=self.diag();self.tap(state["width"]*2//3-70,state["height"]-30)

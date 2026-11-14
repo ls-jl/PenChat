@@ -16,11 +16,16 @@ panel under the new overlay, disables its input and fades it out behind the new
 panel. The overlay owns the whole contact sequence, including contacts that
 start during exit, preventing clicks through to keys or Send. Full page changes
 retain their existing navigation behavior. The native keyboard and history drawer
-fade in over 180ms. Closing captures a bounded temporary raster and fades it out
-over 100ms; live editor/drawer objects are released immediately. This avoids
+slide in and out over 180ms: keyboards move from/to the logical bottom, while
+the history panel moves from/to the left edge under its stable backdrop. Panel
+opacity stays unchanged. Closing captures a bounded temporary raster and slides
+it from its current position; live editor/drawer objects are released immediately. This avoids
 keeping field callbacks alive through a page rebuild. Keyboard field transfers
 and candidate refreshes do not replay the entrance. Snapshot images retain
-logical scaling and are released on DELETE; closing contacts remain blocked.
+logical scaling and are released on DELETE. Contacts are blocked during entry
+and exit because native keyboard hit regions use resting coordinates. Selection-only
+editor overlays do not use keyboard motion. Translation is excluded from the
+reader layout; a partly completed entrance can reverse without a position jump.
 
 `finishAll()` runs before lifecycle/appearance/scale teardown and after a close
 that creates an outgoing transition. Completion callbacks must finish while

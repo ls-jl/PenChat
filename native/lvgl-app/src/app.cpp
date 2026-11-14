@@ -2385,7 +2385,10 @@ void App::closeNavigation(bool resumeCamera) {
   auto object = navigation_;
   navigation_ = navigationList_ = navigationActive_ = nullptr;
   if (object) {
-    if(resumeCamera&&visible_&&inputFocused_)fadeSurfaceOut(object);
+    if(resumeCamera&&visible_&&inputFocused_) {
+      auto panel=lv_obj_get_child(object,0);SurfaceSnapshot snapshot(panel);
+      snapshot.show(-lv_obj_get_width(panel),0,true);
+    }
     lv_obj_delete(object);
   }
   if (wasOpen && resumeCamera && view_ == "camera" && visible_ && !keyboard_)
@@ -2405,7 +2408,10 @@ void App::toggleNavigation() {
   navigationScroll_ = 0;
   navigationOpen_ = true;
   historyDrawer();
-  if(navigation_)fadeSurfaceIn(navigation_);
+  if(navigation_) {
+    auto panel=lv_obj_get_child(navigation_,0);
+    slideSurfaceIn(panel,-lv_obj_get_width(panel),0);
+  }
 }
 lv_point_t App::photoPoint(lv_point_t point) const {
   if(layout().portrait())return point;
@@ -3895,6 +3901,7 @@ Json App::diagnostics() const {
         {"pending",!uiScaleRequest_.empty()},{"ready",uiScaleReady_},{"error",!uiScaleError_.empty()},
         {"changes",uiScaleChanges_},{"slider",bounds(uiScaleSlider_)},{"preview",bounds(uiScalePreview_)},
         {"anchor",{{"message",scaleAnchor_.message},{"region",scaleAnchor_.region},{"offset",scaleAnchor_.offset},{"y",scaleAnchor_.y},{"pending",scaleAnchor_.pending}}}}},
+      {"surface_motion",motion::retiring()},
       {"appearance",{{"theme",theme::name(theme::mode())},{"pending",!themeRequest_.empty()},{"ready",themeReady_}}},
       {"refresh_rate",{{"applied",display_.refreshRate()},
         {"period_ms",display_.refreshPeriod()},

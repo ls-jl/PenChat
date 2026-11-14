@@ -11,11 +11,11 @@ with tempfile.TemporaryDirectory(prefix='penchat-field-switch-') as folder:
     a=t.Native(BINARY,folder,official_adapter=False,screen={'width':568,'height':1210})
     try:
         def e():return a.diag()['editor']
-        def settle():t.wait_for(lambda:e()['active'] and not e()['ocr_preparing'] and bool(e()['keys']))
+        def settle():t.wait_for(lambda:e()['active'] and not e()['ocr_preparing'] and bool(e()['keys']) and not a.diag().get('surface_motion',False))
         def key(name):
             k=next(k for k in e()['keys'] if k['key']==name);a.tap(k['x'],k['y'])
         def focus(name):
-            if not e()['active']:time.sleep(.15)  # Let the retiring keyboard absorb its closing release.
+            if not e()['active']:time.sleep(.22)  # Let the retiring keyboard absorb its closing release.
             activate(a,'field:'+name);settle()
         def text():
             a.editor_action('official');r=a.receive('keyboard.open');a.send('keyboard.result',requestId=r['requestId'],confirmed=False);settle();return r['text']

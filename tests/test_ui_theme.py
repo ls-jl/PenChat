@@ -18,8 +18,8 @@ class App(t.Native):
   for i in range(7):self.send('touch',x=self.w//2,y=start+(end-start)*i//6,pressed=True);time.sleep(.02)
   time.sleep(.1);self.send('touch',x=self.w//2,y=end,pressed=False);time.sleep(.15)
  def open_navigation(self):
-  self.to_chat();time.sleep(.15);self.nav_tap()
-  t.wait_for(lambda:self.diag()['navigation_open'])
+  self.to_chat();time.sleep(.22);self.nav_tap()
+  t.wait_for(lambda:self.diag()['navigation_open'] and not self.diag().get('surface_motion',False))
  def nav_tap(self):
   d=self.diag()
   if self.h<=self.w:self.tap(40,32);return
@@ -36,11 +36,12 @@ class App(t.Native):
   for _ in range(12):
    d=self.diag()
    if d['navigation_open']:self.tap(self.w-12,85)
-   elif d['view']=='chat':time.sleep(.15);return
+   elif d['view']=='chat':time.sleep(.22);return
    else:
     self.top();self.nav_tap()
   raise AssertionError(self.diag()['view'])
  def key(self,name):
+  t.wait_for(lambda:not self.diag().get('surface_motion',False))
   e=self.diag()['editor'];k=next(k for k in e['keys'] if k['key']==name);s=e['coordinate_space'];x,y=k['x'],k['y']
   if s['scaled']:x=round(x*s['native_width']/s['width']);y=round(y*s['native_height']/s['height'])
   self.tap(x,y)
