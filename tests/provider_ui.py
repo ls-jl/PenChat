@@ -1,24 +1,37 @@
 """Stable Provider page locators shared by focused UI checks."""
 import signal,time
 import test_lvgl_app as ui
+from settings_ui import interactive_viewport
 
 
 def activate(app,key,tap=True):
-    for _ in range(50):
+    trace=[];scrolls=0;deadline=time.monotonic()+30
+    # Waiting for an in-flight fling is not another failed scroll attempt.
+    # Keep both a real-gesture budget and an absolute deadline.
+    while scrolls<50 and time.monotonic()<deadline:
         state=app.diag();page=state['page'];bounds={**page.get('controls',{}),**page['actions']}[key]
-        v=page['viewport']
+        v=interactive_viewport(state,page['viewport'])
+        trace.append((state['scroll_y'],page['scrolling'],bounds,state['editor']['active']))
+        if len(trace)>64:trace.pop(0)
         if page['scrolling']:time.sleep(.08);continue
-        if bounds[1]>=v[1] and bounds[3]<=v[3]:
+        if bounds[1]>=page['viewport'][1] and bounds[3]<=v[3] and (bounds[1]+bounds[3])//2>=v[1]:
+            time.sleep(.12)
+            settled=app.diag();settled_page=settled['page']
+            current={**settled_page.get('controls',{}),**settled_page['actions']}.get(key)
+            if settled_page['scrolling'] or current!=bounds:
+                continue
             if tap:
                 app.tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
                 if key=='provider_advanced':time.sleep(.20) # The disclosure reveals its child hit targets over 180ms.
             return bounds
-        x=(v[0]+v[2])//2;start=v[1]+(v[3]-v[1])*3//4 if bounds[3]>v[3] else v[1]+(v[3]-v[1])//4
+        # Scroll the reader gutter: starting inside an editable field selects text.
+        x=v[0]+4;start=v[1]+(v[3]-v[1])*3//4 if bounds[3]>v[3] else v[1]+(v[3]-v[1])//4
         delta=-min(110,(v[3]-v[1])//2) if bounds[3]>v[3] else min(110,(v[3]-v[1])//2)
+        scrolls+=1
         for step in range(7):app.send('touch',x=x,y=start+delta*step//6,pressed=True);time.sleep(.02)
         time.sleep(.16) # Settle the reader before release, avoiding test-only fling oscillation.
         app.send('touch',x=x,y=start+delta,pressed=False);time.sleep(.16)
-    raise AssertionError(('Unreachable Provider control',key,bounds,v))
+    raise AssertionError(('Unreachable Provider control',key,bounds,v,trace))
 
 
 def enter(app,value):

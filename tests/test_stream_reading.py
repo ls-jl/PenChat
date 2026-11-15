@@ -63,7 +63,7 @@ def run(w,h,api,thinking=False):
             shot(a,f'{w}-{api}-waiting')
             if thinking:
                 emit('公开思考\n\n继续思考。',True)
-                settled();assert a.diag()['generation_hint_present']
+                settled();assert not a.diag()['generation_hint_present'] and a.diag()['reasoning_header_count']==1
             emit('short');settled();s=a.diag();assert s['at_latest_bottom'] and not s['to_bottom_visible']
             assert not s['generation_hint_present']
             if thinking:

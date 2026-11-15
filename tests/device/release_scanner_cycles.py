@@ -7,7 +7,7 @@ import json
 import pathlib
 import sqlite3
 import tempfile
-from release_lifecycle import pull_database
+from release_lifecycle import pull_database,free_back_start
 
 PROFILES={
  'MEB0400008900794':('orange-sc2356',496,360),
@@ -38,6 +38,9 @@ def run(d):
    path=pathlib.Path(folder)/'fixture.db';pull_database(d.serial,d.data,path,d.sh)
    with sqlite3.connect(path) as db:return db.execute('select count(*) from chat_messages').fetchone()[0]
  baseline=count_messages();results=[]
+ d.settings();d.wait(lambda:d.state()['scan_released'],30)
+ restored_format=None if d.s6 else d.sh('v4l2-ctl -d /dev/video23 --get-fmt-video')
+ d.chat();d.wait(ready,90)
  d.capture('scanner-cycle-ready')
  for cycle in range(20):
   assert str(d.wait(ready,90)['worker_pid'])==worker
@@ -56,14 +59,16 @@ def run(d):
   results.append({'cycle':cycle,'received':counts['received'],'selected':counts['selected'],
     'usable':result['usable'],'status':result['status'],'reason':result.get('reason','')})
   # Native edge-back discards review; never press the confirmation control.
-  d.drag(12,d.h//2,min(d.w-1,160),d.h//2)
+  state=d.state();x,y=free_back_start(state,d.w,d.h,inner=True)
+  d.drag(x,y,min(d.w-1,x+max(100,d.w//4)),y)
   d.wait(lambda:d.state()['view']=='chat',30)
   d.wait(ready,90)
   d.settings();d.wait(lambda:d.state()['scan_released'],30)
   assert d.sh('cat '+light)=='0' and d.sh('pidof CaptureFrame')
+  if restored_format is not None:assert d.sh('v4l2-ctl -d /dev/video23 --get-fmt-video')==restored_format
   assert d.sh('pidof penchat-scanner')==worker
   d.chat();d.wait(ready,90)
  assert count_messages()==baseline,'Discarded scan created a message'
  return {'profile':profile,'sensor_geometry':[width,height],'cycles':results,
    'discard_only':True,'messages_unchanged':True,'worker_retained':True,
-   'system_capture_resumed':True,'paper_quality':'user reported basic operation normal; not measured by this automatic capture test'}
+   'system_capture_resumed':True,'v4l2_format_restored':restored_format is not None,'paper_quality':'user reported basic operation normal; not measured by this automatic capture test'}

@@ -22,7 +22,7 @@ def run(binary, output, scales, baseline=None):
                         if text:
                             bounds=a.diag()['composer_text_bounds']
                             a.tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
-                            t.wait_for(lambda:a.diag()['editor']['active'] and bool(a.diag()['editor']['keys']))
+                            t.wait_for(lambda:a.diag()['editor']['active'] and bool(a.diag()['editor']['keys']) and not a.diag()['surface_motion'])
                             # Docked placement is based on the unscaled keyboard's actual panel.
                             if h>w:
                                 d=a.diag();b=d['composer_bounds']

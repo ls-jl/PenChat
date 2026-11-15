@@ -19,7 +19,8 @@ def run(d):
  def textpoint():
   b=d.state()['editor']['text_bounds'];return b[0]+6,(b[1]+b[3])//2
  text,e,session,length=surface.open_owned(d);time.sleep(.5);pid=d.pid()
- image=surface.official_visual(d,'official-final-light-boundary')
+ theme=d.state()['appearance']['theme'];color=255 if theme=='light' else 0
+ image=surface.official_visual(d,'official-final-'+theme+'-boundary')
  base=str(image).replace('-keyboard.png','')
  meta=json.loads(pathlib.Path(base+'.raw.json').read_text());pixels=pathlib.Path(base+'.raw').read_bytes()
  state=d.state();start=state['composer_bounds'][3]+1;end=state['display_top_height']
@@ -27,7 +28,11 @@ def run(d):
  for yy in range(start,end+1):
   for xx in [0,d.w//2,d.w-1]:
    px,py=d.w-1-xx,d.h-1-yy;offset=py*meta['pitch']+px*4
-   assert pixels[offset:offset+3]==bytes([255,255,255]),(xx,yy,list(pixels[offset:offset+4]))
+   pixel=pixels[offset:offset+4]
+   # Falcon can retain transparent black on its primary plane in dark mode;
+   # the native/DRM background is black too. Light mode must be opaque white
+   # or the former hole would show the reported black stripe.
+   assert pixel[:3]==bytes([color,color,color]) and (theme=='dark' or pixel[3]==255),(xx,yy,list(pixel))
 
  plus();d.wait(lambda:d.state()['attachments'] and d.state()['keyboard'])
  rawtap(d.w-8,100);d.wait(lambda:not d.state()['attachments']);assert d.state()['keyboard']
@@ -63,4 +68,4 @@ def run(d):
   row=db.execute("select output_text from chat_messages where role='user' order by rowid desc limit 1").fetchone()
   assert row and row[0]=='比',row
  saved.unlink()
- return {'caret_tap':True,'caret_drag':True,'select_all':True,'copy_cut_paste':True,'type_after_paste':True,'single_local_send':True,'native_pid_stable':True,'selection_handle_drag':True,'selected_chinese_replacement':True,'saved_message_exact':True,'empty_caret_tap_paste':True,'light_gap_pixels_match_theme':True}
+ return {'caret_tap':True,'caret_drag':True,'select_all':True,'copy_cut_paste':True,'type_after_paste':True,'single_local_send':True,'native_pid_stable':True,'selection_handle_drag':True,'selected_chinese_replacement':True,'saved_message_exact':True,'empty_caret_tap_paste':True,'gap_pixels_match_theme':True,'theme':theme}

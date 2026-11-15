@@ -11,6 +11,7 @@ FORBIDDEN = {
 def check_native_payload(data, name):
     assert len(data)>=52 and data[:4]==b'\x7fELF' and data[4] in (1,2) and data[5]==1, (name,'ELF32/64 little-endian required')
     wide=data[4]==2
+    assert len(data)>=(64 if wide else 52), (name, 'truncated ELF header')
     offset=struct.unpack_from('<Q' if wide else '<I',data,40 if wide else 32)[0]
     entry,count=struct.unpack_from('<HH',data,58 if wide else 46)
     assert entry==(64 if wide else 40) and count and offset+count*entry<=len(data),name

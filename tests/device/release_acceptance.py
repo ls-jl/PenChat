@@ -31,6 +31,7 @@ import uuid
 import zlib
 
 from refresh_bottom_acceptance import APP, ROOT, Device as ScopedDevice
+from release_records import write_json,require_space
 
 DEVICES = {
   'MEB0400008900794': 'Y01',
@@ -42,6 +43,7 @@ RELEASE = 'release-'+APP['version']
 OUT = ROOT/'.work'/RELEASE/'devices'
 # Reuse individual feature fixtures, never acceptance.py on original user data.
 FEATURES = {
+  'official-editing-dark': 'Y07 retained official editing with opaque dark handoff backing',
   'official-editing': 'Y07 retained IME cursor, selection, copy/cut/paste, local single send and light boundary pixels',
   'scanner-cycles': 'Twenty profile-verified real capture/discard, resident worker and guardian return cycles; no optical claim',
   'smoke': 'Native identity, Falcon geometry, reader/drawer and all 26 Settings rows',
@@ -221,9 +223,9 @@ class ReleaseDevice(ScopedDevice):
     self.key_helper = '/tmp/penchat-release-key'
     self.key_helper_ready = False
     self.testing_payload_installed = False
-    self.official_readback_probe = features in (['owned-official-readback'],['official-editing'])
-    self.official_default_probe = features in (['owned-official-default'],['owned-official-drm'],['owned-official-readback'],['official-editing'])
-    self.official_confirm_probe = features in (['owned-official-ime'], ['owned-official-default'], ['owned-official-readback'], ['official-editing'])
+    self.official_readback_probe = features in (['owned-official-readback'],['official-editing'],['official-editing-dark'])
+    self.official_default_probe = features in (['owned-official-default'],['owned-official-drm'],['owned-official-readback'],['official-editing'],['official-editing-dark'])
+    self.official_confirm_probe = features in (['owned-official-ime'], ['owned-official-default'], ['owned-official-readback'], ['official-editing'],['official-editing-dark'])
     self.official_fake_text='penchatimefixture-'+uuid.uuid4().hex[:8]
     self.result.update(device=self.name, release_scope=list(DEVICES),
                        human_visual_approval='pending', paper_scan_quality='pending',
@@ -324,7 +326,7 @@ class ReleaseDevice(ScopedDevice):
       self.sh('rm -f '+remote)
 
   def record(self):
-    (self.out/'result.json').write_text(json.dumps(self.result, ensure_ascii=False, indent=2)+'\n')
+    write_json(self.out/'result.json',self.result)
 
   def input_state(self, release=False):
     assert self.input_probe_ready
@@ -397,12 +399,13 @@ class ReleaseDevice(ScopedDevice):
   def launch(self):
     # Keep the source helper's foreground stability guard. A retained Falcon
     # launcher may expose its supported Retry action after native termination.
-    if self.serial in ('MEA2300009007113','7G12000010905426') and self.key_helper_ready:
+    if self.serial in ('MEA2300009007113','7G12000010905426','JDA0700006552216') and self.key_helper_ready:
       backlight='/sys/class/backlight/'+('dcs-backlight' if self.serial=='7G12000010905426' else 'backlight')+'/actual_brightness'
       for _ in range(2):
         if int(self.sh('cat '+backlight)) > 5:
           break
-        self.sh(self.key_helper+' /dev/input/by-path/rk805-pwrkey 116 1 100 300')
+        power='platform-502b000.i2c-platform-axp2101-pek.0-event' if self.serial=='JDA0700006552216' else 'rk805-pwrkey'
+        self.sh(self.key_helper+' /dev/input/by-path/'+power+' 116 1 100 300')
         time.sleep(.4)
       assert int(self.sh('cat '+backlight)) > 5, 'Device did not wake with its paired power key'
     self.sh('miniapp_cli start '+APP['appid'])
@@ -830,6 +833,7 @@ class ReleaseDevice(ScopedDevice):
       raise RuntimeError('Owned test page may still be alive; no original restoration or foreground takeover attempted')
 
   def run(self):
+    require_space(self.out)
     leases = ROOT/'.work/release-0.3.1/device-locks'
     leases.mkdir(parents=True, exist_ok=True)
     with (leases/(self.serial+'.lock')).open('a') as lease:
@@ -884,7 +888,7 @@ class ReleaseDevice(ScopedDevice):
                 'public_saved': self.public_saved, 'had_data': had_data, 'had_public': had_public,
                 'public_hashes': public_hashes}
     def save_recovery():
-      (self.out/'recovery.json').write_text(json.dumps(recovery, ensure_ascii=False, indent=2)+'\n')
+      write_json(self.out/'recovery.json',recovery)
     save_recovery()
     try:
       # Shield public exports before normal shutdown may retire its 导出 subtree.
@@ -909,7 +913,7 @@ class ReleaseDevice(ScopedDevice):
             db.execute('delete from chat_messages');db.execute('delete from chat_sessions')
             db.execute('update app_settings set value_json=? where key=?',('""','active_session_id'))
           self.result['scanner_format_before_probe']=self.sh('v4l2-ctl -d /dev/video23 --get-fmt-video')
-        if self.features in (['real-background-generation'],['official-editing']):
+        if self.features in (['real-background-generation'],['official-editing'],['official-editing-dark']):
           from http_pool_flow import DeviceServer
           import sqlite3
           self.background_server=DeviceServer(ROOT,self.serial,self.out,stream=True)
@@ -919,17 +923,17 @@ class ReleaseDevice(ScopedDevice):
         if self.features == ['preset-camera-large-font']:
           from release_product_review import configure_fixture
           configure_fixture(folder/'penchat.db')
-        if self.features in (['owned-official-drm'],['owned-official-readback'],['official-editing']):
+        if self.features in (['owned-official-drm'],['owned-official-readback'],['official-editing'],['official-editing-dark']):
           import sqlite3
           with sqlite3.connect(folder/'penchat.db') as db:
             db.execute('insert or replace into app_settings values(?,?,1)',('prefer_official_keyboard','true'))
-            if self.features==['official-editing']:db.execute('insert or replace into app_settings values(?,?,1)',('theme_mode',json.dumps('light')))
+            if self.features in (['official-editing'],['official-editing-dark']):db.execute('insert or replace into app_settings values(?,?,1)',('theme_mode',json.dumps('dark' if self.features==['official-editing-dark'] else 'light')))
         self.push(folder/'penchat.db', self.data+'/penchat.db')
-        if self.features in (['y07-render-cost'], ['real-background-probe'], ['real-background-generation'], ['owned-official-ime'], ['y07-scroll-surface'], ['y07-scroll-dark'], ['owned-official-default'], ['owned-official-drm'], ['owned-official-readback'], ['official-editing']):
+        if self.features in (['y07-render-cost'], ['real-background-probe'], ['real-background-generation'], ['owned-official-ime'], ['y07-scroll-surface'], ['y07-scroll-dark'], ['owned-official-default'], ['owned-official-drm'], ['owned-official-readback'], ['official-editing'],['official-editing-dark']):
           # Restore a middle reading anchor in the private fixture before
           # measuring. Real touch workloads below still exercise scrolling.
           restore = {'appid': APP['appid'], 'target': APP['version'], 'snapshot': {
-            'session': 'refresh-bottom', 'draft': 'penchatbackgroundfixture' if self.features in (['real-background-probe'],['real-background-generation']) else self.official_fake_text if self.features in (['owned-official-ime'],['owned-official-default'],['owned-official-drm'],['owned-official-readback'],['official-editing']) else '', 'preferences': {},
+            'session': 'refresh-bottom', 'draft': 'penchatbackgroundfixture' if self.features in (['real-background-probe'],['real-background-generation']) else self.official_fake_text if self.features in (['owned-official-ime'],['owned-official-default'],['owned-official-drm'],['owned-official-readback'],['official-editing'],['official-editing-dark']) else '', 'preferences': {},
             'scroll': 1800, 'offset': 0, 'following': False}}
           (folder/'restore.json').write_text(json.dumps(restore))
           self.sh('mkdir -p '+self.data+'/.updates')
@@ -1044,7 +1048,7 @@ class ReleaseDevice(ScopedDevice):
           elif feature in ('owned-official-ime','owned-official-default','owned-official-readback'):
             from release_official_surface import run as official_surface
             entry['evidence'] = official_surface(self)
-          elif feature == 'official-editing':
+          elif feature in ('official-editing','official-editing-dark'):
             from release_official_editing import run
             entry['evidence'] = run(self)
           elif feature == 'scanner-cycles':

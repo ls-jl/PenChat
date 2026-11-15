@@ -10,6 +10,7 @@ import sys
 import time
 
 from release_acceptance import APP, DEVICES, FEATURES, ROOT, RELEASE, defer_cleanup_signals
+from release_records import write_json,require_space
 
 
 def supervise(command, log, recovery_timeout=180):
@@ -59,12 +60,13 @@ def _main(stop_requests):
     'visual_approval': 'pending except already-approved white solid keycap color'}
 
   def record():
-    (out/'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2)+'\n')
+    write_json(out/'manifest.json',manifest)
 
   for feature in args.features:
     if stop_requests:
       manifest['stopped'] = 'Termination requested between scopes; no further scope'
       break
+    require_space(out)
     folder = out/feature
     folder.mkdir(exist_ok=True)
     entry = {'feature': feature, 'status': 'running', 'artifacts': str(folder)}

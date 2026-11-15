@@ -20,6 +20,7 @@ def rejects(data):
  raise AssertionError('Forbidden or malformed runtime payload was accepted')
 
 for wide in [False,True]:
+ rejects(elf(wide,'safe_function')[:51 if not wide else 60])
  check_native_payload(elf(wide,'safe_function'),'fixture')
  for name in ['system','popen','popen64','wordexp','execvp','execlp','posix_spawnp']:
   rejects(elf(wide,name))

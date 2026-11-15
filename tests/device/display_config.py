@@ -121,6 +121,7 @@ def drag(x,y,ex,ey):
     shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap '+str(sx)+' '+str(sy)+' '+str(tx)+' '+str(ty)+' 20 2>/dev/null')
     time.sleep(.35)
 def side_back():
+    wait(lambda:not state().get('surface_motion',False))
     from release_lifecycle import free_back_start
     d=state()
     try:x,y=free_back_start(d,W,H,inner='edge' in d.get('back_navigation',{}))
@@ -582,17 +583,20 @@ try:
         sx,sy=raw(W//2,H//2)
         shell('for i in 1 2; do PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap '+str(sx)+' '+str(sy)+' 2>/dev/null; done')
         pan=state()['image_viewer']['pan']
-        # At 2x a 4:3 image still fits horizontally on these wide displays;
-        # test pan on its overflowing vertical axis, not the centered axis.
-        assert state()['image_viewer']['zoom']==2
-        drag(W//3,H//2,W//3,H//2+H//5)
+        # Pan an axis which actually overflows after fitting and zooming; a
+        # portrait viewport centers this fixture vertically even at 2x.
+        viewer=state()['image_viewer'];assert viewer['zoom']==2
+        fw,fh=viewer['frame'];vw,vh=viewer['viewport'][2:]
+        fit=min(vw/fw,vh/fh)
+        if fw*fit*viewer['zoom']>vw+1:drag(W//3,H//2,W//3+W//5,H//2)
+        else:drag(W//3,H//2,W//3,H//2+H//5)
         assert state()['image_viewer']['open'] and state()['image_viewer']['pan']!=pan
         capture('back-image-pan');side_back();wait(lambda:not state()['image_viewer']['open'])
         assert state()['session']==before['session'] and state()['scroll_y']==before['scroll_y'] and pid()==native
         s=state()
         if s['to_bottom_visible']:tap(s['to_bottom_x']+22,s['to_bottom_y']+22)
-        wait(lambda:state()['toolbar_y']==H-58)
-        tap(W//2,H-34);wait(lambda:state()['editor']['active']);blocked(True)
+        wait(lambda:not state()['composer_hidden'] and not state().get('surface_motion',False))
+        open_chat_editor();blocked(True)
         key('language');key('q');assert state()['editor']['length']==1
         side_back();wait(lambda:not state()['editor']['active']);blocked(True)
         assert state()['draft_length']==0 and pid()==native

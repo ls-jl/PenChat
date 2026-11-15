@@ -25,6 +25,7 @@ def run(w,h,split=False):
                 app.long_press(round(globe['x']*w/space['width']),round(globe['y']*h/space['height']),.58)
                 ui.wait_for(lambda:editor(app)['layout_menu'])
                 app.editor_action('layout:'+str(number))
+            ui.wait_for(lambda:not app.diag()['surface_motion'])
             e=editor(app);floating=not e['compact_full'];baseline=e['text_bounds'];panel=e['panel_top']
             assert e['composition_floating']==floating and not e['composition_visible'] and not e['composition_bounds']
             capture(app,OUT/f'{w}-idle.png')

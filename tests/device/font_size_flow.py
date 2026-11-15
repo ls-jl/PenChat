@@ -19,7 +19,10 @@ def run(ctx):
         # needs an ordinary swipe so the test does not invoke long-press Copy.
         for _ in range(15):
             if state()['scroll_y']==0:return
-            x,y=ctx['raw'](W//2,60);ex,ey=ctx['raw'](W//2,H-40)
+            d=state();v=d['chat_header']['reader_bounds'];top=v[1]+12;bottom=v[3]-12
+            if not d['composer_hidden']:bottom=min(bottom,d['composer_bounds'][1]-12)
+            assert bottom>top
+            x,y=ctx['raw']((v[0]+v[2])//2,top);ex,ey=ctx['raw']((v[0]+v[2])//2,bottom)
             ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+
                          ' /tmp/penchat-display-tap '+f'{x} {y} {ex} {ey} 16 2>/dev/null')
             time.sleep(.4)
