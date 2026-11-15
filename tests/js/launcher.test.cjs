@@ -626,6 +626,7 @@ test('official viewport keeps full Falcon geometry while validating native keybo
  assert.equal(f.page.nativeAreaStyle.height,'1210px')
  assert(!f.calls.some(c=>c[0]==='send'&&c[1].type==='keyboard.layout'))
  poll(550)
+ assert.equal(f.page.officialHoleStyle.height,'660px')
  assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.layout').at(-1)[1].height,550)
  assert.equal(f.page.nativeAreaStyle.height,'1210px');assert.equal(f.page.pageStyle.height,'1210px')
  assert.equal(f.page.nativeAreaStyle,base);assert.equal(base.height,'1210px');assert.equal(f.page._screen.height,1210)
@@ -638,13 +639,13 @@ test('official viewport keeps full Falcon geometry while validating native keybo
  f.page.applyAppearance({mode:'light',colors,metrics})
  assert.equal(f.page.nativeAreaStyle,viewport);assert.equal(f.page.pageStyle.height,'1210px')
  assert.equal(f.page.officialInputStyle,inputStyle)
- poll(590);assert.equal(f.page.pageStyle.height,'1210px')
+ poll(590);assert.equal(f.page.pageStyle.height,'1210px');assert.equal(f.page.officialHoleStyle.height,'620px')
  assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.layout').at(-1)[1].height,590)
  f.page.cancelOfficialKeyboard();assert.equal(f.page.pageStyle.height,'1210px');assert.equal(f.page.nativeAreaStyle.height,'1210px')
  f.page.openKeyboard({requestId:'reclip',text:'again',field});assert.equal(f.page.pageStyle.height,'1210px')
  poll(550);assert.equal(f.page.pageStyle.height,'1210px')
  const template=fs.readFileSync('src/launcher/LauncherPage.vue','utf8').split('<script>')[0]
- assert(template.includes('<hole v-if="!officialInline" class="native-hole" :style="nativeAreaStyle">'))
+ assert(template.includes('<hole class="native-hole" :style="officialInline ? officialHoleStyle : nativeAreaStyle">'))
  f.page.dispose()
 })
 
@@ -675,7 +676,7 @@ test('invalid official heights expire at opening deadline or existing display le
 })
 
 
-test('portrait official proxy omits video hole and clears floating IME preedit with opaque backing',async()=>{
+test('portrait official proxy exposes native page above IME and clears floating preedit below',async()=>{
  const f=fixture();await f.page.boot();portraitOfficial(f)
  f.page.nativeAreaStyle={left:'0px',top:'0px',width:'568px',height:'1210px'}
  f.page.updatePageStyle()

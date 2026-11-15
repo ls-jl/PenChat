@@ -1,6 +1,6 @@
 <template>
   <div class="native-page" :style="pageStyle">
-    <hole v-if="!officialInline" class="native-hole" :style="nativeAreaStyle"></hole>
+    <hole class="native-hole" :style="officialInline ? officialHoleStyle : nativeAreaStyle"></hole>
     <div v-if="officialInline" class="official-editor" :style="appearanceStyles.officialPanel">
       <input v-if="officialSingleLine" :key="officialControlKey" ref="officialInput" class="official-input" :style="officialInputStyle" :type="officialSensitive ? 'password' : 'text'" :value="officialInitialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="false" cursorColor="transparent" @input="officialInputHandlers.input" @confirm="officialInputHandlers.confirm" />
       <textarea v-else :key="officialControlKey" ref="officialInput" class="official-input" :style="officialInputStyle" :value="officialInitialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="false" cursorColor="transparent" @input="officialInputHandlers.input" @confirm="officialInputHandlers.confirm" />
@@ -54,7 +54,7 @@ function resolvedAppearance(c, m) {
   }
 }
 export default {
-  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
+  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialHoleStyle: {}, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
   mounted() { this.boot() },
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
@@ -369,6 +369,9 @@ export default {
                 this.cancelOfficialKeyboard('官方键盘高度无效，已恢复内置键盘')
               return
             }
+            const height = this._screen.height - state.height
+            if (this.officialHoleStyle.height !== height + 'px')
+              this.officialHoleStyle = Object.assign({}, this.nativeAreaStyle, { height: height + 'px' })
             this._officialValidLayoutAt = Date.now()
             this._officialSeen = true
             // Register the vendor's confirmation result only after the proxy
@@ -399,7 +402,7 @@ export default {
     },
     updatePageStyle() {
       // Native's independent top-region plane paints the retained official page.
-      // Keep an opaque backing beneath the system panel: its floating preedit
+      // Punch a hole only above the IME; keep opaque backing beneath its panel: its floating preedit
       // extends outside the keyboard bounds and must be erased on selection.
       const page = Object.assign({}, this.nativeAreaStyle, this.appearanceStyles.page || {})
       if (Object.keys(page).some(key => page[key] !== this.pageStyle[key]) || Object.keys(page).length !== Object.keys(this.pageStyle).length) this.pageStyle = page
@@ -456,6 +459,7 @@ export default {
         confirm: value => { if (ownsControl()) this.finishInlineOfficial(value) }
       }
       this._officialFontSize = 0
+      this.officialHoleStyle = Object.assign({}, this.nativeAreaStyle, { height: '0px' })
       this.officialInline = true
       this.updatePageStyle()
       this.inlineOfficialField(Object.assign({ requestId: this._keyboardRequest }, event.field || {}))
