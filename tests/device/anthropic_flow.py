@@ -22,12 +22,12 @@ def run(ctx,handler):
  state,tap,wait,capture=map(ctx.get,('state','tap','wait','capture'));W,H=ctx['W'],ctx['H']
  def click(b):tap((b[0]+b[2])//2,(b[1]+b[3])//2)
  def type_question():
-  tap(W//2,H-34);wait(lambda:state()['editor']['active'])
+  ctx['open_chat_editor']()
   if state()['editor']['chinese']:ctx['key']('language')
   ctx['key']('q');click(state()['editor']['actions']['done']);wait(lambda:not state()['editor']['active'])
  def settle(count):wait(lambda:len(handler.requests)==count and not state()['generating'] and not state()['compressing'] and not state()['storage']['unsaved'],timeout=25)
  def attachment(key):
-  tap(128,H-34)
+  ctx['open_attachment_menu']()
   for _ in range(25):
    s=state();b=s['attachment_actions'][key];v=s['attachment_viewport']
    if b[1]>=v[1] and b[3]<=v[3]:click(b);return
@@ -35,50 +35,53 @@ def run(ctx,handler):
   raise AssertionError(key)
  def row(key):
   for _ in range(30):
-   b=state()['settings']['rows'][key]['bounds']
-   if b[1]>=0 and b[3]<H:click(b);return
+   s=state();b=s['settings']['rows'][key]['bounds']
+   if b[1]>=(s['safe_insets'][1] if H>W else 0) and b[3]<H:click(b);return
    ctx['settings_swipe'](max(-110,min(110,H//2-(b[1]+b[3])//2)))
   raise AssertionError(key)
- type_question();tap(W-52,H-34);settle(1)
+ type_question();ctx['send_chat']();settle(1)
  assert not state()['modal'] and state()['reasoning_header_count']
  body=handler.requests[-1][2];assert body['thinking']['type']=='adaptive' and body['output_config']['effort']=='high'
  assert any(b.get('type')=='image' for m in body['messages'] for b in m['content'])
  assert handler.requests[-1][1]['x-api-key']=='fake-anthropic-key';capture('anthropic-chat')
  assert SIGNATURE not in json.dumps(state())
- type_question();tap(W-52,H-34);settle(2)
+ type_question();ctx['send_chat']();settle(2)
  assert SIGNATURE in json.dumps(handler.requests[-1][2]);capture('anthropic-replay')
  attachment('session_info');wait(lambda:not state()['session_info_busy'])
  info=state()['session_info'];assert info['latest']['input_tokens']==20 and info['latest']['cached_tokens']==7
  assert info['latest']['uncached_input_tokens']==10 and info['totals']['total_tokens']==58
- capture('anthropic-information');ctx['settings_swipe'](-130);ctx['settings_swipe'](-130);capture('anthropic-usage');tap(40,32)
- attachment('compress');wait(lambda:not state()['compressing'],timeout=25);assert state()['modal']
+ capture('anthropic-information');ctx['settings_swipe'](-130);ctx['settings_swipe'](-130);capture('anthropic-usage');ctx['navigate_back_or_menu']()
+ attachment('compress');wait(lambda:state()['view']=='context_summary' and not state()['compressing'],timeout=25);assert not state()['modal']
  assert 'PenChat_CONTEXT_COMPRESSION_V1' in handler.requests[-1][2]['system'] and 'thinking' not in handler.requests[-1][2]
- capture('anthropic-compression');tap(W-70,H-44)
- count=len(handler.requests);type_question();tap(W-52,H-34);settle(count+1)
+ capture('anthropic-compression');ctx['navigate_back_or_menu']()
+ count=len(handler.requests);type_question();ctx['send_chat']();settle(count+1)
  assert SIGNATURE not in json.dumps(handler.requests[-1][2]);capture('anthropic-after-compression')
- tap(40,32);tap(W*2//3-70,H-30);click(locate(state,ctx['settings_swipe'],'models')['bounds'])
- tap(W-90,76);tap(W-230,128);assert state()['modal'];capture('anthropic-protocol-chooser');tap(400,160)
+ ctx['open_settings']();click(locate(state,ctx['settings_swipe'],'models')['bounds'])
+ ctx['page_action_prefix']('provider-open:');ctx['page_action_prefix']('provider-protocol');assert state()['modal'];capture('anthropic-protocol-chooser');ctx['context_choice']('anthropic')
+ row('provider_advanced');time.sleep(.35)
  row('anthropic_connection');capture('anthropic-connection');row('anthropic_auth');row('anthropic_version')
- capture('anthropic-bearer-version');tap(40,32);row('api_compatibility');row('enabled')
+ capture('anthropic-bearer-version');ctx['navigate_back_or_menu']();row('api_compatibility');row('enabled')
  assert 'usage' not in state()['settings']['rows'];row('http1');capture('anthropic-compatible')
- tap(40,32)
- for _ in range(15):
-  b=state()['page']['actions']['保存']
-  if b[1]>=0:click(b);break
-  ctx['settings_swipe'](120)
- assert state()['provider_protocol']==''
+ ctx['navigate_back_or_menu']()
+ ctx['page_action_prefix']('保存');wait(lambda:not state()['storage']['unsaved'])
+ # Whole-page Save intentionally keeps the provider detail open. Leave it
+ # explicitly before reopening the persisted workspace from its list.
+ ctx['navigate_back_or_menu']();wait(lambda:not state()['provider_protocol'])
  # Capture both model modes without changing their configuration.
- tap(W-90,125);assert state()['view']=='model';capture('anthropic-adaptive-model');tap(40,32)
- tap(W-90,178);assert state()['view']=='model';capture('anthropic-budget-model');tap(40,32)
- tap(40,32);tap(40,32)
+ ctx['page_action_prefix']('provider-open:');ctx['page_action_prefix']('model-edit:',0);assert state()['view']=='model';capture('anthropic-adaptive-model');ctx['navigate_back_or_menu']()
+ ctx['page_action_prefix']('model-edit:',1);assert state()['view']=='model';capture('anthropic-budget-model');ctx['navigate_back_or_menu']()
+ for _ in range(6):
+  if state()['view']=='chat':break
+  ctx['navigate_back_or_menu']()
+ assert state()['view']=='chat'
  if state()['navigation_open']:tap(W-30,80)
- count=len(handler.requests);type_question();tap(W-52,H-34);settle(count+1)
+ count=len(handler.requests);type_question();ctx['send_chat']();settle(count+1)
  headers=handler.requests[-1][1]
  assert headers['Authorization']=='Bearer fake-anthropic-key' and 'x-api-key' not in headers and headers['anthropic-version']=='2026-10-21'
  assert SIGNATURE not in json.dumps(handler.requests[-1][2])
- handler.mode='401';count=len(handler.requests);type_question();tap(W-52,H-34);settle(count+1);assert state()['modal']
+ handler.mode='401';count=len(handler.requests);type_question();ctx['send_chat']();settle(count+1);assert state()['modal']
  capture('anthropic-http-error');time.sleep(.3);assert len(handler.requests)==count+1
- handler.mode='json';tap(W-190,H-44);settle(count+2);assert not state()['modal'] and not state()['reply_actions']['confirm'];capture('anthropic-json-retry')
+ handler.mode='json';ctx['modal_action'](1,W-190);settle(count+2);assert not state()['modal'] and not state()['reply_actions']['confirm'];capture('anthropic-json-retry')
  ctx['result']['anthropic']={'local_fake_server':True,'image':True,'streaming':True,'signed_replay':True,
   'usage':True,'compression_archive':True,'auth_headers':['x-api-key','bearer'],'versions':['2023-06-01','2026-10-21'],
   'http1':True,'compatible_json':True,'manual_retry':True,'no_automatic_retry':True,'requests':len(handler.requests)}

@@ -36,12 +36,15 @@ int main(int argc, char** argv)
         return 1;
     }
     const bool hold = argc == 5 && !strcmp(argv[1], "--hold");
+    const bool doubleTap = argc == 5 && !strcmp(argv[1], "--double");
     const bool dragHold = argc == 8 && !strcmp(argv[1], "--drag-hold");
+    const bool moveHold = argc == 8 && !strcmp(argv[1], "--move-hold");
+    const bool heldDrag = dragHold || moveHold;
     const bool pinch = argc == 10 && !strcmp(argv[1], "--pinch");
-    if (argc != 3 && argc != 5 && argc != 6 && !pinch && !dragHold) return 2;
-    const int x = std::atoi(argv[(pinch || hold || dragHold) ? 2 : 1]), y = std::atoi(argv[(pinch || hold || dragHold) ? 3 : 2]);
-    const int endX = hold ? x : dragHold ? std::atoi(argv[4]) : pinch ? std::atoi(argv[6]) : (argc == 5 || argc == 6) ? std::atoi(argv[3]) : x;
-    const int endY = hold ? y : dragHold ? std::atoi(argv[5]) : pinch ? std::atoi(argv[7]) : (argc == 5 || argc == 6) ? std::atoi(argv[4]) : y;
+    if (argc != 3 && argc != 5 && argc != 6 && !pinch && !heldDrag) return 2;
+    const int x = std::atoi(argv[(pinch || hold || doubleTap || heldDrag) ? 2 : 1]), y = std::atoi(argv[(pinch || hold || doubleTap || heldDrag) ? 3 : 2]);
+    const int endX = (hold || doubleTap) ? x : heldDrag ? std::atoi(argv[4]) : pinch ? std::atoi(argv[6]) : (argc == 5 || argc == 6) ? std::atoi(argv[3]) : x;
+    const int endY = (hold || doubleTap) ? y : heldDrag ? std::atoi(argv[5]) : pinch ? std::atoi(argv[7]) : (argc == 5 || argc == 6) ? std::atoi(argv[4]) : y;
     const char* requestedDevice = std::getenv("PENCHAT_TOUCH_DEVICE");
     int fd = -1;
     input_absinfo ax = {}, ay = {};
@@ -98,6 +101,20 @@ int main(int argc, char** argv)
         endX < ax.minimum || endX > ax.maximum || endY < ay.minimum || endY > ay.maximum) {
         close(fd); return 2;
     }
+    if (doubleTap) {
+        bool ok = true;
+        for (int tap = 0; tap < 2; ++tap) {
+            ok = event(fd, EV_ABS, ABS_MT_SLOT, 0) &&
+                event(fd, EV_ABS, ABS_MT_TRACKING_ID, getpid() % 60000 + tap + 1) &&
+                event(fd, EV_ABS, ABS_MT_POSITION_X, x) && event(fd, EV_ABS, ABS_MT_POSITION_Y, y) &&
+                event(fd, EV_KEY, BTN_TOOL_FINGER, 1) && event(fd, EV_KEY, BTN_TOUCH, 1) && event(fd, EV_SYN, SYN_REPORT, 0) && ok;
+            usleep(40000);
+            ok = event(fd, EV_ABS, ABS_MT_TRACKING_ID, -1) && event(fd, EV_KEY, BTN_TOUCH, 0) &&
+                event(fd, EV_KEY, BTN_TOOL_FINGER, 0) && event(fd, EV_SYN, SYN_REPORT, 0) && ok;
+            if (!tap) usleep(std::max(50, std::min(250, std::atoi(argv[4]))) * 1000);
+        }
+        close(fd); return ok ? 0 : 1;
+    }
     bool ok = event(fd, EV_ABS, ABS_MT_SLOT, 0) &&
         event(fd, EV_ABS, ABS_MT_TRACKING_ID, getpid() % 65535 + 1) &&
         event(fd, EV_ABS, ABS_MT_POSITION_X, x) &&
@@ -106,8 +123,8 @@ int main(int argc, char** argv)
         event(fd, EV_ABS, ABS_MT_WIDTH_MAJOR, 10) &&
         event(fd, EV_KEY, BTN_TOOL_FINGER, 1) &&
         event(fd, EV_KEY, BTN_TOUCH, 1) && event(fd, EV_SYN, SYN_REPORT, 0);
-    usleep(dragHold ? std::max(450, std::min(2500, std::atoi(argv[6]))) * 1000 : hold ? std::max(400, std::min(2500, std::atoi(argv[4]))) * 1000 : 150000);
-    if (!hold && (argc == 5 || argc == 6 || dragHold)) {
+    usleep(heldDrag ? std::max(moveHold ? 0 : 450, std::min(2500, std::atoi(argv[6]))) * 1000 : hold ? std::max(400, std::min(2500, std::atoi(argv[4]))) * 1000 : 150000);
+    if (!hold && (argc == 5 || argc == 6 || heldDrag)) {
         const int stepDelay = argc == 6 ? std::max(1, std::min(200, std::atoi(argv[5]))) : 20;
         for (int step = 1; step <= 12; ++step) {
             ok = event(fd, EV_ABS, ABS_MT_POSITION_X, x + (endX - x) * step / 12) &&
@@ -116,7 +133,7 @@ int main(int argc, char** argv)
             usleep(stepDelay * 1000);
         }
     }
-    if (dragHold) usleep(std::max(0, std::min(2500, std::atoi(argv[7]))) * 1000);
+    if (heldDrag) usleep(std::max(0, std::min(moveHold ? 5000 : 2500, std::atoi(argv[7]))) * 1000);
     const bool released = event(fd, EV_ABS, ABS_MT_SLOT, 0) &&
         event(fd, EV_ABS, ABS_MT_TRACKING_ID, -1) &&
         event(fd, EV_KEY, BTN_TOUCH, 0) &&

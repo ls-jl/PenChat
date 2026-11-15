@@ -13,22 +13,20 @@ def run(env,Server):
     def bottom():
         s=d.state()
         if s['to_bottom_visible']:d.tap(s['to_bottom_x']+22,s['to_bottom_y']+22)
-        d.wait(lambda:d.state()['toolbar_y']==H-58)
+        d.wait(lambda:d.state()['at_latest_bottom'] and not d.state()['composer_hidden'])
     def current_db():
         path=d.OUT/'reply-actions-result.db'
-        remote='/tmp/penchat-reply-test-snapshot.db'
-        subprocess.run(['adb','-s',d.SERIAL,'shell',"umask 077; sqlite3 -readonly "+d.DATA+"/penchat.db '.backup "+remote+"'"],check=True,capture_output=True)
-        subprocess.run(['adb','-s',d.SERIAL,'pull',remote,str(path)],check=True,capture_output=True)
-        subprocess.run(['adb','-s',d.SERIAL,'shell','rm -f '+remote],check=True,capture_output=True);path.chmod(0o600)
+        from release_lifecycle import pull_database
+        pull_database(d.SERIAL,d.DATA,path,d.shell)
         return sqlite3.connect(path)
     def select(id):
-        bottom();d.tap(40,32);d.wait(lambda:d.state()['navigation_open'])
+        bottom();d.open_navigation()
         row=next(r for r in d.state()['history_rows'] if r['id']==id);d.tap(row['x'],row['y']);d.wait(lambda:d.state()['session']==id and not d.state()['navigation_open'])
     action('a2','copy');assert d.state()['editor']['clipboard_count']==1;d.capture('assistant-toolbar')
-    bottom();d.tap(W//2,H-34);d.wait(lambda:d.state()['editor']['active'])
+    bottom();d.open_chat_editor()
     if d.state()['editor']['chinese']:d.key('language')
     for c in 'draft':d.key(c)
-    d.tap(W-80,H-30);d.wait(lambda:not d.state()['editor']['active']);assert d.state()['draft_length']==5
+    click(d.state()['editor']['actions']['done']);d.wait(lambda:not d.state()['editor']['active']);assert d.state()['draft_length']==5
     action('a2','retry')
     assert not d.state()['reply_actions']['confirm']
     d.wait(lambda:bool(Server.requests) and not d.state()['generating'] and not d.state()['compressing'],timeout=25)

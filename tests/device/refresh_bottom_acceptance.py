@@ -10,6 +10,7 @@ import json
 import pathlib
 import shlex
 import signal
+from release_lifecycle import install_termination_handler,defer_cleanup_signals
 import sqlite3
 import struct
 import subprocess
@@ -85,13 +86,9 @@ class Device:
         return self.wait(fresh)
 
     def close(self):
-        self.sh('miniapp_cli start 8080222437664451')
-        time.sleep(.3)
-        pid = self.pid()
-        if pid:
-            assert APP['appid'] in self.sh("tr '\\0' ' ' < /proc/"+pid+'/cmdline'), 'Unexpected native owner'
-            self.sh('kill -TERM '+pid)
-        self.wait(lambda: not self.pid(), 30)
+        from release_lifecycle import close_app
+        result = close_app(self.serial, APP['appid'], self.sh, self.pid, self.state)
+        self.result.setdefault('lifecycle_closes', []).append(result)
 
     def launch(self):
         self.sh('miniapp_cli start '+APP['appid'])
@@ -238,20 +235,26 @@ class Device:
             self.drag(x, min(b[3]-15, b[1]+140), x, b[1]+12)
         self.idle_bottom(str(hz)+'hz-drag-return')
 
-    def preflight(self):
+    def preflight(self, discard_input=False):
         if not self.pid():
             return
         d = self.state()
-        volatile = (d['draft_length'] or d['keyboard'] or d['editor']['active'] or d['generating'] or
+        # Explicit release authorization may discard an unsent editor/draft.
+        # Saved data and unrelated background jobs retain their normal guards.
+        editing = d['editor']
+        input_busy = not discard_input and (d['draft_length'] or d['keyboard'] or editing['active'])
+        ocr_busy = (d.get('ocr') or d.get('ocr_release_pending')) and (
+            not discard_input or not editing['active'] or editing.get('ocr_busy') or editing.get('ocr_preparing'))
+        volatile = (input_busy or d['generating'] or
                     d.get('compressing') or d['storage']['unsaved'] or d['provider_workspace']['dirty'] or
                     d.get('transfer_busy') or d.get('crop_busy') or d['view'] in ('camera', 'crop', 'scan') or
-                    d.get('scan_result') or d.get('scan_id') or d.get('ocr') or d.get('ocr_release_pending') or
+                    d.get('scan_result') or d.get('scan_id') or ocr_busy or
                     d.get('title_busy') or d.get('title_pending') or
                     d.get('pull_active') or d.get('session_info_busy') or d.get('chat_render_pending') or
                     d.get('message_interactions', {}).get('editing') or
                     d.get('message_interactions', {}).get('busy') or
                     d.get('reply_actions', {}).get('busy') or d.get('reply_actions', {}).get('confirm') or
-                    d.get('editor', {}).get('pending') or d.get('feedback', {}).get('collecting') or
+                    (not discard_input and editing.get('pending')) or d.get('feedback', {}).get('collecting') or
                     d.get('image_viewer', {}).get('open') or
                     any(d.get(key, {}).get('pending') for key in ('ui_scale', 'appearance', 'refresh_rate')))
         assert not volatile, 'Pending input/work preserved; scoped acceptance deferred'
@@ -370,49 +373,50 @@ class Device:
                     pass
             raise
         finally:
-            errors = []
-            try:
-                self.close()
-            except Exception as error:
-                errors.append('native close: '+str(error))
-            try:
-                stopped = not self.pid()
-            except Exception:
-                stopped = False
-            for isolated, current, saved, existed in ((private, self.data, self.saved, had_data),
-                                                       (public, self.public, self.public_saved, had_public)):
-                if not isolated:
-                    continue
-                if not stopped:
-                    errors.append('Retained isolation for recovery: '+saved)
-                    continue
+            with defer_cleanup_signals():
+                errors = []
                 try:
-                    self.sh('rm -rf '+current)
-                    if existed:
-                        self.sh('mv '+saved+' '+current)
+                    self.close()
                 except Exception as error:
-                    errors.append('restore '+current+': '+str(error))
-            try:
-                self.result['restored'] = (not private or not had_data or self.hashes(self.data) == private_hashes) and (not public or not had_public or self.hashes(self.public) == public_hashes) and not errors
-                self.result['host_unchanged'] = self.sh('pidof miniapp') == self.host and self.sh('cat /proc/sys/kernel/random/boot_id') == self.boot
-                self.sh('rm -f '+self.remote_package+' '+self.helper+' '+self.snapshot+' '+self.snapshot_helper)
-            except Exception as error:
-                errors.append('restore verification: '+str(error))
-            self.result['recovery_errors'] = errors
-            (self.out/'result.json').write_text(json.dumps(self.result, ensure_ascii=False, indent=2)+'\n')
-            assert self.result.get('restored') and self.result.get('host_unchanged') and not errors, self.result
-            restored = self.launch()
-            if hasattr(self, 'original_rate'):
-                assert restored['refresh_rate']['configured'] == self.original_rate, 'Original explicit refresh setting changed'
-                expected_rate = self.original_rate or (60 if self.h > self.w else 30)
-                assert restored['refresh_rate']['applied'] == expected_rate, 'Original effective refresh rate changed'
-                self.result['restored_refresh_rate'] = restored['refresh_rate']
-            with zipfile.ZipFile(self.package) as package:
-                expected = hashlib.sha256(package.read('assets/bin/penchat-lvgl')).hexdigest()
-            actual = self.sh('sha256sum /proc/'+self.pid()+'/exe').split()[0]
-            assert actual == expected, 'Restored app is running a different payload'
-            self.result['native_sha256'] = actual
-            (self.out/'result.json').write_text(json.dumps(self.result, ensure_ascii=False, indent=2)+'\n')
+                    errors.append('native close: '+str(error))
+                try:
+                    stopped = not self.pid()
+                except Exception:
+                    stopped = False
+                for isolated, current, saved, existed in ((private, self.data, self.saved, had_data),
+                                                           (public, self.public, self.public_saved, had_public)):
+                    if not isolated:
+                        continue
+                    if not stopped:
+                        errors.append('Retained isolation for recovery: '+saved)
+                        continue
+                    try:
+                        self.sh('rm -rf '+current)
+                        if existed:
+                            self.sh('mv '+saved+' '+current)
+                    except Exception as error:
+                        errors.append('restore '+current+': '+str(error))
+                try:
+                    self.result['restored'] = (not private or not had_data or self.hashes(self.data) == private_hashes) and (not public or not had_public or self.hashes(self.public) == public_hashes) and not errors
+                    self.result['host_unchanged'] = self.sh('pidof miniapp') == self.host and self.sh('cat /proc/sys/kernel/random/boot_id') == self.boot
+                    self.sh('rm -f '+self.remote_package+' '+self.helper+' '+self.snapshot+' '+self.snapshot_helper)
+                except Exception as error:
+                    errors.append('restore verification: '+str(error))
+                self.result['recovery_errors'] = errors
+                (self.out/'result.json').write_text(json.dumps(self.result, ensure_ascii=False, indent=2)+'\n')
+                assert self.result.get('restored') and self.result.get('host_unchanged') and not errors, self.result
+                restored = self.launch()
+                if hasattr(self, 'original_rate'):
+                    assert restored['refresh_rate']['configured'] == self.original_rate, 'Original explicit refresh setting changed'
+                    expected_rate = self.original_rate or (60 if self.h > self.w else 30)
+                    assert restored['refresh_rate']['applied'] == expected_rate, 'Original effective refresh rate changed'
+                    self.result['restored_refresh_rate'] = restored['refresh_rate']
+                with zipfile.ZipFile(self.package) as package:
+                    expected = hashlib.sha256(package.read('assets/bin/penchat-lvgl')).hexdigest()
+                actual = self.sh('sha256sum /proc/'+self.pid()+'/exe').split()[0]
+                assert actual == expected, 'Restored app is running a different payload'
+                self.result['native_sha256'] = actual
+                (self.out/'result.json').write_text(json.dumps(self.result, ensure_ascii=False, indent=2)+'\n')
         print(json.dumps(self.result, ensure_ascii=False))
 
 
@@ -421,7 +425,5 @@ if __name__ == '__main__':
     parser.add_argument('--serial', required=True, choices=ALLOWED)
     parser.add_argument('--package', required=True, type=pathlib.Path)
     args = parser.parse_args()
-    def interrupted(signum, frame):
-        raise SystemExit('Interrupted; restoring complete private/public fixture isolation')
-    signal.signal(signal.SIGTERM, interrupted)
+    install_termination_handler()
     Device(args.serial, args.package).run()

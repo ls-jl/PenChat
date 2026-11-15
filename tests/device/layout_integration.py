@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Scoped merged-layout acceptance; restores private/public data and never restarts Falcon."""
 import argparse,hashlib,json,pathlib,shlex,sqlite3,subprocess,tempfile,time
+from release_lifecycle import close_app, background_env
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text())
 p=argparse.ArgumentParser(description=__doc__);p.add_argument('--serial',required=True);p.add_argument('--package',type=pathlib.Path,required=True);args=p.parse_args()
@@ -26,11 +27,7 @@ def pid():
         if status and status[0] not in ('Z','X'):return native
     return ''
 def close():
-    sh('miniapp_cli start 8080222437664451');time.sleep(.3)
-    native=pid()
-    if native:
-        if APP['appid'] not in sh("tr '\\0' ' ' < /proc/"+native+'/cmdline'):raise RuntimeError('Unexpected native owner')
-        sh('kill -TERM '+native);wait(lambda:not pid(),30)
+    return close_app(args.serial,APP['appid'],sh,pid,state)
 def state():
     native=pid()
     if not native:return None

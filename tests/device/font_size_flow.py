@@ -9,10 +9,9 @@ def run(ctx):
     def setting(name):box(locate(state,swipe,name)['bounds'])
     def settings():
         assert state()['view']=='chat'
-        tap(40,32);assert state()['navigation_open']
-        tap(W*2//3-70,H-30);assert state()['view']=='settings'
+        ctx['open_settings']()
     def chat():
-        while state()['view']!='chat':tap(40,32)
+        while state()['view']!='chat':ctx['navigate_back_or_menu']()
         if state()['navigation_open']:tap(W-30,80)
     def action(title):box(state()['page']['actions'][title])
     def reader_top():
@@ -36,7 +35,7 @@ def run(ctx):
     reader_top()
     capture('font-chat-150')
     settings();setting('font_size');choose(75);capture('font-preview-75')
-    tap(40,32);assert state()['reading_font']['percent']==150
+    ctx['navigate_back_or_menu']();assert state()['reading_font']['percent']==150
     # Save survives actual process exit and launch, not merely a settings rebuild.
     chat();ctx['close']();ctx['shell']('miniapp_cli start '+ctx['APP']['appid'])
     ctx['wait'](ctx['pid']);ctx['wait'](lambda:state()['visible']);time.sleep(.4)
@@ -45,7 +44,7 @@ def run(ctx):
     box(state()['archive_views']['archive'])
     assert state()['view']=='archive_chat' and state()['reading_font']['size']==32
     capture('font-archive-150')
-    tap(40,32);tap(40,32);assert state()['view']=='settings'
+    ctx['navigate_back_or_menu']();ctx['navigate_back_or_menu']();assert state()['view']=='settings'
     setting('font_size');choose(75);action('保存');chat()
     assert state()['reading_font']['size']==16
     capture('font-chat-75')

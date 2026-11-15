@@ -2,6 +2,7 @@
 """ORANGE real input/scan ownership cycles; never changes chat data."""
 import argparse, json, time
 import acceptance as d
+from release_lifecycle import background_env
 
 OUT=d.ROOT/'.work/scanner-device'
 
@@ -75,7 +76,7 @@ def main():
     d.wait(lambda:d.state()['scanner'].get('type')=='error',timeout=10)
     released();d.tap(40,100);ready()
     result['child_crash_recovery']=True
-    d.adb('miniapp_cli start 8080222437664451')
+    background_env(d)
     d.wait(lambda:not d.pid() or not d.state()['visible'])
     d.wait(lambda:not d.adb('pidof penchat-scanner || true'),timeout=10)
     assert d.adb('cat /sys/class/gpio/gpio43/value')=='0'

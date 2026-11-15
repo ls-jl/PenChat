@@ -4,26 +4,31 @@ import json,subprocess,time
 def run_inner(c):
  read,wait,tap,drag,shell=[c[k] for k in ('state','wait','tap','drag','shell')];W,H=c['W'],c['H'];capture=c['capture'];data=c['DATA']
  def swipe(delta):
-  viewport=read()['page']['viewport'];x=viewport[0]+4;y=H-40 if delta<0 else 40
-  drag(x,y,x,min(H-12,max(12,y+delta)))
+  c['settings_swipe'](delta)
  def go(key):
   for _ in range(35):
    d=read();b=d['feedback']['actions'][key]
    if d['page']['scrolling']:time.sleep(.1);continue
-   if b[1]>=0 and b[3]<H:tap((b[0]+b[2])//2,(b[1]+b[3])//2);time.sleep(.15);return
+   top=max(d['page']['viewport'][1],d['safe_insets'][1] if H>W else 0)
+   if b[1]>=top and b[3]<d['page']['viewport'][3]:tap((b[0]+b[2])//2,(b[1]+b[3])//2);time.sleep(.15);return
    swipe(120 if b[1]<0 else -120);time.sleep(.15)
   raise AssertionError(key)
  def draft():return json.loads(shell('cat '+data+'/.feedback/draft.json'))
  def step(name):return draft().get('steps',{}).get(name,{})
  def open_feedback():
   if read()['view']=='chat':
-   tap(40,32);wait(lambda:read()['navigation_open']);tap(W*2//3-130,H-30);wait(lambda:read()['view']=='settings')
+   c['open_settings']()
   if read()['view']=='settings':
    import sys
    sys.path.insert(0,str(c['ROOT']/'tests'));from settings_ui import activate
    activate(read,tap,swipe,'feedback');wait(lambda:read()['view']=='feedback')
  open_feedback();before=read()['scroll_y'];capture('feedback-form')
- tap(W-55,152);wait(lambda:draft().get('adapt'));assert not read()['feedback']['collecting'];go('adapt');capture('feedback-adapt')
+ for _ in range(35):
+  s=read();b=s['settings']['rows']['feedback_adapt']['bounds'];v=s['page']['viewport'];top=max(v[1],s['safe_insets'][1] if H>W else 0)
+  if b[1]>=top and b[3]<=v[3]:tap((b[0]+b[2])//2,(b[1]+b[3])//2);break
+  swipe(100 if b[1]<top else -100)
+ else:raise AssertionError('Feedback adaptation toggle unreachable')
+ wait(lambda:draft().get('adapt'));assert not read()['feedback']['collecting'];go('adapt');capture('feedback-adapt')
  native=c['pid']()
  go('start_scan');wait(lambda:step('scan').get('status')=='listening');assert step('scan')['blocking']
  actual=[d for d in step('scan')['devices'] if not d.get('name','').startswith('PenChat-')]
@@ -42,11 +47,11 @@ def run_inner(c):
  # Verify the real production 30-second limit, without a host-only test clock.
  go('start_scan');wait(lambda:step('scan').get('status')=='listening');started=time.monotonic();last_touch=started
  while time.monotonic()-started<35 and step('scan').get('status') in ('listening','pressed'):
-  if time.monotonic()-last_touch>5:tap(W-3,H-3);last_touch=time.monotonic() # Ordinary wake activity, no setting changes.
+  if time.monotonic()-last_touch>5:c['wake']();last_touch=time.monotonic()
   time.sleep(.15)
  s=step('scan');assert s['status']=='timeout' and not s['blocking'],s
  assert 29900<=s['elapsed_ms']<=31000,s # Includes evdev/RCU close latency after the 30s polling deadline.
- wait(lambda:read()['modal']);capture('feedback-timeout');tap(W-60,H-40);wait(lambda:not read()['modal'])
+ wait(lambda:read()['modal']);capture('feedback-timeout');c['modal_action'](0,W-60);wait(lambda:not read()['modal'])
  go('start_scan');wait(lambda:step('scan').get('status')=='listening');go('stop_keys');wait(lambda:not read()['feedback']['collecting'])
  assert shell(c['key_source']+' --probe '+home_path)=='free'
  assert shell(c['key_source']+' --probe '+scan_path)=='free'
@@ -58,7 +63,11 @@ def run_inner(c):
  if read()['feedback']['screen']=='form':go('adapt')
  capture('feedback-resumed-review');go('review');go('preview');wait(lambda:read()['feedback']['screen']=='preview');capture('feedback-preview')
  assert not list(filter(None,shell('find '+data+'/.feedback/reports -type f').splitlines()))
- shell('rm -f /tmp/penchat-feedback-home.png');tap(40,32);tap(40,32);wait(lambda:read()['view']=='settings')
+ shell('rm -f /tmp/penchat-feedback-home.png')
+ for _ in range(5):
+  if read()['view']=='settings':break
+  c['navigate_back_or_menu']()
+ wait(lambda:read()['view']=='settings')
  c['result']['feedback']={'exclusive_capture':True,'scan_suppressed':True,'home_suppressed':True,'early_release':True,'timeout_ms':s['elapsed_ms'],'timeout_popup':True,'cancel_released':True,'home_restored':True,'no_upload':True}
 
 def run(c):

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """ORANGE-only real touch/lifecycle acceptance. Never restarts the system host."""
 import json, pathlib, subprocess, time, os
+from release_lifecycle import background_env
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text());APP_ID=APP['appid']
 SERIAL='MEB0400008900794'
@@ -148,7 +149,7 @@ if __name__=='__main__':
     tap(35,35);cancel_native_editor()
     assert state()['view']=='chat'
     result['ime_cancel']=True
-    adb('miniapp_cli start 8080222437664451')
+    background_env(globals())
     wait(lambda:not pid() or not state()['visible'])
     assert 'allocated by = penchat-lvgl' not in adb('cat /sys/kernel/debug/dri/0/state')
     adb('miniapp_cli start '+APP_ID);wait(pid);view('chat');wait(lambda:state()['visible'])

@@ -9,6 +9,7 @@ import socket
 import struct
 import subprocess
 import time
+from release_lifecycle import close_app
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TARGETS = {'MEB0400008900794': ('orange-sc2356', 496, 360),
@@ -64,9 +65,27 @@ def main():
     try:
         # Normal app shutdown releases its resident model and saves app-owned state.
         if owned:
-            sh('miniapp_cli start 8080222437664451')
-            for pid in owned:
-                sh('kill -TERM '+pid)
+            def native_pid():
+                return next(iter(alive('penchat-lvgl')), '')
+            def native_state():
+                native = native_pid()
+                if not native:
+                    return {}
+                data = '/userdisk/secondary/miniapp/data/mini_app/pkg/'+appid+'/data/lvgl-diagnostic.json'
+                previous = json.loads(sh('cat '+data+' 2>/dev/null || echo {}')).get('diagnostic_time', -1)
+                wait(lambda: int(sh("awk '/SigCgt/{print $2}' /proc/"+native+'/status'), 16)&(1<<11))
+                sh('kill -USR2 '+native)
+                def fresh():
+                    snapshot = json.loads(sh('cat '+data))
+                    return snapshot if str(snapshot.get('pid')) == native and snapshot.get('diagnostic_time', -1) > previous else None
+                deadline = time.monotonic()+5
+                while time.monotonic() < deadline:
+                    snapshot = fresh()
+                    if snapshot:
+                        return snapshot
+                    time.sleep(.05)
+                raise RuntimeError('Fresh native lifecycle diagnostic timed out')
+            report['shutdown'] = close_app(serial, appid, sh, native_pid, native_state)
             wait(lambda: not alive('penchat-lvgl'))
         wait(lambda: not alive('penchat-scanner'))
         sh('mkdir -p '+shlex.quote(remote))

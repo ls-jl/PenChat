@@ -4,6 +4,7 @@ Never restarts the MiniApp host or reads real provider credentials into diagnost
 """
 import hashlib, json, os, pathlib, shlex, sqlite3, subprocess, sys, tempfile, time
 import acceptance as d
+from release_lifecycle import background_env
 from chat_acceptance import close_app, pull, push
 sys.path.insert(0, str(d.ROOT/'tests'))
 from test_context import fixture
@@ -169,7 +170,7 @@ def run():
                 elif case=='switch':d.tap(890,222);d.open_navigation();d.tap(180,236);idle()
                 elif case=='home':d.home();start();idle()
                 else:
-                    native=d.pid();shell('miniapp_cli start 8080222437664451');d.wait(lambda:not d.state()['visible'])
+                    native=d.pid();background_env(d);d.wait(lambda:not d.state()['visible'])
                     time.sleep(3);shell('miniapp_cli start '+d.APP_ID);d.wait(lambda:d.state()['visible']);idle()
                     assert d.pid()==native
             if case=='background':

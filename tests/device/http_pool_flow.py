@@ -1,12 +1,17 @@
 """Explicit-device settings, main-app reuse and source-identical native TLS probe."""
-import json,subprocess,sys,threading,time
+import hashlib,json,struct,subprocess,sys,threading,time
 
 class DeviceServer:
     def __init__(self,root,serial,out,cert=None,key=None,stream=False):
         import queue
         self.serial=serial;self.requests=[];self.ready=queue.Queue();self.closed=0
         self.remote='/tmp/penchat-http-server-'+serial+('-tls' if cert else '-plain')
-        subprocess.run(['adb','-s',serial,'push',str(root/'build/rk3562/penchat-tls-fixture'),self.remote],check=True,capture_output=True)
+        source=root/'tests/native/TlsFixture.cpp'
+        candidates=[root/'build/rk3562/penchat-tls-fixture',root/'build/orange/penchat-tls-fixture']
+        binary=next((p for p in candidates if p.is_file() and p.read_bytes()[:4]==b'\x7fELF' and struct.unpack_from('<H',p.read_bytes(),18)[0]==183),None)
+        assert binary and binary.stat().st_mtime>=source.stat().st_mtime, 'Build the source-identical AArch64 penchat-tls-fixture target before device acceptance'
+        (out/'fixture-identity.json').write_text(json.dumps({'target':'rk3562','binary':str(binary),'binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest()},indent=2)+'\n')
+        subprocess.run(['adb','-s',serial,'push',str(binary),self.remote],check=True,capture_output=True)
         subprocess.run(['adb','-s',serial,'shell','chmod 755 '+self.remote],check=True,capture_output=True)
         args=['--stream'] if stream else []
         if cert:
@@ -66,7 +71,7 @@ def run(c,handler):
         wait(lambda:not read()['generating'] and not read()['storage']['unsaved'])
         timings.append(read()['network_transport']['last']);capture('http-pool-'+str(n))
     assert timings[0]['new_connections']==1 and timings[1]['connection_reused'],timings
-    p=c['pid']();c['shell']('miniapp_cli start 8080222437664451');wait(lambda:not read()['visible'])
+    p=c['pid']();__import__('release_lifecycle').background_env(c);wait(lambda:not read()['visible'])
     assert read()['network_transport']['sockets']>0
     c['shell']('miniapp_cli start '+c['APP']['appid']);wait(lambda:read()['visible']);assert c['pid']()==p
     question();wait(lambda:len(handler.requests)==3);wait(lambda:not read()['generating'] and not read()['storage']['unsaved'])

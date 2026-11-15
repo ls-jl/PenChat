@@ -23,7 +23,7 @@ def run(env):
         if photo['y']>=4 and photo['y']+photo['height']<=H-4:break
         d.settings_swipe(-60 if photo['y']+photo['height']>H-4 else 60)
     d.tap(photo['x']+photo['width']//2,photo['y']+photo['height']//2)
-    d.wait(lambda:d.state()['image_viewer']['loaded']);d.capture('archives-original-photo');d.tap(W-38,30)
+    d.wait(lambda:d.state()['image_viewer']['loaded']);d.capture('archives-original-photo');d.side_back()
     d.wait(lambda:not d.state()['image_viewer']['open'])
     for _ in range(12):
         s=d.state()

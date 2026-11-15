@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """DPI completion acceptance; restores private/public data and never restarts Falcon."""
 import argparse,hashlib,json,pathlib,shlex,signal,sqlite3,subprocess,tempfile,time,zipfile
+from release_lifecycle import install_termination_handler,defer_cleanup_signals
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text())
 p=argparse.ArgumentParser(description=__doc__);p.add_argument('--serial',required=True);p.add_argument('--package',type=pathlib.Path,required=True);p.add_argument('--scale-settings',action='store_true');p.add_argument('--theme-settings',action='store_true');args=p.parse_args()
@@ -26,11 +27,8 @@ def pid():
         if status and status[0] not in ('Z','X'):return native
     return ''
 def close():
-    sh('miniapp_cli start 8080222437664451');time.sleep(.3)
-    native=pid()
-    if native:
-        if APP['appid'] not in sh("tr '\\0' ' ' < /proc/"+native+'/cmdline'):raise RuntimeError('Unexpected native owner')
-        sh('kill -TERM '+native);wait(lambda:not pid(),30)
+    from release_lifecycle import close_app
+    close_app(args.serial, APP['appid'], sh, pid, state)
 def state():
     native=pid()
     if not native:return None
@@ -46,7 +44,16 @@ def state():
     return wait(read)
 def foreground_ready():
     d=state()
-    return d if d and d.get('visible') and d.get('window_focused') and d.get('touch_input',{}).get('active') else None
+    return d if d and d.get('visible') and d.get('page_visible',True) and d.get('window_focused') and d.get('input_focused') and d.get('touch_input',{}).get('active') else None
+def stable_foreground():
+    deadline=time.monotonic()+20;since=None
+    while time.monotonic()<deadline:
+        d=foreground_ready()
+        if not d:since=None
+        elif since is None:since=time.monotonic()
+        elif time.monotonic()-since>=.6:return d
+        time.sleep(.1)
+    raise RuntimeError('Foreground/native input did not remain ready')
 def capture(name):
     image=DATA+'/lvgl-diagnostic.png'
     sh('rm -f '+image)
@@ -58,9 +65,19 @@ def raw(x,y):
     rx,ry=(y,W-1-x) if rotation==270 else (W-1-x,H-1-y) if rotation==180 else (H-1-y,x) if rotation==90 else (x,y)
     return rx+screen.get('tp_xoffset',0),ry+screen.get('tp_yoffset',0)
 def touch(x,y,hold=None):
+    logical=[round(x),round(y)];before=state() if pid() else None
+    if before:assert before['visible'] and before['page_visible'] and before['window_focused'] and before['input_focused'] and before['touch_input']['active'],'DPI touch stopped after foreground loss'
     x,y=raw(round(x),round(y));command=HELPER+(' --hold' if hold else '')+' '+str(x)+' '+str(y)
     if hold:command+=' '+str(hold)
-    sh('PENCHAT_TOUCH_DEVICE='+event+' '+command+' 2>/dev/null');time.sleep(.15)
+    receipt=sh('PENCHAT_TOUCH_DEVICE='+event+' '+command+' 2>&1\npenchat_dpi_touch_status=$?\nprintf "\\nstatus=%s\\n" "$penchat_dpi_touch_status"')
+    assert receipt.endswith('status=0'),receipt
+    time.sleep(.15);after=state() if pid() else None
+    result.setdefault('touch_trace',[]).append({'logical':logical,'raw':[x,y],'receipt':receipt,
+        'pid_before':None if before is None else before['pid'],
+        'touch_before':None if before is None else before.get('touch'),
+        'touch_after':None if after is None else after.get('touch'),
+        'input_active_before':None if before is None else before['touch_input']['active']})
+    result['touch_trace']=result['touch_trace'][-64:]
 def action(name):
     e=state()['editor']
     if name=='official' and name not in e['actions']:
@@ -76,10 +93,16 @@ def tap_bounds(bounds):touch((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
 def reveal(bounds):
     for _ in range(40):
         d=state();b=bounds();v=d['page']['viewport']
-        if b[1]>=v[1] and b[3]<=v[3]:return
+        if d['page'].get('scrolling'):time.sleep(.12);continue
+        top=max(v[1],d['safe_insets'][1] if H>W else v[1])
+        if b[1]>=top and b[3]<=v[3]:
+            time.sleep(.12)
+            if bounds()==b:return
+            continue
         x=(v[0]+v[2])//2;start=v[1]+(v[3]-v[1])*(3 if b[3]>v[3] else 1)//4
         end=start+(-1 if b[3]>v[3] else 1)*min(100,(v[3]-v[1])//2)
         sx,sy=raw(x,start);ex,ey=raw(x,end)
+        assert foreground_ready(),'DPI reveal drag stopped after foreground loss'
         sh('PENCHAT_TOUCH_DEVICE='+event+' '+HELPER+' '+str(sx)+' '+str(sy)+' '+str(ex)+' '+str(ey)+' 2>/dev/null')
         time.sleep(.35)
     raise RuntimeError('Control cannot be reached')
@@ -89,6 +112,7 @@ def page_action(name):
     reveal(bounds);tap_bounds(bounds())
 
 def drag(x,y,ex,ey):
+    assert foreground_ready(),'DPI drag stopped after foreground loss'
     sx,sy=raw(round(x),round(y));ex,ey=raw(round(ex),round(ey))
     sh('PENCHAT_TOUCH_DEVICE='+event+' '+HELPER+' '+str(sx)+' '+str(sy)+' '+str(ex)+' '+str(ey)+' 2>/dev/null')
     time.sleep(.45)
@@ -129,9 +153,7 @@ def capture_markdown(prefix):
         drag(x,b[1]+(b[3]-b[1])*.8,x,b[1]+(b[3]-b[1])*.2)
         capture(prefix+'-markdown-'+str(index))
 
-def interrupted(signum,frame):
-    raise SystemExit('Acceptance terminated by signal '+str(signum)+'; restoring isolated data')
-signal.signal(signal.SIGTERM,interrupted)
+install_termination_handler()
 
 screen=json.loads(sh('cat /etc/miniapp/resources/cfg.json'))['screen'];W,H=screen['width'],screen['height']
 if s6 and screen.get('direction') in (90,270):W,H=H,W
@@ -206,7 +228,7 @@ try:
             capture('scale-'+str(percent))
             # A normal native restart verifies the stored setting; Falcon stays alive.
             close();sh('miniapp_cli start '+APP['appid']);wait(pid)
-            wait(lambda:state()['visible']);d=state()
+            d=stable_foreground()
             assert d['ui_scale']['saved']==percent and d['ui_scale']['applied']==percent
             tap_bounds(d['composer_text_bounds'])
             wait(lambda:state()['editor']['active'] and state()['editor']['keys'])
@@ -226,7 +248,7 @@ try:
                     apply_theme(mode)
                     capture('theme-'+mode+'-scale-'+str(percent)+'-settings')
                     close();sh('miniapp_cli start '+APP['appid']);wait(pid)
-                    d=wait(lambda:state() if state()['visible'] else None)
+                    d=stable_foreground()
                     assert d['appearance']['theme']==mode and not d['appearance']['pending']
                     assert d['ui_scale']['saved']==percent and d['ui_scale']['applied']==percent
                     capture_markdown('theme-'+mode+'-scale-'+str(percent))
@@ -277,32 +299,36 @@ except BaseException as error:
     except Exception:pass
     raise
 finally:
-    recovery_errors=[]
-    try:close()
-    except Exception as error:recovery_errors.append('native close: '+str(error))
-    # Never replace a data directory while native code could still write to it.
-    try:stopped=not pid()
-    except Exception as error:
-        stopped=False;recovery_errors.append('native status: '+str(error))
-    for isolated,current,saved,existed in ((private,DATA,SAVED,has_data),(public,PUBLIC,PUBSAVED,has_public)):
-        if not isolated:continue
-        if not stopped:
-            recovery_errors.append('retained isolation for recovery: '+saved);continue
+    with defer_cleanup_signals():
+        recovery_errors=[]
+        try:close()
+        except Exception as error:recovery_errors.append('native close: '+str(error))
+        # Never replace a data directory while native code could still write to it.
+        try:stopped=not pid()
+        except Exception as error:
+            stopped=False;recovery_errors.append('native status: '+str(error))
+        for isolated,current,saved,existed in ((private,DATA,SAVED,has_data),(public,PUBLIC,PUBSAVED,has_public)):
+            if not isolated:continue
+            if not stopped:
+                recovery_errors.append('retained isolation for recovery: '+saved);continue
+            try:
+                sh('rm -rf '+current)
+                if existed:sh('mv '+saved+' '+current)
+            except Exception as error:recovery_errors.append('restore '+current+': '+str(error))
         try:
-            sh('rm -rf '+current)
-            if existed:sh('mv '+saved+' '+current)
-        except Exception as error:recovery_errors.append('restore '+current+': '+str(error))
-    try:
-        result['restored']=(not private or not has_data or hashes(DATA)==original) and (not public or not has_public or hashes(PUBLIC)==public_hashes) and not recovery_errors
-        result['host_unchanged']=sh('pidof miniapp')==host and sh('cat /proc/sys/kernel/random/boot_id')==boot
-    except Exception as error:recovery_errors.append('restore verification: '+str(error))
-    try:sh('rm -f '+REMOTE+' '+HELPER)
-    except Exception as error:recovery_errors.append('helper cleanup: '+str(error))
-    if recovery_errors:result['recovery_errors']=recovery_errors
-    (OUT/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
-    assert result['restored'] and result['host_unchanged'] and not recovery_errors,result
-    sh('miniapp_cli start '+APP['appid'])
+            result['restored']=(not private or not has_data or hashes(DATA)==original) and (not public or not has_public or hashes(PUBLIC)==public_hashes) and not recovery_errors
+            result['host_unchanged']=sh('pidof miniapp')==host and sh('cat /proc/sys/kernel/random/boot_id')==boot
+        except Exception as error:recovery_errors.append('restore verification: '+str(error))
+        try:sh('rm -f '+REMOTE)
+        except Exception as error:recovery_errors.append('helper cleanup: '+str(error))
+        if recovery_errors:result['recovery_errors']=recovery_errors
+        (OUT/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
+        assert result['restored'] and result['host_unchanged'] and not recovery_errors,result
+        sh('miniapp_cli start '+APP['appid'])
 # Verify the executable actually running after restoring the original data.
+deadline=time.monotonic()+3
+while not pid() and time.monotonic()<deadline:time.sleep(.1)
+if not pid():touch(122,H-47)
 wait(pid)
 d=state()
 with zipfile.ZipFile(args.package) as package:
@@ -314,5 +340,6 @@ if original_theme is None:original_theme=d.get('appearance',{}).get('theme','dar
 assert d['appearance']['theme']==original_theme and not d['appearance']['pending']
 assert d['editor']['requested_scale']==original_scale and min(100,original_scale)<=d['editor']['effective_scale']<=original_scale
 result.update(native_ready_after_restore=True,native_sha256=actual,restored_scale=original_scale,restored_theme=original_theme)
+sh('rm -f '+HELPER)
 (OUT/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
 print(json.dumps(result,ensure_ascii=False))

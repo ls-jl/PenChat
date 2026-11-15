@@ -22,15 +22,16 @@ def run(c,server):
         tap(s['to_bottom_x']+22,s['to_bottom_y']+22)
         wait(lambda:state()['following_latest'] and state()['at_latest_bottom'] and not state()['to_bottom_visible'])
     def hold_drag():
+        s=state();assert s['visible'] and s.get('page_visible',True) and s['input_focused'] and s['touch_input']['active']
         x,y=c['raw'](W//2,int(H*.14));ex,ey=c['raw'](W//2,int(H*.68))
-        command=f'PENCHAT_TOUCH_DEVICE=/dev/input/{c["event"]} /tmp/penchat-display-tap --drag-hold {x} {y} {ex} {ey} 450 3500'
+        command=f'PENCHAT_TOUCH_DEVICE=/dev/input/{c["event"]} /tmp/penchat-display-tap --move-hold {x} {y} {ex} {ey} 150 3500'
         p=subprocess.Popen(['adb','-s',c['SERIAL'],'shell',command],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         wait(lambda:state()['reader_interacting'] and not state()['following_latest'])
         return p
-    tap(W//2,H-34);wait(lambda:state()['editor']['active'])
+    c['open_chat_editor']()
     if state()['editor']['layout']!='en26':key('language')
     key('q');b=state()['editor']['actions']['done'];tap((b[0]+b[2])//2,(b[1]+b[3])//2);wait(lambda:not state()['editor']['active'])
-    tap(W-52,H-34);wait(lambda:state()['receiving_reply'] and state()['output_length']>100)
+    c['send_chat']();wait(lambda:state()['receiving_reply'] and state()['output_length']>100)
     quiescent();s=state();id=next(iter(s['reply_actions']['rows']))
     assert not s['generation_hint_present']
     assert not s['reply_actions']['rows'][id]['visible'] and s['following_latest'] and not s['to_bottom_visible']

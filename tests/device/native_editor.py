@@ -3,6 +3,7 @@
 import json,time,subprocess,shlex,os
 from chat_acceptance import close_app,push
 import acceptance as d
+from release_lifecycle import background_env
 
 def state():return d.state()['editor']
 def key(value):
@@ -70,7 +71,7 @@ def exercise():
         subprocess.run(['adb','-s',d.SERIAL,'pull','/tmp/penchat-official-editor.png',str(d.OUT/'editor-official.png')],check=True,capture_output=True)
         d.tap(35,35);d.wait(lambda:not d.state()['keyboard']);d.wait(lambda:state()['top_panel_blocked'] and state()['ocr_active'])
         assert state()['length']==original['length'] and state()['cursor']==original['cursor']
-        native=d.pid();session=state()['session'];d.adb('miniapp_cli start 8080222437664451');d.wait(lambda:not d.state()['visible'])
+        native=d.pid();session=state()['session'];background_env(d);d.wait(lambda:not d.state()['visible'])
         assert not state()['ocr_active']
         d.adb('miniapp_cli start '+d.APP_ID);d.wait(lambda:d.state()['visible'] and state()['top_panel_blocked'] and state()['ocr_active'])
         assert d.pid()==native and state()['session']==session

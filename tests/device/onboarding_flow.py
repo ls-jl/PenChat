@@ -20,7 +20,7 @@ def run(c):
   action('pause');wait(lambda:state()['onboarding']['phase']==3);action('pause');capture('onboarding-'+str(page+1)+'-end');captures+=1
   performance.append({key:state()['onboarding'][key] for key in ('render_frames','render_snapshots','render_mean_us','render_max_us','render_bytes')})
   if page==2:
-   action('configure');wait(lambda:state()['view']=='provider');tap(40,32)
+   action('configure');wait(lambda:state()['view']=='provider');c['navigate_back_or_menu']()
    wait(lambda:state()['view']=='onboarding');assert state()['onboarding']['step']==2
   action('next')
   if page<6:wait(lambda:state()['onboarding']['step']==page+1)

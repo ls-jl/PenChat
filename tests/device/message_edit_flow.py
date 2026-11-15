@@ -38,31 +38,35 @@ def run(env,Server):
     def action(key):bounds(d.state()['message_interactions']['actions'][key])
     def begin():
         menu();action('edit');d.wait(lambda:d.state()['modal']);width=(W-262)//2
-        d.capture('message-edit-warning');d.tap(84+14+width//2,H-44)
+        d.capture('message-edit-warning');d.modal_action(1,84+14+width//2)
         d.wait(lambda:d.state()['editor']['active']);assert d.state()['editor']['length']>10
     def cancel_input():
-        split=W-max(352,W*2//5-8);tw=W-split-16
-        d.tap(split+8+(tw-276)//2,H-30);d.wait(lambda:not d.state()['editor']['active'])
+        e=d.state()['editor']
+        if 'cancel' in e['actions']:bounds(e['actions']['cancel'])
+        else:d.side_back()
+        d.wait(lambda:not d.state()['editor']['active'])
     menu();s=d.state();assert len(s['message_interactions']['actions'])==3
     d.capture('message-menu');action('copy')
     menu();action('select');d.wait(lambda:d.state()['editor']['selection_only'])
-    d.tap(115,75);d.tap(115,75);d.wait(lambda:d.state()['editor']['selected'])
-    d.tap(W-62,28);assert d.state()['editor']['clipboard_count']>=1;d.capture('message-partial-copy');d.tap(40,30)
+    text=d.state()['editor']['text_bounds'];d.double_tap(text[0]+12,text[1]+12);d.wait(lambda:d.state()['editor']['selected'])
+    e=d.state()['editor'];bounds(e['actions']['copy'])
+    assert d.state()['editor']['clipboard_count']>=1;d.capture('message-partial-copy');d.navigate_back_or_menu()
     begin();d.capture('message-edit-keyboard');cancel_input()
     assert not d.state()['message_interactions']['editing']
-    begin();d.tap(W-80,H-30);d.wait(lambda:not d.state()['editor']['active'])
+    begin();bounds(d.state()['editor']['actions']['done']);d.wait(lambda:not d.state()['editor']['active'])
     assert d.state()['message_interactions']['images']==1;d.capture('message-staged')
-    d.tap(40,30);assert d.state()['draft_length']==0 and not d.state()['message_interactions']['editing']
+    d.navigate_back_or_menu();assert d.state()['draft_length']==0 and not d.state()['message_interactions']['editing']
     begin()
     if d.state()['editor']['chinese']:d.key('language')
-    d.key('q');d.tap(W-80,H-30);d.wait(lambda:not d.state()['editor']['active'])
-    d.tap(W-52,H-34)
+    d.key('q');bounds(d.state()['editor']['actions']['done']);d.wait(lambda:not d.state()['editor']['active'])
+    d.send_chat()
     d.wait(lambda:bool(Server.requests) and not d.state()['generating'] and not d.state()['compressing'] and not d.state()['message_interactions']['busy'],timeout=20)
     body=json.dumps(Server.requests[-1][1]);assert 'Later question' not in body and 'Old answer' not in body
     assert 'Old prompt hello' in body and 'q' in body
     d.capture('message-edit-sent')
     target=d.OUT/'message-edit-result.db'
-    subprocess.run(['adb','-s',d.SERIAL,'pull',d.DATA+'/penchat.db',str(target)],check=True,capture_output=True)
+    from release_lifecycle import pull_database
+    pull_database(d.SERIAL,d.DATA,target,d.shell)
     with sqlite3.connect(target) as db:
         archive=db.execute("select id from chat_sessions where status='archived'").fetchone();assert archive
         assert db.execute('select count(*) from chat_messages where session_id=?',archive).fetchone()[0]==8

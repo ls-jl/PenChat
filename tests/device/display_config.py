@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Explicit-target Falcon geometry acceptance; isolates user data and never restarts Falcon."""
 import argparse,json,pathlib,shlex,sqlite3,subprocess,sys,time
+from release_lifecycle import install_termination_handler,defer_cleanup_signals
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text())
 parser=argparse.ArgumentParser();parser.add_argument('--serial',required=True)
@@ -17,9 +18,12 @@ parser.add_argument('--chat-whitespace',action='store_true',help='Blank composer
 parser.add_argument('--update',action='store_true',help='Update settings and live fixed-source check, isolated data')
 parser.add_argument('--feedback',action='store_true',help='Read-only feedback hardware and explicit physical-key window')
 parser.add_argument('--scanner-profile',action='store_true',help='Explicit board/sensor original-image capture and lifecycle isolation')
+parser.add_argument('--scanner-profile-core-only',action='store_true',help='Capture/rearm/crash/OCR lifecycle; real retained background remains separately required')
 parser.add_argument('--stream-reading',action='store_true',help='Native slow-stream reading, return to bottom and live action visibility')
 parser.add_argument('--native-touch',action='store_true',help='Raw evdev alternating-slot bursts, edges and lifecycle')
+parser.add_argument('--native-touch-core-only',action='store_true',help='Scope real frame bursts/root finish; retained background is a separate required probe')
 parser.add_argument('--pinyin',action='store_true',help='Owned pinyin, learning and nine-key real-touch acceptance')
+parser.add_argument('--pinyin-core-only',action='store_true',help='Scope native pinyin assertions; official IME/background remain separate required checks')
 parser.add_argument('--pull-sensitivity',action='store_true',help='Saved pull sensitivity and mapped gesture boundary acceptance')
 parser.add_argument('--font-size',action='store_true',help='Reading font size settings and native layout acceptance')
 parser.add_argument('--photo-gestures',action='store_true',help='Real multitouch viewer and ORANGE camera/crop acceptance')
@@ -31,13 +35,23 @@ parser.add_argument('--session-info',action='store_true',help='Run focused conve
 parser.add_argument('--transfer-format',action='store_true',help='Bundled format readers, native ZIP and sample imports, isolated data')
 parser.add_argument('--archive-reader',action='store_true',help='Run focused archive-reader acceptance, with normal data isolation/restoration')
 args=parser.parse_args();SERIAL=args.serial
+assert SERIAL in ('MEA2300009007113','MEB0400008900794','7G12000010905426'),'Only this release\'s explicitly authorized Y01/Y02/Y07 serials are permitted'
+install_termination_handler()
+assert not args.pinyin_core_only or args.pinyin
+assert not args.native_touch_core_only or args.native_touch
+assert not args.scanner_profile_core_only or args.scanner_profile
 assert sum((args.camera_orientation,args.transfer_format,args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch,args.http_pool,args.chat_whitespace,args.stream_reading,args.scanner_profile,args.feedback,args.update,args.portrait,args.official_keyboard))<=1,'Run isolated feature fixtures separately'
 DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 class FeatureComplete(Exception):
     """Successful scoped run; shared finally still restores both user directories."""
 
-def shell(command):return subprocess.check_output(['adb','-s',SERIAL,'shell',command],text=True).replace('\r','').strip()
+def shell(command):
+    raw_touch=('PENCHAT_TOUCH_DEVICE=' in command and ' /tmp/penchat-display-tap ' in command) or command.startswith('/tmp/penchat-touch-burst-test /dev/input/')
+    if raw_touch and pid():
+        s=state()
+        assert s['visible'] and s.get('page_visible',True) and s['window_focused'] and s['input_focused'] and s['touch_input']['active'], 'Raw touch stopped after foreground loss'
+    return subprocess.check_output(['adb','-s',SERIAL,'shell',command],text=True).replace('\r','').strip()
 def wait(fn,timeout=8):
     end=time.monotonic()+timeout
     while time.monotonic()<end:
@@ -69,16 +83,11 @@ def capture(name):
     state(True)
     subprocess.run(['adb','-s',SERIAL,'pull',DATA+'/lvgl-diagnostic.png',str(OUT/(name+'.png'))],check=True,capture_output=True)
 def close():
-    shell('miniapp_cli start 8080222437664451');time.sleep(.2)
-    p=pid()
-    if p:
-        assert APP['appid'] in shell("tr '\\0' ' ' < /proc/"+p+'/cmdline')
-        shell('kill -TERM '+p)
-    wait(lambda:not pid())
+    from release_lifecycle import close_app
+    close_app(SERIAL, APP['appid'], shell, pid, state)
 def hashes(path):return sorted(shell('find '+shlex.quote(path)+' -type f -exec sha256sum {} \\;').splitlines())
 assert shell('uname -m')=='aarch64'
 # Explicit user-authorized boards; never infer support from resolution/sensor alone.
-assert SERIAL in ('MEA2300009007113','MEB0400008900794','7G12000010905426')
 screen=json.loads(shell('cat /etc/miniapp/resources/cfg.json'))['screen'];W=screen['width'];H=screen['height']
 inputs=shell('cat /proc/bus/input/devices').split('\n\n');event=None
 for block in inputs:
@@ -96,18 +105,111 @@ def raw(x,y):
     else:rx,ry=x,y
     return rx+screen.get('tp_xoffset',0),ry+screen.get('tp_yoffset',0)
 def tap(x,y):
+    if pid():
+        d=state()
+        assert d['visible'] and d.get('page_visible',True) and d['window_focused'] and d['touch_input']['active'], 'Touch stopped after foreground loss'
     rx,ry=raw(x,y)
     shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap '+str(rx)+' '+str(ry)+' 2>/dev/null');time.sleep(.08)
 def drag(x,y,ex,ey):
+    d=state()
+    assert d['visible'] and d.get('page_visible',True) and d['window_focused'] and d['touch_input']['active'], 'Drag stopped after foreground loss'
     sx,sy=raw(x,y);tx,ty=raw(ex,ey)
-    shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --drag-hold '+str(sx)+' '+str(sy)+' '+str(tx)+' '+str(ty)+' 450 200 2>/dev/null')
-    time.sleep(.1)
-def side_back():drag(20,H//2,W//5,H//2)
+    # Ordinary page movement must begin before the 450ms text-selection hold.
+    # Tests that need long-press dragging invoke --drag-hold explicitly.
+    shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap '+str(sx)+' '+str(sy)+' '+str(tx)+' '+str(ty)+' 20 2>/dev/null')
+    time.sleep(.35)
+def side_back():
+    from release_lifecycle import free_back_start
+    d=state()
+    try:x,y=free_back_start(d,W,H,inner='edge' in d.get('back_navigation',{}))
+    except RuntimeError:x,y=free_back_start(d,W,H)
+    drag(x,y,min(W-1,x+max(80,W//4)),y)
 def blocked(value):wait(lambda:state()['back_navigation']['policy_ok'] and state()['back_navigation']['blocked']==value)
 def settings_swipe(delta):
     y=H-50 if delta<0 else 75;drag(W//2,y,W//2,min(H-10,max(10,y+delta)))
 def key(value):
     k=next(k for k in state()['editor']['keys'] if k['key']==value);tap(k['x'],k['y'])
+def tap_bounds(bounds):tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
+def double_tap(x,y):
+    d=state();assert d['visible'] and d.get('page_visible',True) and d['window_focused'] and d['touch_input']['active']
+    rx,ry=raw(x,y)
+    shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --double '+str(rx)+' '+str(ry)+' 100 2>/dev/null')
+    time.sleep(.15)
+def open_chat_editor():
+    d=state();assert d['view']=='chat' and not d['editor']['active']
+    if d['composer_hidden']:
+        assert d['to_bottom_visible'];tap(d['to_bottom_x']+22,d['to_bottom_y']+22)
+        wait(lambda:not state()['composer_hidden'])
+    tap_bounds(state()['composer_text_bounds'])
+    wait(lambda:state()['editor']['active'] and state()['editor']['keys'],timeout=25)
+    time.sleep(.3)
+def send_chat():
+    d=state();assert d['view']=='chat' and not d['editor']['active']
+    tap(d['send_center_x2']//2,d['send_center_y2']//2)
+def open_attachment_menu():
+    if not state()['attachments']:
+        tap_bounds(state()['attachment_button'])
+        wait(lambda:state()['attachments'])
+def open_navigation():
+    d=state();assert d['view']=='chat'
+    if d['navigation_open']:return
+    scale=d['ui_scale']['applied'];dp=lambda n:(n*scale+50)//100
+    x=d['screen_safety']['navigation_x'] if H>W else dp(16)
+    y=d['safe_insets'][1] if H>W else dp(8)
+    side=max(44,dp(48));tap(x+side//2,y+side//2)
+    wait(lambda:state()['navigation_open'])
+def open_settings():
+    open_navigation();tap_bounds(state()['navigation_footer']['settings']['bounds'])
+    wait(lambda:state()['view']=='settings')
+def navigate_back_or_menu():
+    d=state()
+    if d['editor']['active']:
+        e=d['editor'];name='cancel' if 'cancel' in e['actions'] else 'done'
+        b=e['actions'][name];c=e['coordinate_space']
+        tap((b[0]+b[2])*W/(2*c['width']),(b[1]+b[3])*H/(2*c['height']));return
+    if d['navigation_open']:
+        tap(W-12,H//2);wait(lambda:not state()['navigation_open']);return
+    if d.get('navigation_button')=='close':
+        scale=d['ui_scale']['applied'];dp=lambda n:(n*scale+50)//100
+        x=d['screen_safety']['navigation_x'] if H>W else dp(16)
+        y=d['safe_insets'][1] if H>W else dp(8)
+        side=max(44,dp(48));tap(x+side//2,y+side//2)
+        wait(lambda:state()['navigation_button']!='close');return
+    if d['view']=='chat' and not d['modal'] and not d['attachments']:
+        open_navigation();return
+    heading=d.get('page',{}).get('heading')
+    if H>W and heading and heading[1]>=d['safe_insets'][1]:
+        scale=d['ui_scale']['applied'];dp=lambda n:(n*scale+50)//100
+        size=max(44,dp(44))
+        tap(d['screen_safety']['navigation_x']+size//2,heading[1]-dp(7)+dp(2)+size//2);return
+    side_back()
+def page_action_prefix(prefix,index=0):
+    for _ in range(40):
+        d=state();names=sorted(k for k in d['page']['actions'] if k.startswith(prefix))
+        assert len(names)>index,(prefix,list(d['page']['actions']))
+        b=d['page']['actions'][names[index]];v=d['page']['viewport']
+        top=max(v[1],d['safe_insets'][1] if H>W else v[1])
+        if b[1]>=top and b[3]<=v[3]:tap_bounds(b);return
+        settings_swipe(-100 if b[3]>v[3] else 100)
+    raise AssertionError('Page action is unreachable: '+prefix)
+def ensure_chat():
+    for _ in range(8):
+        s=state()
+        if s['view']=='chat':
+            if s['navigation_open']:tap(W-12,H//2);wait(lambda:not state()['navigation_open'])
+            return
+        navigate_back_or_menu()
+    raise AssertionError('Native Back did not return to chat')
+def context_choice(value):
+    d=state();assert value in d['context_menu']['choices'],(value,d['context_menu'])
+    tap_bounds(d['context_menu']['choices'][value]['bounds'])
+def modal_action(index,landscape_x):
+    d=state();assert d['modal']
+    scale=d['ui_scale']['applied'];dp=lambda n:(n*scale+50)//100
+    if H>W:
+        y=H-(d['safe_insets'][3]+dp(44) if d['screen_safety']['rounded'] else dp(66))-index*dp(52)+dp(22)
+        tap(W//2,y)
+    else:tap(landscape_x,H-dp(44))
 def official_editor():
     editor=state()['editor']
     if 'official' not in editor['actions']:
@@ -378,27 +480,27 @@ try:
         photo_gestures_flow.run(globals())
         assert shell('pidof miniapp')==host;result['host_unchanged']=True
         raise FeatureComplete()
-    # Near the former plus/editor boundary, real taps must open attachments.
-    for x,y in [(154,H-34),(158,H-34),(154,H-12),(108,H-56)]:
-        tap(x,y);s=state()
-        assert s['attachments'] and not s['editor']['active'],(x,y,s['view'])
-        if x==158:capture('attachment-expanded-target')
-        tap(W-30,80);assert not state()['attachments']
-    result['attachment_expanded_hit_target']=True
     if args.composer_touch:
+        b=state()['attachment_button'];y=(b[1]+b[3])//2
+        for x in ((b[0]+b[2])//2,b[0]+2,b[2]-2):
+            tap(x,y);wait(lambda:state()['attachments'])
+            assert not state()['editor']['active']
+            capture('attachment-target-'+str(x))
+            tap(W-12,H//2);wait(lambda:not state()['attachments'])
+        result['attachment_expanded_hit_target']=True
         capture('composer-hit-layout')
-        tap(180,H-34);wait(lambda:state()['editor']['active'])
-        b=state()['editor']['actions']['cancel'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+        open_chat_editor();navigate_back_or_menu()
         wait(lambda:not state()['editor']['active'])
         assert not state()['draft_length'] and shell('pidof miniapp')==host
         result['adjacent_composer_entry']=True;result['host_unchanged']=True
         raise FeatureComplete()
-    tap(40,32);assert state()['navigation_open'];capture('drawer')
+    open_navigation();capture('drawer')
     # Check the pixels captured from the real LVGL page, not just constants.
     pixel_probe=ROOT/'build/host/penchat-icon-pixel-tests'
-    subprocess.run([str(pixel_probe),str(OUT/'drawer.png'),str(W*2//3-145),str(H-43),'26','0'],check=True)
+    glyph=state()['navigation_footer']['settings']['glyph'];size=26
+    subprocess.run([str(pixel_probe),str(OUT/'drawer.png'),str((glyph[0]+glyph[2]+1-size)//2),str((glyph[1]+glyph[3]+1-size)//2),str(size),'0'],check=True)
     result['gear_pixel_symmetry']=True
-    tap(W*2//3-70,H-30);assert state()['view']=='settings';capture('settings')
+    tap_bounds(state()['navigation_footer']['settings']['bounds']);wait(lambda:state()['view']=='settings');capture('settings')
     assert state()['settings']['viewport'][1:4:2]==[0,H-1]
     # A settled drag reveals Settings controls in the former title-bar area.
     sx,sy=raw(W//2,H-50);ex,ey=raw(W//2,H-170)
@@ -415,31 +517,43 @@ try:
         assert shell('pidof miniapp')==host;result['host_unchanged']=True
         raise FeatureComplete()
     if args.reply_actions:
-        tap(40,32)
-        if state()['navigation_open']:tap(W-30,100)
+        ensure_chat()
         reply_actions_flow.run(globals(),messageHandler)
-        tap(40,32);tap(W*2//3-70,H-30)
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
     if args.message_edit:
-        tap(40,32)
-        if state()["navigation_open"]:tap(W-30,100)
+        ensure_chat()
         message_edit_flow.run(globals(),messageHandler)
-        tap(40,32);tap(W*2//3-70,H-30)
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
     if args.history_time:
         from settings_ui import activate
         for index,mode in enumerate(('time','title','off')):
             activate(state,tap,settings_swipe,'history_time');wait(lambda:state()['modal']);capture('history-time-picker')
-            width=(W-162)//3;tap(100+index*(width+12)+width//2,90);wait(lambda:not state()['modal'])
-            tap(40,32);wait(lambda:state()['navigation_open']);s=state()
+            context_choice(mode);wait(lambda:not state()['modal'])
+            navigate_back_or_menu();wait(lambda:state()['navigation_open']);s=state()
             assert s['history_captions']['missing']['time']==''
             assert bool(s['history_captions']['today']['time'])==(mode=='time')
             capture('history-'+mode)
             if mode=='time':
                 row=next(r for r in s['history_rows'] if r['id']=='today');rx,ry=raw(row['x'],row['y'])
                 shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 650 2>/dev/null')
-                wait(lambda:state()['history_context']=='today');assert state()['history_details']['title_length']>100
+                wait(lambda:state()['history_context']=='today')
+                menu=state();assert next(r for r in menu['history_rows'] if r['id']=='today')['highlighted']
+                assert set(menu['history_actions'])=={'rename','pin','archive','delete','export'}
+                for bounds in menu['history_actions'].values():
+                    assert bounds[3]-bounds[1]+1>=44
+                visible=menu['context_menu']['list'];last=menu['history_actions']['export']
+                if last[3]>visible[3]:
+                    x=(visible[0]+visible[2])//2
+                    drag(x,visible[3]-12,x,visible[1]+12)
+                    wait(lambda:state()['history_actions']['export'][3]<=state()['context_menu']['list'][3])
+                    result['history_popup_local_overflow_scrolled']=True
                 capture('history-full-title');tap(W-10,H-10)
-            tap(W*2//3-70,H-30);wait(lambda:state()['view']=='settings')
+            tap_bounds(state()['navigation_footer']['settings']['bounds']);wait(lambda:state()['view']=='settings')
         result['history_time_modes']=3;result['history_static_title']=True;result['missing_history_time_hidden']=True
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
     if args.back_navigation:
         native=pid();blocked(True)
         from settings_ui import activate
@@ -478,6 +592,10 @@ try:
         side_back();wait(lambda:not state()['editor']['active']);blocked(True)
         assert state()['draft_length']==0 and pid()==native
         result['image_pan_and_edge_back']=result['editor_back_cancels_input']=True
+        blocked(True);side_back();wait(lambda:not pid())
+        result['root_system_exit']=True
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
     wait(lambda:state()['toolbar_y']==H-58);time.sleep(.4)
     tap(W//2,H-34);wait(lambda:state()['editor']['active']);capture('keyboard')
     assert state()['editor']['top_panel_blocked']
@@ -569,7 +687,7 @@ try:
     wait(lambda:state()['editor']['top_panel_blocked']);tap(W-80,H-30);wait(lambda:not state()['editor']['active'])
     assert state()['draft_length']>0
     result['official_cancel_preserves_input']=True
-    p=pid();shell('miniapp_cli start 8080222437664451');wait(lambda:not state()['visible'])
+    p=pid();__import__('release_lifecycle').background_env(globals());wait(lambda:not state()['visible'])
     assert 'allocated by = penchat-lvgl' not in shell('cat /sys/kernel/debug/dri/0/state')
     shell('miniapp_cli start '+APP['appid']);wait(lambda:state()['visible']);assert pid()==p
     assert state()['draft_length']>0;result['background_resume']=True
@@ -590,22 +708,23 @@ except BaseException:
         subprocess.run(['adb','-s',SERIAL,'pull','/tmp/penchat-display-system-failure.png',str(OUT/'system-failure.png')],check=True,capture_output=True)
     raise
 finally:
-    try:
-        if messageServer:
-            messageServer.shutdown();messageServer.server_close()
-    finally:
-        # A fixture teardown failure must never skip restoration of user files.
-        if pid():close()
-        if privateIsolated:
-            shell('rm -rf '+DATA)
-            if hasData:shell('mv '+saved+' '+DATA)
-        if publicIsolated:
-            shell('rm -rf '+public)
-            if hasPublic:shell('mv '+publicSaved+' '+public)
-        if hasData:assert hashes(DATA)==original
-        if hasPublic:assert hashes(public)==originalPublic
-        assert shell('pidof miniapp')==host
-        shell('rm -f /tmp/penchat-display-tap /tmp/penchat-display-key /tmp/penchat-display-official.png /tmp/penchat-display-system-failure.png')
+    with defer_cleanup_signals():
+        try:
+            if messageServer:
+                messageServer.shutdown();messageServer.server_close()
+        finally:
+            # A fixture teardown failure must never skip restoration of user files.
+            if pid():close()
+            if privateIsolated:
+                shell('rm -rf '+DATA)
+                if hasData:shell('mv '+saved+' '+DATA)
+            if publicIsolated:
+                shell('rm -rf '+public)
+                if hasPublic:shell('mv '+publicSaved+' '+public)
+            if hasData:assert hashes(DATA)==original
+            if hasPublic:assert hashes(public)==originalPublic
+            assert shell('pidof miniapp')==host
+            shell('rm -f /tmp/penchat-display-tap /tmp/penchat-display-key /tmp/penchat-display-official.png /tmp/penchat-display-system-failure.png')
 result['user_data_restored']=True
 (OUT/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
 start_app();capture('final')

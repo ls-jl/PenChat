@@ -28,7 +28,7 @@ def run(env,Server):
         assert abs(value['value']-round(min(1,ratio)*1000))<=1
         return value
     def open_info():
-        d.tap(128,H-34)
+        d.open_attachment_menu()
         for _ in range(15):
             s=d.state();b=s['attachment_actions']['session_info'];v=s['attachment_viewport']
             if b[1]>=v[1] and b[3]<=v[3]:
@@ -39,9 +39,9 @@ def run(env,Server):
         d.wait(lambda:d.state()['view']=='session_info' and bool(d.state()['session_info']) and not d.state()['session_info_busy'])
         result=d.state()['session_info'];assert 'error' not in result,result
         return result
-    native=d.pid();d.tap(40,32)
+    native=d.pid();d.navigate_back_or_menu()
     if d.state()['navigation_open']:d.tap(W-30,100)
-    d.tap(W//2,H-34);d.wait(lambda:d.state()['editor']['active'])
+    d.open_chat_editor()
     if d.state()['editor']['chinese']:d.key('language')
     d.key('q');bounds(d.state()['editor']['actions']['done']);d.wait(lambda:not d.state()['editor']['active'])
     before=d.state();assert before['draft_length']==1
@@ -49,7 +49,7 @@ def run(env,Server):
     assert d.state()['session']==before['session'] and d.state()['draft_length']==1
     d.capture('session-info-unknown');d.side_back();d.wait(lambda:d.state()['view']=='chat')
     assert d.state()['draft_length']==1 and d.state()['scroll_y']==before['scroll_y']
-    d.tap(W-52,H-34)
+    d.send_chat()
     d.wait(lambda:len(Server.requests)==1 and not d.state()['generating'] and not d.state()['compressing'],timeout=20)
     metrics=open_info();assert metrics['latest']['total_tokens']==1200 and metrics['latest']['cached_tokens']==600
     assert metrics['latest']['reasoning_tokens']==50 and metrics['reported_replies']==1 and metrics['replies']==2
@@ -60,15 +60,15 @@ def run(env,Server):
     for _ in range(4):d.settings_swipe(-120)
     d.capture('session-info-notes')
     d.side_back();d.wait(lambda:d.state()['view']=='chat');assert d.pid()==native and len(Server.requests)==1
-    d.tap(128,H-34)
+    d.open_attachment_menu()
     for _ in range(15):
         current=d.state();b=current['attachment_actions']['compress'];v=current['attachment_viewport']
         if b[1]>=v[1] and b[3]<=v[3]:break
         d.drag(220,v[3]-10,220,max(v[1]+10,v[3]-110))
     before_ring=ring_state();d.capture('context-ring-before-compression')
     bounds(before_ring['ring'])
-    d.wait(lambda:len(Server.requests)>=2 and not d.state()['compressing'] and d.state()['modal'],timeout=25)
-    d.tap(W-71,H-44);d.tap(128,H-34)
+    d.wait(lambda:len(Server.requests)>=2 and not d.state()['compressing'] and d.state()['view']=='context_summary',timeout=25)
+    d.navigate_back_or_menu();d.open_attachment_menu()
     for _ in range(15):
         current=d.state();b=current['attachment_actions']['compress'];v=current['attachment_viewport']
         if b[1]>=v[1] and b[3]<=v[3]:break
@@ -78,14 +78,14 @@ def run(env,Server):
     d.capture('context-ring-after-compression');d.tap(W-30,80)
     assert d.state()['view']=='chat' and d.pid()==native
     d.tap(40,168);assert not d.state()['modal']
-    d.tap(128,H-34)
+    d.open_attachment_menu()
     for _ in range(15):
         current=d.state();b=current['attachment_actions']['summary'];v=current['attachment_viewport']
         if b[1]>=v[1] and b[3]<=v[3]:break
         d.drag(220,v[3]-10,220,max(v[1]+10,v[3]-110))
     ring_state();d.capture('context-summary-new-icon');bounds(b)
-    d.wait(lambda:d.state()['modal']);d.capture('context-summary-menu-details')
-    d.tap(W-71,H-44);assert d.state()['view']=='chat'
+    d.wait(lambda:d.state()['view']=='context_summary');d.capture('context-summary-menu-details')
+    d.navigate_back_or_menu();d.wait(lambda:d.state()['view']=='chat')
     d.result['context_summary_menu_only']=True
     d.result['context_usage_ring_physical_compression']=True
     d.result['session_info_context_api_cache_reasoning_and_draft']=True

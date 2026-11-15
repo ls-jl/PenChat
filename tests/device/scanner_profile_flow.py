@@ -13,6 +13,7 @@ def prepare(root,folder):
 
 def run(c):
     state,wait,tap,shell=c['state'],c['wait'],c['tap'],c['shell'];W,H=c['W'],c['H']
+    core_only=c['args'].scanner_profile_core_only
     board=shell('cat /proc/device-tree/model');sensor=shell('cat /sys/class/video4linux/v4l-subdev2/name')
     if 'RK3562 Y02 ' in board:
         assert 'sc035gs' in sensor;profile='y02-sc035gs';shape=(640,480)
@@ -24,7 +25,12 @@ def run(c):
         s=wait(lambda:(d if (d:=state())['scanner'].get('type')=='ready' else None),timeout=20)
         assert s['scanner']['profile']==profile and (s['scanner']['sensor_width'],s['scanner']['sensor_height'])==shape
         return s
-    def cancel():tap(W//2,H-36) if H>W else tap(W-205,108)
+    def cancel():
+        s=state();scale=s['ui_scale']['applied'];dp=lambda value:(value*scale+50)//100
+        if H>W:
+            y=H-s['safe_insets'][3]-max(44,dp(44))/2 if s['screen_safety']['rounded'] else H-dp(58)+dp(44)/2
+            tap(W/2,y)
+        else:tap(W-dp(205),dp(108))
     def light():return shell('cat '+('/sys/class/leds/flash-led-gpio/brightness' if profile=='y07-sc2356' else '/sys/class/gpio/gpio43/value'))
     def released():
         wait(lambda:state()['scan_released'],timeout=15)
@@ -33,6 +39,8 @@ def run(c):
     results=[]
     def press(hold):
         # This firmware's adbd may return zero even when the remote helper fails.
+        foreground=state()
+        assert foreground['visible'] and foreground['page_visible'] and foreground['window_focused'] and foreground['input_focused'] and foreground['touch_input']['active'],'Scanner key stopped after foreground loss'
         output=subprocess.check_output(['adb','-s',c['SERIAL'],'shell',f'/tmp/penchat-display-key /dev/input/by-path/led_control 134 1 {hold} 100'],text=True)
         assert 'sent 1 paired events code=134' in output,output
     resident=ready()['scanner']['worker_pid'];assert str(resident)==shell('pidof penchat-scanner')
@@ -68,30 +76,37 @@ def run(c):
         snapshot=c['DATA']+'/scanner-acceptance.db'
         shell('sqlite3 -readonly '+shlex.quote(c['DATA']+'/penchat.db')+' '+shlex.quote('.backup '+snapshot))
         assert shell('sqlite3 -readonly '+shlex.quote(snapshot)+' '+shlex.quote('select count(*) from chat_sessions'))=='0'
-        tap(40,32);wait(lambda:state()['navigation_open']);released()
+        c['open_navigation']();released()
         assert shell('pidof penchat-scanner')==str(resident)
         fmt=shell('v4l2-ctl -d /dev/video23 --get-fmt-video');assert fmt==c['scanner_profile_format'],fmt
         if cycle==0:
             handles=lambda:[line.split(' -> ',1)[-1] for line in shell(f'ls -l /proc/{resident}/fd').splitlines() if ' -> /dev/dri/' in line or ' -> /dev/rknpu' in line]
             npu_handles=handles();assert npu_handles,'Resident RKNN context has no device handle'
-            shell('miniapp_cli start 8080222437664451');wait(lambda:not state()['visible'])
+            if not core_only:
+                __import__('release_lifecycle').background_env(c);wait(lambda:not state()['visible'])
             time.sleep(6) # The previous model idle limit was five seconds.
             assert shell('pidof penchat-scanner')==str(resident) and handles()==npu_handles
-            c['wake']();shell('miniapp_cli start '+c['APP']['appid']);wait(lambda:state()['visible'])
+            if not core_only:
+                c['wake']();shell('miniapp_cli start '+c['APP']['appid']);wait(lambda:state()['visible'] and state()['window_focused'] and state()['touch_input']['active'])
+            else:tap(W-30,80)
         else:
             tap(W-30,80)
         assert ready()['scanner']['worker_pid']==resident
     # Parent fallback must restore the saved Y02 format after an abrupt child exit.
     worker=shell('pidof penchat-scanner');assert worker.isdigit()
     shell('kill -KILL '+worker)
-    tap(40,32);wait(lambda:state()['navigation_open']);released()
+    c['open_navigation']();released()
     assert shell('v4l2-ctl -d /dev/video23 --get-fmt-video')==c['scanner_profile_format']
     tap(W-30,80);resident=ready()['scanner']['worker_pid'];assert str(resident)!=worker
-    tap(W//2,H-34);wait(lambda:state()['editor']['active']);released()
+    c['open_chat_editor']();released()
     wait(lambda:state()['editor']['ocr_active']);c['capture']('scanner-keyboard-ocr-release')
     assert shell('pidof penchat-scanner')==str(resident)
-    b=state()['editor']['actions']['cancel'];tap((b[0]+b[2])//2,(b[1]+b[3])//2);ready()
-    shell('miniapp_cli start 8080222437664451');wait(lambda:not state()['visible']);released()
-    assert shell('pidof penchat-scanner')==str(resident)
-    shell('miniapp_cli start '+c['APP']['appid']);wait(lambda:state()['visible']);ready()
-    c['result']['scanner_profile']={'profile':profile,'native_shape':shape,'temporary_frames':'memory_only','cycles':results,'resident_worker':True,'idle_npu_handles':npu_handles,'empty_result_tip_retry':empty_retry,'ocr_release':True,'background_release':True,'child_crash_restore':True,'discard_only':True,'paper_quality_validated':False}
+    if 'cancel' in state()['editor']['actions']:
+        b=state()['editor']['actions']['cancel'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+    else:c['side_back']()
+    ready()
+    if not core_only:
+        __import__('release_lifecycle').background_env(c);wait(lambda:not state()['visible']);released()
+        assert shell('pidof penchat-scanner')==str(resident)
+        shell('miniapp_cli start '+c['APP']['appid']);wait(lambda:state()['visible'] and state()['window_focused'] and state()['touch_input']['active']);ready()
+    c['result']['scanner_profile']={'profile':profile,'native_shape':shape,'temporary_frames':'memory_only','cycles':results,'resident_worker':True,'idle_npu_handles':npu_handles,'empty_result_tip_retry':empty_retry,'ocr_release':True,'background_release':'pending separate real model-retained background probe' if core_only else True,'child_crash_restore':True,'discard_only':True,'paper_quality_validated':False}

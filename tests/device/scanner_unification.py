@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Scoped scanner platform acceptance; isolates private/public data and never restarts Falcon."""
 import argparse,hashlib,json,pathlib,shlex,sqlite3,subprocess,tempfile,time
+from release_lifecycle import close_app, background_env
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text())
 p=argparse.ArgumentParser(description=__doc__);p.add_argument('--serial',required=True);p.add_argument('--package',type=pathlib.Path,required=True)
@@ -29,11 +30,7 @@ def pid():
         if status and status[0] not in ('Z','X'):return native
     return ''
 def close():
-    sh('miniapp_cli start 8080222437664451');time.sleep(.3)
-    native=pid()
-    if native:
-        if APP['appid'] not in sh("tr '\\0' ' ' < /proc/"+native+'/cmdline'):raise RuntimeError('Unexpected native owner')
-        sh('kill -TERM '+native);wait(lambda:not pid(),30)
+    return close_app(args.serial,APP['appid'],sh,pid,state)
 def state():
     native=pid()
     if not native:return None
@@ -194,7 +191,7 @@ try:
         action('done');wait(lambda:not state()['editor']['active'],30)
         assert ready()['scanner']['worker_pid']==worker
         result['preparation_cancel_restore']=True
-    sh('miniapp_cli start 8080222437664451');wait(lambda:not state()['visible']);released()
+    background_env(dict(SERIAL=args.serial,shell=sh,pid=pid,state=state));wait(lambda:not state()['visible']);released()
     assert str(worker) in sh('pidof penchat-scanner').split()
     sh('miniapp_cli start '+APP['appid']);wait(lambda:state()['visible']);ready()
     result['background_restore']=True

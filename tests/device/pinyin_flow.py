@@ -4,14 +4,21 @@ import json,time,sys
 def run(ctx):
     read,tap,wait,capture=map(ctx.get,('state','tap','wait','capture'))
     W,H=ctx['W'],ctx['H']
+    core_only=ctx['args'].pinyin_core_only
     sys.path.insert(0,str(ctx['ROOT']/'tests'))
     latencies=[]
     def state():return read()['editor']
     def action(name):
+        if name=='cancel' and name not in state()['actions']:
+            ctx['side_back']();return
+        if name=='official' and name not in state()['actions']:
+            k=next(k for k in state()['keys'] if k['key']=='language');x,y=ctx['raw'](k['x'],k['y'])
+            ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap --hold '+f'{x} {y} 700 2>/dev/null')
+            wait(lambda:state()['layout_menu'])
         b=state()['actions'][name];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
     def key(name):
         k=next(k for k in state()['keys'] if k['key']==name);tap(k['x'],k['y'])
-    def open_editor():tap(W//2,H-34);wait(lambda:state()['active'])
+    def open_editor():ctx['open_chat_editor']()
     def choose_layout(value):
         k=next(k for k in state()['keys'] if k['key']=='language');x,y=ctx['raw'](k['x'],k['y'])
         ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap --hold '+f'{x} {y} 850 2>/dev/null')
@@ -22,23 +29,25 @@ def run(ctx):
         latencies.append(state()['query_ms'])
     def profile():return json.loads(ctx['shell']('cat '+ctx['DATA']+'/ime/user.json'))
     def chat_settings():
-        tap(40,32);wait(lambda:read()['navigation_open']);tap(W*2//3-70,H-30);wait(lambda:read()['view']=='settings')
+        ctx['open_settings']()
     from settings_ui import locate
     def setting(name):
         b=locate(read,ctx['settings_swipe'],name)['bounds'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
     # Edge-row hit areas use mapped physical touches, not cap-centre shortcuts.
     open_editor();choose_layout('en26');k={v['key']:v for v in state()['keys']};split=state()['keyboard_split'];y=k['a']['y'];length=0
-    assert k['a']['hit_bounds'][0]==0 and k['l']['hit_bounds'][2]==split
-    for x in [2,14,k['a']['bounds'][0]-8,k['a']['x'],split-2,split-14,k['l']['bounds'][2]+8]:
+    left,right=k['a']['hit_bounds'][0],k['l']['hit_bounds'][2]
+    assert left<=(4 if H>W else 0) and right>=split-(4 if H>W else 0)
+    for x in [left+2,left+14,max(left+1,k['a']['bounds'][0]-8),k['a']['x'],right-2,right-14,min(right-1,k['l']['bounds'][2]+8)]:
         tap(x,y);length+=1;wait(lambda:state()['length']==length)
-    sx,sy=ctx['raw'](2,y);ex,ey=ctx['raw'](20,y)
+    jitter_x=max(left+2,read()['back_navigation']['edge']-1) if H>W else left+2
+    sx,sy=ctx['raw'](jitter_x,y);ex,ey=ctx['raw'](jitter_x+18,y)
     ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap --drag-hold '+f'{sx} {sy} {ex} {ey} 200 100 2>/dev/null')
     length+=1;wait(lambda:state()['length']==length)
-    key('shift');tap(2,y);length+=1;wait(lambda:state()['length']==length and not state()['shift'])
+    key('shift');tap(left+2,y);length+=1;wait(lambda:state()['length']==length and not state()['shift'])
     shift=next(v for v in state()['keys'] if v['key']=='shift')
     # Querying diagnostics between taps can exceed the real 400ms double-tap window.
-    tap(shift['x'],shift['y']);tap(shift['x'],shift['y']);wait(lambda:state()['shift']==2)
-    tap(split-2,y);length+=1;wait(lambda:state()['length']==length and state()['shift']==2);key('shift')
+    ctx['double_tap'](shift['x'],shift['y']);wait(lambda:state()['shift']==2)
+    tap(right-2,y);length+=1;wait(lambda:state()['length']==length and state()['shift']==2);key('shift')
     capture('keyboard-edge-keys');action('cancel');wait(lambda:not state()['active'])
     open_editor();assert state()['layout']=='zh26';capture('pinyin-26')
     for wanted in ['en26','zh9','zh26']:
@@ -64,7 +73,11 @@ def run(ctx):
     open_editor();choose_layout('zh9')
     for c in '64426':key('t9:'+c)
     ready();assert state()['preferred_layout']=='zh9'
-    tap(W-30,28);assert state()['expanded'];key('t9:6');assert state()['preedit_length']==6 and not state()['expanded']
+    action('expand');assert state()['expanded']
+    if H>W:
+        assert not any(k['key'].startswith('t9:') for k in state()['keys'])
+        action('expand');assert not state()['expanded']
+    key('t9:6');assert state()['preedit_length']==6 and not state()['expanded']
     key('delete');ready();assert state()['preedit_length']==5
     capture('pinyin-nine')
     exact=next(k for k in state()['actions'] if k.startswith('exact:'));action(exact);ready();assert state()['preedit_length']==5
@@ -72,7 +85,8 @@ def run(ctx):
     key('punctuation');capture('pinyin-nine-punctuation');action('punct:，');assert state()['length']==8
     key('language');assert state()['layout']=='en26';key('a');key('language');assert state()['layout']=='zh9'
     time.sleep(2.1);key('language');assert state()['layout']=='en26';time.sleep(2.1);key('language');assert state()['layout']=='zh9'
-    action('official');wait(lambda:read()['keyboard']);tap(35,35);wait(lambda:not read()['keyboard']);assert state()['layout']=='zh9' and state()['length']==9
+    if not core_only:
+        action('official');wait(lambda:read()['keyboard']);tap(35,35);wait(lambda:not read()['keyboard']);assert state()['layout']=='zh9' and state()['length']==9
     choose_layout('zh26');key('n');key('i');choose_layout('zh9');key('t9:6');key('t9:4');choose_layout('en26')
     assert state()['parked_count']==2;capture('pinyin-english-parked')
     old=ctx['shell']('sha256sum '+ctx['DATA']+'/ime/user.json').split()[0]
@@ -85,15 +99,25 @@ def run(ctx):
     b=read()['settings']['rows']['pinyin_learning']['bounds'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
     assert not read()['settings']['rows']['pinyin_learning']['checked']
     b=read()['settings']['rows']['clear_pinyin']['bounds'];tap((b[0]+b[2])//2,(b[1]+b[3])//2);wait(lambda:read()['modal']);capture('pinyin-clear-confirm')
-    tap(200,H-44);wait(lambda:profile()['records']==[]);tap(W-70,H-44)
-    tap(40,32);tap(40,32);wait(lambda:read()['view']=='chat');
+    ctx['modal_action'](1,200);wait(lambda:profile()['records']==[]);ctx['modal_action'](0,W-70)
+    ctx['navigate_back_or_menu']();ctx['navigate_back_or_menu']();wait(lambda:read()['view']=='chat');
     if read()['navigation_open']:tap(W-30,80)
     open_editor();assert state()['layout']=='zh9'
     for c in '64426':key('t9:'+c)
     ready();key('space');wait(lambda:not state()['preedit_length'])
     choose_layout('en26');action('clipboard');assert state()['clipboard_open']
-    length=state()['length'];key('x');assert state()['length']==length+1
-    tap(W-30,28);assert not state()['clipboard_open']
+    length=state()['length']
+    if H>W:
+        # Retained caps remain in diagnostics while the clipboard covers the
+        # keyboard panel. A real touch must hit that panel, never its old key.
+        assert 'clip-close' in state()['actions']
+        capture('pinyin-portrait-clipboard-panel')
+        key('x');assert state()['length']==length
+        action('clip-close');assert not state()['clipboard_open']
+        key('x')
+    else:
+        key('x');action('clip-close' if 'clip-close' in state()['actions'] else 'clipboard')
+    assert state()['length']==length+1 and not state()['clipboard_open']
     action('done');wait(lambda:not state()['active']);assert profile()['records']==[]
     # Repeated editor/OCR transitions do not reopen one decoder per session or leak descriptors.
     fds=lambda:int(ctx['shell']('ls /proc/'+ctx['pid']()+'/fd | wc -l'))
@@ -105,10 +129,13 @@ def run(ctx):
     assert profile()['records']==[]
     for c in '64':key('t9:'+c)
     before=state()['preedit_length'];p=ctx['pid']()
-    ctx['shell']('miniapp_cli start 8080222437664451');wait(lambda:not read()['visible']);assert not state()['ocr_active']
-    ctx['shell']('miniapp_cli start '+ctx['APP']['appid']);wait(lambda:read()['visible']);assert ctx['pid']()==p
-    assert state()['active'] and state()['preedit_length']==before and state()['top_panel_blocked']
+    if not core_only:
+        __import__('release_lifecycle').background_env(ctx);wait(lambda:not read()['visible']);assert not state()['ocr_active']
+        ctx['shell']('miniapp_cli start '+ctx['APP']['appid']);wait(lambda:read()['visible']);assert ctx['pid']()==p
+        assert state()['active'] and state()['preedit_length']==before and state()['top_panel_blocked']
     action('cancel');wait(lambda:not state()['active'])
     ctx['result']['pinyin']={'native_dictionary':True,'edge_key_touches':10,'edge_jitter_and_uppercase':True,'typo_candidates_and_long_press':True,'valid_spelling_alternatives':True,'single_character_correction':True,'original_raw_enter':True,'correction_switch':True,'canonical_correction_learning':True,'three_layouts':True,'globe_cycle_and_timeout':True,
         'exact_filter_and_raw_enter':True,'typing_under_right_panels':True,'deferred_learning':True,'clear_disable_restart':True,
-        'official_cancel':True,'parked_compositions':True,'query_ms_samples':latencies,'editor_cycles':20,'fd_baseline':baseline,'lifecycle':True}
+        'official_cancel':'pending separate owned official surface' if core_only else True,'parked_compositions':True,
+        'query_ms_samples':latencies,'editor_cycles':20,'fd_baseline':baseline,
+        'lifecycle':'pending separate real background preedit' if core_only else True}
