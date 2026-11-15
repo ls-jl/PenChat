@@ -27,16 +27,25 @@ with http.server.ThreadingHTTPServer(('127.0.0.1',0),ui.Server) as server,tempfi
   touch(x,y);touch(x,y,points=[{'id':1,'x':x,'y':y},{'id':2,'x':x+10,'y':y}]);touch(x,y,False);assert not actions()
   touch(300,800);touch(300,800,False)
   a.send('keyboard.change',requestId=request,text='初稿',cursorIndex=2) # Cursor heartbeat is not a text acknowledgement.
-  tap('attachments');blocked=a.receive('keyboard.commit-action');assert blocked['uncommitted']
-  a.send('keyboard.action.error',requestId=request,actionId=blocked['actionId'])
-  now=int(time.time()*1000)
-  a.send('keyboard.change',requestId=request,text='初稿',cursorIndex=2,inputEventTime=now+10)
-  a.send('touch',x=300,y=800,pressed=True,event_time_ms=now)
-  a.send('touch',x=300,y=800,pressed=False,event_time_ms=now)
-  tap('attachments');action=a.receive('keyboard.commit-action');assert action['action']=='attachments' and not action['uncommitted']
-  a.send('keyboard.result',requestId=request,actionId=action['actionId'],confirmed=True,text='已同步最新输入')
-  ui.wait_for(lambda:a.diag()['attachments']);assert a.diag()['draft_length']==7 and not ui.Server.requests
-  a.send('keyboard.result',requestId=request,actionId=action['actionId'],confirmed=True,text='stale');assert a.diag()['attachments']
+  tap('attachments');ui.wait_for(lambda:a.diag()['attachments'])
+  assert a.diag()['keyboard'] and a.diag()['editor']['length']==2 and not actions()
+  assert a.diag()['attachment_viewport'][3]<a.diag()['display_top_height']
+  # Keyboard-origin taps never dismiss the popup or enter LVGL controls.
+  touch(300,800);touch(300,800,False);assert a.diag()['attachments']
+  touch(560,100);touch(560,100,False);ui.wait_for(lambda:not a.diag()['attachments'])
+  assert a.diag()['keyboard'] and a.diag()['editor']['length']==2
+  # Direct dismissal commits the live proxy value, without a send action.
+  a.send('keyboard.result',requestId=request,confirmed=True,retained=True,text='已同步最新输入')
+  ui.wait_for(lambda:not a.diag()['keyboard']);assert a.diag()['draft_length']==7 and not ui.Server.requests
+  a.send('keyboard.result',requestId=request,confirmed=True,retained=True,text='stale')
+  assert a.diag()['draft_length']==7
+  request=open_official();tap('attachments')
+  b=a.diag()['attachment_actions']['models'];x,y=(b[0]+b[2])//2,(b[1]+b[3])//2
+  touch(x,y);touch(x,y,False)
+  chosen=a.receive('keyboard.commit-action');assert chosen['action']=='menu'
+  a.send('keyboard.result',requestId=request,actionId=chosen['actionId'],confirmed=True,text='已同步最新输入')
+  ui.wait_for(lambda:not a.diag()['keyboard'] and a.diag()['attachments'])
+  assert a.diag()['draft_length']==7
   a.tap(560,100);ui.wait_for(lambda:not a.diag()['attachments'])
   request=open_official();a.send('keyboard.change',requestId=request,text='一次发送',cursorIndex=4)
   tap('send');action=a.receive('keyboard.commit-action');assert action['action']=='send' and not ui.Server.requests

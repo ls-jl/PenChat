@@ -288,9 +288,15 @@ drags may cross the old reader bounds. Bounded release inertia must stop on
 retouch, geometry change, panel/background, cancellation or keyboard exit;
 never dispatch keys/caret, reject keyboard-origin and multi-contact gestures,
 and close/reset the fd before returning to normal native input. A stationary single-contact
-release may activate a visible composer control: plus/send/effort require the current
-proxy commit acknowledgement with matching request/action/session identities before
-queued UI dispatch; Stop and return-to-bottom preserve official editing. Reject moved,
+release may activate a visible composer control: plus opens a locally scrolling popup
+above the official keyboard without closing editing. Route only popup-origin contacts
+in the visible native region; system-keyboard contacts never dismiss/activate it.
+Send/effort and popup choices that leave editing require the current proxy commit
+acknowledgement with matching request/action/session identities before queued UI
+dispatch; Stop and return-to-bottom preserve official editing. Docked official editing
+is live: dismissal keeps the latest proxy text; errors recover that text into the
+native editor. Never restore the pre-opening snapshot on docked dismissal. Legacy
+full-screen official editors retain explicit confirm/cancel semantics. Reject moved,
 cancelled, duplicate and stale actions. Unacknowledged system-key contacts must retain
 official input and request candidate selection/confirmation, never silently discard
 preedit or borrow the vendor decoder. Kernel contact timestamps and actual proxy input

@@ -67,8 +67,13 @@ void App::toggleAttachments() {
     lv_point_t measured{};lv_text_get_size(&measured,name.c_str(),font(uiMetrics_.fontSize(UiFont::SettingsTitle)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
     measuredWidth=std::max(measuredWidth,int(measured.x)+uiMetrics_.dp(76));
   }
-  const auto area=attachmentMenuArea(layout(),{capsule.x1,capsule.y1,capsule.x2-capsule.x1+1,capsule.y2-capsule.y1+1},
+  auto area=attachmentMenuArea(layout(),{capsule.x1,capsule.y1,capsule.x2-capsule.x1+1,capsule.y2-capsule.y1+1},
                                     measuredWidth,int(names.size())*uiMetrics_.dp(44)+uiMetrics_.dp(8));
+  if(keyboard_&&officialDocked_) {
+    const int top=std::max(layout().safeTop(),uiMetrics_.dp(8));
+    area.height=std::min(area.height,std::max(1,display_.topHeight()-top-uiMetrics_.dp(8)));
+    area.y=std::max(top,std::min(area.y,display_.topHeight()-uiMetrics_.dp(8)-area.height));
+  }
   const int menuWidth=area.width;
   auto menu=box(attachments_,area.x,area.y,area.width,area.height,theme::palette().surface);
   attachmentPanel_=menu;
@@ -77,7 +82,7 @@ void App::toggleAttachments() {
   lv_obj_set_scroll_elastic(menu,false);lv_obj_set_scroll_momentum(menu,false);
   for (int i = 0; i < int(names.size()); ++i) {
     const auto actionId = ids[i];
-    auto action = [this, actionId] {
+    std::function<void()> action = [this, actionId] {
       if (actionId == "session_info") {
         if(!finishChatEditorForNavigation())return;
         openSessionInfo();
@@ -119,6 +124,19 @@ void App::toggleAttachments() {
         // Composer visibility is synchronized by the owning chat controller.
         syncEffortGauge();
       }
+    };
+    auto perform=action;
+    action=[this,perform] {
+      if(keyboard_&&officialDocked_) {
+        if(!officialActionId_.empty())return;
+        officialMenuAction_=perform;officialActionId_=uid("official-action");officialActionKind_="menu";
+        officialActionSession_=session_;officialActionAt_=ticks();
+        if(!bridge_.send("keyboard.commit-action",{{"requestId",keyboardId_},{"actionId",officialActionId_},{"action","menu"},{"uncommitted",officialKeyEventAt_>officialTextEventAt_},{"keyEventTime",officialKeyEventAt_}})) {
+          officialActionId_.clear();officialMenuAction_={};
+        }
+        return;
+      }
+      perform();
     };
     if (ids[i] == "compress") {
       auto control = button(menu, "", uiMetrics_.dp(4), uiMetrics_.dp(4) + i * uiMetrics_.dp(44), uiMetrics_.dp(44), uiMetrics_.dp(44), action, theme::palette().surface);

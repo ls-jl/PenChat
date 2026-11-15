@@ -2838,7 +2838,7 @@ void App::cancelNativeInteraction() {
   // Its release is rejected after focus loss, so do not carry release absorption
   // into the next independently focused contact.
   popupConsumeTouch_ = contextMenuOpening_ = popupTracking_ = false;
-  officialComposerHit_.clear();officialContactIds_.clear();officialActionId_.clear();officialActionKind_.clear();
+  officialComposerHit_.clear();officialContactIds_.clear();officialActionId_.clear();officialActionKind_.clear();officialMenuAction_={};officialPopupContact_=false;
   stopOfficialReaderGlide();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;
   resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
   finishImageGesture(false); nonImageMulti_ = false; viewerLastTap_ = 0;
@@ -2881,7 +2881,7 @@ Json App::inputFocusDiagnostics() const {
 }
 bool App::officialReaderInput() const {
   const auto now=ticks();
-  return visible_&&pageVisible_&&view_=="chat"&&body_&&!modal_&&!attachments_&&!navigationOpen_&&
+  return visible_&&pageVisible_&&view_=="chat"&&body_&&!modal_&&!navigationOpen_&&
     keyboard_&&officialDocked_&&officialForeground_&&now>=officialLayoutAt_&&now-officialLayoutAt_<750&&
     display_.visible()&&display_.topHeight()>0&&!systemOverlayStatus_.value("panel_visible",false);
 }
@@ -2924,13 +2924,24 @@ void App::officialReaderTouch(const Json &message) {
     if(at<=0||std::abs(at-now)>5000)at=now;
     officialKeyEventAt_=std::max(officialKeyEventAt_,at);
   }
-  if(cancel){officialComposerHit_.clear();stopOfficialReaderGlide();officialReaderPending_=0;officialReaderCaptured_=false;officialReaderDown_=down;return;}
+  if(cancel){if(officialPopupContact_)input_.interrupt();officialPopupContact_=false;officialComposerHit_.clear();stopOfficialReaderGlide();officialReaderPending_=0;officialReaderCaptured_=false;officialReaderDown_=down;return;}
+  if(attachments_) {
+    if(down&&!officialReaderDown_)officialPopupContact_=y>=officialReaderBounds_.y1&&y<display_.topHeight();
+    if(officialPopupContact_) {
+      auto event=message;
+      if(cancel||y>=display_.topHeight()){event["cancelled"]=true;event["pressed"]=false;officialPopupContact_=false;}
+      popupTouch(event);
+    }
+    if(!down)officialPopupContact_=false;
+    officialReaderDown_=down;return;
+  }
   if(!down){
     const auto action=officialComposerHit_;officialComposerHit_.clear();
     if(!action.empty()) {
       if(!officialComposerMoved_&&officialComposerActionAt(x,y)==action&&officialActionId_.empty()) {
-        if(action=="bottom"||action=="stop") {
-          if(action=="bottom")jumpToBottom();else if(contextBusy_)cancelContext();else if(generating_)cancel_=true;
+        if(action=="attachments"||action=="bottom"||action=="stop") {
+          if(action=="menu") {auto callback=std::move(officialMenuAction_);officialMenuAction_={};if(callback)callback();}
+        else if(action=="attachments")toggleAttachments();else if(action=="bottom")jumpToBottom();else if(contextBusy_)cancelContext();else if(generating_)cancel_=true;
           officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;return;
         }
         officialActionId_=uid("official-action");officialActionKind_=action;officialActionSession_=session_;officialActionAt_=ticks();
@@ -3381,16 +3392,21 @@ void App::handle(const Json &m) {
       return;
     const auto action=!officialActionId_.empty()&&m.value("confirmed",false)&&m.value("actionId",std::string())==officialActionId_?officialActionKind_:std::string();
     const auto actionSession=officialActionSession_;
+    if(action!="menu")officialMenuAction_={};
     officialActionId_.clear();officialActionKind_.clear();officialComposerHit_.clear();
     // Never carry a system-key contact into the restored native controls.
     stopOfficialReaderGlide();touchInput_.close();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;
-    if(officialDocked_&&!m.value("confirmed",false))editor_=std::move(officialBackup_);
+    // Docked editing is live: hiding/cancelling the system panel never rolls back text.
+    if(officialDocked_&&m.value("retained",false)&&m.contains("text")) {
+      const auto text=m.value("text",std::string());if(editLength(text)<=editor_.limit)editor_.text=text;
+    }
     officialBackup_=EditorState{};officialDocked_=false;officialHeight_=0;officialForeground_=false;officialLayoutAt_=0;
     // Withdraw the partial plane before restoring full geometry, so the old
     // frame cannot flash over a system IME that is still finishing teardown.
     display_.visible(false);keyboard_ = false;display_.topHeight(0);
     if (editor_.active) {
       if (m.value("confirmed", false)) {
+        closeAttachments();
         auto text = m.value("text", std::string());
         if (editLength(text) <= editor_.limit) { editor_.text = text; editor_.preedit.clear(); editorFinish(true); }
         else { editor_.notice = "官方输入超过长度上限，请调整";editorPolicy(true);editorBuild();editorOcrStart(); }
@@ -3450,7 +3466,7 @@ void App::tick() {
       ? std::max(uiMetrics_.dp(8), std::min(screen_.width, screen_.height) / 25) : 0;
   if(!officialActionId_.empty()&&ticks()-officialActionAt_>2500){officialActionId_.clear();officialActionKind_.clear();}
   const bool officialReader=officialReaderInput();
-  if(!officialReader){officialComposerHit_.clear();officialContactIds_.clear();stopOfficialReaderGlide();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;}
+  if(!officialReader){if(officialPopupContact_)input_.interrupt();officialPopupContact_=false;officialComposerHit_.clear();officialContactIds_.clear();stopOfficialReaderGlide();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;}
   auto touches=touchInput_.poll((visible_ && !keyboard_ && touchLeaseActive_)||officialReader, reservedTop);
   for(const auto &touch:touches){
     if(!officialReaderInput()&&(!visible_ || keyboard_ || !inputFocused_ || !inputFocus_.allowed(ticks()))) { updateInputFocus();touchInput_.close();break; }
@@ -3607,7 +3623,8 @@ void App::tick() {
     if(e.type=="official_composer_action") {
       if(visible_&&view_=="chat"&&!keyboard_&&!editor_.active&&!modal_&&!attachments_&&!navigationOpen_&&e.data.value("session",std::string())==session_) {
         const auto action=e.data.value("action",std::string());
-        if(action=="attachments")toggleAttachments();
+        if(action=="menu") {auto callback=std::move(officialMenuAction_);officialMenuAction_={};if(callback)callback();}
+        else if(action=="attachments")toggleAttachments();
         else if(action=="effort")effortPicker();
         else if(action=="send"&&!generating_&&!contextBusy_)sendMessage();
       }

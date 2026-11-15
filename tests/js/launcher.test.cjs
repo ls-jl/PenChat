@@ -393,7 +393,7 @@ test('portrait official IME attaches to a real field and confirms once after cal
  assert(!f.page.officialInline);assert.equal(f.page.officialText,'');assert.equal(f.page._keyboardMonitor,null)
  f.page.dispose()
 })
-test('portrait official cancel/late confirm and secret fields preserve the original edit session',async()=>{
+test('portrait official dismissal retains secret-field edits and rejects late confirmation',async()=>{
  const f=fixture();await f.page.boot();portraitOfficial(f)
  f.page.openKeyboard({requestId:'secret',text:'fixture',sensitive:true,inputType:'EnUSOnly',multiline:false})
  assert(f.page.officialSensitive&&f.page.officialSingleLine)
@@ -401,7 +401,7 @@ test('portrait official cancel/late confirm and secret fields preserve the origi
  f.page.finishInlineOfficial('discard');const stale=f.timers.get(f.page._keyboardTimer)
  f.page.cancelOfficialKeyboard();stale()
  const results=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result')
- assert.equal(results.length,1);assert(!results[0][1].confirmed)
+ assert.equal(results.length,1);assert(results[0][1].confirmed);assert.equal(results[0][1].text,'discard')
  assert.equal(f.page._keyboardMonitor,null);assert.equal(f.page.officialText,'')
  f.page.dispose()
 })
@@ -476,7 +476,7 @@ test('portrait proxy retains its connection with vendor confirmation and rejects
  f.native.officialKeyboard=()=>({supported:true,visible:false})
  f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
  assert(!f.page.keyboardOpen)
- assert(!f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').at(-1)[1].confirmed)
+ assert(f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').at(-1)[1].confirmed)
  f.page.dispose()
 })
 
@@ -728,7 +728,7 @@ test('failed official commit leaves editing intact and cannot execute a later st
  f.page.commitOfficialAction({requestId:'pending',actionId:'cancelled',action:'send'})
  f.page.cancelOfficialKeyboard();old.confirm('stale')
  assert(!f.page.keyboardOpen)
- assert(!f.calls.some(c=>c[0]==='send'&&c[1].type==='keyboard.result'&&c[1].confirmed))
+ assert(!f.calls.some(c=>c[0]==='send'&&c[1].type==='keyboard.result'&&c[1].actionId))
  f.page.dispose()
 })
 
@@ -758,5 +758,18 @@ test('official composer confirmation rechecks the live system panel before commi
  f.page.commitOfficialAction({requestId:'foreground',actionId:'covered',action:'send'})
  assert.equal(commits,0);assert(f.page.keyboardOpen)
  assert(f.calls.some(c=>c[0]==='send'&&c[1].type==='keyboard.action.error'&&c[1].actionId==='covered'))
+ f.page.dispose()
+})
+
+test('inline official dismissal retains latest edits while legacy cancellation stays explicit',async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ f.page.openKeyboard({requestId:'retain',text:'original'})
+ f.page.inlineOfficialInput('刚输入的内容');f.page.cancelOfficialKeyboard()
+ const result=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').pop()[1]
+ assert.equal(result.text,'刚输入的内容');assert(result.confirmed&&result.retained);assert(!result.actionId)
+ f.page.openKeyboard({requestId:'retain-error',text:'original'})
+ f.page.inlineOfficialInput('错误前的内容');f.page.cancelOfficialKeyboard('panel failed')
+ const error=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').pop()[1]
+ assert.equal(error.text,'错误前的内容');assert(error.retained&&!error.confirmed)
  f.page.dispose()
 })

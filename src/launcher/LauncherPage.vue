@@ -334,10 +334,11 @@ export default {
     cancelOfficialKeyboard(error = '') {
       if (!this.keyboardOpen) return
       const requestId = this._keyboardRequest, uuid = this._keyboardUuid
+      const retained = this.officialInline, text = retained ? this.officialText : ''
       // Clear identity before closing: Falcon may emit its cancellation inline.
       this.closeKeyboardState()
       try { if (this._global && uuid && this._global.closeTextEdit) this._global.closeTextEdit(uuid) } catch (_) {}
-      this.send('keyboard.result', { requestId, confirmed: false, text: '', error })
+      this.send('keyboard.result', { requestId, confirmed: retained && !error, retained, text, error })
     },
     inlineOfficialForeground(state) {
       if (!this.visible || this._disposed) return false
@@ -489,7 +490,7 @@ export default {
     },
     commitOfficialAction(event) {
       if (!this.keyboardOpen || !this.officialInline || this._keyboardCompleting || this._officialAction || event.requestId !== this._keyboardRequest ||
-          typeof event.actionId !== 'string' || !event.actionId || !['attachments', 'send', 'effort'].includes(event.action)) return
+          typeof event.actionId !== 'string' || !event.actionId || !['attachments', 'send', 'effort', 'menu'].includes(event.action)) return
       const requestId = this._keyboardRequest, generation = this._generation
       try {
         const state = launcher.officialKeyboard()

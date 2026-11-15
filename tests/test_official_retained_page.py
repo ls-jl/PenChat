@@ -41,14 +41,14 @@ def run(w,h):
             app.send('visibility',visible=False);layout();assert not app.diag()['display_visible']
             app.send('visibility',visible=True);layout();assert app.diag()['display_visible']
             app.send('keyboard.result',requestId=ident,confirmed=False)
-            assert not app.diag()['display_visible'] and editor(app)['length']==0
+            assert not app.diag()['display_visible'] and editor(app)['length']==7
             app.send('window.focus',focused=True,sequence=2)
             ui.wait_for(lambda:app.diag()['display_visible'])
             assert editor(app)['active'] and not app.diag()['display_top_height']
             app.editor_action('official');reopened=app.receive('keyboard.open')['requestId']
             assert reopened!=ident
             app.send('keyboard.change',requestId=ident,text='stale',cursorIndex=5)
-            assert editor(app)['length']==0
+            assert editor(app)['length']==7
             app.send('keyboard.change',requestId=reopened,text='confirmed',cursorIndex=9)
             assert editor(app)['length']==9 and editor(app)['text_visible']
             app.send('keyboard.result',requestId=reopened,confirmed=True,text='confirmed')

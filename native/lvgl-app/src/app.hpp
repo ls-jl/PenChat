@@ -106,7 +106,8 @@ class App {
   uint64_t officialActionAt_ = 0;
   int64_t officialKeyEventAt_ = 0, officialTextEventAt_ = 0;
   std::set<std::string> officialContactIds_;
-  bool officialComposerMoved_ = false;
+  bool officialComposerMoved_ = false, officialPopupContact_ = false;
+  std::function<void()> officialMenuAction_;
   std::string officialComposerActionAt(int x,int y) const;
   bool officialReaderInput() const;
   void officialReaderTouch(const Json &message);
