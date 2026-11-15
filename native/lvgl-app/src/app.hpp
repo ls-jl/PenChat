@@ -96,7 +96,11 @@ class App {
   uint64_t formLayoutBatches_=0,formLayoutRows_=0;
   void portraitPage();
   void arrangeModal();
-  int officialReaderPending_ = 0;
+  int officialReaderPending_ = 0, officialReaderMomentum_ = 0, officialReaderSampleY_ = 0;
+  double officialReaderVelocity_ = 0;
+  uint64_t officialReaderSampleAt_ = 0;
+  lv_obj_t *officialReaderGlideBody_ = nullptr;
+  void stopOfficialReaderGlide();
   int editorComposerEntryBottom_ = 0;
   bool officialReaderInput() const;
   void officialReaderTouch(const Json &message);

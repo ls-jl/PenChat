@@ -282,7 +282,10 @@ Do not reintroduce Falcon page touch forwarding, system backpressed completion o
 a touch fallback. Use read-only, nonexclusive fds; close them on background and shutdown.
 Official IME keeps normal native input disabled. A valid foreground portrait IME
 lease may open a read-only reader-scrolling channel for chat only: freeze the
-reader bounds at pointer-down, accept only single-contact vertical scrolling,
+visible native area at pointer-down, exclude composer-origin touches and the
+system top edge, and accept only single-contact vertical scrolling. Captured
+drags may cross the old reader bounds. Bounded release inertia must stop on
+retouch, geometry change, panel/background, cancellation or keyboard exit;
 never dispatch keys/caret/actions, reject keyboard-origin and multi-contact gestures,
 and close/reset the fd before returning to normal native input. Native left-edge back handles child pages and root exit.
 Use shared BackGeometry with an origin edge of at least the common 44 logical-pixel

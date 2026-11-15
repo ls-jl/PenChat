@@ -701,3 +701,16 @@ test('portrait official proxy exposes native page above IME and clears floating 
  assert.equal(f.calls.filter(c=>c[0]==='startTextEdit').length,2)
  f.page.dispose()
 })
+
+
+test('official chat canvas remains black through light appearance updates',async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ f.page.openKeyboard({requestId:'black-chat',text:'text',canvasColor:'#000000'})
+ assert.equal(f.page.pageStyle.backgroundColor,'#000000')
+ f.page.appearanceStyles.page={backgroundColor:'#ffffff'};f.page.updatePageStyle()
+ assert.equal(f.page.pageStyle.backgroundColor,'#000000')
+ f.page.cancelOfficialKeyboard();assert.equal(f.page.pageStyle.backgroundColor,'#ffffff')
+ f.page.openKeyboard({requestId:'light-form',text:'text',canvasColor:'#ffffff'})
+ assert.equal(f.page.pageStyle.backgroundColor,'#ffffff')
+ f.page.dispose()
+})

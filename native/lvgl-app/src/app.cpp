@@ -699,6 +699,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  stopOfficialReaderGlide();
   chatBottomState_.pause();
   motion::finishAll();
   if(contextMenuKind_=="balances")cancelBalances();
@@ -787,7 +788,7 @@ void App::build() {
   const bool photo = view_ == "camera" || view_ == "crop";
   const int canvasW = photo ? photoWidth() : screen_.width;
   const int canvasH = photo ? photoHeight() : screen_.height;
-  screenObj_ = box(lv_screen_active(), (screen_.width-canvasW)/2, (screen_.height-canvasH)/2, canvasW, canvasH);
+  screenObj_ = box(lv_screen_active(), (screen_.width-canvasW)/2, (screen_.height-canvasH)/2, canvasW, canvasH,view_=="chat"?theme::palette(theme::Mode::Dark).background:theme::palette().background);
   if (photo && cameraAngle_ && !layout().portrait()) {
     lv_obj_set_style_transform_pivot_x(screenObj_,canvasW/2,0);
     lv_obj_set_style_transform_pivot_y(screenObj_,canvasH/2,0);
@@ -2792,7 +2793,7 @@ void App::cancelNativeInteraction() {
   // Its release is rejected after focus loss, so do not carry release absorption
   // into the next independently focused contact.
   popupConsumeTouch_ = contextMenuOpening_ = popupTracking_ = false;
-  officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;
+  stopOfficialReaderGlide();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;
   resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
   finishImageGesture(false); nonImageMulti_ = false; viewerLastTap_ = 0;
   if (imageViewer_ || view_ == "crop") imageGesture_.mode = -2;
@@ -2838,20 +2839,36 @@ bool App::officialReaderInput() const {
     keyboard_&&officialDocked_&&officialForeground_&&now>=officialLayoutAt_&&now-officialLayoutAt_<750&&
     display_.visible()&&display_.topHeight()>0&&!systemOverlayStatus_.value("panel_visible",false);
 }
+void App::stopOfficialReaderGlide() {
+  if(officialReaderGlideBody_&&officialReaderGlideBody_==body_)lv_obj_stop_scroll_anim(body_);
+  officialReaderGlideBody_=nullptr;officialReaderMomentum_=0;officialReaderVelocity_=0;
+}
 void App::officialReaderTouch(const Json &message) {
   const bool down=message.value("pressed",false);
   const bool cancel=message.value("cancelled",false)||
     (message.contains("points")&&message["points"].is_array()&&message["points"].size()>1);
   const int x=message.value("x",0),y=message.value("y",0);
-  if(cancel){officialReaderPending_=0;officialReaderCaptured_=false;officialReaderDown_=down;return;}
-  if(!down){officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;return;}
+  if(cancel){stopOfficialReaderGlide();officialReaderPending_=0;officialReaderCaptured_=false;officialReaderDown_=down;return;}
+  if(!down){
+    if(officialReaderCaptured_&&officialReaderDragging_&&ticks()-officialReaderSampleAt_<100) {
+      const int limit=std::max(1,display_.topHeight()*3/4);
+      officialReaderMomentum_=std::max(-limit,std::min(limit,int(std::lround(officialReaderVelocity_*100.))));
+      if(std::abs(officialReaderMomentum_)<uiMetrics_.dp(8))officialReaderMomentum_=0;
+    }
+    officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;return;
+  }
   if(!officialReaderDown_) {
+    stopOfficialReaderGlide();
     officialReaderDown_=true;officialReaderDragging_=false;
-    lv_obj_get_coords(body_,&officialReaderBounds_);
-    officialReaderBounds_.y2=std::min(int(officialReaderBounds_.y2),display_.topHeight()-1);
+    officialReaderBounds_={0,std::max(uiMetrics_.dp(8),layout().safeTop()),screen_.width-1,display_.topHeight()-1};
+    officialReaderSampleAt_=ticks();officialReaderSampleY_=y;
     officialReaderX_=x;officialReaderY_=officialReaderLastY_=y;
     officialReaderCaptured_=x>=officialReaderBounds_.x1&&x<=officialReaderBounds_.x2&&
       y>=officialReaderBounds_.y1&&y<=officialReaderBounds_.y2;
+    if(chatControls_) {
+      lv_area_t editor;lv_obj_get_coords(chatControls_,&editor);
+      if(x>=editor.x1&&x<=editor.x2&&y>=editor.y1&&y<=editor.y2)officialReaderCaptured_=false;
+    }
     return;
   }
   if(!officialReaderCaptured_)return;
@@ -2862,6 +2879,12 @@ void App::officialReaderTouch(const Json &message) {
     const int dx=x-officialReaderX_,dy=y-officialReaderY_;
     if(std::abs(dy)<=uiMetrics_.gestures().drag||std::abs(dy)<=std::abs(dx))return;
     officialReaderDragging_=true;chatFollowing_=false;lv_obj_stop_scroll_anim(body_);
+  }
+  const uint64_t now=ticks(),elapsed=now-officialReaderSampleAt_;
+  if(elapsed>=8) {
+    const double velocity=double(y-officialReaderSampleY_)/elapsed;
+    officialReaderVelocity_=officialReaderVelocity_*velocity<0?velocity:.35*officialReaderVelocity_+.65*velocity;
+    officialReaderSampleAt_=now;officialReaderSampleY_=y;
   }
   officialReaderPending_+=y-officialReaderLastY_;
   officialReaderLastY_=y;
@@ -3250,7 +3273,7 @@ void App::handle(const Json &m) {
       if(height<=0||height>=screen_.height-100)return;
       const bool resized=height!=officialHeight_;officialHeight_=height;
       officialForeground_=m.value("foreground",false);officialLayoutAt_=ticks();
-      if(resized){editorViewport();editorSyncText(true);}
+      if(resized){stopOfficialReaderGlide();officialReaderCaptured_=false;officialReaderPending_=0;editorViewport();editorSyncText(true);}
       display_.topHeight(screen_.height-height);
       updateInputFocus();
     }
@@ -3262,7 +3285,7 @@ void App::handle(const Json &m) {
     if (!keyboard_ || m.value("requestId", std::string()) != keyboardId_)
       return;
     // Never carry a system-key contact into the restored native controls.
-    touchInput_.close();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;
+    stopOfficialReaderGlide();touchInput_.close();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;
     if(officialDocked_&&!m.value("confirmed",false))editor_=std::move(officialBackup_);
     officialBackup_=EditorState{};officialDocked_=false;officialHeight_=0;officialForeground_=false;officialLayoutAt_=0;
     // Withdraw the partial plane before restoring full geometry, so the old
@@ -3326,7 +3349,7 @@ void App::tick() {
   const int reservedTop = display_.systemOverlaySafe() && !editor_.active && !imageViewer_ && view_ != "crop"
       ? std::max(uiMetrics_.dp(8), std::min(screen_.width, screen_.height) / 25) : 0;
   const bool officialReader=officialReaderInput();
-  if(!officialReader){officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;}
+  if(!officialReader){stopOfficialReaderGlide();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;}
   auto touches=touchInput_.poll((visible_ && !keyboard_ && touchLeaseActive_)||officialReader, reservedTop);
   for(const auto &touch:touches){
     if(!officialReaderInput()&&(!visible_ || keyboard_ || !inputFocused_ || !inputFocus_.allowed(ticks()))) { updateInputFocus();touchInput_.close();break; }
@@ -3336,6 +3359,13 @@ void App::tick() {
     const int delta=officialReaderPending_;officialReaderPending_=0;
     // One scroll/layout/render pass per UI tick, regardless of evdev batch size.
     if(officialReaderInput())lv_obj_scroll_by(body_,0,delta,LV_ANIM_OFF);
+  }
+  if(officialReaderMomentum_) {
+    const int distance=officialReaderMomentum_;officialReaderMomentum_=0;
+    if(officialReaderInput()) {
+      officialReaderGlideBody_=body_;
+      lv_obj_scroll_by_bounded(body_,0,distance,LV_ANIM_ON);
+    }
   }
   imageReturnTick();
   for (const auto &saved : db_.saveEvents()) {

@@ -54,7 +54,7 @@ function resolvedAppearance(c, m) {
   }
 }
 export default {
-  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialHoleStyle: {}, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
+  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialCanvasColor: '', officialHoleStyle: {}, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
   mounted() { this.boot() },
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
@@ -405,6 +405,7 @@ export default {
       // Punch a hole only above the IME; keep opaque backing beneath its panel: its floating preedit
       // extends outside the keyboard bounds and must be erased on selection.
       const page = Object.assign({}, this.nativeAreaStyle, this.appearanceStyles.page || {})
+      if (this.officialInline && this.officialCanvasColor) page.backgroundColor = this.officialCanvasColor
       if (Object.keys(page).some(key => page[key] !== this.pageStyle[key]) || Object.keys(page).length !== Object.keys(this.pageStyle).length) this.pageStyle = page
     },
     applyAppearance(event) {
@@ -459,6 +460,7 @@ export default {
         confirm: value => { if (ownsControl()) this.finishInlineOfficial(value) }
       }
       this._officialFontSize = 0
+      this.officialCanvasColor = typeof event.canvasColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(event.canvasColor) ? event.canvasColor : ''
       this.officialHoleStyle = Object.assign({}, this.nativeAreaStyle, { height: '0px' })
       this.officialInline = true
       this.updatePageStyle()
