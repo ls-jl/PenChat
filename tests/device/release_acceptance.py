@@ -59,6 +59,11 @@ FEATURES = {
   'real-background-probe': 'Marker-verified one-shot own-app background, same-PID editor/reading resume and plain-shell cleanup',
   'real-background-generation': 'Actual one-shot onHide retains and progresses local fake stream, resumes same PID and never resends',
   'real-background-scanner': 'Real onHide releases prepared capture/key/guardian, retains healthy worker/model and rearms after resume',
+  'y07-scroll-surface': 'Light/dark whole-reader scrolling with bounded native/SDK captures; physical flash judgement separate',
+  'owned-official-readback': 'Owned official controls observed through read-only dynamically selected MiniApp primary',
+  'owned-official-drm': 'Three read-only DRM ownership boundaries around owned official keyboard and one edit',
+  'owned-official-default': 'Saved default official routing with retained native field, owned cancel/reopen/confirm and preference reset',
+  'y07-scroll-dark': 'Dark-only whole-reader scroll completion delta',
   'owned-official-ime': 'Explicit owned official editor session, SDK screenshot and observed cancel preserving fake input',
   'settings-controls': 'Real toggle/choice/numeric changes, nondefault persistence through native restart and About dialog',
   'feedback-diagnostics': 'Bounded key sampling, real 30s timeout/release and whitelisted preview; never uploads',
@@ -169,7 +174,7 @@ def snapshot_window(before, after):
 def defer_cleanup_signals():
   """Finish recovery even when a supervisor repeats its stop request."""
   deferred = []
-  previous = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGINT)}
+  previous = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
   for number in previous:
     signal.signal(number, lambda signum, frame: deferred.append(signum))
   try:
@@ -191,13 +196,14 @@ def stop_owned_child(child, timeout=45):
 
 
 class ReleaseDevice(ScopedDevice):
-  def __init__(self, serial, package, features, discard_input=False):
+  def __init__(self, serial, package, features, discard_input=False, startup_rollback_guard=False):
     if serial not in DEVICES:
       raise ValueError('Release scope permits only explicit Y01/Y02/Y07 serials')
     super().__init__(serial, package)
     self.name = DEVICES[serial]
     self.features = features
     self.discard_input = discard_input
+    self.startup_rollback_guard = startup_rollback_guard
     self.out = OUT/serial
     self.out.mkdir(parents=True, exist_ok=True)
     self.saved = self.data+'.release-0.3.1-saved'
@@ -211,6 +217,9 @@ class ReleaseDevice(ScopedDevice):
     self.key_helper = '/tmp/penchat-release-key'
     self.key_helper_ready = False
     self.testing_payload_installed = False
+    self.official_readback_probe = features == ['owned-official-readback']
+    self.official_default_probe = features in (['owned-official-default'],['owned-official-drm'],['owned-official-readback'])
+    self.official_confirm_probe = features in (['owned-official-ime'], ['owned-official-default'], ['owned-official-readback'])
     self.official_fake_text='penchatimefixture-'+uuid.uuid4().hex[:8]
     self.result.update(device=self.name, release_scope=list(DEVICES),
                        human_visual_approval='pending', paper_scan_quality='pending',
@@ -903,12 +912,16 @@ class ReleaseDevice(ScopedDevice):
         if self.features == ['preset-camera-large-font']:
           from release_product_review import configure_fixture
           configure_fixture(folder/'penchat.db')
+        if self.features in (['owned-official-drm'],['owned-official-readback']):
+          import sqlite3
+          with sqlite3.connect(folder/'penchat.db') as db:
+            db.execute('insert or replace into app_settings values(?,?,1)',('prefer_official_keyboard','true'))
         self.push(folder/'penchat.db', self.data+'/penchat.db')
-        if self.features in (['y07-render-cost'], ['real-background-probe'], ['real-background-generation'], ['owned-official-ime']):
+        if self.features in (['y07-render-cost'], ['real-background-probe'], ['real-background-generation'], ['owned-official-ime'], ['y07-scroll-surface'], ['y07-scroll-dark'], ['owned-official-default'], ['owned-official-drm'], ['owned-official-readback']):
           # Restore a middle reading anchor in the private fixture before
           # measuring. Real touch workloads below still exercise scrolling.
           restore = {'appid': APP['appid'], 'target': APP['version'], 'snapshot': {
-            'session': 'refresh-bottom', 'draft': 'penchatbackgroundfixture' if self.features in (['real-background-probe'],['real-background-generation']) else self.official_fake_text if self.features==['owned-official-ime'] else '', 'preferences': {},
+            'session': 'refresh-bottom', 'draft': 'penchatbackgroundfixture' if self.features in (['real-background-probe'],['real-background-generation']) else self.official_fake_text if self.features in (['owned-official-ime'],['owned-official-default'],['owned-official-drm'],['owned-official-readback']) else '', 'preferences': {},
             'scroll': 1800, 'offset': 0, 'following': False}}
           (folder/'restore.json').write_text(json.dumps(restore))
           self.sh('mkdir -p '+self.data+'/.updates')
@@ -934,8 +947,28 @@ class ReleaseDevice(ScopedDevice):
       self.push(self.package, self.remote_package)
       assert self.sh('sha256sum '+self.remote_package).split()[0] == self.result['package_sha256']
       assert '"ret": 0' in self.sh('miniapp_cli install '+self.remote_package)
+      if self.official_readback_probe:
+        self.readback_remote='/tmp/penchat-drm-readback'
+        self.push(ROOT/'.work/y07-display-fix/drm-readback/drm-readback', self.readback_remote)
+        self.sh('chmod 700 '+self.readback_remote)
       self.testing_payload_installed = True
-      self.launch()
+      try:
+        started = self.launch()
+        if self.startup_rollback_guard:
+          self.wait(lambda:self.state()['render_timing']['presented'] > 1)
+          assert self.state()['render_timing']['presented'] > 1, 'Candidate has not progressed past its first pending flip'
+        self.result['candidate_startup_verified'] = True
+      except BaseException:
+        if self.startup_rollback_guard:
+          self.result['owned_fixture_recovery_required'] = True
+          self.result['candidate_startup_verified'] = False
+          (self.out/'owned-page-recovery.json').write_text(json.dumps({
+            'serial': self.serial, 'reason': 'Candidate startup/presentation failed; keep original data isolated until owned page unload and verified full ordinary-package rollback',
+            'candidate_package': str(self.package), 'candidate_sha256': self.result['package_sha256'],
+            'rollback_package': str(ROOT/'.work/release-0.3.1/packages/candidate-5-native-back-rk3562.amr'),
+          }, indent=2)+'\n')
+          self.record()
+        raise
       self.result['logical_size'] = [self.w, self.h]
       self.result['falcon_screen'] = self.screen
       for index, feature in enumerate(self.features):
@@ -991,7 +1024,13 @@ class ReleaseDevice(ScopedDevice):
           elif feature=='real-background-scanner':
             from release_scanner_background import run as scanner_background
             entry['evidence']=scanner_background(self)
-          elif feature == 'owned-official-ime':
+          elif feature in ('y07-scroll-surface','y07-scroll-dark'):
+            from release_scroll_surface import run as scroll_surface
+            entry['evidence'] = scroll_surface(self)
+          elif feature == 'owned-official-drm':
+            from release_official_drm import run as official_drm
+            entry['evidence'] = official_drm(self)
+          elif feature in ('owned-official-ime','owned-official-default','owned-official-readback'):
             from release_official_surface import run as official_surface
             entry['evidence'] = official_surface(self)
           elif feature == 'settings-controls':
@@ -1093,6 +1132,8 @@ class ReleaseDevice(ScopedDevice):
           else:
             self.result['original_app_resumed'] = False
           self.sh('rm -f '+self.helper+' '+self.input_probe+' '+self.key_helper)
+          if self.official_readback_probe:
+            self.sh('rm -f '+self.readback_remote)
           self.record()
         else:
           raise RuntimeError('Complete original recovery needs attention: '+str(self.out/'recovery.json'))
@@ -1104,6 +1145,8 @@ def main():
   parser.add_argument('--serial', choices=tuple(DEVICES))
   parser.add_argument('--package', type=pathlib.Path)
   parser.add_argument('--discard-pending-input', action='store_true', help='Explicitly authorized: discard unsent editor/draft; preserve saved user data')
+  parser.add_argument('--official-controller-file', type=pathlib.Path, help='Append-only host command file for reconnectable owned official controls')
+  parser.add_argument('--startup-rollback-guard', action='store_true', help='Retain original-data isolation on candidate startup/presentation failure until explicit full-package recovery')
   parser.add_argument('--features', nargs='+', choices=tuple(FEATURES), default=['smoke'])
   args = parser.parse_args()
   if args.plan:
@@ -1119,8 +1162,11 @@ def main():
     parser.error('execution requires --serial and --package')
   def interrupted(signum, frame):
     raise SystemExit('Interrupted; restoring isolated private/public data')
-  signal.signal(signal.SIGTERM, interrupted)
-  ReleaseDevice(args.serial, args.package, args.features, args.discard_pending_input).run()
+  for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    signal.signal(number, interrupted)
+  device = ReleaseDevice(args.serial, args.package, args.features, args.discard_pending_input, args.startup_rollback_guard)
+  device.official_controller_file = args.official_controller_file
+  device.run()
 
 
 if __name__ == '__main__':

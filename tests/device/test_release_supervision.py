@@ -27,6 +27,47 @@ class RecoverySupervisionTests(unittest.TestCase):
     self.assertEqual(deferred, [signal.SIGTERM, signal.SIGTERM, signal.SIGINT])
     self.assertEqual(original, {n: signal.getsignal(n) for n in original})
 
+  def test_cleanup_defers_hangup_and_restores_handler(self):
+    original = signal.getsignal(signal.SIGHUP)
+    with defer_cleanup_signals() as deferred:
+      os.kill(os.getpid(), signal.SIGHUP)
+      os.kill(os.getpid(), signal.SIGHUP)
+      completed = True
+    self.assertTrue(completed)
+    self.assertEqual(deferred, [signal.SIGHUP, signal.SIGHUP])
+    self.assertEqual(signal.getsignal(signal.SIGHUP), original)
+
+  def test_hangup_runs_normal_cleanup(self):
+    from release_lifecycle import install_termination_handler
+    original = signal.getsignal(signal.SIGHUP)
+    all_original = {n: signal.getsignal(n) for n in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
+    cleaned = []
+    try:
+      install_termination_handler()
+      with self.assertRaises(SystemExit):
+        try:
+          os.kill(os.getpid(), signal.SIGHUP)
+        finally:
+          cleaned.append(True)
+      self.assertEqual(cleaned, [True])
+    finally:
+      for number, handler in all_original.items():
+        signal.signal(number, handler)
+    self.assertEqual(signal.getsignal(signal.SIGHUP), original)
+
+  def test_official_controller_file_resumes_in_order_without_stdin(self):
+    from release_official_surface import controller_command
+    with tempfile.TemporaryDirectory() as temp:
+      path = pathlib.Path(temp)/'commands'
+      device = mock.Mock(official_controller_file=path, _official_controller_index=0)
+      path.write_text('official-delete 530 960\n')
+      with mock.patch('builtins.input', side_effect=AssertionError('No PTY dependency')):
+        self.assertEqual(controller_command(device), ['official-delete', '530', '960'])
+        with path.open('a') as stream:
+          stream.write('official-cancel 530 698\n')
+        self.assertEqual(controller_command(device), ['official-cancel', '530', '698'])
+      self.assertEqual(device._official_controller_index, 2)
+
   def test_live_child_timeout_retains_isolation_and_blocks_next_scope(self):
     child = mock.Mock(pid=12345)
     child.poll.return_value = None

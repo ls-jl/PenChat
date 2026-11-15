@@ -22,14 +22,14 @@ _contexts = {}
 def install_termination_handler(message='Interrupted; restoring isolated device data'):
   def interrupted(signum, frame):
     raise SystemExit(message+' (signal '+str(signum)+')')
-  for number in (signal.SIGTERM,signal.SIGINT):
+  for number in (signal.SIGTERM,signal.SIGINT,signal.SIGHUP):
     signal.signal(number,interrupted)
 
 
 @contextlib.contextmanager
 def defer_cleanup_signals():
   deferred=[]
-  previous={number:signal.getsignal(number) for number in (signal.SIGTERM,signal.SIGINT)}
+  previous={number:signal.getsignal(number) for number in (signal.SIGTERM,signal.SIGINT,signal.SIGHUP)}
   for number in previous:
     signal.signal(number,lambda signum,frame:deferred.append(signum))
   try:
