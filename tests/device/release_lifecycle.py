@@ -15,7 +15,7 @@ import signal
 import contextlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-ALLOWED = ('MEB0400008900794', 'MEA2300009007113', '7G12000010905426')
+ALLOWED = ('MEB0400008900794', 'MEA2300009007113', '7G12000010905426', 'JDA0700006552216')
 _contexts = {}
 
 
@@ -43,14 +43,18 @@ class BackgroundUnavailable(RuntimeError):
 
 
 def _context(serial, shell):
-  assert serial in ALLOWED, 'Lifecycle helper is restricted to Y01/Y02/Y07'
+  assert serial in ALLOWED, 'Lifecycle helper is restricted to Y01/Y02/Y07/S6'
   if serial in _contexts:
     return _contexts[serial]
-  compiler = subprocess.check_output(['bash', '-c', 'source scripts/native-target.sh rk3562; printf "%s" "$PENCHAT_BUILD_CXX"'], cwd=ROOT, text=True)
+  target = 'cv1826-s' if serial == 'JDA0700006552216' else 'rk3562'
+  compiler = subprocess.check_output(['bash', '-c', 'source scripts/native-target.sh '+target+'; printf "%s" "$PENCHAT_BUILD_CXX"'], cwd=ROOT, text=True)
   folder = ROOT/'.work/release-0.3.1/lifecycle-tools'/serial
   folder.mkdir(parents=True, exist_ok=True)
   context = {'screen': json.loads(shell('cat /etc/miniapp/resources/cfg.json'))['screen']}
   context['compiler'] = compiler
+  context['target'] = target
+  if target == 'cv1826-s' and context['screen'].get('direction') in (90,270):
+    s=context['screen'];s['width'],s['height']=s['height'],s['width']
   context['folder'] = folder
   for name, source in [('tap', 'tap.cpp'), ('probe', 'release_input_state.cpp'), ('home', 'release_home.cpp')]:
     local = folder/name
@@ -70,7 +74,7 @@ def pull_database(serial, data, destination, shell):
   appid = json.loads((ROOT/'package.json').read_text())['appid']
   assert serial in ALLOWED and data.endswith('/data/mini_app/pkg/'+appid+'/data')
   context = _context(serial, shell)
-  library = ROOT/'.deps/rk3562-libs/libsqlite3.so.0'
+  library = ROOT/'.deps'/(context['target']+'-libs')/'libsqlite3.so.0'
   assert shell('sha256sum /usr/lib/libsqlite3.so.0').split()[0] == hashlib.sha256(library.read_bytes()).hexdigest(), 'Unverified SQLite ABI'
   if 'snapshot' not in context:
     local = context['folder']/'snapshot'

@@ -7,10 +7,12 @@ class DeviceServer:
         self.serial=serial;self.requests=[];self.ready=queue.Queue();self.closed=0
         self.remote='/tmp/penchat-http-server-'+serial+('-tls' if cert else '-plain')
         source=root/'tests/native/TlsFixture.cpp'
-        candidates=[root/'build/rk3562/penchat-tls-fixture',root/'build/orange/penchat-tls-fixture']
-        binary=next((p for p in candidates if p.is_file() and p.read_bytes()[:4]==b'\x7fELF' and struct.unpack_from('<H',p.read_bytes(),18)[0]==183),None)
+        target='cv1826-s' if serial=='JDA0700006552216' else 'rk3562'
+        machine=40 if target=='cv1826-s' else 183
+        candidates=[root/'build'/target/'penchat-tls-fixture']
+        binary=next((p for p in candidates if p.is_file() and p.read_bytes()[:4]==b'\x7fELF' and struct.unpack_from('<H',p.read_bytes(),18)[0]==machine),None)
         assert binary and binary.stat().st_mtime>=source.stat().st_mtime, 'Build the source-identical AArch64 penchat-tls-fixture target before device acceptance'
-        (out/'fixture-identity.json').write_text(json.dumps({'target':'rk3562','binary':str(binary),'binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest()},indent=2)+'\n')
+        (out/'fixture-identity.json').write_text(json.dumps({'target':target,'binary':str(binary),'binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest()},indent=2)+'\n')
         subprocess.run(['adb','-s',serial,'push',str(binary),self.remote],check=True,capture_output=True)
         subprocess.run(['adb','-s',serial,'shell','chmod 755 '+self.remote],check=True,capture_output=True)
         args=['--stream'] if stream else []

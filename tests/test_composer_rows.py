@@ -22,7 +22,7 @@ for width,height in [(960,266),(936,280),(568,1210)]:
                     d=a.diag()
                 resting_height=d['composer_bounds'][3]-d['composer_bounds'][1]+1
                 r=d['composer_text_bounds'];a.tap((r[0]+r[2])//2,(r[1]+r[3])//2)
-                t.wait_for(lambda:e()['active'] and bool(e()['keys']))
+                t.wait_for(lambda:e()['active'] and bool(e()['keys']) and not a.diag()['surface_motion'])
                 if height>width:
                     b=a.diag()['composer_bounds']
                     assert b[3]-b[1]+1==min(3*base,max(resting_height,(base*7+2)//4))

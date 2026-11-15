@@ -4,13 +4,9 @@ import http.server,json,re,shutil,socket,sqlite3,subprocess,sys,threading,time,t
 def prepare(root,folder,data,serial):
     sys.path.insert(0,str(root/'tests'))
     from test_session_info import fixture,Server
-    route=subprocess.check_output(['adb','-s',serial,'shell','ip -4 route show default'],text=True)
-    device_ip=re.search(r'\bsrc (\d+\.\d+\.\d+\.\d+)',route).group(1)
-    connection=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-    connection.connect((device_ip,9));host=connection.getsockname()[0];connection.close()
+    from local_http import server_for_device
     Server.requests=[];Server.mode='usage'
-    server=http.server.ThreadingHTTPServer((host,0),Server)
-    threading.Thread(target=server.serve_forever,daemon=True).start()
+    server,host=server_for_device(root,serial,Server)
     if folder.exists():shutil.rmtree(folder)
     folder.mkdir();fixture(folder,server.server_port,'chat' if serial.endswith('113') else 'responses',True)
     with sqlite3.connect(folder/'penchat.db') as db:

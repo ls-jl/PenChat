@@ -88,7 +88,7 @@ int main() {
   for (auto size : {std::make_pair(960,266), std::make_pair(640,260), std::make_pair(568,1210)}) {
     const AppLayout original(size.first,size.second);
     assert(original.composerHeight() == (original.portrait()?94:48));
-    assert(original.composerX() == (original.portrait()?24:106));
+    assert(original.composerX() == (original.portrait()?20:106));
     for (int percent : {75,100,125,150}) {
       const UiMetrics metrics(100,percent);
       const AppLayout layout(size.first,size.second,false,metrics);

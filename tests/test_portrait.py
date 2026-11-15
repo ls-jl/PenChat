@@ -25,6 +25,7 @@ def top(a):
   swipe(a,300)
  raise AssertionError('Title unreachable')
 def back(a):
+ t.wait_for(lambda:not a.diag().get('surface_motion',False))
  for x in range(12,160,16):a.send("touch",x=x,y=600,pressed=True);time.sleep(.025)
  a.send("touch",x=160,y=600,pressed=False);time.sleep(.15)
 def settings(a):

@@ -5,11 +5,9 @@ def prepare(root,folder,data,serial):
  sys.path.insert(0,str(root/'tests'))
  from test_image_viewer import fixture
  from anthropic_fixture import Handler,configure
- route=subprocess.check_output(['adb','-s',serial,'shell','ip -4 route show default'],text=True)
- ip=re.search(r'\bsrc (\d+\.\d+\.\d+\.\d+)',route).group(1)
- connection=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);connection.connect((ip,9));host=connection.getsockname()[0];connection.close()
+ from local_http import server_for_device
  Handler.requests=[];Handler.mode='ok';Handler.delay=0
- server=http.server.ThreadingHTTPServer((host,0),Handler);threading.Thread(target=server.serve_forever,daemon=True).start()
+ server,host=server_for_device(root,serial,Handler)
  if folder.exists():shutil.rmtree(folder)
  folder.mkdir();fixture(folder,port=server.server_port);configure(folder,server.server_port,host)
  with sqlite3.connect(folder/'penchat.db') as db:
@@ -63,7 +61,7 @@ def run(ctx,handler):
  capture('anthropic-bearer-version');ctx['navigate_back_or_menu']();row('api_compatibility');row('enabled')
  assert 'usage' not in state()['settings']['rows'];row('http1');capture('anthropic-compatible')
  ctx['navigate_back_or_menu']()
- ctx['page_action_prefix']('保存');wait(lambda:not state()['storage']['unsaved'])
+ ctx['page_action_prefix']('provider-save-bottom');wait(lambda:not state()['storage']['unsaved'])
  # Whole-page Save intentionally keeps the provider detail open. Leave it
  # explicitly before reopening the persisted workspace from its list.
  ctx['navigate_back_or_menu']();wait(lambda:not state()['provider_protocol'])

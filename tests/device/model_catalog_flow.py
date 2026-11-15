@@ -86,7 +86,7 @@ def run(ctx):
         if b[1]>=v[1] and b[3]<=v[3]:break
         ctx['drag'](cx,v[1]+12,cx,v[3]-12)
     else:raise AssertionError('Automatic adapter choice never became visible')
-    ctx['context_choice']('auto');wait(lambda:not read()['modal']);action('保存')
+    ctx['context_choice']('auto');wait(lambda:not read()['modal']);action('provider-save-bottom')
     wait(lambda:not read()['storage']['unsaved']);ctx['navigate_back_or_menu']()
     wait(lambda:not read()['provider_protocol'])
     ctx['navigate_back_or_menu']();wait(lambda:read()['view']=='settings')

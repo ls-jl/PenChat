@@ -355,7 +355,7 @@ if __name__ == '__main__':
                 app.send('touch',x=500,y=230,pressed=False);time.sleep(.8)
                 scrolled=app.diag()
                 assert not scrolled['following_latest'] and scrolled['to_bottom_visible']
-                assert not scrolled['composer_hidden'] and scrolled['toolbar_y']==208 # Downward reader drag reveals the composer.
+                assert scrolled['composer_hidden'] and scrolled['toolbar_y']>=scrolled['height'] # Reader direction does not bypass the explicit shortcut.
                 assert scrolled['to_bottom_x']==499 and scrolled['to_bottom_y']==152
                 assert scrolled['to_bottom_opacity']==160
                 app.open_navigation();assert app.diag()['navigation_open']

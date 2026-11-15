@@ -81,7 +81,9 @@ def run():
             app.tap(600,70);assert not app.diag()['attachments']
             app.tap(128,232)
             drag(app,[190,170,140])
-            assert not app.diag()['attachments'] and not app.diag()['pull_active']
+            # Moving a backdrop contact must not dismiss the popup or start a pull.
+            assert app.diag()['attachments'] and not app.diag()['pull_active']
+            app.tap(600,70);assert not app.diag()['attachments']
             app.tap(128,232);app.tap(200,38);assert app.diag()['view']=='camera';snapshot(app,'camera')
             app.tap(40,44)
             app.tap(128,232);app.tap(200,82);assert app.diag()['view']=='album';snapshot(app,'album')

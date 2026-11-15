@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Release hardware runner with complete outer private/public data isolation.
 
-Only Y01, Y02 and Y07 are permitted by this release's explicit device scope.
+Only the explicitly authorized Y01, Y02, Y07 and S6 are permitted.
 `--plan` performs no adb operations. Execution requires an explicit package and
 feature selection. Existing feature harnesses run only inside the outer fixture;
 their legacy assumptions can therefore fail without exposing the user's DB,
@@ -36,10 +36,14 @@ DEVICES = {
   'MEB0400008900794': 'Y01',
   'MEA2300009007113': 'Y02',
   '7G12000010905426': 'Y07',
+  'JDA0700006552216': 'S6',
 }
-OUT = ROOT/'.work/release-0.3.1/devices'
+RELEASE = 'release-'+APP['version']
+OUT = ROOT/'.work'/RELEASE/'devices'
 # Reuse individual feature fixtures, never acceptance.py on original user data.
 FEATURES = {
+  'official-editing': 'Y07 retained IME cursor, selection, copy/cut/paste, local single send and light boundary pixels',
+  'scanner-cycles': 'Twenty profile-verified real capture/discard, resident worker and guardian return cycles; no optical claim',
   'smoke': 'Native identity, Falcon geometry, reader/drawer and all 26 Settings rows',
   'keyboard-review': 'Light keyboard, composer growth and drawer before/after screenshots',
   'global-font-preedit': '75/100/150 global UI fonts and Wide/Portrait floating preedit with real candidate touches',
@@ -206,8 +210,8 @@ class ReleaseDevice(ScopedDevice):
     self.startup_rollback_guard = startup_rollback_guard
     self.out = OUT/serial
     self.out.mkdir(parents=True, exist_ok=True)
-    self.saved = self.data+'.release-0.3.1-saved'
-    self.public_saved = self.public+'.release-0.3.1-saved'
+    self.saved = self.data+'.'+RELEASE+'-saved'
+    self.public_saved = self.public+'.'+RELEASE+'-saved'
     self.helper = '/tmp/penchat-release-tap'
     self.remote_package = '/tmp/penchat-release.amr'
     self.snapshot = '/tmp/penchat-release-snapshot.db'
@@ -217,9 +221,9 @@ class ReleaseDevice(ScopedDevice):
     self.key_helper = '/tmp/penchat-release-key'
     self.key_helper_ready = False
     self.testing_payload_installed = False
-    self.official_readback_probe = features == ['owned-official-readback']
-    self.official_default_probe = features in (['owned-official-default'],['owned-official-drm'],['owned-official-readback'])
-    self.official_confirm_probe = features in (['owned-official-ime'], ['owned-official-default'], ['owned-official-readback'])
+    self.official_readback_probe = features in (['owned-official-readback'],['official-editing'])
+    self.official_default_probe = features in (['owned-official-default'],['owned-official-drm'],['owned-official-readback'],['official-editing'])
+    self.official_confirm_probe = features in (['owned-official-ime'], ['owned-official-default'], ['owned-official-readback'], ['official-editing'])
     self.official_fake_text='penchatimefixture-'+uuid.uuid4().hex[:8]
     self.result.update(device=self.name, release_scope=list(DEVICES),
                        human_visual_approval='pending', paper_scan_quality='pending',
@@ -325,6 +329,7 @@ class ReleaseDevice(ScopedDevice):
   def input_state(self, release=False):
     assert self.input_probe_ready
     value = json.loads(self.sh(self.input_probe+' '+shlex.quote(self.event)+(' --release' if release else '')))
+    assert 'error' not in value, 'Touch probe failed: '+json.dumps(value)
     if release:
       assert not value['btn_touch'] and not value['active_slots'], 'Touch release did not reach the kernel'
     return value
@@ -392,13 +397,14 @@ class ReleaseDevice(ScopedDevice):
   def launch(self):
     # Keep the source helper's foreground stability guard. A retained Falcon
     # launcher may expose its supported Retry action after native termination.
-    if self.serial == 'MEA2300009007113' and self.key_helper_ready:
+    if self.serial in ('MEA2300009007113','7G12000010905426') and self.key_helper_ready:
+      backlight='/sys/class/backlight/'+('dcs-backlight' if self.serial=='7G12000010905426' else 'backlight')+'/actual_brightness'
       for _ in range(2):
-        if int(self.sh('cat /sys/class/backlight/backlight/actual_brightness')) > 5:
+        if int(self.sh('cat '+backlight)) > 5:
           break
         self.sh(self.key_helper+' /dev/input/by-path/rk805-pwrkey 116 1 100 300')
         time.sleep(.4)
-      assert int(self.sh('cat /sys/class/backlight/backlight/actual_brightness')) > 5, 'Y02 did not wake with its paired power key'
+      assert int(self.sh('cat '+backlight)) > 5, 'Device did not wake with its paired power key'
     self.sh('miniapp_cli start '+APP['appid'])
     deadline = time.monotonic()+3
     while not self.pid() and time.monotonic() < deadline:
@@ -855,7 +861,8 @@ class ReleaseDevice(ScopedDevice):
   def _run_isolated(self):
     self.screen = json.loads(self.sh('cat /etc/miniapp/resources/cfg.json'))['screen']
     self.w, self.h = self.screen['width'], self.screen['height']
-    assert self.sh('uname -m') == 'aarch64'
+    if self.s6 and self.screen.get('direction') in (90,270):self.w,self.h=self.h,self.w
+    assert self.sh('uname -m') == ('armv7l' if self.s6 else 'aarch64')
     self.preflight(discard_input=self.discard_input)
     self.host = self.sh('pidof miniapp')
     self.boot = self.sh('cat /proc/sys/kernel/random/boot_id')
@@ -863,7 +870,7 @@ class ReleaseDevice(ScopedDevice):
     # Existing feature isolation must be recovered rather than hidden by another
     # wrapper. All locations belong only to this app and this public transfer root.
     candidates = [self.saved, self.public_saved]
-    for suffix in ('display-acceptance-saved', 'dpi-acceptance-saved', 'refresh-bottom-saved'):
+    for suffix in ('display-acceptance-saved', 'dpi-acceptance-saved', 'refresh-bottom-saved', 'release-0.3.1-saved'):
       candidates.extend((self.data+'.'+suffix, self.public+'.'+suffix))
     assert self.sh(' && '.join('test ! -e '+shlex.quote(p) for p in candidates)+' && echo safe') == 'safe', 'Prior fixture requires recovery'
     had_data = self.sh('test -d '+self.data+' && echo yes || true') == 'yes'
@@ -902,7 +909,7 @@ class ReleaseDevice(ScopedDevice):
             db.execute('delete from chat_messages');db.execute('delete from chat_sessions')
             db.execute('update app_settings set value_json=? where key=?',('""','active_session_id'))
           self.result['scanner_format_before_probe']=self.sh('v4l2-ctl -d /dev/video23 --get-fmt-video')
-        if self.features==['real-background-generation']:
+        if self.features in (['real-background-generation'],['official-editing']):
           from http_pool_flow import DeviceServer
           import sqlite3
           self.background_server=DeviceServer(ROOT,self.serial,self.out,stream=True)
@@ -912,21 +919,22 @@ class ReleaseDevice(ScopedDevice):
         if self.features == ['preset-camera-large-font']:
           from release_product_review import configure_fixture
           configure_fixture(folder/'penchat.db')
-        if self.features in (['owned-official-drm'],['owned-official-readback']):
+        if self.features in (['owned-official-drm'],['owned-official-readback'],['official-editing']):
           import sqlite3
           with sqlite3.connect(folder/'penchat.db') as db:
             db.execute('insert or replace into app_settings values(?,?,1)',('prefer_official_keyboard','true'))
+            if self.features==['official-editing']:db.execute('insert or replace into app_settings values(?,?,1)',('theme_mode',json.dumps('light')))
         self.push(folder/'penchat.db', self.data+'/penchat.db')
-        if self.features in (['y07-render-cost'], ['real-background-probe'], ['real-background-generation'], ['owned-official-ime'], ['y07-scroll-surface'], ['y07-scroll-dark'], ['owned-official-default'], ['owned-official-drm'], ['owned-official-readback']):
+        if self.features in (['y07-render-cost'], ['real-background-probe'], ['real-background-generation'], ['owned-official-ime'], ['y07-scroll-surface'], ['y07-scroll-dark'], ['owned-official-default'], ['owned-official-drm'], ['owned-official-readback'], ['official-editing']):
           # Restore a middle reading anchor in the private fixture before
           # measuring. Real touch workloads below still exercise scrolling.
           restore = {'appid': APP['appid'], 'target': APP['version'], 'snapshot': {
-            'session': 'refresh-bottom', 'draft': 'penchatbackgroundfixture' if self.features in (['real-background-probe'],['real-background-generation']) else self.official_fake_text if self.features in (['owned-official-ime'],['owned-official-default'],['owned-official-drm'],['owned-official-readback']) else '', 'preferences': {},
+            'session': 'refresh-bottom', 'draft': 'penchatbackgroundfixture' if self.features in (['real-background-probe'],['real-background-generation']) else self.official_fake_text if self.features in (['owned-official-ime'],['owned-official-default'],['owned-official-drm'],['owned-official-readback'],['official-editing']) else '', 'preferences': {},
             'scroll': 1800, 'offset': 0, 'following': False}}
           (folder/'restore.json').write_text(json.dumps(restore))
           self.sh('mkdir -p '+self.data+'/.updates')
           self.push(folder/'restore.json', self.data+'/.updates/restore.json')
-        compiler = subprocess.check_output(['bash', '-c', 'source scripts/native-target.sh rk3562; printf "%s" "$PENCHAT_BUILD_CXX"'], cwd=ROOT, text=True)
+        compiler = subprocess.check_output(['bash', '-c', 'source scripts/native-target.sh '+self.target+'; printf "%s" "$PENCHAT_BUILD_CXX"'], cwd=ROOT, text=True)
         helper = folder/'tap'
         subprocess.run([compiler, '-std=c++11', '-Os', str(ROOT/'tests/device/tap.cpp'), '-o', str(helper)], check=True)
         self.push(helper, self.helper)
@@ -949,7 +957,10 @@ class ReleaseDevice(ScopedDevice):
       assert '"ret": 0' in self.sh('miniapp_cli install '+self.remote_package)
       if self.official_readback_probe:
         self.readback_remote='/tmp/penchat-drm-readback'
-        self.push(ROOT/'.work/y07-display-fix/drm-readback/drm-readback', self.readback_remote)
+        sdk=pathlib.Path(os.environ.get('RK_SDK_ROOT','/home/ls-jl/dictpen/x7pro/android13_sdk/RK3562_Android13.0_SDK'))
+        binary=self.out/'drm-readback'
+        subprocess.run([compiler,'-std=c++14','-Os','-static-libstdc++','-static-libgcc','-I'+str(sdk/'external/libdrm/include/drm'),str(ROOT/'tests/device/drm_readback.cpp'),'-o',str(binary)],check=True)
+        self.push(binary, self.readback_remote)
         self.sh('chmod 700 '+self.readback_remote)
       self.testing_payload_installed = True
       try:
@@ -965,7 +976,7 @@ class ReleaseDevice(ScopedDevice):
           (self.out/'owned-page-recovery.json').write_text(json.dumps({
             'serial': self.serial, 'reason': 'Candidate startup/presentation failed; keep original data isolated until owned page unload and verified full ordinary-package rollback',
             'candidate_package': str(self.package), 'candidate_sha256': self.result['package_sha256'],
-            'rollback_package': str(ROOT/'.work/release-0.3.1/packages/candidate-5-native-back-rk3562.amr'),
+            'rollback_package': str(ROOT/'.work/sticker-prompt'/('8001792332371649.0_3_1-'+self.target+'.amr')),
           }, indent=2)+'\n')
           self.record()
         raise
@@ -1033,6 +1044,12 @@ class ReleaseDevice(ScopedDevice):
           elif feature in ('owned-official-ime','owned-official-default','owned-official-readback'):
             from release_official_surface import run as official_surface
             entry['evidence'] = official_surface(self)
+          elif feature == 'official-editing':
+            from release_official_editing import run
+            entry['evidence'] = run(self)
+          elif feature == 'scanner-cycles':
+            from release_scanner_cycles import run
+            entry['evidence'] = run(self)
           elif feature == 'settings-controls':
             from release_settings_controls import run as settings_controls
             entry['evidence'] = settings_controls(self)

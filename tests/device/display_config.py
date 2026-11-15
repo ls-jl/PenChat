@@ -35,13 +35,14 @@ parser.add_argument('--session-info',action='store_true',help='Run focused conve
 parser.add_argument('--transfer-format',action='store_true',help='Bundled format readers, native ZIP and sample imports, isolated data')
 parser.add_argument('--archive-reader',action='store_true',help='Run focused archive-reader acceptance, with normal data isolation/restoration')
 args=parser.parse_args();SERIAL=args.serial
-assert SERIAL in ('MEA2300009007113','MEB0400008900794','7G12000010905426'),'Only this release\'s explicitly authorized Y01/Y02/Y07 serials are permitted'
+assert SERIAL in ('MEA2300009007113','MEB0400008900794','7G12000010905426','JDA0700006552216'),'Only this release\'s explicitly authorized Y01/Y02/Y07/S6 serials are permitted'
 install_termination_handler()
 assert not args.pinyin_core_only or args.pinyin
 assert not args.native_touch_core_only or args.native_touch
 assert not args.scanner_profile_core_only or args.scanner_profile
 assert sum((args.camera_orientation,args.transfer_format,args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch,args.http_pool,args.chat_whitespace,args.stream_reading,args.scanner_profile,args.feedback,args.update,args.portrait,args.official_keyboard))<=1,'Run isolated feature fixtures separately'
-DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
+TARGET='cv1826-s' if SERIAL=='JDA0700006552216' else 'rk3562'
+DATA=('/userdisk/miniapp' if TARGET=='cv1826-s' else '/userdisk/secondary/miniapp')+'/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 class FeatureComplete(Exception):
     """Successful scoped run; shared finally still restores both user directories."""
@@ -86,9 +87,10 @@ def close():
     from release_lifecycle import close_app
     close_app(SERIAL, APP['appid'], shell, pid, state)
 def hashes(path):return sorted(shell('find '+shlex.quote(path)+' -type f -exec sha256sum {} \\;').splitlines())
-assert shell('uname -m')=='aarch64'
+assert shell('uname -m')==('armv7l' if TARGET=='cv1826-s' else 'aarch64')
 # Explicit user-authorized boards; never infer support from resolution/sensor alone.
 screen=json.loads(shell('cat /etc/miniapp/resources/cfg.json'))['screen'];W=screen['width'];H=screen['height']
+if TARGET=='cv1826-s' and screen.get('direction') in (90,270):W,H=H,W
 inputs=shell('cat /proc/bus/input/devices').split('\n\n');event=None
 for block in inputs:
     if 'sitronix_ts_spi' in block or 'hyn_ts' in block or 'Hyn_TS' in block:
@@ -248,7 +250,7 @@ def start_app():
 if pid():
     s=state();assert not s['generating'] and not s.get('compressing') and not s['title_busy'] and not s['keyboard'] and not s['editor']['active'] and not s['draft_length'] and not s['storage']['unsaved'],'Pending work preserved; finish it before isolated acceptance'
     close()
-compiler='/home/ls-jl/dictpen/x7pro/android13_sdk/RK3562_Android13.0_SDK/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++'
+compiler=subprocess.check_output(['bash','-c','source scripts/native-target.sh '+TARGET+'; printf "%s" "$PENCHAT_BUILD_CXX"'],cwd=ROOT,text=True)
 helper=OUT/'tap'
 subprocess.run([compiler,'-std=c++11','-Os',str(ROOT/'tests/device/tap.cpp'),'-o',str(helper)],check=True)
 subprocess.run(['adb','-s',SERIAL,'push',str(helper),'/tmp/penchat-display-tap'],check=True,capture_output=True)
@@ -387,7 +389,10 @@ try:
     # Firmware may swallow the first touch while leaving its idle state. Use
     # a blank-area wake tap, then require subsequent exact mapped events.
     tap(W//2,2);time.sleep(.6)
-    for x,y in [(2,2),(W-3,2),(2,H-3),(W-3,H-3)]:
+    # S6's shared compositor reserves the system-panel origin band; it must
+    # not be replayed as an application corner tap. Test the usable top edge.
+    top=max(8,min(W,H)//25)+2 if TARGET=='cv1826-s' else 2
+    for x,y in [(2,top),(W-3,top),(2,H-3),(W-3,H-3)]:
         tap(x,y)
         def mapped():
             p=state()['touch']

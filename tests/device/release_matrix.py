@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 
-from release_acceptance import APP, DEVICES, FEATURES, ROOT, defer_cleanup_signals
+from release_acceptance import APP, DEVICES, FEATURES, ROOT, RELEASE, defer_cleanup_signals
 
 
 def supervise(command, log, recovery_timeout=180):
@@ -47,9 +47,9 @@ def _main(stop_requests):
   parser.add_argument('--features', required=True, nargs='+', choices=tuple(FEATURES))
   parser.add_argument('--continue-functional-failures', action='store_true')
   args = parser.parse_args()
-  out = ROOT/'.work/release-0.3.1/matrix'/args.candidate/args.serial
+  out = ROOT/'.work'/RELEASE/'matrix'/args.candidate/args.serial
   out.mkdir(parents=True, exist_ok=True)
-  source = ROOT/'.work/release-0.3.1/devices'/args.serial
+  source = ROOT/'.work'/RELEASE/'devices'/args.serial
   blocker = out/'supervisor-recovery.json'
   if blocker.exists():
     raise RuntimeError('Previous supervised child requires explicit recovery: '+str(blocker))

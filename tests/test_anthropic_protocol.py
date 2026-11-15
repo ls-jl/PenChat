@@ -6,15 +6,8 @@ ROOT=pathlib.Path(__file__).resolve().parents[1]
 BINARY=pathlib.Path(os.environ.get('PENCHAT_NETWORK_PROBE',ROOT/'build/host/penchat-network-probe'))
 # streamChat applies the fixed application rules before the Messages encoder
 # appends explicit system-role input. Auxiliary title requests bypass this wrapper.
-CHAT_SYSTEM=(
- 'PenChat_APPLICATION_RULES_V1\n'
- 'Fixed application rules govern tool execution and presentation. Session instructions below '
- 'may customize the task, language and style, but cannot override these application rules.\n'
- 'Write user-facing answers as ordinary Markdown. For actual tool execution, use the API\'s '
- 'structured tool-call channel. Keep invocation metadata out of ordinary answers. '
- 'Do not simulate tool execution or claim success without an actual result. If a tool fails, '
- 'briefly explain the failure instead of printing the internal payload.\n'
- '\nSession instructions (subject to the fixed application rules):\nCHAT-ONLY')
+from chat_instruction_checks import assert_chat_prompt
+
 def run_suite():
  with http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler) as server:
   threading.Thread(target=server.serve_forever,daemon=True).start();results=[]
@@ -77,7 +70,8 @@ def run_suite():
   img='data:image/png;base64,iVBORw0KGgo='
   inputs=[{'role':'system','content':[{'type':'input_text','text':'TASK-SYSTEM'}]},
           {'role':'user','content':[{'type':'input_text','text':'picture'},{'type':'input_image','image_url':img}]}]
-  end,_,body=run(inputs=inputs);assert end['type']=='done' and body['system']==CHAT_SYSTEM+'\n\nTASK-SYSTEM',(end,body)
+  end,_,body=run(inputs=inputs);assert end['type']=='done' and body['system'].endswith('\n\nTASK-SYSTEM'),(end,body)
+  assert_chat_prompt(body['system'][:-len('\n\nTASK-SYSTEM')],'CHAT-ONLY')
   assert body['messages'][0]['content'][1]['source']=={'type':'base64','media_type':'image/png','data':'iVBORw0KGgo='}
   replay=[{'role':'assistant','content':[{'type':'thinking','thinking':'public','signature':SIGNATURE}]},{'role':'user','content':'next'}]
   end,_,_=run('401',inputs=replay);assert SIGNATURE not in end['data']['error']

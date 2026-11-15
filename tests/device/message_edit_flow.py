@@ -5,12 +5,8 @@ def prepare(root,folder,data,serial,fixture_builder=None):
     sys.path.insert(0,str(root/'tests'))
     from test_message_edit import fixture,Server
     Server.mode='none';Server.requests=[]
-    route=subprocess.check_output(['adb','-s',serial,'shell','ip -4 route show default'],text=True)
-    device_ip=re.search(r'\bsrc (\d+\.\d+\.\d+\.\d+)',route).group(1)
-    connection=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-    connection.connect((device_ip,9));host=connection.getsockname()[0];connection.close()
-    server=http.server.ThreadingHTTPServer((host,0),Server)
-    threading.Thread(target=server.serve_forever,daemon=True).start()
+    from local_http import server_for_device
+    server,host=server_for_device(root,serial,Server)
     if folder.exists():shutil.rmtree(folder)
     folder.mkdir();(fixture_builder or fixture)(folder,server.server_port)
     with sqlite3.connect(folder/'penchat.db') as db:

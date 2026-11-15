@@ -11,7 +11,7 @@ import time
 import unittest
 from unittest import mock
 
-from release_acceptance import ReleaseDevice, defer_cleanup_signals, stop_owned_child
+from release_acceptance import ReleaseDevice, RELEASE, defer_cleanup_signals, stop_owned_child
 from release_matrix import supervise
 
 
@@ -132,7 +132,7 @@ time.sleep(.4)
     with tempfile.TemporaryDirectory() as temp:
       root = pathlib.Path(temp)
       serial = 'MEA2300009007113'
-      source = root/'.work/release-0.3.1/devices'/serial
+      source = root/'.work'/RELEASE/'devices'/serial
       source.mkdir(parents=True)
       def recovered(*args):
         (source/'result.json').write_text(json.dumps({'restored': True,
@@ -147,7 +147,7 @@ time.sleep(.4)
            mock.patch.object(sys, 'argv', argv), mock.patch('builtins.print'):
         release_matrix.main()
       supervisor.assert_called_once()
-      result = json.loads((root/'.work/release-0.3.1/matrix/host-test'/serial/'manifest.json').read_text())
+      result = json.loads((root/'.work'/RELEASE/'matrix'/'host-test'/serial/'manifest.json').read_text())
       self.assertEqual(len(result['modules']), 1)
       self.assertTrue(result['modules'][0]['restoration']['restored'])
       self.assertIn('Termination requested', result['stopped'])

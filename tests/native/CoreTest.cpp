@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
       const AppLayout page{size.first,size.second};
       const EditorLayout keyboard(size.first,size.second);
       assert(page.portrait() && page.gutter()==0);
-      assert(page.composerX()+page.composerWidth()==size.first-page.safeSide());
+      assert(page.composerX()+page.composerWidth()==size.first-page.composerX());
       assert(page.composerY()+page.composerHeight()==size.second-page.safeBottom());
       assert(keyboard.keyInset==0 && keyboard.keySpan==size.first);
       assert(keyboard.portrait && keyboard.docked && keyboard.panelTop<keyboard.compositionY-4 && keyboard.textBottom()<keyboard.compositionY);

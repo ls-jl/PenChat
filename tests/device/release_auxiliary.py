@@ -24,23 +24,14 @@ if str(ROOT/'tests') not in sys.path:
 
 @contextlib.contextmanager
 def _server(d, handler):
-  route = d.sh('ip -4 route show default')
-  match = re.search(r'\bsrc (\d+\.\d+\.\d+\.\d+)', route)
-  assert match, 'Device default route has no source address'
-  with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as connection:
-    connection.connect((match.group(1), 9))
-    host = connection.getsockname()[0]
-  server = http.server.ThreadingHTTPServer((host, 0), handler)
-  server.daemon_threads = True
-  thread = threading.Thread(target=server.serve_forever, daemon=True)
-  thread.start()
+  from local_http import server_for_device
+  server,host=server_for_device(ROOT,d.serial,handler)
   d.auxiliary_fixture_url = 'http://'+host+':'+str(server.server_port)+'/v1'
   try:
     yield server.server_port
   finally:
     server.shutdown()
     server.server_close()
-    thread.join(timeout=5)
     del d.auxiliary_fixture_url
 
 
