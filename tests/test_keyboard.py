@@ -124,7 +124,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   shot(a,'editing-menu');a.editor_action('undo');assert state(a)['selected']
   a.tap(930,236);assert state(a)['clipboard_open'];shot(a,'clipboard');a.tap(700,98);assert not state(a)['clipboard_open']
   # A nonselected caret can paste directly, and the inserted text remains undoable.
-  seed(a,'');before=state(a);hold(a,940,185);popup=state(a)
+  seed(a,'');before=state(a);a.tap(940,185);popup=state(a)
   assert not popup['selected'] and 'paste' in popup['actions'] and popup['text_bounds']==before['text_bounds']
   shot(a,'editing-menu-paste');a.editor_action('paste');assert export_text(a)=='alpha' and not state(a)['undo_menu']
   hold(a,940,185);a.editor_action('undo');assert state(a)['length']==0

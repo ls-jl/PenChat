@@ -2838,7 +2838,7 @@ void App::cancelNativeInteraction() {
   // Its release is rejected after focus loss, so do not carry release absorption
   // into the next independently focused contact.
   popupConsumeTouch_ = contextMenuOpening_ = popupTracking_ = false;
-  officialComposerHit_.clear();officialContactIds_.clear();officialActionId_.clear();officialActionKind_.clear();officialMenuAction_={};officialPopupContact_=false;
+  officialComposerHit_.clear();officialContactIds_.clear();officialActionId_.clear();officialActionKind_.clear();officialMenuAction_={};officialPopupContact_=false;officialTextContact_=false;officialEditPending_=0;
   stopOfficialReaderGlide();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;
   resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
   finishImageGesture(false); nonImageMulti_ = false; viewerLastTap_ = 0;
@@ -2881,7 +2881,7 @@ Json App::inputFocusDiagnostics() const {
 }
 bool App::officialReaderInput() const {
   const auto now=ticks();
-  return visible_&&pageVisible_&&view_=="chat"&&body_&&!modal_&&!navigationOpen_&&
+  return visible_&&pageVisible_&&(view_=="chat"||editorInPlace())&&body_&&!modal_&&!navigationOpen_&&
     keyboard_&&officialDocked_&&officialForeground_&&now>=officialLayoutAt_&&now-officialLayoutAt_<750&&
     display_.visible()&&display_.topHeight()>0&&!systemOverlayStatus_.value("panel_visible",false);
 }
@@ -2924,7 +2924,23 @@ void App::officialReaderTouch(const Json &message) {
     if(at<=0||std::abs(at-now)>5000)at=now;
     officialKeyEventAt_=std::max(officialKeyEventAt_,at);
   }
-  if(cancel){if(officialPopupContact_)input_.interrupt();officialPopupContact_=false;officialComposerHit_.clear();stopOfficialReaderGlide();officialReaderPending_=0;officialReaderCaptured_=false;officialReaderDown_=down;return;}
+  if(cancel){if(officialTextContact_){editorTouch(x,y,false,true);officialTextContact_=false;}if(officialPopupContact_)input_.interrupt();officialPopupContact_=false;officialComposerHit_.clear();stopOfficialReaderGlide();officialReaderPending_=0;officialReaderCaptured_=false;officialReaderDown_=down;return;}
+  if(!attachments_) {
+    if(down&&!officialReaderDown_&&!officialEditPending_&&officialKeyEventAt_<=officialTextEventAt_) {
+      const auto area=editorTextArea();officialTextContact_=area.contains(x,y);
+      for(auto object:{editorSelectionMenu_,editorHandles_[0],editorHandles_[1]})if(object&&!lv_obj_is_hidden(object)) {
+        lv_area_t bounds;lv_obj_get_coords(object,&bounds);
+        officialTextContact_|=x>=bounds.x1&&x<=bounds.x2&&y>=bounds.y1&&y<=bounds.y2;
+      }
+    }
+    if(officialTextContact_) {
+      const auto base=editor_.text;const bool textContact=editorTextTouch_;
+      editorTouch(x,y,down,cancel);
+      officialReaderDown_=down;
+      if(!down){officialTextContact_=false;if(textContact)officialEditSync(base);}
+      return;
+    }
+  }
   if(attachments_) {
     if(down&&!officialReaderDown_)officialPopupContact_=y>=officialReaderBounds_.y1&&y<display_.topHeight();
     if(officialPopupContact_) {
@@ -3368,7 +3384,8 @@ void App::handle(const Json &m) {
       const auto previousCursor=editor_.cursor;
       const auto utf16=m.value("cursorIndex",editUtf16(text,editLength(text)));
       size_t cursor=0,units=0;for(unsigned char c:text) {if(units>=utf16)break;if((c&192)!=128){units+=c>=240?2:1;++cursor;}}
-      if(!changed&&cursor==previousCursor)return;
+      if(!changed&&(officialTextContact_||officialEditPending_||editor_.selected()||cursor==previousCursor))return;
+      if(changed)editor_.remember();
       editor_.text=text;editor_.preedit.clear();editor_.position(cursor);editorUpstream_=std::string::npos;
       editorSyncText(changed);
     } else {
@@ -3383,6 +3400,16 @@ void App::handle(const Json &m) {
     auto field=editorOfficialField();
     field["requestId"]=keyboardId_;field["cursorIndex"]=editUtf16(editor_.text,editor_.cursor);
     bridge_.send("keyboard.field",field);
+  }
+  else if(type=="keyboard.edit.result") {
+    if(!keyboard_||m.value("requestId",std::string())!=keyboardId_||m.value("sequence",uint64_t(0))!=officialEditPending_)return;
+    officialEditPending_=0;
+    if(!m.value("ok",false)) {
+      const auto text=m.value("text",editor_.text);
+      if(editLength(text)<=editor_.limit){editor_.text=text;editor_.position(std::min(editor_.cursor,editLength(text)));}
+      editorMenu_=false;
+    }
+    editorSyncText(true);
   }
   else if(type=="keyboard.action.error") {
     if(m.value("requestId",std::string())==keyboardId_&&m.value("actionId",std::string())==officialActionId_){officialActionId_.clear();officialActionKind_.clear();}
@@ -3607,6 +3634,7 @@ void App::tick() {
       if(editor_.active&&!editorTarget_&&e.data.value("id",std::string())==editor_.id)editorFinish(false);
       continue;
     }
+    if (e.type == "editor_action"&&keyboard_&&officialReaderInput()&&e.data.value("id",std::string())==editor_.id) {officialEditAction(e.data.value("action",std::string()));continue;}
     if (e.type == "editor_action") { if (editor_.active && visible_ && touchLeaseActive_ && !keyboard_ && e.data.value("id",std::string()) == editor_.id) editorAction(e.data.value("action",std::string())); continue; }
     if (e.type.find("scan_") == 0) {
       scanEvent(e);

@@ -108,6 +108,10 @@ class App {
   std::set<std::string> officialContactIds_;
   bool officialComposerMoved_ = false, officialPopupContact_ = false;
   std::function<void()> officialMenuAction_;
+  bool officialTextContact_=false;
+  uint64_t officialEditSequence_=0,officialEditPending_=0;
+  void officialEditSync(const std::string &base);
+  void officialEditAction(const std::string &action);
   std::string officialComposerActionAt(int x,int y) const;
   bool officialReaderInput() const;
   void officialReaderTouch(const Json &message);

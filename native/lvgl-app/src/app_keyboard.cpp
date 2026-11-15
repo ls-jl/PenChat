@@ -1014,7 +1014,12 @@ Json App::editorOfficialField() {
   if(editorInPlace()&&target!=inputTargets_.end())
     size=uiMetrics_.fontSize(editorInlineChat_?UiFont::Composer:target->second.style==1?UiFont::FieldValue:UiFont::Button);
   const auto actualFont=editorText_?lv_obj_get_style_text_font(editorText_,LV_PART_MAIN):font(size);
-  return {{"x",area.x},{"y",area.y},{"width",area.width},{"height",area.height},
+  int holeHeight=display_.topHeight();
+  if(holeHeight>0&&editorInlineChat_&&chatControls_) {
+    lv_area_t capsule;lv_obj_get_coords(chatControls_,&capsule);
+    holeHeight=std::min(holeHeight,std::max(0,int(capsule.y2)+1));
+  }
+  return {{"nativeCaret",true},{"holeHeight",holeHeight},{"x",area.x},{"y",area.y},{"width",area.width},{"height",area.height},
           {"fontSize",size},{"fontLineHeight",actualFont->line_height}};
 }
 void App::editorOfficial() {
@@ -1025,7 +1030,12 @@ void App::editorOfficial() {
   editorInterrupt();officialDocked_=editorLayout().docked&&display_.supportsTopRegion();officialHeight_=0;officialForeground_=false;officialLayoutAt_=0;
   if(officialDocked_)officialBackup_=editor_;
   keyboard_=true;keyboardId_=uid("official");officialKeyEventAt_=officialTextEventAt_=0;officialContactIds_.clear();
-  if(officialDocked_&&editorRoot_)lv_obj_set_hidden(editorRoot_,true);
+  officialTextContact_=false;officialEditPending_=0;
+  if(officialDocked_&&editorRoot_) {
+    // Retain only native selection decorations above the system IME plane.
+    for(uint32_t i=0;i<lv_obj_get_child_count(editorRoot_);++i)lv_obj_set_hidden(lv_obj_get_child(editorRoot_,i),true);
+    lv_obj_set_hidden(editorRoot_,false);editorSyncText();
+  }
   display_.visible(false);
   const bool sent = bridge_.send("keyboard.open",{{"requestId",keyboardId_},{"text",text},{"placeholder",editor_.placeholder},
     {"maxlength",editor_.limit},{"multiline",editor_.multiline},{"sensitive",editor_.secret},{"inline",officialDocked_},
@@ -1043,6 +1053,29 @@ void App::editorOfficial() {
     editorBuild();
     editorOcrStart();
   }
+}
+void App::officialEditSync(const std::string &base) {
+  if(!keyboard_||!officialDocked_||officialEditPending_)return;
+  officialEditPending_=++officialEditSequence_;
+  const auto range=editor_.range();
+  bridge_.send("keyboard.edit",{{"requestId",keyboardId_},{"sequence",officialEditPending_},
+    {"base",base},{"text",editor_.text},{"cursorIndex",editUtf16(editor_.text,editor_.cursor)},
+    {"selectionStart",editUtf16(editor_.text,range.first)},{"selectionEnd",editUtf16(editor_.text,range.second)},
+    {"uncommitted",officialKeyEventAt_>officialTextEventAt_},{"keyEventTime",officialKeyEventAt_}});
+}
+void App::officialEditAction(const std::string &action) {
+  if(officialEditPending_)return;
+  const auto base=editor_.text;
+  if(action=="all")editor_.select(0,editLength(editor_.text));
+  else if(action=="copy"||action=="cut") {
+    if(!editor_.selected()||(editor_.secret&&!editor_.reveal))return;
+    if(!editorClipboard_.copy(editor_.selection(),editor_.secret))return;
+    if(action=="cut")editor_.insert("");
+    editorMenu_=false;
+  } else if(action=="paste") {editor_.insert(editorClipboard_.current);editorMenu_=false;}
+  else if(action=="undo") {editor_.revert();editorMenu_=false;}
+  else return;
+  editorSyncText(true);officialEditSync(base);
 }
 void App::editorAction(const std::string &a) {
   if ((editorChoosing_||editorSelectPending_)&&a!="cancel") {
@@ -1671,7 +1704,10 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
       else if(mode==TextGesture::Pending) {
         auto index=editorPositionAt(x,y);
         if(editorTextGesture_.doubleTap(nativeX,nativeY,ticks(),uiMetrics_.gestures().tap)){editor_.word(index);editorMenu_=true;}
-        else editor_.position(index);
+        else {
+          const bool atCaret=index==editorTextSavedCursor_&&editorTextSavedAnchor_==editorTextSavedCursor_&&!editorTextSavedAll_;
+          editor_.position(index);editorMenu_=atCaret;
+        }
       }
       editorHandle_=-1;editorCursorDrag_=editorRangeDrag_=false;
       editorTextScroll_=lv_obj_get_scroll_y(editorText_);editorSyncText();
@@ -1712,6 +1748,10 @@ void App::editorInterrupt(bool releaseOcr) {
   editor_.globeChain=false;editorLayoutMenu_=editorPunctuation_=false;editorPinyinPending_=Json();
 }
 void App::editorTick() {
+  if(keyboard_&&officialReaderInput()) {
+    if(editorTextTouch_&&editorTextGesture_.hold(ticks()))editorWordPreview();
+    return;
+  }
   if (!editor_.active || keyboard_ || !visible_ || !touchLeaseActive_) { editorAutoScrollAt_=0;return; }
   const auto now=ticks();
   if(editorTextTouch_&&editorTextGesture_.hold(now))editorWordPreview();

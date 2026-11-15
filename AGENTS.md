@@ -281,12 +281,12 @@ commits complete type-B SYN_REPORT frames and maps touch rotation/offsets once.
 Do not reintroduce Falcon page touch forwarding, system backpressed completion or
 a touch fallback. Use read-only, nonexclusive fds; close them on background and shutdown.
 Official IME keeps normal native input disabled. A valid foreground portrait IME
-lease may open a read-only reader-scrolling channel for chat only: freeze the
+lease may open a read-only channel for the retained reader and current native field: freeze the
 visible native area at pointer-down, exclude composer-origin touches and the
 system top edge, and accept only single-contact vertical scrolling. Captured
 drags may cross the old reader bounds. Bounded release inertia must stop on
 retouch, geometry change, panel/background, cancellation or keyboard exit;
-never dispatch keys/caret, reject keyboard-origin and multi-contact gestures,
+never dispatch system keys, reject keyboard-origin and multi-contact gestures,
 and close/reset the fd before returning to normal native input. A stationary single-contact
 release may activate a visible composer control: plus opens a locally scrolling popup
 above the official keyboard without closing editing. Route only popup-origin contacts
@@ -301,6 +301,15 @@ cancelled, duplicate and stale actions. Unacknowledged system-key contacts must 
 official input and request candidate selection/confirmation, never silently discard
 preedit or borrow the vendor decoder. Kernel contact timestamps and actual proxy input
 events order acknowledgement; cursor heartbeats do not acknowledge text.
+Docked official text gestures belong to the native editor: retain the focused Falcon
+connection at a noninteractive edge point, never give both fields the same touch area.
+Use existing grapheme/selection geometry, and synchronize explicit cursor/text edits
+through request and monotonic edit identities. Reject stale base text. Clipboard data
+stays in PenChat; do not read a system clipboard or vendor decoder. Native selections
+replace only actual committed system input, never unconfirmed phonetics. A single tap
+at the current collapsed caret opens the shared edit menu, including empty fields,
+on every native keyboard layout. Keep UTF-16
+bridge offsets separate from native codepoint/grapheme indices.
 Native left-edge back handles child pages and root exit.
 Use shared BackGeometry with an origin edge of at least the common 44 logical-pixel
 touch target; preserve existing slop, travel, timing and focus cancellation rules.

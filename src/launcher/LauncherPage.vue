@@ -152,6 +152,7 @@ export default {
           else if (event.type === 'editor.state') this.editorState(event)
           else if (event.type === 'navigation.state') this.navigationState(event)
           else if (event.type === 'keyboard.open') this.openKeyboard(event)
+          else if (event.type === 'keyboard.edit') this.editOfficial(event)
           else if (event.type === 'keyboard.commit-action') this.commitOfficialAction(event)
           else if (event.type === 'keyboard.field') this.inlineOfficialField(event)
           else if (event.type === 'ocr.prepare') this.startOcr(event, true)
@@ -373,7 +374,7 @@ export default {
               return
             }
             const height = this._screen.height - state.height
-            if (this.officialHoleStyle.height !== height + 'px')
+            if ((!this._officialNativeCaret || parseInt(this.officialHoleStyle.height,10)>height) && this.officialHoleStyle.height !== height + 'px')
               this.officialHoleStyle = Object.assign({}, this.nativeAreaStyle, { height: height + 'px' })
             this._officialValidLayoutAt = Date.now()
             this._officialSeen = true
@@ -386,13 +387,15 @@ export default {
             }
             this.send('keyboard.layout', { requestId: this._keyboardRequest, height: state.height, foreground: this.inlineOfficialForeground(state) })
             const input = this.$refs && this.$refs.officialInput
-            const requestId = this._keyboardRequest, generation = this._generation
+            const requestId = this._keyboardRequest, generation = this._generation, editSequence = this._officialEditSequence
             if (input && input.getCursorPosition && !this._officialCursorPending) {
               this._officialCursorPending = true
               input.getCursorPosition(position => {
                 if (!this.keyboardOpen || !this.officialInline || requestId !== this._keyboardRequest || generation !== this._generation) return
                 this._officialCursorPending = false
+                if (editSequence !== this._officialEditSequence) return
                 const cursor = Number.isInteger(position) ? position : position && position.cursorPosition
+                if (Number.isInteger(cursor)) this._officialCursor = cursor
                 if (Number.isInteger(cursor)) this.send('keyboard.change', { requestId, text: this.officialText, cursorIndex: cursor })
               })
             }
@@ -405,7 +408,8 @@ export default {
     },
     updatePageStyle() {
       // Native's independent top-region plane paints the retained official page.
-      // Punch a hole only above the IME; keep opaque backing beneath its panel: its floating preedit
+      // Native acknowledges the hole boundary after positioning its plane. Keep
+      // theme backing below the composer, including any gap before the IME. Its floating preedit
       // extends outside the keyboard bounds and must be erased on selection.
       const page = Object.assign({}, this.nativeAreaStyle, this.appearanceStyles.page || {})
       if (Object.keys(page).some(key => page[key] !== this.pageStyle[key]) || Object.keys(page).length !== Object.keys(this.pageStyle).length) this.pageStyle = page
@@ -432,7 +436,14 @@ export default {
       // Native supplies the focused field's resolved pixel size, including UI/text
       // scaling. Caption metrics cannot represent Composer/FieldValue/Button.
       if (Number.isFinite(field.fontSize) && field.fontSize > 0 && field.fontSize <= 4096) this._officialFontSize = field.fontSize
-      const style = Object.assign({}, this.appearanceStyles.officialInput || {}, { left: field.x + 'px', top: field.y + 'px', width: field.width + 'px', height: field.height + 'px' })
+      // Keep a focused connection, but one owner for visible native text gestures.
+      this._officialNativeCaret=field.nativeCaret===true
+      if(this._officialNativeCaret && Number.isInteger(field.holeHeight) && field.holeHeight>=0 && field.holeHeight<this._screen.height) {
+        const height=field.holeHeight+'px'
+        if(this.officialHoleStyle.height!==height)this.officialHoleStyle=Object.assign({},this.nativeAreaStyle,{height})
+      }
+      const proxy = field.nativeCaret ? { x: this._screen.width - 1, y: 0, width: 1, height: 1 } : field
+      const style = Object.assign({}, this.appearanceStyles.officialInput || {}, { left: proxy.x + 'px', top: proxy.y + 'px', width: proxy.width + 'px', height: proxy.height + 'px' })
       if (this._officialFontSize) style.fontSize = this._officialFontSize + 'px'
       // Layout and cursor reports may echo unchanged field bounds. Keep the
       // Falcon input's style identity while its InputConnection is active.
@@ -447,7 +458,8 @@ export default {
       // feeding @input back through that property can replace the active text
       // and relayout the system InputConnection on every edit. Keep the live
       // result outside Vue data and leave the seed fixed until this edit closes.
-      this._officialInputTime = 0
+      this._officialCursor = event.cursorIndex || 0
+      this._officialInputTime = 0; this._officialRange = null; this._officialEditSequence = 0; this._officialApplyingEdit = false; this._officialExpectedEdit = null
       this.officialText = event.text || ''
       this.officialInitialText = this.officialText
       this.officialSingleLine = !event.multiline
@@ -478,12 +490,70 @@ export default {
       this._keyboardWatchAt = Date.now() + 100
       this._keyboardMonitor = setInterval(() => this.checkOfficialKeyboard(), 200)
     },
+    editOfficial(event) {
+      if (!this.keyboardOpen || !this.officialInline || this._keyboardCompleting || event.requestId !== this._keyboardRequest ||
+          !Number.isInteger(event.sequence) || event.sequence <= this._officialEditSequence) return
+      this._officialEditSequence = event.sequence
+      const input = this.$refs && this.$refs.officialInput
+      const reply = ok => this.send('keyboard.edit.result', { requestId: event.requestId, sequence: event.sequence, ok, text: this.officialText })
+      const start=event.selectionStart, end=event.selectionEnd, cursor=event.cursorIndex
+      try {
+        const state=launcher.officialKeyboard()
+        if (!state || !state.visible || !this.inlineOfficialForeground(state) || event.base !== this.officialText ||
+            typeof event.text !== 'string' || ![start,end,cursor].every(Number.isInteger) || start<0 || start>end || end>event.text.length || cursor<0 || cursor>event.text.length ||
+            (event.uncommitted && !(this._officialInputTime>=event.keyEventTime)) || !input || !input.setCursorPosition || !input.commitText) {reply(false);return}
+        this._officialApplyingEdit=true
+        if(event.text!==this.officialText){this._officialExpectedEdit={text:event.text,cursor};this.officialText=event.text;input.commitText(event.text)}
+        this._officialRange=start<end?{start,end,text:event.text}:null
+        this._officialCursor=start<end?end:cursor
+        input.setCursorPosition(this._officialCursor)
+        this._officialApplyingEdit=false;reply(true)
+      } catch (_) {this._officialApplyingEdit=false;this._officialRange=null;reply(false)}
+    },
     inlineOfficialInput(value) {
-      if (!this.keyboardOpen || !this.officialInline) return
+      if (!this.keyboardOpen || !this.officialInline || this._officialApplyingEdit) return
+      const previous=this.officialText
+
       if (typeof value === 'string') this.officialText = value
       else if (value && typeof value.value === 'string') this.officialText = value.value
       else if (value && typeof value.text === 'string') this.officialText = value.text
-      const cursorIndex = value && Number.isInteger(value.cursorPosition) ? value.cursorPosition : this.officialText.length
+      let cursorIndex = value && Number.isInteger(value.cursorPosition) ? value.cursorPosition : this._officialCursor
+      if (!(value && Number.isInteger(value.cursorPosition)) && previous!==this.officialText) {
+        let suffix=0
+        while(suffix<previous.length && suffix<this.officialText.length && previous[previous.length-1-suffix]===this.officialText[this.officialText.length-1-suffix]) ++suffix
+        cursorIndex=this.officialText.length-suffix
+        const at=this._officialCursor, delta=this.officialText.length-previous.length
+        if(Number.isInteger(at) && at>=0 && at<=previous.length) {
+          if(delta>=0 && this.officialText.slice(0,at)===previous.slice(0,at) && this.officialText.slice(at+delta)===previous.slice(at))cursorIndex=at+delta
+          else if(delta<0 && at+delta>=0 && this.officialText.slice(0,at+delta)===previous.slice(0,at+delta) && this.officialText.slice(at+delta)===previous.slice(at))cursorIndex=at+delta
+        }
+        // A UTF-16 cursor must not split a supplementary character.
+        if(cursorIndex>0 && cursorIndex<this.officialText.length && /[\uD800-\uDBFF]/.test(this.officialText[cursorIndex-1]) && /[\uDC00-\uDFFF]/.test(this.officialText[cursorIndex])) ++cursorIndex
+      }
+      if(!Number.isInteger(cursorIndex))cursorIndex=this.officialText.length
+      if(this._officialExpectedEdit && this.officialText===this._officialExpectedEdit.text) {
+        cursorIndex=this._officialExpectedEdit.cursor;this._officialExpectedEdit=null
+      }
+      const range=this._officialRange
+      if(range && this.officialText!==previous) {
+        this._officialRange=null
+        // The system exposes a cursor, not a selection API. Replace the native
+        // selection only after an actual committed edit, never while composing.
+        const next=this.officialText, delta=next.length-previous.length
+        let replacement=null
+        if(previous===range.text && delta>=0 && next.slice(0,range.end)===previous.slice(0,range.end) && next.slice(range.end+delta)===previous.slice(range.end))
+          replacement=next.slice(range.end,range.end+delta)
+        else if(previous===range.text && delta<0 && next.slice(0,range.end+delta)===previous.slice(0,range.end+delta) && next.slice(range.end+delta)===previous.slice(range.end)) replacement=''
+        if(replacement!==null) {
+          const input=this.$refs&&this.$refs.officialInput
+          this.officialText=previous.slice(0,range.start)+replacement+previous.slice(range.end)
+          cursorIndex=range.start+replacement.length
+          this._officialExpectedEdit={text:this.officialText,cursor:cursorIndex}
+          this._officialApplyingEdit=true
+          try {input.commitText(this.officialText);input.setCursorPosition(cursorIndex)} finally {this._officialApplyingEdit=false}
+        }
+      }
+      this._officialCursor=cursorIndex
       const change = { requestId: this._keyboardRequest, text: this.officialText, cursorIndex }
       if (typeof value === 'string' || (value && (typeof value.value === 'string' || typeof value.text === 'string'))) change.inputEventTime = this._officialInputTime = Date.now()
       this.send('keyboard.change', change)
