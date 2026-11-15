@@ -72,10 +72,10 @@ public:
     },[layer]{lv_obj_delete(layer);});
   }
 };
-inline void slideSurfaceIn(lv_obj_t *object,int dx,int dy) {
+inline void slideSurfaceIn(lv_obj_t *object,int dx,int dy,int duration=180) {
   lv_obj_set_style_opa(object,LV_OPA_COVER,0);
   motion::state(object)->closing=true; // Native key hit bounds remain at their resting geometry.
-  motion::animate(object,0,1000,180,[object,dx,dy](int progress){
+  motion::animate(object,0,1000,duration,[object,dx,dy](int progress){
     lv_obj_set_style_translate_x(object,dx*(1000-progress)/1000,0);
     lv_obj_set_style_translate_y(object,dy*(1000-progress)/1000,0);
   },[object]{motion::state(object)->closing=false;});

@@ -249,6 +249,8 @@ void App::editorBuild() {
   const int preservedTextScroll=editorRestoreViewScroll_?editorCompactScroll_[editorCompactExpanded_?1:0]:editorTextScroll_;
   const bool viewScroll=editorRestoreViewScroll_;editorRestoreViewScroll_=false;
   auto previousRoot = editorRoot_;
+  const bool entering=previousRoot&&surfaceEntering(previousRoot);
+  const int enteringY=entering?lv_obj_get_style_translate_y(previousRoot,LV_PART_MAIN):0;
   editorSelectionMenu_=nullptr;editorSelectionActions_.clear();
   editorKeys_.clear(); editorLocalActions_.clear(); if(!editorInPlace())editorText_ = nullptr;
   editorRoot_ = box(lv_screen_active(),0,0,editorLayout().width,editorLayout().height,editorDesign().background);
@@ -520,7 +522,11 @@ void App::editorBuild() {
   lv_obj_move_foreground(editorRoot_);
   if(attachments_&&popupKind_=="attachments")lv_obj_move_foreground(attachments_);
   editorSyncText();editorViewport();
-  if(!previousRoot&&!editorSelectionOnly_&&visible_&&inputFocused_)slideSurfaceIn(editorRoot_,0,layout.docked?layout.height-layout.panelTop:screen_.height);
+  if(!editorSelectionOnly_&&visible_&&inputFocused_&&(!previousRoot||entering)) {
+    const int distance=layout.docked?layout.height-layout.panelTop:screen_.height;
+    const int from=entering?enteringY:distance;
+    slideSurfaceIn(editorRoot_,0,from,entering?std::max(1,180*from/std::max(1,distance)):180);
+  }
   if((preserveTextScroll||viewScroll)&&editorText_) {
     // Textarea SIZE_CHANGED starts an animated scroll-to-caret while the new
     // label is being laid out. Restore only after final geometry, cancelling

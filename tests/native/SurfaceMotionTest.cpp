@@ -41,6 +41,21 @@ int main(){
     now+=200;lv_timer_handler();motion::finishAll();
     assert(!motion::retiring());assert(lv_obj_get_child_count(screen)==count);
   }
+  // A keyboard rebuild must resume its current entry position, not reveal it
+  // at rest or replay the full off-screen distance.
+  auto old=lv_obj_create(screen);slideSurfaceIn(old,0,160);
+  now+=70;lv_timer_handler();
+  const int remaining=lv_obj_get_style_translate_y(old,LV_PART_MAIN);
+  assert(surfaceEntering(old)&&remaining>0&&remaining<160);
+  auto replacement=lv_obj_create(screen);lv_obj_delete(old);
+  slideSurfaceIn(replacement,0,remaining,std::max(1,180*remaining/160));
+  assert(lv_obj_get_style_translate_y(replacement,LV_PART_MAIN)==remaining);
+  now+=20;lv_timer_handler();
+  assert(lv_obj_get_style_translate_y(replacement,LV_PART_MAIN)<=remaining);
+  now+=180;lv_timer_handler();
+  assert(!surfaceEntering(replacement));
+  assert(lv_obj_get_style_translate_y(replacement,LV_PART_MAIN)==0);
+  lv_obj_delete(replacement);
   lv_display_delete(display);lv_deinit();
   std::cout<<"SURFACE_MOTION_REVERSE_SNAPSHOT_REBUILD_AND_CLEANUP_OK\n";
 }
