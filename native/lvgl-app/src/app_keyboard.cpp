@@ -172,6 +172,7 @@ void App::edit(const std::string &text, const std::string &placeholder,
     editorPlaceCursor_=inputSource_!=nullptr;editorInitialPoint_=inputSourcePoint_;
     editorSendAssets_=false;
     if(editorInlineChat_) {
+      lv_area_t area;lv_obj_get_coords(chatControls_,&area);editorComposerEntryBottom_=area.y2;
       // A retained draft may already have expanded the resting capsule. Use
       // its single-row design height so reopening never multiplies that draft.
       editorComposerOpenHeight_=(this->layout().composerHeight()*7+2)/4;
@@ -251,6 +252,7 @@ void App::editorBuild() {
   auto previousRoot = editorRoot_;
   const bool entering=previousRoot&&surfaceEntering(previousRoot);
   const int enteringY=entering?lv_obj_get_style_translate_y(previousRoot,LV_PART_MAIN):0;
+  const int composerEntryY=entering&&chatControls_?lv_obj_get_style_translate_y(chatControls_,LV_PART_MAIN):0;
   editorSelectionMenu_=nullptr;editorSelectionActions_.clear();
   editorKeys_.clear(); editorLocalActions_.clear(); if(!editorInPlace())editorText_ = nullptr;
   editorRoot_ = box(lv_screen_active(),0,0,editorLayout().width,editorLayout().height,editorDesign().background);
@@ -525,7 +527,16 @@ void App::editorBuild() {
   if(!editorSelectionOnly_&&visible_&&inputFocused_&&(!previousRoot||entering)) {
     const int distance=layout.docked?layout.height-layout.panelTop:screen_.height;
     const int from=entering?enteringY:distance;
-    slideSurfaceIn(editorRoot_,0,from,entering?std::max(1,180*from/std::max(1,distance)):180);
+    const int duration=entering?std::max(1,180*from/std::max(1,distance)):180;
+    slideSurfaceIn(editorRoot_,0,from,duration);
+    if(editorInlineChat_&&chatControls_) {
+      lv_area_t area;lv_obj_get_coords(chatControls_,&area);
+      const int composerFrom=entering?composerEntryY:std::max(0,editorComposerEntryBottom_-int(area.y2));
+      slideSurfaceIn(chatControls_,0,composerFrom,duration);
+      if(toBottom_)slideSurfaceIn(toBottom_,0,composerFrom,duration);
+    }
+    lv_obj_update_layout(editorRoot_);
+    if(editorInlineChat_&&chatControls_)lv_obj_update_layout(chatControls_);
   }
   if((preserveTextScroll||viewScroll)&&editorText_) {
     // Textarea SIZE_CHANGED starts an animated scroll-to-caret while the new
@@ -776,8 +787,8 @@ void App::editorRefreshCandidates() {
 void App::editorMoveDismiss(int offset) {
   editorDismissOffset_=std::max(0,offset);
   if(editorRoot_&&!surfaceEntering(editorRoot_))lv_obj_set_style_translate_y(editorRoot_,editorDismissOffset_,0);
-  if(editorInlineChat_&&chatControls_)lv_obj_set_style_translate_y(chatControls_,editorDismissOffset_,0);
-  if(view_=="chat"&&toBottom_)lv_obj_set_style_translate_y(toBottom_,editorDismissOffset_,0);
+  if(editorInlineChat_&&chatControls_&&!surfaceEntering(chatControls_))lv_obj_set_style_translate_y(chatControls_,editorDismissOffset_,0);
+  if(view_=="chat"&&toBottom_&&!surfaceEntering(toBottom_))lv_obj_set_style_translate_y(toBottom_,editorDismissOffset_,0);
   if(body_&&editor_.active&&editorLayout().docked) {
     const bool previous=chatLayout_;chatLayout_=true;
     const int scroll=lv_obj_get_scroll_y(body_);
@@ -864,8 +875,8 @@ void App::editorViewport() {
   chatLayout_=previous;
   if(docked)editorAttachTarget();
   if(editorRoot_&&!surfaceEntering(editorRoot_))lv_obj_set_style_translate_y(editorRoot_,editorDismissOffset_,0);
-  if(editorInlineChat_&&chatControls_)lv_obj_set_style_translate_y(chatControls_,editorDismissOffset_,0);
-  if(view_=="chat"&&toBottom_)lv_obj_set_style_translate_y(toBottom_,editorDismissOffset_,0);
+  if(editorInlineChat_&&chatControls_&&!surfaceEntering(chatControls_))lv_obj_set_style_translate_y(chatControls_,editorDismissOffset_,0);
+  if(view_=="chat"&&toBottom_&&!surfaceEntering(toBottom_))lv_obj_set_style_translate_y(toBottom_,editorDismissOffset_,0);
   if(resized){paintVisible();lv_obj_invalidate(screenObj_);}
 }
 bool App::editorCandidateRow() const {
@@ -942,6 +953,9 @@ void App::editorFinish(bool confirmed) {
   const int exitDistance=editorLayout().docked?editorLayout().height-editorLayout().panelTop:screen_.height;
   std::unique_ptr<SurfaceSnapshot> leaving;
   if(!transfer&&!editorSelectionOnly_&&editorRoot_&&visible_&&inputFocused_)leaving.reset(new SurfaceSnapshot(editorRoot_));
+  for(auto object:{chatControls_,toBottom_})if(object&&surfaceEntering(object)) {
+    motion::cancel(object);motion::state(object)->closing=false;lv_obj_set_style_translate_y(object,0,0);
+  }
   if(confirmed&&!editor_.secret&&db_.settings().value("pinyin_learning",true))pinyin_.commit(editorLearning_,editor_.text);
   editorLearning_=editorExact_=Json::array();editorPinyinPending_=Json();
   if(!transfer)editorLocalActions_.clear();

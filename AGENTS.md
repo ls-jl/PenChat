@@ -279,8 +279,12 @@ Never add a device-specific width/height fallback or resolution gate. The native
 message supplies the same dimensions to the AMR. NativeTouch owns all foreground input,
 commits complete type-B SYN_REPORT frames and maps touch rotation/offsets once.
 Do not reintroduce Falcon page touch forwarding, system backpressed completion or
-a touch fallback. Use read-only, nonexclusive fds; close them on background, official
-IME and shutdown. Native left-edge back handles child pages and root exit.
+a touch fallback. Use read-only, nonexclusive fds; close them on background and shutdown.
+Official IME keeps normal native input disabled. A valid foreground portrait IME
+lease may open a read-only reader-scrolling channel for chat only: freeze the
+reader bounds at pointer-down, accept only single-contact vertical scrolling,
+never dispatch keys/caret/actions, reject keyboard-origin and multi-contact gestures,
+and close/reset the fd before returning to normal native input. Native left-edge back handles child pages and root exit.
 Use shared BackGeometry with an origin edge of at least the common 44 logical-pixel
 touch target; preserve existing slop, travel, timing and focus cancellation rules.
 Y07's system panel can open without page onHide or loss of window focus. Observe

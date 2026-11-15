@@ -96,6 +96,12 @@ class App {
   uint64_t formLayoutBatches_=0,formLayoutRows_=0;
   void portraitPage();
   void arrangeModal();
+  int editorComposerEntryBottom_ = 0;
+  bool officialReaderInput() const;
+  void officialReaderTouch(const Json &message);
+  bool officialReaderDown_ = false, officialReaderCaptured_ = false, officialReaderDragging_ = false;
+  int officialReaderX_ = 0, officialReaderY_ = 0, officialReaderLastY_ = 0;
+  lv_area_t officialReaderBounds_{};
   bool roundedDisplay_ = false, contextMenuOpening_ = false, popupConsumeTouch_ = false;
   lv_obj_t *popupTouchPanel_ = nullptr;
   bool popupTracking_ = false, popupOutside_ = false, popupMoved_ = false;

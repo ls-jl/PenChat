@@ -2792,6 +2792,7 @@ void App::cancelNativeInteraction() {
   // Its release is rejected after focus loss, so do not carry release absorption
   // into the next independently focused contact.
   popupConsumeTouch_ = contextMenuOpening_ = popupTracking_ = false;
+  officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;
   resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
   finishImageGesture(false); nonImageMulti_ = false; viewerLastTap_ = 0;
   if (imageViewer_ || view_ == "crop") imageGesture_.mode = -2;
@@ -2830,6 +2831,41 @@ Json App::inputFocusDiagnostics() const {
       {"window_focused",entry.window},{"official_keyboard",entry.official},{"touch_lease",entry.touch},{"overlay",overlay}});
   }
   return {{"capacity",uint64_t(InputFocusTrace::Capacity)},{"total",inputFocusTrace_.total()},{"entries",rows}};
+}
+bool App::officialReaderInput() const {
+  const auto now=ticks();
+  return visible_&&pageVisible_&&view_=="chat"&&body_&&!modal_&&!attachments_&&!navigationOpen_&&
+    keyboard_&&officialDocked_&&officialForeground_&&now>=officialLayoutAt_&&now-officialLayoutAt_<750&&
+    display_.visible()&&display_.topHeight()>0&&!systemOverlayStatus_.value("panel_visible",false);
+}
+void App::officialReaderTouch(const Json &message) {
+  const bool down=message.value("pressed",false);
+  const bool cancel=message.value("cancelled",false)||
+    (message.contains("points")&&message["points"].is_array()&&message["points"].size()>1);
+  const int x=message.value("x",0),y=message.value("y",0);
+  if(cancel){officialReaderCaptured_=false;officialReaderDown_=down;return;}
+  if(!down){officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;return;}
+  if(!officialReaderDown_) {
+    officialReaderDown_=true;officialReaderDragging_=false;
+    lv_obj_get_coords(body_,&officialReaderBounds_);
+    officialReaderBounds_.y2=std::min(int(officialReaderBounds_.y2),display_.topHeight()-1);
+    officialReaderX_=x;officialReaderY_=officialReaderLastY_=y;
+    officialReaderCaptured_=x>=officialReaderBounds_.x1&&x<=officialReaderBounds_.x2&&
+      y>=officialReaderBounds_.y1&&y<=officialReaderBounds_.y2;
+    return;
+  }
+  if(!officialReaderCaptured_)return;
+  if(x<officialReaderBounds_.x1||x>officialReaderBounds_.x2||y<officialReaderBounds_.y1||y>officialReaderBounds_.y2) {
+    officialReaderCaptured_=false;return;
+  }
+  if(!officialReaderDragging_) {
+    const int dx=x-officialReaderX_,dy=y-officialReaderY_;
+    if(std::abs(dy)<=uiMetrics_.gestures().drag||std::abs(dy)<=std::abs(dx))return;
+    officialReaderDragging_=true;chatFollowing_=false;lv_obj_stop_scroll_anim(body_);
+  }
+  lv_obj_scroll_by(body_,0,y-officialReaderLastY_,LV_ANIM_OFF);
+  officialReaderLastY_=y;
+  paintVisible();
 }
 void App::updateInputFocus() {
   const auto now=ticks();
@@ -3154,6 +3190,10 @@ void App::handle(const Json &m) {
   }
   if (type == "touch.debug")
     lastTouch_ = m;
+  if(type=="touch"&&keyboard_) {
+    if(officialReaderInput()&&(!touchInput_.enabled()||m.value("source",std::string())=="native-evdev"))officialReaderTouch(m);
+    return;
+  }
   if (type == "touch" && visible_ && !keyboard_ && inputFocused_ && inputFocus_.allowed(ticks())) {
     if (imageStoreBusy_) return;
     // Production input has one owner. Never replay Falcon or delayed IPC touches.
@@ -3221,6 +3261,8 @@ void App::handle(const Json &m) {
   else if (type == "keyboard.result") {
     if (!keyboard_ || m.value("requestId", std::string()) != keyboardId_)
       return;
+    // Never carry a system-key contact into the restored native controls.
+    touchInput_.close();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;
     if(officialDocked_&&!m.value("confirmed",false))editor_=std::move(officialBackup_);
     officialBackup_=EditorState{};officialDocked_=false;officialHeight_=0;officialForeground_=false;officialLayoutAt_=0;
     // Withdraw the partial plane before restoring full geometry, so the old
@@ -3283,9 +3325,11 @@ void App::tick() {
   }
   const int reservedTop = display_.systemOverlaySafe() && !editor_.active && !imageViewer_ && view_ != "crop"
       ? std::max(uiMetrics_.dp(8), std::min(screen_.width, screen_.height) / 25) : 0;
-  auto touches=touchInput_.poll(visible_ && !keyboard_ && touchLeaseActive_, reservedTop);
+  const bool officialReader=officialReaderInput();
+  if(!officialReader)officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;
+  auto touches=touchInput_.poll((visible_ && !keyboard_ && touchLeaseActive_)||officialReader, reservedTop);
   for(const auto &touch:touches){
-    if(!visible_ || keyboard_ || !inputFocused_ || !inputFocus_.allowed(ticks())) { updateInputFocus();touchInput_.close();break; }
+    if(!officialReaderInput()&&(!visible_ || keyboard_ || !inputFocused_ || !inputFocus_.allowed(ticks()))) { updateInputFocus();touchInput_.close();break; }
     handle(touch);
   }
   imageReturnTick();
