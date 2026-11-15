@@ -8,7 +8,7 @@
     "symbol": "_ZN7greenui7post_fbEPvRKNS_4RectEii"
   },
   "adapters": {
-    "native/compositor/composite.cpp": "5bb976027995abe027c6436219c68e3ef0837b64e71492e30cd6b8ab43706a5f",
+    "native/compositor/composite.cpp": "e7a0f4aee8637e05454da335f61bda299f7a05713602ee439336d596d4947f97",
     "native/compositor/composite.hpp": "9bba1f342f7e98f448c06957f232fa50e1cf9e15bbeeefaf6c7e2c00f9b9468b",
     "native/compositor/composite_wire.cpp": "cab65fdd3f1527841dad3127aebd9a41275ded63963012d942469daf1a63f34e",
     "native/compositor/composite_wire.hpp": "65a4ab555f2accd34f44bb73cfe50320a4683f962ab7ab618dadc15485d49276",

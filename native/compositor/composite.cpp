@@ -147,7 +147,7 @@ void Composite::relay(void* source, const Rect& dirty, int width, int height) {
 void Composite::postLatestSystem() {
   std::lock_guard<std::mutex> output(outputMutex_);
   if (passthrough_.load()) return;
-  std::lock_guard<std::mutex> system(systemMutex_);
+  std::lock_guard<std::mutex> systemLock(systemMutex_);
   const std::uint8_t* source = pendingValid_ ? pending_.data() :
     latestSystem_ < 0 ? nullptr : systems_ + latestSystem_ * geometry_.slotBytes;
   if (source && original_.load()) {
@@ -179,7 +179,7 @@ void Composite::loop() {
           if (packet.value > 1) throw std::runtime_error("invalid_visibility");
           nativeVisible_ = packet.value != 0;
         } else if (packet.type == Wire::ReleaseSystem) {
-          std::lock_guard<std::mutex> system(systemMutex_);
+          std::lock_guard<std::mutex> systemLock(systemMutex_);
           if (packet.index >= 2 || freeSystem_[packet.index] || slotSequence_[packet.index] != packet.sequence)
             throw std::runtime_error("invalid_system_release");
           freeSystem_[packet.index] = true;

@@ -6,6 +6,7 @@ from pathlib import Path
 import struct
 import sys
 import zipfile
+from runtime_policy import check_native_payload
 
 ROOT = Path(__file__).resolve().parents[1]
 ui_only = '--ui-only' in sys.argv[2:]
@@ -17,6 +18,7 @@ for relative, digest in compositor_lock['adapters'].items():
 with zipfile.ZipFile(sys.argv[1]) as archive:
     names = archive.namelist()
     assert len(names) == len(set(names))
+    assert not any(n.lower().endswith(('.sh','.bash','.zsh')) for n in names), 'Shell script in runtime package'
     assert archive.testzip() is None
     manifest = json.loads(archive.read('manifest.json'))
     assert (manifest['appName'], manifest['appid'], manifest['version']) == (app['name'], app['appid'], app['version'])
@@ -35,6 +37,7 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
         if data.startswith(b'\x7fELF'):
             assert data[4:6] == b'\x01\x01' and struct.unpack_from('<H', data, 18)[0] == 40, n
             assert struct.unpack_from('<I', data, 36)[0] & 0x400, 'Not hard-float: ' + n
+            check_native_payload(data,n)
             count += 1
     assert count == (6 if ui_only else 10), ('Unexpected native payload count', count)
     if not ui_only:
