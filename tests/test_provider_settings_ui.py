@@ -44,6 +44,9 @@ def run(w,h,port):
             assert not any(k.startswith(('model-','provider-add:','provider-edit:')) for k in d['page']['actions'])
             capture(a,OUT,f'{w}-provider-index')
             activate(a,'provider-open:p');before=business();capture(a,OUT,f'{w}-workspace-top')
+            # One final whole-page Save covers both connection and model drafts.
+            actions=a.diag()['page']['actions']
+            assert 'provider-save-bottom' in actions and '保存' not in actions
             assert not any(k.startswith('model-use:') for k in a.diag()['page']['actions'])
             base=f'http://127.0.0.1:{port}/edited/v1'
             field(a,'baseURL',base);field(a,'apiKey','changed-fake-only')

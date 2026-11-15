@@ -61,7 +61,6 @@ void App::providerPage() {
     if(providers.empty())emptyState("还没有服务商","填写连接信息并添加模型，最后统一保存。");
     return;
   }
-  primary(pageAction("保存", uiMetrics_.dp(24), uiMetrics_.dp(130), [this] { saveProvider(); }));
   const int column = (width - uiMetrics_.dp(30)) / 2, right = uiMetrics_.dp(20) + column;
   auto field = [&](const std::string &key, const std::string &name, int x, int y, int span,
                    bool secret = false) {

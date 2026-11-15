@@ -40,7 +40,7 @@ def configuration(w,h):
    with sqlite3.connect(p/'penchat.db') as db:assert json.loads(db.execute('select metadata_json from providers').fetchone()[0])['anthropic']['auth']=='x-api-key'
    a.tap(40,32);row(a,'api_compatibility');row(a,'enabled')
    assert 'usage' not in a.diag()['settings']['rows'];shot(a,f'{w}-compatibility')
-   a.tap(40,32);a.page_action('保存')
+   a.tap(40,32);provider_action(a,'provider-save-bottom')
    with sqlite3.connect(p/'penchat.db') as db:
     base,metadata,headers=db.execute('select base_url,metadata_json,headers_json from providers').fetchone()
     assert base=='http://127.0.0.1:1/v1'

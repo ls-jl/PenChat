@@ -3,7 +3,7 @@
 import json,os,pathlib,signal,sqlite3,tempfile,time
 from test_lvgl_app import Native,ROOT,wait_for
 from test_reasoning_ui import seed
-from provider_ui import field
+from provider_ui import activate,field
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ROOT/'build/host/penchat-lvgl'))
 OUT=ROOT/'.work/api-ui';OUT.mkdir(parents=True,exist_ok=True)
 def run(w,h):
@@ -43,10 +43,7 @@ def run(w,h):
    # Save is explicit; visiting/toggling the subpage alone never mutates Provider.
    with sqlite3.connect(p/'penchat.db') as db:
     assert all('compatibility' not in json.loads(v) for v, in db.execute('select metadata_json from providers'))
-   for _ in range(15):
-    if a.diag()['page']['actions']['保存'][1]>=0:break
-    a.settings_swipe(100);time.sleep(.2)
-   a.page_action('保存')
+   activate(a,'provider-save-bottom')
    with sqlite3.connect(p/'penchat.db') as db:
     configs=[json.loads(v) for v, in db.execute('select metadata_json from providers')]
     c=next(v['compatibility'] for v in configs if 'compatibility' in v)
