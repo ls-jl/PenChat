@@ -286,8 +286,16 @@ visible native area at pointer-down, exclude composer-origin touches and the
 system top edge, and accept only single-contact vertical scrolling. Captured
 drags may cross the old reader bounds. Bounded release inertia must stop on
 retouch, geometry change, panel/background, cancellation or keyboard exit;
-never dispatch keys/caret/actions, reject keyboard-origin and multi-contact gestures,
-and close/reset the fd before returning to normal native input. Native left-edge back handles child pages and root exit.
+never dispatch keys/caret, reject keyboard-origin and multi-contact gestures,
+and close/reset the fd before returning to normal native input. A stationary single-contact
+release may activate a visible composer control: plus/send/effort require the current
+proxy commit acknowledgement with matching request/action/session identities before
+queued UI dispatch; Stop and return-to-bottom preserve official editing. Reject moved,
+cancelled, duplicate and stale actions. Unacknowledged system-key contacts must retain
+official input and request candidate selection/confirmation, never silently discard
+preedit or borrow the vendor decoder. Kernel contact timestamps and actual proxy input
+events order acknowledgement; cursor heartbeats do not acknowledge text.
+Native left-edge back handles child pages and root exit.
 Use shared BackGeometry with an origin edge of at least the common 44 logical-pixel
 touch target; preserve existing slop, travel, timing and focus cancellation rules.
 Y07's system panel can open without page onHide or loss of window focus. Observe

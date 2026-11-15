@@ -152,6 +152,7 @@ export default {
           else if (event.type === 'editor.state') this.editorState(event)
           else if (event.type === 'navigation.state') this.navigationState(event)
           else if (event.type === 'keyboard.open') this.openKeyboard(event)
+          else if (event.type === 'keyboard.commit-action') this.commitOfficialAction(event)
           else if (event.type === 'keyboard.field') this.inlineOfficialField(event)
           else if (event.type === 'ocr.prepare') this.startOcr(event, true)
           else if (event.type === 'ocr.pen') { if (this._ocr) this._ocr.pen(event) }
@@ -321,6 +322,7 @@ export default {
       return ok
     },
     closeKeyboardState(closePanel = true) {
+      clearTimeout(this._officialCommitTimer); this._officialCommitTimer = null; this._officialAction = null
       clearTimeout(this._keyboardTimer); this._keyboardTimer = null
       clearInterval(this._keyboardMonitor); this._keyboardMonitor = null
       this._officialControlToken = null; this.officialInline = false; this.officialInitialText = ''; this.officialText = ''; this._officialOwner = ''; this._officialFontSize = 0
@@ -444,6 +446,7 @@ export default {
       // feeding @input back through that property can replace the active text
       // and relayout the system InputConnection on every edit. Keep the live
       // result outside Vue data and leave the seed fixed until this edit closes.
+      this._officialInputTime = 0
       this.officialText = event.text || ''
       this.officialInitialText = this.officialText
       this.officialSingleLine = !event.multiline
@@ -480,20 +483,51 @@ export default {
       else if (value && typeof value.value === 'string') this.officialText = value.value
       else if (value && typeof value.text === 'string') this.officialText = value.text
       const cursorIndex = value && Number.isInteger(value.cursorPosition) ? value.cursorPosition : this.officialText.length
-      this.send('keyboard.change', { requestId: this._keyboardRequest, text: this.officialText, cursorIndex })
+      const change = { requestId: this._keyboardRequest, text: this.officialText, cursorIndex }
+      if (typeof value === 'string' || (value && (typeof value.value === 'string' || typeof value.text === 'string'))) change.inputEventTime = this._officialInputTime = Date.now()
+      this.send('keyboard.change', change)
+    },
+    commitOfficialAction(event) {
+      if (!this.keyboardOpen || !this.officialInline || this._keyboardCompleting || this._officialAction || event.requestId !== this._keyboardRequest ||
+          typeof event.actionId !== 'string' || !event.actionId || !['attachments', 'send', 'effort'].includes(event.action)) return
+      const requestId = this._keyboardRequest, generation = this._generation
+      try {
+        const state = launcher.officialKeyboard()
+        if (!state || !state.visible || !this.inlineOfficialForeground(state)) {
+          this.send('keyboard.action.error', { requestId, actionId: event.actionId }); return
+        }
+      } catch (_) { this.send('keyboard.action.error', { requestId, actionId: event.actionId }); return }
+      const input = this.$refs && this.$refs.officialInput
+      this._officialAction = event
+      const failed = (message = '未能确认官方输入，请重试') => {
+        if (!this.keyboardOpen || this._keyboardRequest !== requestId || this._generation !== generation || !this._officialAction || this._officialAction.actionId !== event.actionId) return
+        clearTimeout(this._officialCommitTimer); this._officialCommitTimer = null; this._officialAction = null
+        this.send('keyboard.action.error', { requestId, actionId: event.actionId })
+        try { if (this._global && this._global.showToast) this._global.showToast(message) } catch (_) {}
+      }
+      if (event.uncommitted && !(Number.isFinite(event.keyEventTime) && this._officialInputTime >= event.keyEventTime)) { failed('请先完成选词或确认官方输入，再点击操作'); return }
+      this._officialCommitTimer = setTimeout(failed, 1500)
+      try {
+        if (!input || !input.commitComplete) { failed(); return }
+        input.commitComplete()
+      } catch (_) { failed() }
     },
     finishInlineOfficial(value) {
       if (!this.keyboardOpen || !this.officialInline || this._keyboardCompleting) return
       this.inlineOfficialInput(value)
       this._keyboardCompleting = true
       const requestId = this._keyboardRequest, generation = this._generation
+      const actionId = this._officialAction && this._officialAction.actionId
+      clearTimeout(this._officialCommitTimer); this._officialCommitTimer = null
       // Finish after the system IME's confirm callback has unwound.
       this._keyboardTimer = setTimeout(() => {
         this._keyboardCompleting = false
         if (!this.keyboardOpen || this._keyboardRequest !== requestId || this._generation !== generation) return
         const text = this.officialText
         this.closeKeyboardState()
-        this.send('keyboard.result', { requestId, confirmed: true, text })
+        const result = { requestId, confirmed: true, text }
+        if (actionId) result.actionId = actionId
+        this.send('keyboard.result', result)
       }, 0)
     },
     openKeyboard(event) {

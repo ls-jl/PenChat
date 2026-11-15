@@ -701,3 +701,62 @@ test('portrait official proxy exposes native page above IME and clears floating 
  assert.equal(f.calls.filter(c=>c[0]==='startTextEdit').length,2)
  f.page.dispose()
 })
+
+
+test('official composer actions commit the latest buffer once with matching identity',async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ f.page.openKeyboard({requestId:'action-owner',text:'old'})
+ let commits=0
+ f.page.$refs.officialInput.commitComplete=()=>{++commits;f.page.officialInputHandlers.confirm('最新输入')}
+ f.page.commitOfficialAction({requestId:'stale',actionId:'stale',action:'send'});assert.equal(commits,0)
+ const event={requestId:'action-owner',actionId:'one',action:'send'}
+ f.page.commitOfficialAction(event);f.page.commitOfficialAction(event);assert.equal(commits,1)
+ f.timers.get(f.page._keyboardTimer)()
+ const result=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').at(-1)[1]
+ assert(result.confirmed);assert.equal(result.actionId,'one');assert.equal(result.text,'最新输入')
+ f.page.dispose()
+})
+test('failed official commit leaves editing intact and cannot execute a later stale action',async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ f.page.openKeyboard({requestId:'pending',text:'保留'})
+ f.page.$refs.officialInput.commitComplete=()=>{}
+ f.page.commitOfficialAction({requestId:'pending',actionId:'timeout',action:'attachments'})
+ f.timers.get(f.page._officialCommitTimer)()
+ assert(f.page.keyboardOpen);assert.equal(f.page.officialText,'保留')
+ assert(f.calls.some(c=>c[0]==='send'&&c[1].type==='keyboard.action.error'&&c[1].actionId==='timeout'))
+ const old=f.page.officialInputHandlers
+ f.page.commitOfficialAction({requestId:'pending',actionId:'cancelled',action:'send'})
+ f.page.cancelOfficialKeyboard();old.confirm('stale')
+ assert(!f.page.keyboardOpen)
+ assert(!f.calls.some(c=>c[0]==='send'&&c[1].type==='keyboard.result'&&c[1].confirmed))
+ f.page.dispose()
+})
+
+
+test('official actions preserve unconfirmed keys and accept a later real text acknowledgement',async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ f.page.openKeyboard({requestId:'composition',text:'正文'})
+ let commits=0
+ f.page.$refs.officialInput.commitComplete=()=>{++commits;f.page.officialInputHandlers.confirm('正文已选词')}
+ const keyEventTime=Date.now()
+ f.page.commitOfficialAction({requestId:'composition',actionId:'pending-key',action:'attachments',uncommitted:true,keyEventTime})
+ assert.equal(commits,0);assert(f.page.keyboardOpen);assert.equal(f.page.officialText,'正文')
+ f.page.inlineOfficialInput('正文已选词')
+ f.page.commitOfficialAction({requestId:'composition',actionId:'acknowledged',action:'attachments',uncommitted:true,keyEventTime})
+ assert.equal(commits,1);f.timers.get(f.page._keyboardTimer)()
+ const result=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').at(-1)[1]
+ assert.equal(result.actionId,'acknowledged');assert.equal(result.text,'正文已选词')
+ f.page.dispose()
+})
+
+
+test('official composer confirmation rechecks the live system panel before committing',async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ f.page.openKeyboard({requestId:'foreground',text:'保留'})
+ let commits=0;f.page.$refs.officialInput.commitComplete=()=>{++commits}
+ f.native.systemOverlay=()=>({supported:true,visible:true})
+ f.page.commitOfficialAction({requestId:'foreground',actionId:'covered',action:'send'})
+ assert.equal(commits,0);assert(f.page.keyboardOpen)
+ assert(f.calls.some(c=>c[0]==='send'&&c[1].type==='keyboard.action.error'&&c[1].actionId==='covered'))
+ f.page.dispose()
+})

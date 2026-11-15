@@ -152,7 +152,10 @@ std::vector<Json> NativeTouch::poll(bool foreground, int reservedTop) {
     for (size_t i = 0; i < size_t(bytes) / sizeof(input_event); ++i) {
       const auto &e = events[i];
       auto packets = frames_.event(e.type, e.code, e.value);
-      for (auto &p : packets) out.push_back(std::move(p));
+      for (auto &p : packets) {
+        p["event_time_ms"]=int64_t(e.time.tv_sec)*1000+e.time.tv_usec/1000;
+        out.push_back(std::move(p));
+      }
     }
   }
   return out;

@@ -2838,6 +2838,7 @@ void App::cancelNativeInteraction() {
   // Its release is rejected after focus loss, so do not carry release absorption
   // into the next independently focused contact.
   popupConsumeTouch_ = contextMenuOpening_ = popupTracking_ = false;
+  officialComposerHit_.clear();officialContactIds_.clear();officialActionId_.clear();officialActionKind_.clear();
   stopOfficialReaderGlide();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;
   resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
   finishImageGesture(false); nonImageMulti_ = false; viewerLastTap_ = 0;
@@ -2884,6 +2885,19 @@ bool App::officialReaderInput() const {
     keyboard_&&officialDocked_&&officialForeground_&&now>=officialLayoutAt_&&now-officialLayoutAt_<750&&
     display_.visible()&&display_.topHeight()>0&&!systemOverlayStatus_.value("panel_visible",false);
 }
+std::string App::officialComposerActionAt(int x,int y) const {
+  if(!chatControls_||lv_obj_is_hidden(chatControls_)||y>=display_.topHeight())return {};
+  auto hit=[&](lv_obj_t *object){
+    if(!object||lv_obj_is_hidden(object)||lv_obj_has_state(object,LV_STATE_DISABLED))return false;
+    lv_area_t area;lv_obj_get_coords(object,&area);
+    return x>=area.x1&&x<=area.x2&&y>=area.y1&&y<=area.y2;
+  };
+  if(hit(toBottom_))return "bottom";
+  if(hit(lv_obj_get_child(chatControls_,layout().portrait()?1:0)))return "attachments";
+  if(hit(composerGauge_))return "effort";
+  if(hit(lv_obj_get_child(chatControls_,-1)))return generating_||contextBusy_?"stop":"send";
+  return {};
+}
 void App::stopOfficialReaderGlide() {
   if(officialReaderGlideBody_&&officialReaderGlideBody_==body_)lv_obj_stop_scroll_anim(body_);
   officialReaderGlideBody_=nullptr;officialReaderMomentum_=0;officialReaderVelocity_=0;
@@ -2893,8 +2907,37 @@ void App::officialReaderTouch(const Json &message) {
   const bool cancel=message.value("cancelled",false)||
     (message.contains("points")&&message["points"].is_array()&&message["points"].size()>1);
   const int x=message.value("x",0),y=message.value("y",0);
-  if(cancel){stopOfficialReaderGlide();officialReaderPending_=0;officialReaderCaptured_=false;officialReaderDown_=down;return;}
+  // The official IME keeps unconfirmed phonetics outside the proxy value.
+  // Only an actual text-input event acknowledges a system-key contact; cursor
+  // heartbeats must not clear it. Kernel event time handles cross-process order.
+  bool systemKey=false;
+  if(message.contains("points")&&message["points"].is_array()) {
+    std::set<std::string> contacts;
+    for(const auto &point:message["points"])if(point.is_object()&&point.contains("id")) {
+      const auto id=point["id"].dump();contacts.insert(id);
+      if(!officialContactIds_.count(id)&&point.value("y",0)>=display_.topHeight())systemKey=true;
+    }
+    officialContactIds_=std::move(contacts);
+  } else systemKey=down&&!officialReaderDown_&&y>=display_.topHeight();
+  if(systemKey) {
+    const auto now=nowMs();auto at=message.value("event_time_ms",now);
+    if(at<=0||std::abs(at-now)>5000)at=now;
+    officialKeyEventAt_=std::max(officialKeyEventAt_,at);
+  }
+  if(cancel){officialComposerHit_.clear();stopOfficialReaderGlide();officialReaderPending_=0;officialReaderCaptured_=false;officialReaderDown_=down;return;}
   if(!down){
+    const auto action=officialComposerHit_;officialComposerHit_.clear();
+    if(!action.empty()) {
+      if(!officialComposerMoved_&&officialComposerActionAt(x,y)==action&&officialActionId_.empty()) {
+        if(action=="bottom"||action=="stop") {
+          if(action=="bottom")jumpToBottom();else if(contextBusy_)cancelContext();else if(generating_)cancel_=true;
+          officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;return;
+        }
+        officialActionId_=uid("official-action");officialActionKind_=action;officialActionSession_=session_;officialActionAt_=ticks();
+        if(!bridge_.send("keyboard.commit-action",{{"requestId",keyboardId_},{"actionId",officialActionId_},{"action",action},{"uncommitted",officialKeyEventAt_>officialTextEventAt_},{"keyEventTime",officialKeyEventAt_}}))officialActionId_.clear();
+      }
+      officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;return;
+    }
     if(officialReaderCaptured_&&officialReaderDragging_&&ticks()-officialReaderSampleAt_<100) {
       const int limit=std::max(1,display_.topHeight()*3/4);
       officialReaderMomentum_=std::max(-limit,std::min(limit,int(std::lround(officialReaderVelocity_*100.))));
@@ -2908,6 +2951,7 @@ void App::officialReaderTouch(const Json &message) {
     officialReaderBounds_={0,std::max(uiMetrics_.dp(8),layout().safeTop()),screen_.width-1,display_.topHeight()-1};
     officialReaderSampleAt_=ticks();officialReaderSampleY_=y;
     officialReaderX_=x;officialReaderY_=officialReaderLastY_=y;
+    officialComposerHit_=officialActionId_.empty()?officialComposerActionAt(x,y):std::string();officialComposerMoved_=false;
     officialReaderCaptured_=x>=officialReaderBounds_.x1&&x<=officialReaderBounds_.x2&&
       y>=officialReaderBounds_.y1&&y<=officialReaderBounds_.y2;
     if(chatControls_) {
@@ -2916,6 +2960,7 @@ void App::officialReaderTouch(const Json &message) {
     }
     return;
   }
+  if(!officialComposerHit_.empty()){officialComposerMoved_|=std::abs(x-officialReaderX_)>uiMetrics_.dp(12)||std::abs(y-officialReaderY_)>uiMetrics_.dp(12);return;}
   if(!officialReaderCaptured_)return;
   if(x<officialReaderBounds_.x1||x>officialReaderBounds_.x2||y<officialReaderBounds_.y1||y>officialReaderBounds_.y2) {
     officialReaderCaptured_=false;return;
@@ -3306,6 +3351,8 @@ void App::handle(const Json &m) {
     if(type=="keyboard.change") {
       const auto text=m.value("text",std::string());
       if(editLength(text)>editor_.limit)return;
+      const auto textEvent=m.value("inputEventTime",int64_t(0));
+      if(textEvent>0&&std::abs(textEvent-nowMs())<5000)officialTextEventAt_=std::max(officialTextEventAt_,textEvent);
       const bool changed=text!=editor_.text;
       const auto previousCursor=editor_.cursor;
       const auto utf16=m.value("cursorIndex",editUtf16(text,editLength(text)));
@@ -3326,9 +3373,15 @@ void App::handle(const Json &m) {
     field["requestId"]=keyboardId_;field["cursorIndex"]=editUtf16(editor_.text,editor_.cursor);
     bridge_.send("keyboard.field",field);
   }
+  else if(type=="keyboard.action.error") {
+    if(m.value("requestId",std::string())==keyboardId_&&m.value("actionId",std::string())==officialActionId_){officialActionId_.clear();officialActionKind_.clear();}
+  }
   else if (type == "keyboard.result") {
     if (!keyboard_ || m.value("requestId", std::string()) != keyboardId_)
       return;
+    const auto action=!officialActionId_.empty()&&m.value("confirmed",false)&&m.value("actionId",std::string())==officialActionId_?officialActionKind_:std::string();
+    const auto actionSession=officialActionSession_;
+    officialActionId_.clear();officialActionKind_.clear();officialComposerHit_.clear();
     // Never carry a system-key contact into the restored native controls.
     stopOfficialReaderGlide();touchInput_.close();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;
     if(officialDocked_&&!m.value("confirmed",false))editor_=std::move(officialBackup_);
@@ -3344,6 +3397,8 @@ void App::handle(const Json &m) {
       } else {editorPolicy(true);editorChanged();editor_.notice=m.value("error",std::string());editorFollowCursor_=false;editorBuild();editorOcrStart();}
     }
     display_.visible(visible_ && (inputFocused_ || display_.systemOverlaySafe()));
+    if(!action.empty()&&!editor_.active&&session_==actionSession)
+      events_.push("official_composer_action",{{"session",actionSession},{"action",action}});
 
   } else if(type=="navigation.policy") {
     if(m.value("sequence",uint64_t(0))==backPolicySequence_) {
@@ -3393,8 +3448,9 @@ void App::tick() {
   }
   const int reservedTop = display_.systemOverlaySafe() && !editor_.active && !imageViewer_ && view_ != "crop"
       ? std::max(uiMetrics_.dp(8), std::min(screen_.width, screen_.height) / 25) : 0;
+  if(!officialActionId_.empty()&&ticks()-officialActionAt_>2500){officialActionId_.clear();officialActionKind_.clear();}
   const bool officialReader=officialReaderInput();
-  if(!officialReader){stopOfficialReaderGlide();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;}
+  if(!officialReader){officialComposerHit_.clear();officialContactIds_.clear();stopOfficialReaderGlide();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;}
   auto touches=touchInput_.poll((visible_ && !keyboard_ && touchLeaseActive_)||officialReader, reservedTop);
   for(const auto &touch:touches){
     if(!officialReaderInput()&&(!visible_ || keyboard_ || !inputFocused_ || !inputFocus_.allowed(ticks()))) { updateInputFocus();touchInput_.close();break; }
@@ -3546,6 +3602,15 @@ void App::tick() {
     if(e.type=="image_scan_open") {
       if(e.data.value("scan",uint64_t(0))==scanId_ && e.data.value("generation",uint64_t(0))==scanGeneration_ &&
          e.data.value("session",std::string())==scanSession_)viewScanResult();
+      continue;
+    }
+    if(e.type=="official_composer_action") {
+      if(visible_&&view_=="chat"&&!keyboard_&&!editor_.active&&!modal_&&!attachments_&&!navigationOpen_&&e.data.value("session",std::string())==session_) {
+        const auto action=e.data.value("action",std::string());
+        if(action=="attachments")toggleAttachments();
+        else if(action=="effort")effortPicker();
+        else if(action=="send"&&!generating_&&!contextBusy_)sendMessage();
+      }
       continue;
     }
     if(e.type=="composer_send") {

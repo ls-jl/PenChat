@@ -102,6 +102,12 @@ class App {
   lv_obj_t *officialReaderGlideBody_ = nullptr;
   void stopOfficialReaderGlide();
   int editorComposerEntryBottom_ = 0;
+  std::string officialComposerHit_,officialActionId_,officialActionKind_,officialActionSession_;
+  uint64_t officialActionAt_ = 0;
+  int64_t officialKeyEventAt_ = 0, officialTextEventAt_ = 0;
+  std::set<std::string> officialContactIds_;
+  bool officialComposerMoved_ = false;
+  std::string officialComposerActionAt(int x,int y) const;
   bool officialReaderInput() const;
   void officialReaderTouch(const Json &message);
   bool officialReaderDown_ = false, officialReaderCaptured_ = false, officialReaderDragging_ = false;
