@@ -44,9 +44,10 @@ sensor guard、Web程序、launcher及JS的文件哈希。
 第24项横屏composer策略、第81项推理展开/收起后的跟随问题、第95项旧Markdown golden。
 保留原始结果，不把后续增量改写为同一二进制的148项全通过。
 第81项已在candidate-5-focus修复，`disclosure-delta/effective-results.json`记录完整6套增量
-6/6通过；第24项和第95项仍等待用户选择，未修改原golden或擅自改写composer规则。
-前者涉及AGENTS的宽横屏下拖显示与当前实际底部/快捷操作策略冲突；后者涉及当前黑底与旧灰底。
-当前候选图与已展示用户的黑底图逐字节一致。
+6/6通过；第24项仍待确定宽横屏下拖显示与当前实际底部/快捷操作策略的契约冲突。
+用户随后明确“聊天页面保留黑底”：第95项已更新为0.3.1合成场景基线，并用精确candidate-6-back
+重新渲染验证通过。新图与此前展示的黑底候选图逐字节一致；字体哈希、夹具、尺寸、帧数和
+精确PNG比较未变。旧图与定向验证日志保留在`black-approved/`，不回写原148项运行结果。
 
 candidate-6-back新增共享BackGeometry，起点边缘至少使用44逻辑像素触摸目标；
 slop、travel、时间及失焦取消规则不变。7套真实LVGL检查（back_hit_area、back_navigation、
@@ -100,7 +101,7 @@ RK候选包身份、架构、来源锁、资源、剥离和完整Web组件检查
 状态清单为`devices/coverage-progress.json`，这是持续更新的快照；本文件不把正在运行或needs-review条目升级为通过。
 三机settings-controls已完成12种实改/非默认重启验证，两横屏pinyin-core专项已过；
 三机smoke的26行仅证明可达。官方全黑SDK截图仍属capture harness未决，不能据此认定生产IME缺陷。
-真实纸面光学、物理圆角、人工动画评估、两项用户决定及S6验收仍pending。
+真实纸面光学、物理圆角、人工动画评估、宽横屏composer契约及S6验收仍pending；聊天黑底已确认。
 必需门槛未闭合前继续保留在dev，不合并、推送或发布。
 
 Y07最新候选已在(43,70)起点完成Settings回聊天、根页正常finish、短划/回撤取消、
@@ -143,6 +144,9 @@ Y01最新native-touch-core结果通过并恢复；Y07此前DPI第209行等待`ed
 后续完整DPI复验已通过。旧超时仍保留为历史证据，不代表当前DPI未过。
 三台官方IME取消仍pending：Y07删字后fresh SDK图无可见hide，横屏SDK图显示旧`al`
 而非当前nonce，执行者停止并安全恢复。`017e8ed`的43/43 JS回归不能替代这些设备结果。
+Y07同一编辑session的长度26→25证明删字已回到原生编辑状态；完整PNG校验只能排除文件损坏，
+不能单凭黑色截图判断实体屏幕是否黑屏或所有显示层是否已被捕获。横屏的长度/session检查
+也没有直接捕获本轮SDK实际收到的完整文本，故尚不能把旧`al`归因于某个确定的软件层。
 最新收敛结果来自`candidate-5-auxiliary-fixed`、`candidate-5-y07-completion`及
 `candidate-5-final-hardware`等各机manifest：三机title/compression、feedback观察30s无上传、
 update只读检查通过；两横屏scanner核心20循环、OCR和crash重arm通过。Y07拼音、
@@ -178,9 +182,11 @@ supervision 5/5通过（`supervision-final.log`），46份改动设备Python文�
 这些是harness/模板检查，不将未达安装动作的设备scope升级为install通过。
 
 正式产品源码均已本地提交且产品diff为空；普通候选仍为a38/native cd1，纯tests/docs不重复构建。
-尚未闭合：两项用户选择、官方IME设备取消、安装更新桥接自测、真实纸面/物理圆角/主观动画、
+尚未闭合：宽横屏composer契约、官方IME设备取消、真实纸面/物理圆角/主观动画、
 暂缓的S6功能验收和既有再分发许可。此前三机设备操作已经结束；功能覆盖与对应证据见
 `devices/coverage-progress.json`，安装和原数据恢复另见上述最终汇总。
+用户随后明确“更新api先不管”：更新API及安装桥接自测暂缓，不再作为当前推进项；保留未验证
+状态与既有失败证据，不改写为通过，也不继续设备实验。
 
 最终覆盖补审发现的Y07两项缺口已闭合，证据为
 `matrix/candidate-5-y07-two-gap-delta/7G12000010905426/manifest.json`：onboarding七步、
@@ -260,11 +266,11 @@ DB查询优化和生命周期代码。最初静态审查后，用户追加了浅
 | 门槛 | 必须记录的证据 | 本草案状态 |
 | --- | --- | --- |
 | 版本与身份 | package与lock根版本一致；两类载荷身份、AMR名、About与实际版本一致 | package与lock根均0.3.1；最新RK候选身份已核对；未发布 |
-| 完整回归 | 本轮`npm test`、sanitizer及新增专项测试的命令、退出状态、日志 | 148基线145通过+3保留；81已由host5增量6/6修复；24/95待用户；完整sanitizer在candidate-4通过，最新Back定向通过 |
+| 完整回归 | 本轮`npm test`、sanitizer及新增专项测试的命令、退出状态、日志 | 148基线145通过+3保留；81已由host5增量6/6修复；95按用户黑底决定更新后定向通过，24仍待确定；完整sanitizer在candidate-4通过，最新Back定向通过 |
 | 原生构建与生产包 | host、RK原生、生产AMR；适用的S6 ARMv7构建/包校验；`check`结果如实记录可选cnpm提示 | host、AArch64和完整RK候选构建/包检查通过；ARMv7/C++14及S6完整开发包检查通过；check仅提示可选cnpm，S6功能验收待进行 |
 | 来源与资源 | 锁文件、字体/词典/公式/模型/运行库/证书和许可材料与实际包一致 | 上述67份本地源码匹配，RK完整包锁定资源检查通过；再分发许可事项仍未解决 |
 | 程序ABI与隔离 | AArch64和ARMv7 hard-float隔离；launcher导出；scanner的`system`禁执行和`ioctl`导出；stripping后仍可绑定 | RK及S6完整候选包身份/架构/资源检查通过；包检查不代替S6功能验收 |
-| 更新与恢复 | 受限更新URL、版本/SHA/ZIP验证、安装实际版本核对、未知结果不重投；恢复草稿、图片和阅读位置 | 三机只读更新流程、持久化和数据恢复检查通过；隔离安装自测尚未达到安装动作，桥接实测证据仍未闭合 |
+| 更新与恢复 | 受限更新URL、版本/SHA/ZIP验证、安装实际版本核对、未知结果不重投；恢复草稿、图片和阅读位置 | 三机只读更新流程、持久化和数据恢复检查通过；隔离安装自测尚未达到安装动作；用户已暂缓更新API与桥接自测，保持未验证 |
 | 用户数据恢复 | 在线快照用SQLite backup；设备测试隔离并恢复DB、资产、备份和公共传输目录；宿主PID不变 | 三机原private/public完整文件manifest恢复核对一致，host/boot不变；详见final-install-restore-summary.json |
 | Y01/Y02/Y07 | 明确serial、候选包SHA、测试范围及安装/恢复结果；不把取帧或回放等同纸面光学验收 | 三机普通a38包、native cd1与启动器JS均已核对；功能范围见最终coverage，视觉与纸面光学仍单列 |
 | S6 | 按用户后续指令先安装，功能测试稍后进行，保留扫描重开历史风险和恢复证据 | **完整0.3.1开发包已安装，原数据保留；未启动应用或运行功能测试** |
@@ -301,8 +307,8 @@ API默认/none/多等级强度胶囊、设置及Provider表单、Markdown表格/
 候选展开、覆盖层/后台恢复与缩放后重建。真机证据只来自本轮允许访问的设备。
 不适用组合应给出原因；不能简单以截图张数代表覆盖率。
 
-仓库中的`tests/golden/README.md`仍说明其960×266 Markdown图是0.1.56时期的人工基线；
-`tests/golden/manifest.json`只锁定字体/图片哈希和帧数。它是窄范围像素回归，
+仓库中的`tests/golden/README.md`记录其960×266 Markdown图由0.1.56旧基线迁移到用户确认的
+0.3.1黑底候选；`tests/golden/manifest.json`锁定字体/图片哈希和帧数。它是窄范围像素回归，
 不是0.3.1完整主题、缩放、输入法或设备视觉验收。
 
 `scripts/ui-gallery.py`从通用`.work/chatgpt-style`、`reasoning-ui`、`scanner-ui`、
