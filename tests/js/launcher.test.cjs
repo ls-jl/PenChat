@@ -817,10 +817,17 @@ test('official gap uses theme backing and changes hole only with native geometry
  assert.equal(f.page.officialHoleStyle.height,'0px')
  f.page.inlineOfficialField({requestId:'boundary',x:20,y:480,width:520,height:50,nativeCaret:true,holeHeight:616})
  assert.equal(f.page.officialHoleStyle.height,'616px')
+ assert.equal(f.page.officialBackingStyle.top,'616px');assert.equal(f.page.officialBackingStyle.height,'594px')
+ assert.equal(f.page.officialBackingStyle.backgroundColor,f.page.appearanceColors.background)
+ const key=f.page.officialControlKey,handlers=f.page.officialInputHandlers
  f.native.officialKeyboard=()=>({supported:true,visible:true,height:590,foreground:true})
  f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
  assert.equal(f.page.officialHoleStyle.height,'616px')
  f.page.inlineOfficialField({requestId:'old',x:20,y:480,width:520,height:50,nativeCaret:true,holeHeight:900})
  assert.equal(f.page.officialHoleStyle.height,'616px')
+ assert.equal(f.page.officialControlKey,key);assert.equal(f.page.officialInputHandlers,handlers)
+ const template=fs.readFileSync('src/launcher/LauncherPage.vue','utf8').split('<script>')[0]
+ assert(template.indexOf('class="official-backing"')>template.indexOf('<hole'))
+ f.page.cancelOfficialKeyboard();assert.equal(f.page.officialBackingStyle.height,'0px')
  f.page.dispose()
 })

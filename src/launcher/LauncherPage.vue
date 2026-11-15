@@ -1,6 +1,7 @@
 <template>
   <div class="native-page" :style="pageStyle">
     <hole class="native-hole" :style="officialInline ? officialHoleStyle : nativeAreaStyle"></hole>
+    <div v-if="officialInline" class="official-backing" :style="officialBackingStyle"></div>
     <div v-if="officialInline" class="official-editor" :style="appearanceStyles.officialPanel">
       <input v-if="officialSingleLine" :key="officialControlKey" ref="officialInput" class="official-input" :style="officialInputStyle" :type="officialSensitive ? 'password' : 'text'" :value="officialInitialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="false" cursorColor="transparent" @input="officialInputHandlers.input" @confirm="officialInputHandlers.confirm" />
       <textarea v-else :key="officialControlKey" ref="officialInput" class="official-input" :style="officialInputStyle" :value="officialInitialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="false" cursorColor="transparent" @input="officialInputHandlers.input" @confirm="officialInputHandlers.confirm" />
@@ -54,7 +55,7 @@ function resolvedAppearance(c, m) {
   }
 }
 export default {
-  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialHoleStyle: {}, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
+  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialHoleStyle: {}, officialBackingStyle: {}, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
   mounted() { this.boot() },
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
@@ -376,6 +377,7 @@ export default {
             const height = this._screen.height - state.height
             if ((!this._officialNativeCaret || parseInt(this.officialHoleStyle.height,10)>height) && this.officialHoleStyle.height !== height + 'px')
               this.officialHoleStyle = Object.assign({}, this.nativeAreaStyle, { height: height + 'px' })
+            this.updateOfficialBacking()
             this._officialValidLayoutAt = Date.now()
             this._officialSeen = true
             // Register the vendor's confirmation result only after the proxy
@@ -406,6 +408,15 @@ export default {
           this.cancelOfficialKeyboard('官方键盘未能显示，已恢复内置键盘')
       } catch (_) { this.cancelOfficialKeyboard('官方键盘状态异常，已恢复内置键盘') }
     },
+    updateOfficialBacking() {
+      if (!this._screen) return
+      const top=Math.max(0,Math.min(this._screen.height,parseInt(this.officialHoleStyle.height,10)||0))
+      // Shrinking a Falcon hole can leave its old transparent pixels intact.
+      // Paint an explicit page-layer backing below the native boundary; the
+      // separate system IME remains above it, and the focused proxy is retained.
+      const style=Object.assign({},this.nativeAreaStyle,{width:this._screen.width+'px',top:top+'px',height:(this.officialInline&&top>0?this._screen.height-top:0)+'px',backgroundColor:this.appearanceColors.background})
+      if(Object.keys(style).some(key=>style[key]!==this.officialBackingStyle[key]))this.officialBackingStyle=style
+    },
     updatePageStyle() {
       // Native's independent top-region plane paints the retained official page.
       // Native acknowledges the hole boundary after positioning its plane. Keep
@@ -413,6 +424,7 @@ export default {
       // extends outside the keyboard bounds and must be erased on selection.
       const page = Object.assign({}, this.nativeAreaStyle, this.appearanceStyles.page || {})
       if (Object.keys(page).some(key => page[key] !== this.pageStyle[key]) || Object.keys(page).length !== Object.keys(this.pageStyle).length) this.pageStyle = page
+      this.updateOfficialBacking()
     },
     applyAppearance(event) {
       if (!event || !['dark', 'light'].includes(event.mode)) return
@@ -441,6 +453,7 @@ export default {
       if(this._officialNativeCaret && Number.isInteger(field.holeHeight) && field.holeHeight>=0 && field.holeHeight<this._screen.height) {
         const height=field.holeHeight+'px'
         if(this.officialHoleStyle.height!==height)this.officialHoleStyle=Object.assign({},this.nativeAreaStyle,{height})
+        this.updateOfficialBacking()
       }
       const proxy = field.nativeCaret ? { x: this._screen.width - 1, y: 0, width: 1, height: 1 } : field
       const style = Object.assign({}, this.appearanceStyles.officialInput || {}, { left: proxy.x + 'px', top: proxy.y + 'px', width: proxy.width + 'px', height: proxy.height + 'px' })
@@ -700,6 +713,7 @@ export default {
 <style lang="less" scoped>
 .native-page { width: 100vw; height: 100vh; position: relative; }
 .native-hole { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
+.official-backing { position: absolute; left: 0px; }
 .official-editor { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
 .official-input { position: absolute; padding: 0px; }
 .startup-panel { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; justify-content: center; align-items: center; }
