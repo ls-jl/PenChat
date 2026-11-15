@@ -24,6 +24,8 @@ def run(w,h):
             capture(app,OUT/f'{w}-official-upper.png')
             app.send('keyboard.change',requestId=ident,text='fixture',cursorIndex=7)
             assert editor(app)['length']==7 and editor(app)['text_visible']
+            for _ in range(3):app.send('keyboard.change',requestId=ident,text='fixture',cursorIndex=3)
+            assert editor(app)['cursor']==3,'Unchanged cursor heartbeat moved insertion point'
             app.send('keyboard.change',requestId='stale',text='ignored',cursorIndex=0)
             assert editor(app)['length']==7
             time.sleep(.82);assert not app.diag()['display_visible'],'Expired monitor must release its plane'

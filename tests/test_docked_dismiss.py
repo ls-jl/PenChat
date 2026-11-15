@@ -63,6 +63,7 @@ for w,h in [(568,1210),(600,1280)]:
    assert a.diag()['draft_length']==5 and a.read_messages()==before
    # The plus menu follows capsule edges, may overlap keys, and retains the docked editor.
    for state in ['closed-keyboard','open-keyboard']:
+    t.wait_for(lambda:not a.diag().get('surface_motion',False))
     if state=='open-keyboard':open_input()
     b=a.diag()['composer_bounds'];a.tap(b[0]+34,b[3]-34)
     t.wait_for(lambda:a.diag()['attachments'])

@@ -2792,7 +2792,7 @@ void App::cancelNativeInteraction() {
   // Its release is rejected after focus loss, so do not carry release absorption
   // into the next independently focused contact.
   popupConsumeTouch_ = contextMenuOpening_ = popupTracking_ = false;
-  officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;
+  officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;
   resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
   finishImageGesture(false); nonImageMulti_ = false; viewerLastTap_ = 0;
   if (imageViewer_ || view_ == "crop") imageGesture_.mode = -2;
@@ -2843,7 +2843,7 @@ void App::officialReaderTouch(const Json &message) {
   const bool cancel=message.value("cancelled",false)||
     (message.contains("points")&&message["points"].is_array()&&message["points"].size()>1);
   const int x=message.value("x",0),y=message.value("y",0);
-  if(cancel){officialReaderCaptured_=false;officialReaderDown_=down;return;}
+  if(cancel){officialReaderPending_=0;officialReaderCaptured_=false;officialReaderDown_=down;return;}
   if(!down){officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;return;}
   if(!officialReaderDown_) {
     officialReaderDown_=true;officialReaderDragging_=false;
@@ -2863,9 +2863,8 @@ void App::officialReaderTouch(const Json &message) {
     if(std::abs(dy)<=uiMetrics_.gestures().drag||std::abs(dy)<=std::abs(dx))return;
     officialReaderDragging_=true;chatFollowing_=false;lv_obj_stop_scroll_anim(body_);
   }
-  lv_obj_scroll_by(body_,0,y-officialReaderLastY_,LV_ANIM_OFF);
+  officialReaderPending_+=y-officialReaderLastY_;
   officialReaderLastY_=y;
-  paintVisible();
 }
 void App::updateInputFocus() {
   const auto now=ticks();
@@ -3240,10 +3239,11 @@ void App::handle(const Json &m) {
       const auto text=m.value("text",std::string());
       if(editLength(text)>editor_.limit)return;
       const bool changed=text!=editor_.text;
-      editor_.text=text;editor_.preedit.clear();editor_.position(editLength(text));
-      const auto utf16=m.value("cursorIndex",editUtf16(text,editor_.cursor));
+      const auto previousCursor=editor_.cursor;
+      const auto utf16=m.value("cursorIndex",editUtf16(text,editLength(text)));
       size_t cursor=0,units=0;for(unsigned char c:text) {if(units>=utf16)break;if((c&192)!=128){units+=c>=240?2:1;++cursor;}}
-      editor_.position(cursor);editorUpstream_=std::string::npos;
+      if(!changed&&cursor==previousCursor)return;
+      editor_.text=text;editor_.preedit.clear();editor_.position(cursor);editorUpstream_=std::string::npos;
       editorSyncText(changed);
     } else {
       const int height=m.value("height",0);
@@ -3262,7 +3262,7 @@ void App::handle(const Json &m) {
     if (!keyboard_ || m.value("requestId", std::string()) != keyboardId_)
       return;
     // Never carry a system-key contact into the restored native controls.
-    touchInput_.close();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;
+    touchInput_.close();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;
     if(officialDocked_&&!m.value("confirmed",false))editor_=std::move(officialBackup_);
     officialBackup_=EditorState{};officialDocked_=false;officialHeight_=0;officialForeground_=false;officialLayoutAt_=0;
     // Withdraw the partial plane before restoring full geometry, so the old
@@ -3326,11 +3326,16 @@ void App::tick() {
   const int reservedTop = display_.systemOverlaySafe() && !editor_.active && !imageViewer_ && view_ != "crop"
       ? std::max(uiMetrics_.dp(8), std::min(screen_.width, screen_.height) / 25) : 0;
   const bool officialReader=officialReaderInput();
-  if(!officialReader)officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;
+  if(!officialReader){officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;}
   auto touches=touchInput_.poll((visible_ && !keyboard_ && touchLeaseActive_)||officialReader, reservedTop);
   for(const auto &touch:touches){
     if(!officialReaderInput()&&(!visible_ || keyboard_ || !inputFocused_ || !inputFocus_.allowed(ticks()))) { updateInputFocus();touchInput_.close();break; }
     handle(touch);
+  }
+  if(officialReaderPending_) {
+    const int delta=officialReaderPending_;officialReaderPending_=0;
+    // One scroll/layout/render pass per UI tick, regardless of evdev batch size.
+    if(officialReaderInput())lv_obj_scroll_by(body_,0,delta,LV_ANIM_OFF);
   }
   imageReturnTick();
   for (const auto &saved : db_.saveEvents()) {

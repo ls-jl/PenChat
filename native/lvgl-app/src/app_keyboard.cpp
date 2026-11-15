@@ -953,6 +953,9 @@ void App::editorFinish(bool confirmed) {
   const int exitDistance=editorLayout().docked?editorLayout().height-editorLayout().panelTop:screen_.height;
   std::unique_ptr<SurfaceSnapshot> leaving;
   if(!transfer&&!editorSelectionOnly_&&editorRoot_&&visible_&&inputFocused_)leaving.reset(new SurfaceSnapshot(editorRoot_));
+  const bool lowerComposer=leaving&&editorInlineChat_&&chatControls_;
+  lv_area_t composerBefore{};
+  if(lowerComposer){lv_obj_update_layout(chatControls_);lv_obj_get_coords(chatControls_,&composerBefore);}
   for(auto object:{chatControls_,toBottom_})if(object&&surfaceEntering(object)) {
     motion::cancel(object);motion::state(object)->closing=false;lv_obj_set_style_translate_y(object,0,0);
   }
@@ -994,6 +997,13 @@ void App::editorFinish(bool confirmed) {
   editorTarget_=nullptr;editorTargetKey_.clear();editorTargetView_.clear();
   if(transfer){editorTransfer_=true;return;}
   const auto preferred=editor_.preferredChinese;editor_=EditorState{};editor_.preferredChinese=preferred; editorSelectionOnly_=false; editorDeferred_.clear(); syncScanner();
+  if(lowerComposer&&chatControls_) {
+    lv_obj_update_layout(chatControls_);lv_area_t after;lv_obj_get_coords(chatControls_,&after);
+    const int offset=composerBefore.y2-after.y2;
+    slideSurfaceIn(chatControls_,0,offset);
+    if(toBottom_)slideSurfaceIn(toBottom_,0,offset);
+    lv_obj_update_layout(chatControls_);
+  }
   if(leaving)leaving->show(0,exitDistance);
 }
 Json App::editorOfficialField() {

@@ -96,6 +96,7 @@ class App {
   uint64_t formLayoutBatches_=0,formLayoutRows_=0;
   void portraitPage();
   void arrangeModal();
+  int officialReaderPending_ = 0;
   int editorComposerEntryBottom_ = 0;
   bool officialReaderInput() const;
   void officialReaderTouch(const Json &message);
@@ -942,7 +943,7 @@ public:
   void windowFocus(bool focused);
   void shutdown();
   bool updateExit() const { return updateExit_; }
-  bool interactive() const { return visible_ && !keyboard_; }
+  bool interactive() const { return visible_ && (!keyboard_ || officialReaderInput()); }
   void demo(const std::string &markdown);
   Json diagnostics() const;
 };
