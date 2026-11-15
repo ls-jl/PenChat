@@ -138,6 +138,7 @@ class App {
   uint64_t balanceGeneration_ = 0;
   bool balanceDirty_ = false;
   int64_t balanceLastRender_ = 0;
+  int balanceAnchorX_ = 0, balanceAnchorY_ = 0;
   lv_obj_t *balanceShortcut_ = nullptr;
   lv_obj_t *balanceRefresh_ = nullptr;
   std::map<std::string,lv_obj_t *> balanceDetailActions_;

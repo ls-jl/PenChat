@@ -72,6 +72,10 @@ for width,height in [(960,266),(640,260),(568,1210)]:
             capture(a,OUT/f'{width}x{height}-balances.png')
             popup_action(a,'detail:deepseek');capture(a,OUT/f'{width}x{height}-details.png')
             assert set(k for k in a.diag()['balances']['actions'] if not k.startswith('detail:'))=={'refresh'}
+            stable=a.diag()['balances']['bounds']
+            popup_action(a,'refresh');wait_for(lambda:a.diag()['balances']['pending']==0)
+            time.sleep(.4)
+            assert a.diag()['balances']['bounds']==stable,'Refresh must retain its opening anchor'
             # One Refresh submits all configured providers; both changed fixtures must update.
             fixtures['deepseek']={'status':503,'body':'PRIVATE SERVER ERROR'}
             fixtures['kimi']={'status':401,'body':'DO NOT EXPOSE'};fixture.write_text(json.dumps(fixtures))

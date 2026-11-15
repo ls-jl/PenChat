@@ -33,6 +33,9 @@ void App::balanceButton(lv_obj_t *parent,int x,int y,uint32_t background) {
   },LV_EVENT_ALL,press);
 }
 void App::openBalances() {
+  // Retain the opening anchor; refresh/detail touches belong inside the panel.
+  balanceAnchorX_=lastTouch_.value("x",screen_.width/2);
+  balanceAnchorY_=lastTouch_.value("y",screen_.height/2);
   if (navigationList_) navigationScroll_ = std::max(0, int(lv_obj_get_scroll_y(navigationList_)));
   const bool inDrawer=layout().portrait() && navigationOpen_;
   if(!inDrawer)closeNavigation(false);
@@ -132,7 +135,7 @@ void App::layoutBalances() {
   const auto safe=popupSafeArea(screen_.width,screen_.height,roundedDisplay_,uiMetrics_);
   const int cap=layout().portrait()?std::min(safe.height,screen_.height/3):safe.height;
   const int height=std::min(cap,header+2*padding+content);
-  const LayoutRect anchor{lastTouch_.value("x",screen_.width/2),lastTouch_.value("y",screen_.height/2),1,1};
+  const LayoutRect anchor{balanceAnchorX_,balanceAnchorY_,1,1};
   const auto area=placeContextPopup(screen_.width,screen_.height,roundedDisplay_,anchor,
       lv_obj_get_width(contextMenuPanel_),height,0,uiMetrics_);
   lv_obj_set_y(contextMenuPanel_,area.y);lv_obj_set_height(contextMenuPanel_,height);

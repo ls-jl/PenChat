@@ -806,7 +806,7 @@ bool App::editorDismissTouch(int x,int y,bool down,bool cancelled) {
       const bool finish=!cancelled&&editorDismissOffset_>=editorDismissThreshold_;
       editorDismissTracking_=editorDismissing_=editorPointer_=false;
       readerDown_=readerPointer_=readerVertical_=false;readerSettle_=true;
-      if(finish) {editorResetDismiss();editorAction("dismiss");}
+      if(finish) {editorDismissReturnAt_=0;editorAction("dismiss");}
       else {editorDismissReturnFrom_=editorDismissOffset_;editorDismissReturnAt_=ticks();}
     }
     return true;

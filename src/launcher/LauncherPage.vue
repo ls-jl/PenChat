@@ -399,9 +399,9 @@ export default {
     },
     updatePageStyle() {
       // Native's independent top-region plane paints the retained official page.
-      // Its Falcon proxy needs neither a video-layer hole nor an opaque fill.
+      // Keep an opaque backing beneath the system panel: its floating preedit
+      // extends outside the keyboard bounds and must be erased on selection.
       const page = Object.assign({}, this.nativeAreaStyle, this.appearanceStyles.page || {})
-      if (this.officialInline) page.backgroundColor = 'transparent'
       if (Object.keys(page).some(key => page[key] !== this.pageStyle[key]) || Object.keys(page).length !== Object.keys(this.pageStyle).length) this.pageStyle = page
     },
     applyAppearance(event) {

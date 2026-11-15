@@ -675,23 +675,23 @@ test('invalid official heights expire at opening deadline or existing display le
 })
 
 
-test('portrait official proxy omits video hole and keeps its Falcon root transparent',async()=>{
+test('portrait official proxy omits video hole and clears floating IME preedit with opaque backing',async()=>{
  const f=fixture();await f.page.boot();portraitOfficial(f)
  f.page.nativeAreaStyle={left:'0px',top:'0px',width:'568px',height:'1210px'}
  f.page.updatePageStyle()
  const normalColor=f.page.pageStyle.backgroundColor
  assert.notEqual(normalColor,'transparent')
  f.page.openKeyboard({requestId:'isolate',text:'original',field:{x:24,y:520,width:520,height:44,fontSize:26}})
- assert(f.page.officialInline);assert.equal(f.page.pageStyle.backgroundColor,'transparent')
+ assert(f.page.officialInline);assert.equal(f.page.pageStyle.backgroundColor,normalColor)
  const root=f.page.pageStyle,field=f.page.officialInputStyle,handlers=f.page.officialInputHandlers
  handlers.input('edited')
  assert.equal(f.page.pageStyle,root);assert.equal(f.page.officialInputStyle,field)
  f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
- assert.equal(f.page.pageStyle.backgroundColor,'transparent');assert.equal(f.page.pageStyle.height,'1210px')
+ assert.equal(f.page.pageStyle.backgroundColor,normalColor);assert.equal(f.page.pageStyle.height,'1210px')
  const colors={background:'#ffffff',text:'#20242d',muted:'#626b78',surface:'#eef1f5',primaryText:'#ffffff',caret:'#2457c5'}
  const metrics={title:35,body:26,caption:25,gap:18,inset:40,top:25,bottom:31,retryWidth:225,leaveX:294,leaveWidth:150,controlHeight:56,radius:15}
  f.page.applyAppearance({mode:'light',colors,metrics})
- assert.equal(f.page.pageStyle.backgroundColor,'transparent');assert.equal(f.page.officialInputStyle,field)
+ assert.equal(f.page.pageStyle.backgroundColor,'#ffffff');assert.equal(f.page.officialInputStyle,field)
  f.page.cancelOfficialKeyboard()
  assert(!f.page.officialInline);assert.equal(f.page.pageStyle.backgroundColor,'#ffffff')
  assert.equal(f.page.pageStyle.height,'1210px')
