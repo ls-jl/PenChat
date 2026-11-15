@@ -110,7 +110,10 @@ void App::syncChatBottomPadding() {
   // the composer and return button repeatedly reverse at the end of a scroll.
   // Pull and keyboard-push offsets remain viewport-only transforms.
   const int tail=uiMetrics_.dp(16);
-  const int padding=tail+(!docked?chatComposerHeight()+geometry.safeBottom():0);
+  // The reader continues behind the floating capsule. Reserve its occluded
+  // tail for last-line reachability, rather than clipping away the backdrop.
+  const int padding=tail+chatComposerHeight()+(docked?
+      uiMetrics_.composer().dockGap+uiMetrics_.composer().readerGap:geometry.safeBottom());
   if(lv_obj_get_style_pad_bottom(messageContent_,LV_PART_MAIN)!=padding) {
     const bool previous=chatLayout_;chatLayout_=true;
     lv_obj_set_style_pad_bottom(messageContent_,padding,0);

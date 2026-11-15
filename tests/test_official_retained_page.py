@@ -19,6 +19,8 @@ def run(w,h):
             layout();s=app.diag()
             assert s['display_visible'] and not s['window_focused']
             assert s['display_top_height']==h-h//2 and s['composer_bounds'][3]<s['display_top_height']
+            assert s['chat_header']['reader_bounds'][3]==s['display_top_height']-1
+            assert s['chat_header']['reader_bounds'][3]>s['composer_bounds'][3]
             assert not s['touch_input']['active'] and not editor(app)['ocr_active']
             assert editor(app)['text_visible'] and editor(app)['text_in_target']
             capture(app,OUT/f'{w}-official-upper.png')

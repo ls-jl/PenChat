@@ -15,9 +15,14 @@ with tempfile.TemporaryDirectory(prefix='official-reader-') as folder:
   def lease():a.send('keyboard.layout',requestId=ident,height=590,foreground=True)
   def touch(y,down=True,x=200,points=None):
    lease();a.send('touch',x=x,y=y,pressed=down,**({'points':points} if points is not None else {}));time.sleep(.025)
-  lease();time.sleep(.1);before=a.diag()['scroll_y'];session=a.diag()['editor']['session']
+  lease();time.sleep(.1);initial=a.diag();before=initial['scroll_y'];session=initial['editor']['session']
+  assert initial['chat_header']['reader_bounds'][3]==initial['display_top_height']-1
+  parts=[b for r in initial['text_selection']['regions'] if r['key']=='reply0' for b in r['parts'] if b[3]>=b[1]]
+  assert parts and max(b[3] for b in parts)<=initial['composer_bounds'][1]-16,'Last line is obscured by composer'
   for y in [180,210,250,300,340]:touch(y)
   touch(340,False);assert a.diag()['scroll_y']<before
+  scrolled=a.diag()
+  assert scrolled['chat_header']['reader_bounds'][3]>scrolled['composer_bounds'][3]
   released=a.diag()['scroll_y'];time.sleep(.12);lease()
   assert a.diag()['scroll_y']<released,'Release stopped without inertia'
   # A new contact, including on the keyboard, stops the glide immediately.
@@ -30,6 +35,9 @@ with tempfile.TemporaryDirectory(prefix='official-reader-') as folder:
   touch(500,False,x=2);assert a.diag()['scroll_y']<before_wide
   touch(900);touch(900,False)
   fixed=a.diag()['scroll_y']
+  from image_gestures import capture
+  out=ui.ROOT/'.work/composer-transparent';out.mkdir(parents=True,exist_ok=True)
+  capture(a,out/'reader-behind-capsule.png')
   for y in [900,850,700,350,250]:touch(y)
   touch(250,False);assert a.diag()['scroll_y']==fixed,'Keyboard-origin touch reached reader'
   touch(200,points=[{'id':1,'x':200,'y':200},{'id':2,'x':220,'y':210}])
