@@ -5,6 +5,7 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -15,6 +16,7 @@
 #include <drm_fourcc.h>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <vector>
 
 namespace camera {
@@ -301,6 +303,7 @@ bool Overlay::pickResources()
         }
         if (prop && freeProp) freeProp(prop);
     }
+    propOutFence_ = findProp(crtcId_, DRM_MODE_OBJECT_CRTC, "OUT_FENCE_PTR");
     propFb_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "FB_ID");
     propCrtc_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "CRTC_ID");
     propSrcX_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "SRC_X");
@@ -388,9 +391,9 @@ void Overlay::freeBuf(DrmBuf* buf)
 {
     if (!buf) return;
     decltype(&drmModeRmFB) rmFb = DRM_SYM(drmModeRmFB);
-    if (buf->fbId && rmFb) rmFb(fd_, buf->fbId);
+    if (fd_ >= 0 && buf->fbId && rmFb) rmFb(fd_, buf->fbId);
     if (buf->map && buf->size) munmap(buf->map, buf->size);
-    if (buf->handle) {
+    if (fd_ >= 0 && buf->handle) {
         struct drm_mode_destroy_dumb dreq;
         memset(&dreq, 0, sizeof(dreq));
         dreq.handle = buf->handle;
@@ -402,7 +405,15 @@ void Overlay::freeBuf(DrmBuf* buf)
 void Overlay::close()
 {
     pthread_mutex_lock(&mu_);
-    if (presented_ && ownsCurrentPlane()) {
+    const bool retired = finishPendingFlip(true);
+    if (!retired && fd_ >= 0) {
+        // Abandon this DRM client instead of recycling uncertain scanout.
+        // Kernel framebuffer references pin any still-scanned storage after
+        // userspace mappings/handles are released; no further upload is allowed.
+        ::close(fd_);
+        fd_ = -1;
+    }
+    if (retired && presented_ && ownsCurrentPlane()) {
         commit(0, 0, 0, 0, 0, 1, 1);
     }
     freeBuf(&bufs_[0]);
@@ -413,6 +424,8 @@ void Overlay::close()
     }
     planeId_ = 0;
     presented_ = false;
+    flipPending_ = false;
+    completionFailed_ = false;
     pthread_mutex_unlock(&mu_);
 }
 
@@ -493,15 +506,72 @@ bool Overlay::addProp(void* req, uint32_t objId, uint32_t propId, uint64_t value
     return add(static_cast<drmModeAtomicReq*>(req), objId, propId, value) >= 0;
 }
 
+void Overlay::flipComplete(int, unsigned, unsigned, unsigned, void* context)
+{
+    static_cast<Overlay*>(context)->flipPending_ = false;
+}
+
+bool Overlay::finishPendingFlip(bool wait)
+{
+    if (completionFailed_) return false;
+    if (!flipPending_) return true;
+    // An accepted NONBLOCK commit still owns both buffers: the new one is
+    // queued and the old one may still be scanned. EBUSY at the next commit is
+    // too late to protect an upload into that old buffer.
+    struct pollfd event = {fd_, POLLIN, 0};
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+    int result;
+    int timeout = wait ? 100 : 0;
+    for (;;) {
+        result = poll(&event, 1, timeout);
+        if (result >= 0 || errno != EINTR) break;
+        if (!wait) return false;
+        // Signals do not retire the queued buffers. Retry lifecycle waits,
+        // charging every interruption against the same monotonic deadline.
+        const auto remaining = deadline - std::chrono::steady_clock::now();
+        if (remaining <= std::chrono::steady_clock::duration::zero()) {
+            result = 0;
+            break;
+        }
+        timeout = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count());
+        // Round down so repeated signals can never extend the 100ms budget.
+    }
+    if (result < 0 || (event.revents & (POLLERR | POLLHUP | POLLNVAL)) || (wait && result == 0)) {
+        error_ = result == 0 ? "DRM flip completion timed out" : "DRM completion poll failed";
+        completionFailed_ = true;
+        return false;
+    }
+    if (result == 0 || !(event.revents & POLLIN)) return false;
+    decltype(&drmHandleEvent) handle = DRM_SYM(drmHandleEvent);
+    if (!handle) { error_ = "DRM event handling unavailable"; completionFailed_ = true; return false; }
+    drmEventContext context = {};
+    context.version = 2;
+    context.page_flip_handler = &Overlay::flipComplete;
+    if (handle(fd_, &context) != 0) {
+        error_ = "DRM completion read failed";
+        completionFailed_ = true;
+    }
+    return !flipPending_ && error_.empty();
+}
+
 bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int srcH)
 {
     if (atomic_ && propFb_ && propCrtc_) {
         decltype(&drmModeAtomicAlloc) alloc = DRM_SYM(drmModeAtomicAlloc);
         decltype(&drmModeAtomicFree) freeReq = DRM_SYM(drmModeAtomicFree);
         decltype(&drmModeAtomicCommit) commitFn = DRM_SYM(drmModeAtomicCommit);
+        // A plane already attached to this CRTC need not add CRTC state.
+        // PAGE_FLIP_EVENT then fails before atomic_check can add that state.
+        // A null OUT_FENCE_PTR explicitly includes the CRTC without changing
+        // its ACTIVE/mode or asking the kernel to create an output fence.
+        if (fbId && !propOutFence_) {
+            error_ = "DRM CRTC event binding unavailable";
+            return false;
+        }
         drmModeAtomicReq* req = alloc();
         if (!req) { error_="DRM atomic allocation failed"; return false; }
         const bool propsOk =
+            (!fbId || addProp(req, crtcId_, propOutFence_, 0)) &&
             addProp(req, planeId_, propFb_, fbId) &&
             addProp(req, planeId_, propCrtc_, fbId ? crtcId_ : 0) &&
             addProp(req, planeId_, propSrcX_, 0) &&
@@ -519,17 +589,26 @@ bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int sr
             freeReq(req);
             return false;
         }
-        const int rc = commitFn(fd_, req, DRM_MODE_ATOMIC_NONBLOCK, 0);
+        // Disabling is synchronous: lifecycle teardown must retire scanout
+        // before unmapping buffers. Regular frames stay nonblocking.
+        const uint32_t flags = fbId ? DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT : 0;
+        const int rc = commitFn(fd_, req, flags, fbId ? this : nullptr);
         const int commitError = errno;
         freeReq(req);
         if (rc == 0) {
             presented_ = fbId != 0;
+            flipPending_ = fbId != 0;
             return true;
         }
         if (commitError == EBUSY || commitError == EAGAIN) return false;
         CAMLOG("atomic commit rc=%d errno=%d, retry without zpos", rc, errno);
         req = alloc();
         if (!req) { error_="DRM atomic allocation failed"; return false; }
+        if (fbId && !addProp(req, crtcId_, propOutFence_, 0)) {
+            error_ = "DRM CRTC event binding failed";
+            freeReq(req);
+            return false;
+        }
         addProp(req, planeId_, propFb_, fbId);
         addProp(req, planeId_, propCrtc_, fbId ? crtcId_ : 0);
         addProp(req, planeId_, propSrcX_, 0);
@@ -540,15 +619,20 @@ bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int sr
         addProp(req, planeId_, propCrtcY_, static_cast<uint64_t>(y));
         addProp(req, planeId_, propCrtcW_, static_cast<uint64_t>(w));
         addProp(req, planeId_, propCrtcH_, static_cast<uint64_t>(h));
-        const int rc2 = commitFn(fd_, req, DRM_MODE_ATOMIC_NONBLOCK, 0);
+        const int rc2 = commitFn(fd_, req, flags, fbId ? this : nullptr);
         const int retryError = errno;
         freeReq(req);
         if (rc2 == 0) {
             presented_ = fbId != 0;
+            flipPending_ = fbId != 0;
             return true;
         }
         if (retryError == EBUSY || retryError == EAGAIN) return false;
-        CAMLOG("atomic commit failed rc=%d errno=%d", rc2, errno);
+        CAMLOG("atomic commit failed rc=%d errno=%d", rc2, retryError);
+        // Atomic submission failures must not switch to a legacy path whose
+        // buffer retirement/completion contract has not been established.
+        error_ = "DRM atomic submission failed: " + std::to_string(retryError);
+        return false;
     }
     decltype(&drmModeSetPlane) setPlane = DRM_SYM(drmModeSetPlane);
     if (!setPlane) { error_ = "DRM plane submission unavailable"; return false; }
@@ -563,6 +647,7 @@ bool Overlay::commitPlacedBgra(const uint8_t* bgra, int cw, int ch, int cx, int 
     if (!bgra || cw < 1 || ch < 1) return false;
     int hx = 0, hy = 0, hw = 0, hh = 0;
     mapToCrtc(&hx, &hy, &hw, &hh);
+    if (!finishPendingFlip()) return false;
     DrmBuf* buf = &bufs_[cur_];
     if (!buf->map || static_cast<int>(buf->height) != hh || static_cast<int>(buf->pitch / 4) < hw) {
         if (!allocBuf(buf, hw, hh)) return false;
@@ -592,6 +677,7 @@ bool Overlay::commitPlacedBgra(const uint8_t* bgra, int cw, int ch, int cx, int 
 bool Overlay::presentBgra(const uint8_t* bgra, int width, int height)
 {
     pthread_mutex_lock(&mu_);
+    if (completionFailed_) { pthread_mutex_unlock(&mu_); return false; }
     error_.clear();
     if (!bgra || width < 1 || height < 1) {
         error_="Invalid DRM frame geometry";
@@ -602,6 +688,10 @@ bool Overlay::presentBgra(const uint8_t* bgra, int width, int height)
         pthread_mutex_unlock(&mu_);
         if (!open()) return false;
         pthread_mutex_lock(&mu_);
+    }
+    if (!finishPendingFlip()) {
+        pthread_mutex_unlock(&mu_);
+        return false;
     }
     int cx = 0, cy = 0, cw = 0, ch = 0;
     fitSourceToCrtc(width, height, &cx, &cy, &cw, &ch);
@@ -619,6 +709,10 @@ void Overlay::disable()
 {
     pthread_mutex_lock(&mu_);
     if (!presented_) {
+        pthread_mutex_unlock(&mu_);
+        return;
+    }
+    if (!finishPendingFlip(true)) {
         pthread_mutex_unlock(&mu_);
         return;
     }

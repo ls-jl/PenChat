@@ -68,6 +68,8 @@ private:
     uint32_t findProp(uint32_t objId, uint32_t objType, const char* name, uint64_t* value = 0);
     bool addProp(void* req, uint32_t objId, uint32_t propId, uint64_t value);
     bool ownsCurrentPlane() const;
+    bool finishPendingFlip(bool wait = false);
+    static void flipComplete(int, unsigned, unsigned, unsigned, void* context);
 
     int fd_;
     void* drm_;
@@ -81,6 +83,8 @@ private:
     bool useNv12_;
     bool atomic_;
     bool presented_ = false;
+    bool flipPending_ = false;
+    bool completionFailed_ = false;
     HoleRect hole_;
     DrmBuf bufs_[2];
     int cur_;
@@ -98,6 +102,7 @@ private:
     uint32_t propCrtcW_;
     uint32_t propCrtcH_;
     uint32_t propZpos_;
+    uint32_t propOutFence_ = 0;
 };
 
 void nv12ToBgra(const uint8_t* yPlane, const uint8_t* uvPlane, int width, int height,
