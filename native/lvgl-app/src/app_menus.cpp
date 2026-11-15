@@ -324,14 +324,22 @@ void App::historyDrawer() {
   const int panelWidth = screen_.width * 2 / 3;
   const int listLeft=layout().portrait()?layout().navigationX():uiMetrics_.dp(12);
   const int listTop=layout().portrait()?layout().safeTop():uiMetrics_.dp(8);
-  const int footerHeight=uiMetrics_.touchTarget(48);
+  const auto footerFont=font(uiMetrics_.fontSize(UiFont::Button));
+  lv_point_t newText{},settingsText{};
+  lv_text_get_size(&newText,"新聊天",footerFont,0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+  lv_text_get_size(&settingsText,"设置",footerFont,0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+  const int newNatural=newText.x+uiMetrics_.dp(56),settingsMinimum=settingsText.x+uiMetrics_.dp(56);
+  const int footerHeight=std::max(uiMetrics_.touchTarget(48),int(footerFont->line_height)+uiMetrics_.dp(8));
+  const int available=panelWidth-listLeft-uiMetrics_.dp(12),gap=uiMetrics_.dp(8);
+  const bool stacked=layout().portrait()&&newNatural+settingsMinimum+footerHeight+2*gap>available;
   const int footerY=screen_.height-footerHeight-(layout().portrait()?layout().safeBottom():uiMetrics_.dp(6));
+  const int footerTop=footerY-(stacked?footerHeight+gap:0);
   const int listWidth = panelWidth - listLeft - uiMetrics_.dp(12);
   auto panel =
       box(navigation_, 0, 0, panelWidth, screen_.height, theme::palette().sidebar);
   lv_obj_set_scrollable(panel, false);
   navigationList_ =
-      box(panel, listLeft, listTop, listWidth, footerY-listTop-uiMetrics_.dp(8), theme::palette().sidebar);
+      box(panel, listLeft, listTop, listWidth, footerTop-listTop-uiMetrics_.dp(8), theme::palette().sidebar);
   lv_obj_set_scroll_dir(navigationList_, LV_DIR_VER);
   lv_obj_set_scroll_elastic(navigationList_, true);
   lv_obj_set_scroll_momentum(navigationList_, true);
@@ -364,17 +372,13 @@ void App::historyDrawer() {
       navigationScroll_ = 0;
       historyDrawer();
     });
-  const int footerSpace = panelWidth - listLeft - uiMetrics_.dp(12) - (layout().portrait()?footerHeight+2*uiMetrics_.dp(8):uiMetrics_.dp(16));
-  lv_point_t settingsText{};lv_text_get_size(&settingsText,"设置",font(uiMetrics_.fontSize(UiFont::SettingsTitle)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
-  const int settingsMinimum=settingsText.x+uiMetrics_.dp(56);
-  lv_point_t newText{};lv_text_get_size(&newText,"新建聊天",font(uiMetrics_.fontSize(UiFont::SettingsTitle)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
-  const int newNatural=newText.x+uiMetrics_.dp(56);
-  const int footerWidth=layout().portrait()?std::min(footerSpace*3/5,std::max(uiMetrics_.dp(48),footerSpace-settingsMinimum)):
+  const int footerWidth=layout().portrait()?std::min(newNatural,available):
       std::min(newNatural,std::max(uiMetrics_.dp(44),panelWidth-listLeft-uiMetrics_.dp(20)-settingsMinimum));
-  const int walletX = listLeft + footerWidth + uiMetrics_.dp(8);
-  auto footerAction = [&](int x, int width, const char *kind, const char *title,
+  const int settingsX=panelWidth-uiMetrics_.dp(12)-settingsMinimum;
+  const int walletX=stacked?listLeft:(listLeft+footerWidth+settingsX-footerHeight)/2;
+  auto footerAction = [&](int x, int y, int width, const char *kind, const char *title,
                           std::function<void()> action) {
-    auto control=button(panel,title,x,footerY,width,footerHeight,std::move(action),theme::palette().sidebar,LV_TEXT_ALIGN_LEFT);
+    auto control=button(panel,title,x,y,width,footerHeight,std::move(action),theme::palette().sidebar,LV_TEXT_ALIGN_LEFT);
     lv_obj_set_style_radius(control,uiMetrics_.dp(24),0);
     auto caption=lv_obj_get_child(control,0);
     lv_obj_set_width(caption,std::max(1,width-uiMetrics_.dp(56)));lv_obj_align(caption,LV_ALIGN_LEFT_MID,uiMetrics_.dp(44),0);
@@ -383,10 +387,9 @@ void App::historyDrawer() {
     lv_obj_set_style_bg_opa(glyph,LV_OPA_TRANSP,0);lv_obj_set_clickable(glyph,false);
     navigationFooter_[kind]=control;
   };
-  footerAction(listLeft, footerWidth, "newchat", "新建聊天", [this] { newChat(); });
+  footerAction(listLeft, footerTop, footerWidth, "newchat", "新聊天", [this] { newChat(); });
   if(layout().portrait())balanceButton(panel,walletX,footerY,theme::palette().sidebar);
-  const int settingsX=layout().portrait()?walletX+footerHeight+uiMetrics_.dp(8):panelWidth-uiMetrics_.dp(12)-settingsMinimum;
-  footerAction(settingsX,panelWidth-uiMetrics_.dp(12)-settingsX,"settings","设置",[this]{show("settings");});
+  footerAction(settingsX,footerY,panelWidth-uiMetrics_.dp(12)-settingsX,"settings","设置",[this]{show("settings");});
   lv_obj_update_layout(navigation_);
   // LVGL needs scrollable extent before it will start an elastic gesture.
   // A transparent one-pixel tail also enables bounce for short/empty lists.

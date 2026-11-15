@@ -3,6 +3,28 @@
 #include "tools.hpp"
 #include <ctime>
 namespace penchat {
+std::string App::reasoningSearchText(const Json &metadata,bool active) const {
+  auto stringValue=[](const Json &value,const char *key){const auto found=value.find(key);return found!=value.end()&&found->is_string()?found->get<std::string>():std::string();};
+  const auto records=metadata.value("web_records",Json::array());
+  if(!records.is_array())return {};
+  std::string text;
+  const size_t begin=records.size()>24?records.size()-24:0;
+  for(size_t i=begin;i<records.size();++i) {
+    const auto &record=records[i];if(!record.is_object())continue;
+    const auto name=stringValue(record,"name"),status=stringValue(record,"status");
+    const auto args=objectField(record,"arguments");
+    std::string query=name=="web_search"?stringValue(args,"query"):name=="web_open"?stringValue(args,"url"):std::string();
+    if(query.empty()&&name=="web_search")query=stringValue(objectField(record,"result"),"query");
+    for(auto &c:query)if(c=='\n'||c=='\r'||c=='\t')c=' ';
+    auto chars=characters(query);if(chars.size()>160){query.clear();for(size_t j=0;j<160;++j)query+=chars[j];query+="…";}
+    const bool running=status=="running"&&active,stopped=status=="cancelled"||(status=="running"&&!active);
+    const std::string verb=name=="web_search"?"搜索":name=="web_read_image"?"获取图片":"阅读网页";
+    const std::string caption=running?"正在"+verb:stopped?verb+"已停止":status=="error"?verb+"未完成":name=="web_search"?"搜索了":"已"+verb;
+    if(!text.empty())text+='\n';
+    text+=caption+(query.empty()?std::string():"（"+query+"）")+(running?"…":"");
+  }
+  return text;
+}
 Json App::webMetadata(const std::string &id) const {
   if (generating_ && id == assistant_)
     return reasoningMetadata_;

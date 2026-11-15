@@ -321,7 +321,7 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
   int toolTimeout = 15000;
   Json seedUrls = Json::array();
   size_t seedBytes = 0;
-  bool seeded = false;
+  bool seeded = false,webPending = false;
   std::function<void(const Json &)> seed = [&](const Json &value) {
     if (value.is_object()) {
       for (const auto key : {"url", "source_url"})
@@ -375,6 +375,7 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
     });
   }
   auto publish = [&] {
+    metadata["web_pending"] = webPending;
     metadata["web_sources"] = sources;
     metadata["web_records"] = records;
     metadata["web_images"] = images;
@@ -416,6 +417,9 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
           if (!thought.empty())
             reasoning = thoughts + thought;
           auto next = event.data.value("metadata", Json::object());
+          if(!body.empty())webPending=false;
+          const auto pendingCalls=next.value("tool_calls",Json::array());
+          if(pendingCalls.is_array()&&!pendingCalls.empty())webPending=true;
           metadata = next;
           if (firstBody)
             metadata["first_body_ms"] = firstBody;
@@ -462,7 +466,7 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
       metadata["usage"] = totals;
       metadata["tool_rounds"] = round + 1;
       if (terminalType != "done") {
-        publish();
+        webPending=false;publish();
         events.push(terminalType.empty() ? "network_error" : terminalType,
                     terminal.empty()
                         ? Json({{"generation", generation}, {"error", "工具续答未正常结束"}})
@@ -471,7 +475,7 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
       }
       const auto requested = roundMeta.value("tool_calls", Json::array());
       if (requested.empty()) {
-        publish();
+        webPending=false;publish();
         events.push("done", {{"generation", generation}});
         return;
       }
@@ -494,6 +498,7 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
         Json value;
         std::string imageUrl;
         bool failed = false;
+        webPending=true;
         records.push_back({{"name", name},
                            {"call_id", id},
                            {"arguments", args},
@@ -652,6 +657,7 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
       publish();
     }
   } catch (const std::exception &e) {
+    webPending=false;
     for (auto &r : records)
       if (r.value("status", std::string()) == "running")
         r["status"] = cancel ? "cancelled" : "error";

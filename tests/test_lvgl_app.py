@@ -48,7 +48,7 @@ def wait_for(callback, timeout=10):
     raise AssertionError('Timed out waiting for native state')
 
 class Native:
-    def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True, screen=None, bridge_send_buffer=None, onboarding=False, ocr_prepare_adapter=True, ocr_capabilities=None, ui_scale_percent=None):
+    def __init__(self, binary, directory, model='fixture', api='responses', seed_model=True, official_adapter=True, screen=None, bridge_send_buffer=None, onboarding=False, ocr_prepare_adapter=True, ocr_capabilities=None, ui_scale_percent=None, workspace=None):
         # Route legacy fixture call sites through the requested immutable app
         # without replacing shared build products or explicit comparison builds.
         if pathlib.Path(binary).resolve()==(ROOT/'build/host/penchat-lvgl').resolve():
@@ -78,7 +78,7 @@ class Native:
         child_env=os.environ.copy()
         child_env['PENCHAT_TEST_NATIVE_OCR_KEYS']='1' if display['height']>display['width'] else '0'
         scale_args=[] if ui_scale_percent is None else ['--ui-scale-percent',str(ui_scale_percent)]
-        self.process=subprocess.Popen([str(binary),'--headless','--screen-config',str(config),'--bridge-fd',str(child.fileno()),'--data-dir',str(self.directory),'--workspace',str(ROOT),'--font',str(ROOT/'.deps/chinese.ttf'),'--tex-resources',str(ROOT/'.deps/microtex/res')]+scale_args,env=child_env,pass_fds=[child.fileno()],stdout=self.log,stderr=self.log)
+        self.process=subprocess.Popen([str(binary),'--headless','--screen-config',str(config),'--bridge-fd',str(child.fileno()),'--data-dir',str(self.directory),'--workspace',str(workspace or ROOT),'--font',str(ROOT/'.deps/chinese.ttf'),'--tex-resources',str(ROOT/'.deps/microtex/res')]+scale_args,env=child_env,pass_fds=[child.fileno()],stdout=self.log,stderr=self.log)
         child.close();self.generation=17
         # Model the launcher's read-only probe; {} exercises an unknown bridge.
         self.send('init',ocrCapabilities={'single':True,'multi':True} if ocr_capabilities is None else ocr_capabilities)

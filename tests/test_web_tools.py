@@ -121,6 +121,7 @@ while True:
             self.assertEqual(sum(e['type']=='done' for e in data),1,data)
             self.assertFalse(any(e['type'] in ('network_error','exception') for e in data),data)
             state=next(e['data'] for e in data if e['type']=='response_state')
+            self.assertFalse(state['metadata'].get('web_pending',False))
             self.assertEqual(len(Fixture.requests),1 if mode=='direct' else 2)
             self.assertNotIn('fake-key',json.dumps(state))
             self.assertEqual(len(state['metadata']['web_records']),0 if mode=='direct' else 1)

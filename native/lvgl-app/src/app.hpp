@@ -360,12 +360,13 @@ class App {
   std::vector<lv_obj_t *> reasoningHeaders_;
   struct ReasoningControl {
     lv_obj_t *arrow=nullptr,*detail=nullptr,*wrap=nullptr;
-    std::string text;
+    std::string text,searchText;
     int width=0,naturalHeight=0;
     bool expanded=false;
   };
   std::map<std::string,ReasoningControl> reasoningControls_;
   void toggleReasoning(const std::string &id, bool expanded);
+  std::string reasoningSearchText(const Json &metadata,bool active) const;
   std::map<std::string,ReasoningControl> webControls_;
   void toggleWeb(const std::string &id,bool expanded);
   void animateDisclosure(ReasoningControl &control,bool expanded);

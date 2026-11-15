@@ -152,7 +152,7 @@ void App::layoutChatComposer() {
     const bool send=i+1==lv_obj_get_child_count(chatControls_);
     const int grow=send?(geometry.composerSendDiameter()-c.control)/2:0;
     const int toolPad=geometry.composerInset();
-    const int cx=send?width-toolPad-c.control-grow:i==0?pad:width-toolPad-c.gaugeTrailing;
+    const int cx=send?width-toolPad-c.control-grow:i==(geometry.portrait()?1u:0u)?pad:width-toolPad-c.gaugeTrailing;
     lv_obj_set_align(child,LV_ALIGN_TOP_LEFT);lv_obj_set_pos(child,cx,height-toolPad-c.control-grow);
   }
   auto value=lv_obj_get_child(composer_,0);

@@ -65,11 +65,17 @@ for theme in ['dark','light']:
    assert x1==20 and x2==547,(theme,state['composer_bounds'])
    def rgb(x,y):return tuple(data[(y*w+x)*4:(y*w+x)*4+3])
    # Rounded corners must show the code backdrop, not a flat page-colored strip.
-   for x,y in [(x2-5,y1+5),(x2-5,y2-5)]:
+   for x,y in [(x2-5,y1+5)]:
     if 0<=y<h:assert rgb(x,y)==code,(image.name,x,y,rgb(x,y),code)
-   # The narrow gap immediately below the capsule stays content-free throughout motion.
+   covered=state['editor']['active'] or state['surface_motion']
+   # Lower corners are covered only while editing or finishing keyboard motion.
+   for x,y in [(x1+5,y2-5),(x2-5,y2-5)]:
+    if 0<=y<h:
+     if covered:assert rgb(x,y)==bg,(image.name,'lower corner',x,y,rgb(x,y))
+     else:assert rgb(x,y)!=bg,(image.name,'closed corner must reveal content')
    if y2+3<h:
-    assert rgb(25,y2+3)==bg,(image.name,'content below capsule',rgb(25,y2+3))
+    expected=bg if covered else code
+    assert rgb(x2-5,y2+3)==expected,(image.name,'below capsule',rgb(x2-5,y2+3),expected)
    checked+=1
   (OUT/(theme+'-frames.json')).write_text(json.dumps([{'image':str(p),'composer':s['composer_bounds'],'moving':s['surface_motion']} for p,s in records],indent=2))
   for stage in ['open','close']:

@@ -864,12 +864,24 @@ void App::build() {
     albumPage();
   else if (view_ == "crop")
     cropPage();
+  int scanTextWidth=0,scanLineHeight=0;
+  if(view_=="chat") {
+    const bool portrait=layout().portrait();
+    const auto scanFont=font(uiMetrics_.sp(portrait?16:14));scanLineHeight=scanFont->line_height;
+    scanTextWidth=uiMetrics_.dp(portrait?80:60);
+    const char *portraitText[]={"扫描就绪","扫描准备中","扫描不可用"};
+    const char *landscapeText[]={"扫描\n就绪","扫描\n准备中","扫描\n不可用"};
+    for(int i=0;i<3;++i) {
+      lv_point_t size{};lv_text_get_size(&size,portrait?portraitText[i]:landscapeText[i],scanFont,0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+      scanTextWidth=std::max(scanTextWidth,int(size.x));
+    }
+  }
   if (view_ == "chat" && layout().portrait()) {
     chatHeader_ = box(screenObj_, 0, 0, screen_.width, layout().chatReaderTop());
     lv_obj_set_scrollable(chatHeader_, false);
     if (navigation) lv_obj_set_parent(navigation, chatHeader_);
     const int left = layout().navigationX() + uiMetrics_.dp(64);
-    const int statusX = screen_.width - layout().navigationX() - uiMetrics_.dp(88);
+    const int statusX = screen_.width - layout().navigationX() - scanTextWidth-uiMetrics_.dp(8);
     chatTitle_ = label(chatHeader_, "", left, layout().safeTop()+uiMetrics_.dp(10), statusX-left-uiMetrics_.dp(12), UiFont::Button);
     lv_label_set_long_mode(chatTitle_, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_height(chatTitle_, font(uiMetrics_.fontSize(UiFont::Button))->line_height);
@@ -877,11 +889,13 @@ void App::build() {
   }
   if (view_ == "chat" && scanner_.available()) {
     const bool portrait = layout().portrait();
-    auto hint = box(portrait?chatHeader_:screenObj_, portrait?screen_.width-layout().navigationX()-uiMetrics_.dp(88):uiMetrics_.dp(12), portrait?layout().safeTop():uiMetrics_.dp(60), portrait?uiMetrics_.dp(88):uiMetrics_.dp(64), portrait?uiMetrics_.touchTarget(48):uiMetrics_.dp(64));
-    lv_obj_set_scrollable(hint, false);
-    scanHint_ = label(hint, portrait?"扫描准备中":"扫描\n准备中", uiMetrics_.dp(4), portrait?uiMetrics_.dp(14):uiMetrics_.dp(5), portrait?uiMetrics_.dp(80):uiMetrics_.dp(60), uiMetrics_.sp(portrait?16:14), theme::palette().muted);
-    lv_label_set_long_mode(scanHint_, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_height(scanHint_, portrait?font(uiMetrics_.fontSize(UiFont::Detail))->line_height:font(uiMetrics_.fontSize(UiFont::Badge))->line_height*2);
+    const int hintWidth=scanTextWidth+uiMetrics_.dp(portrait?8:4);
+    const int hintHeight=std::max(portrait?uiMetrics_.touchTarget(48):uiMetrics_.dp(64),scanLineHeight*(portrait?1:2)+uiMetrics_.dp(portrait?8:10));
+    auto hint = box(portrait?chatHeader_:screenObj_,portrait?screen_.width-layout().navigationX()-hintWidth:uiMetrics_.dp(12),portrait?layout().safeTop():uiMetrics_.dp(60),hintWidth,hintHeight);
+    lv_obj_set_scrollable(hint,false);
+    scanHint_=label(hint,portrait?"扫描准备中":"扫描\n准备中",uiMetrics_.dp(4),portrait?(hintHeight-scanLineHeight)/2:uiMetrics_.dp(5),scanTextWidth,uiMetrics_.sp(portrait?16:14),theme::palette().muted);
+    lv_label_set_long_mode(scanHint_,LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_height(scanHint_,scanLineHeight*(portrait?1:2));
     onClick(hint, [this] {
       auto state = scanner_.state().value("type", std::string());
       if (state == "error" || state == "fatal") {
@@ -1049,6 +1063,33 @@ void App::rebuildChatControls() {
       box(screenObj_, geometry.composerX(), geometry.composerY(), composerWidth, geometry.composerHeight(), theme::palette().surface);
   lv_obj_set_scrollable(chatControls_, false);
   lv_obj_set_style_radius(chatControls_, geometry.composerHeight()/2, 0);
+  if(geometry.portrait()) {
+    // Cover the lower-corner cutouts and everything below them. Paint the
+    // capsule curve back over the backing before its controls are drawn.
+    lv_obj_add_flag(chatControls_,LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_add_event_cb(chatControls_,[](lv_event_t *event){
+      auto self=static_cast<App *>(lv_event_get_user_data(event));
+      auto extent=static_cast<int32_t *>(lv_event_get_param(event));
+      *extent=std::max(*extent,self->screen_.height);
+    },LV_EVENT_REFR_EXT_DRAW_SIZE,this);
+    lv_obj_refresh_ext_draw_size(chatControls_);
+    auto below=box(chatControls_,-geometry.composerX(),LV_PCT(100),screen_.width,screen_.height,theme::palette().background);
+    lv_obj_set_clickable(below,false);lv_obj_set_scrollable(below,false);
+    lv_obj_set_style_bg_opa(below,LV_OPA_TRANSP,0);
+    lv_obj_set_style_translate_y(below,-geometry.composerHeight()/2,0);
+    lv_obj_add_event_cb(below,[](lv_event_t *event){
+      auto self=static_cast<App *>(lv_event_get_user_data(event));
+      auto object=lv_event_get_target_obj(event);auto parent=lv_obj_get_parent(object);
+      if(!(self->editor_.active&&self->editorInlineChat_)&&!surfaceEntering(parent))return;
+      lv_area_t backing,capsule;lv_obj_get_coords(object,&backing);lv_obj_get_coords(parent,&capsule);
+      lv_draw_rect_dsc_t style;lv_draw_rect_dsc_init(&style);
+      style.bg_color=lv_color_hex(theme::palette().background);style.bg_opa=LV_OPA_COVER;
+      lv_draw_rect(lv_event_get_layer(event),&style,&backing);
+      style.bg_color=lv_color_hex(theme::palette().surface);style.bg_opa=LV_OPA_COVER;
+      style.radius=lv_obj_get_style_radius(parent,LV_PART_MAIN);
+      lv_draw_rect(lv_event_get_layer(event),&style,&capsule);
+    },LV_EVENT_DRAW_MAIN,this);
+  }
   auto attachment = icon(
       chatControls_, "plus", geometry.composerInset(), geometry.composerInset(), c.control, c.control, [this] { toggleAttachments(); },
       theme::palette().surface);
@@ -1082,19 +1123,6 @@ void App::rebuildChatControls() {
   if (draft_.empty())
     lv_obj_set_style_text_color(lv_obj_get_child(composer_, 0),
                                 lv_color_hex(theme::palette().muted), 0);
-  if(geometry.portrait()) {
-    // Only the region below the capsule is covered. This child follows its
-    // height and animation transform; the rounded sides remain unobstructed.
-    lv_obj_add_flag(chatControls_,LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-    lv_obj_add_event_cb(chatControls_,[](lv_event_t *event){
-      auto self=static_cast<App *>(lv_event_get_user_data(event));
-      auto extent=static_cast<int32_t *>(lv_event_get_param(event));
-      *extent=std::max(*extent,self->screen_.height);
-    },LV_EVENT_REFR_EXT_DRAW_SIZE,this);
-    lv_obj_refresh_ext_draw_size(chatControls_);
-    auto below=box(chatControls_,-geometry.composerX(),LV_PCT(100),screen_.width,screen_.height,theme::palette().background);
-    lv_obj_set_clickable(below,false);lv_obj_set_scrollable(below,false);
-  }
   const bool sendEnabled = contextBusy_ || generating_ || canSend();
   const int sendDiameter = geometry.composerSendDiameter();
   auto send = icon(
@@ -1486,8 +1514,10 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
 void App::replyContent(lv_obj_t *parent, const std::string &text, int width,
                        const std::string &id, bool live) {
   const auto web = webMetadata(id);
-  if (!web.value("web_records", Json::array()).empty() ||
-      !web.value("web_sources", Json::array()).empty()) {
+  const bool inlineSearch=live&&generating_&&(!reasoning_.empty()||web.value("reasoning_observed",false))&&
+      (text.empty()||web.value("web_pending",false));
+  if (!inlineSearch&&(!web.value("web_records", Json::array()).empty() ||
+      !web.value("web_sources", Json::array()).empty())) {
     std::string status = "检索记录与来源";
     for (const auto &record : web.value("web_records", Json::array()))
       if (record.value("status", std::string()) == "running") {
@@ -1539,7 +1569,7 @@ void App::replyContent(lv_obj_t *parent, const std::string &text, int width,
   }
   if (!text.empty()) {
     richMessage(parent, text, width, false, id);
-  } else if (live && receivingReply_) {
+  } else if (live && receivingReply_ && !inlineSearch) {
     // A UI-only placeholder: never mix it into Markdown or saved output.
     generationHint_ = label(parent, "正在生成…", 0, 0, width, readingFontSize());
     lv_obj_add_event_cb(generationHint_, [](lv_event_t *e) {
@@ -1622,9 +1652,10 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
       label(wrap, "导入的参考内容", 0, 0, textWidth, uiMetrics_.fontSize(UiFont::FormHint), theme::palette().muted);
     if (!user &&
         (!reason.empty() || metadata.value("reasoning_observed", false))) {
+      const bool thinking=live&&generating_&&(!metadata.value("reasoning_complete",false)||content.empty()||metadata.value("web_pending",false));
+      const auto searches=reasoningSearchText(metadata,live&&generating_);
       std::string title = "思考过程";
-      if (live && generating_ &&
-          !metadata.value("reasoning_complete", false))
+      if (thinking)
         title = "正在思考…";
       else if (metadata.contains("reasoning_duration_ms")) {
         const auto seconds =
@@ -1636,11 +1667,10 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
       auto header = box(wrap, 0, 0, textWidth, uiMetrics_.dp(44));
       reasoningHeaders_.push_back(header);
       lv_obj_set_scrollable(header, false);
-      if (!reason.empty()) {
+      if (!reason.empty()||!searches.empty()) {
         bool expanded =
             reasoningMode == "always" ||
-            (reasoningMode == "during" && live && generating_ &&
-             !metadata.value("reasoning_complete", false));
+            (reasoningMode == "during" && thinking);
         auto &overrides=readOnly?archiveReasoningOverrides_:reasoningOverrides_;
         auto manual = overrides.find(id);
         if (manual != overrides.end())
@@ -1656,13 +1686,14 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
         lv_obj_set_clickable(header,false);
         auto caption=label(header,title,uiMetrics_.dp(52),uiMetrics_.dp(10),std::max(1,textWidth-uiMetrics_.dp(52)),uiMetrics_.fontSize(UiFont::SettingsTitle),theme::palette().reasoning);
         lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(caption,font(uiMetrics_.fontSize(UiFont::SettingsTitle))->line_height);
-        ReasoningControl control;control.arrow=arrow;control.wrap=wrap;control.text=std::move(reason);
+        ReasoningControl control;control.arrow=arrow;control.wrap=wrap;control.text=std::move(reason);control.searchText=searches;
         control.width=textWidth;control.expanded=expanded;
         if(expanded) {
           control.detail=box(wrap,0,0,textWidth,LV_SIZE_CONTENT);
           lv_obj_set_scrollable(control.detail,false);lv_obj_set_flex_flow(control.detail,LV_FLEX_FLOW_COLUMN);
           lv_obj_set_style_pad_left(control.detail,uiMetrics_.dp(52),0);lv_obj_set_style_pad_top(control.detail,uiMetrics_.dp(2),0);lv_obj_set_style_pad_bottom(control.detail,uiMetrics_.dp(8),0);
           richMessage(control.detail,control.text,std::max(uiMetrics_.dp(44),textWidth-uiMetrics_.dp(52)),true,id+":reasoning");
+          if(!control.searchText.empty())readableLabel(control.detail,control.searchText,0,0,std::max(uiMetrics_.dp(44),textWidth-uiMetrics_.dp(52)),uiMetrics_.fontSize(UiFont::FormNote),theme::palette().reasoning);
         }
         reasoningControls_[id]=std::move(control);
       } else
@@ -1788,6 +1819,7 @@ void App::toggleReasoning(const std::string &id, bool expanded) {
     lv_obj_set_style_pad_top(control.detail, uiMetrics_.dp(2), 0);
     lv_obj_set_style_pad_bottom(control.detail, uiMetrics_.dp(8), 0);
     richMessage(control.detail, control.text, std::max(uiMetrics_.dp(44), control.width-uiMetrics_.dp(52)), true, id+":reasoning");
+    if(!control.searchText.empty())readableLabel(control.detail,control.searchText,0,0,std::max(uiMetrics_.dp(44),control.width-uiMetrics_.dp(52)),uiMetrics_.fontSize(UiFont::FormNote),theme::palette().reasoning);
     lv_obj_move_to_index(control.detail, lv_obj_get_index(lv_obj_get_parent(control.arrow))+1);
     lv_obj_set_hidden(control.detail, true);
   }
@@ -3866,11 +3898,17 @@ Json App::diagnostics() const {
   for(const auto &entry:reasoningControls_) {
     const auto &c=entry.second;
     reasonControls.push_back({{"id",entry.first},{"arrow",bounds(c.arrow)},{"title",bounds(lv_obj_get_child(lv_obj_get_parent(c.arrow),1))},
-      {"expanded",c.expanded},{"angle",disclosureProgress(c.arrow)*900/1000},
+      {"expanded",c.expanded},{"search_text",c.searchText},{"angle",disclosureProgress(c.arrow)*900/1000},
       {"detail",c.detail?bounds(c.detail):Json()}});
   }
+  auto textMetrics=[](lv_obj_t *label)->Json {
+    if(!label)return Json();
+    lv_point_t size{};lv_text_get_size(&size,lv_label_get_text(label),lv_obj_get_style_text_font(label,LV_PART_MAIN),
+      lv_obj_get_style_text_letter_space(label,LV_PART_MAIN),lv_obj_get_style_text_line_space(label,LV_PART_MAIN),LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+    return {{"text",lv_label_get_text(label)},{"width",size.x},{"height",size.y}};
+  };
   for(const auto &entry:navigationFooter_)footer[entry.first]={{"bounds",bounds(entry.second)},
-    {"caption",bounds(lv_obj_get_child(entry.second,0))},{"glyph",bounds(lv_obj_get_child(entry.second,1))},
+    {"caption",bounds(lv_obj_get_child(entry.second,0))},{"text_metrics",textMetrics(lv_obj_get_child(entry.second,0))},{"glyph",bounds(lv_obj_get_child(entry.second,1))},
     {"pressed",lv_obj_has_state(entry.second,LV_STATE_PRESSED)}};
   Json attachmentActions = Json::object();
   for (const auto &entry : attachmentEntries_) attachmentActions[entry.first] = bounds(entry.second);
@@ -3950,7 +3988,7 @@ Json App::diagnostics() const {
       {"capsule_endcap_x2", 2 * capsule.x2 - (capsule.y2 - capsule.y1)},
       {"capsule_center_y2", capsule.y1 + capsule.y2},
       {"composer_bounds", {capsule.x1,capsule.y1,capsule.x2,capsule.y2}},
-      {"attachment_button",chatControls_?bounds(lv_obj_get_child(chatControls_,0)):Json()},
+      {"attachment_button",chatControls_?bounds(lv_obj_get_child(chatControls_,layout().portrait()?1:0)):Json()},
       {"composer_text_bounds", {entry.x1,entry.y1,entry.x2,entry.y2}},
       {"navigation_open", navigationOpen_},
       {"session_info", view_ == "session_info" ? sessionInfoData_ : Json::object()},
@@ -3971,7 +4009,7 @@ Json App::diagnostics() const {
                         {"title",chatTitle_?std::string(lv_label_get_text(chatTitle_)):std::string()},
                         {"title_bounds",chatTitle_?bounds(chatTitle_):Json()},
                         {"scan",scanHint_?std::string(lv_label_get_text(scanHint_)):std::string()},
-                        {"scan_bounds",scanHint_?bounds(scanHint_):Json()},
+                        {"scan_bounds",scanHint_?bounds(scanHint_):Json()},{"scan_metrics",textMetrics(scanHint_)},
                         {"reader_bounds",view_=="chat"&&body_?bounds(body_):Json()},
                         {"message_width",layout().chatMessageWidth()}}},
       {"pull_indicator_y", pullIndicator_ ? lv_obj_get_y(pullIndicator_) : -1},
@@ -4005,7 +4043,7 @@ Json App::diagnostics() const {
       {"reasoning_header_x", reasonHeader.x1 + uiMetrics_.dp(22)},
       {"reasoning_header_y", (reasonHeader.y1 + reasonHeader.y2) / 2},
       {"reasoning_observed", reasoningMetadata_.value("reasoning_observed", false)},
-      {"reasoning_expanded_count", expandedReasoning_.size()},
+      {"reasoning_expanded_count", expandedReasoning_.size()},{"web_controls_count",webControls_.size()},
       {"camera_ready",
        cameraImage_ && textures_.count(cameraImage_) && cameraError_.empty()},
       {"camera_angle", cameraAngle_},
