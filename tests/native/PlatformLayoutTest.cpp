@@ -7,6 +7,14 @@
 #include <iostream>
 using namespace penchat;
 int main() {
+  for(int scale:{75,100,125,150}) {
+    const UiMetrics metrics(100,scale);
+    const AppLayout portrait(568,1210,true,metrics);
+    assert(portrait.composerX()==portrait.safeSide()-metrics.dp(4));
+    assert(portrait.composerWidth()==568-2*portrait.safeSide()+2*metrics.dp(4));
+    const AppLayout wide(960,266,false,metrics);
+    assert(wide.composerX()==metrics.dp(106));
+  }
   for(const auto size:{std::make_pair(960,266),std::make_pair(640,260),std::make_pair(568,1210)})
     for(bool docked:{false,true})for(int rows:{1,3,8,9}) {
       const AppLayout layout{size.first,size.second};

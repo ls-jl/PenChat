@@ -22,7 +22,7 @@ for width,height in [(568,1210),(600,1280)]:
    assert all(b<=a+1 for (a,_),(b,_) in zip(samples,samples[1:])),samples
    assert samples[-1][0]<before['composer_bounds'][3]
    settled=a.diag()
-   assert settled['chat_header']['reader_bounds'][3]==settled['editor']['panel_top']-1
+   assert settled['chat_header']['reader_bounds'][3]==height-1
    assert settled['chat_header']['reader_bounds'][3]>settled['composer_bounds'][3]
    print(width,height,'COMPOSER_RISES_CONTINUOUSLY_WITH_KEYBOARD',samples)
    a.editor_action('done')

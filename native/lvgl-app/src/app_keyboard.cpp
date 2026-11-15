@@ -794,7 +794,7 @@ void App::editorMoveDismiss(int offset) {
     const int scroll=lv_obj_get_scroll_y(body_);
     const int base=editorDismissTracking_||editorDismissing_||editorDismissReturnAt_?editorDismissBodyHeight_:
         view_=="chat"?editorLayout().panelTop-lv_obj_get_y(body_):editorLayout().panelTop;
-    lv_obj_set_height(body_,base+editorDismissOffset_);lv_obj_update_layout(body_);
+    lv_obj_set_height(body_,view_=="chat"?screen_.height-lv_obj_get_y(body_):base+editorDismissOffset_);lv_obj_update_layout(body_);
     const int maximum=std::max(0,int(lv_obj_get_scroll_y(body_)+lv_obj_get_scroll_bottom(body_)));
     lv_obj_scroll_to_y(body_,std::min(scroll,maximum),LV_ANIM_OFF);
     chatLayout_=previous;paintVisible();
@@ -833,6 +833,7 @@ bool App::editorDismissTouch(int x,int y,bool down,bool cancelled) {
 }
 void App::editorViewport() {
   if(!body_)return;
+  const int readerScrollBefore=lv_obj_get_scroll_y(body_);
   const auto l=editorLayout();const bool docked=editor_.active&&l.docked;
   const auto composerMetrics=uiMetrics_.composer();
   const int composerHeight=chatComposerHeight();
@@ -846,7 +847,7 @@ void App::editorViewport() {
   if(toBottom_)lv_obj_set_y(toBottom_,composerY-composerMetrics.returnOffset());
   syncChatBottomPadding();
   const int top=view_=="chat"?lv_obj_get_y(body_):0;
-  const int height=docked?(l.panelTop-top)+editorDismissOffset_:screen_.height-top;
+  const int height=docked&&view_!="chat"?l.panelTop+editorDismissOffset_:screen_.height-top;
   const bool previous=chatLayout_;chatLayout_=true;
   const int scroll=lv_obj_get_scroll_y(body_);const bool resized=lv_obj_get_height(body_)!=height;
   lv_obj_set_height(body_,height);
@@ -877,7 +878,7 @@ void App::editorViewport() {
   if(editorRoot_&&!surfaceEntering(editorRoot_))lv_obj_set_style_translate_y(editorRoot_,editorDismissOffset_,0);
   if(editorInlineChat_&&chatControls_&&!surfaceEntering(chatControls_))lv_obj_set_style_translate_y(chatControls_,editorDismissOffset_,0);
   if(view_=="chat"&&toBottom_&&!surfaceEntering(toBottom_))lv_obj_set_style_translate_y(toBottom_,editorDismissOffset_,0);
-  if(resized){paintVisible();lv_obj_invalidate(screenObj_);}
+  if(resized||readerScrollBefore!=lv_obj_get_scroll_y(body_)){paintVisible();lv_obj_invalidate(screenObj_);}
 }
 bool App::editorCandidateRow() const {
   return layout().portrait()&&!editorSelectionOnly_&&!editorClipboardOpen_&&

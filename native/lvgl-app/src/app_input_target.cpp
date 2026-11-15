@@ -113,7 +113,7 @@ void App::syncChatBottomPadding() {
   // The reader continues behind the floating capsule. Reserve its occluded
   // tail for last-line reachability, rather than clipping away the backdrop.
   const int padding=tail+chatComposerHeight()+(docked?
-      uiMetrics_.composer().dockGap+uiMetrics_.composer().readerGap:geometry.safeBottom());
+      screen_.height-editorLayout().panelTop+uiMetrics_.composer().dockGap+uiMetrics_.composer().readerGap:geometry.safeBottom());
   if(lv_obj_get_style_pad_bottom(messageContent_,LV_PART_MAIN)!=padding) {
     const bool previous=chatLayout_;chatLayout_=true;
     lv_obj_set_style_pad_bottom(messageContent_,padding,0);
@@ -148,7 +148,7 @@ void App::layoutChatComposer() {
   const int h=expanded?height-y-c.textToolsGap-toolsTop:height-2*pad;
   lv_obj_set_pos(composer_,x,y);lv_obj_set_size(composer_,w,h);
   for(uint32_t i=0;i<lv_obj_get_child_count(chatControls_);++i) {
-    auto child=lv_obj_get_child(chatControls_,i);if(child==composer_)continue;
+    auto child=lv_obj_get_child(chatControls_,i);if(child==composer_||!lv_obj_is_clickable(child))continue;
     const bool send=i+1==lv_obj_get_child_count(chatControls_);
     const int grow=send?(geometry.composerSendDiameter()-c.control)/2:0;
     const int toolPad=geometry.composerInset();

@@ -89,12 +89,12 @@ struct AppLayout {
   int chatReaderTop() const { return portrait() ? safeTop() + std::max(UiMetrics::minimumTouchTarget()+dp(8),dp(56)) : 0; }
   int chatMessageWidth() const { return std::max(1,portrait() ? bodyWidth() - dp(16) : width - dp(112)); }
   int contentWidth() const { return std::max(1,width - dp(portrait()?32:118)); }
-  int composerX() const { return portrait() ? safeSide() : dp(106); }
+  int composerX() const { return portrait() ? std::max(dp(16),safeSide()-dp(4)) : dp(106); }
   LayoutRect composerShortcut() const {
     if(portrait())return {dp(12),composerY(),std::max(dp(44),composerX()-dp(24)),composerHeight()};
     return {composerX()-dp(44),composerY()-dp(46),dp(44),dp(44)};
   }
-  int composerWidth() const { return std::max(1,width - composerX() - (portrait() ? safeSide() : dp(24))); }
+  int composerWidth() const { return std::max(1,width - composerX() - (portrait() ? composerX() : dp(24))); }
   int modalX() const { return dp(portrait()?12:84); }
   int modalWidth() const { return std::max(1,width - dp(portrait()?24:92)); }
   ScanWorkspace scanWorkspace() const {

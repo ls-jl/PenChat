@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory(prefix='official-reader-') as folder:
   def touch(y,down=True,x=200,points=None):
    lease();a.send('touch',x=x,y=y,pressed=down,**({'points':points} if points is not None else {}));time.sleep(.025)
   lease();time.sleep(.1);initial=a.diag();before=initial['scroll_y'];session=initial['editor']['session']
-  assert initial['chat_header']['reader_bounds'][3]==initial['display_top_height']-1
+  assert initial['chat_header']['reader_bounds'][3]==initial['height']-1
   parts=[b for r in initial['text_selection']['regions'] if r['key']=='reply0' for b in r['parts'] if b[3]>=b[1]]
   assert parts and max(b[3] for b in parts)<=initial['composer_bounds'][1]-16,'Last line is obscured by composer'
   for y in [180,210,250,300,340]:touch(y)

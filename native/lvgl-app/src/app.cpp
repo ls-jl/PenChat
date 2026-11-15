@@ -1082,6 +1082,19 @@ void App::rebuildChatControls() {
   if (draft_.empty())
     lv_obj_set_style_text_color(lv_obj_get_child(composer_, 0),
                                 lv_color_hex(theme::palette().muted), 0);
+  if(geometry.portrait()) {
+    // Only the region below the capsule is covered. This child follows its
+    // height and animation transform; the rounded sides remain unobstructed.
+    lv_obj_add_flag(chatControls_,LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_add_event_cb(chatControls_,[](lv_event_t *event){
+      auto self=static_cast<App *>(lv_event_get_user_data(event));
+      auto extent=static_cast<int32_t *>(lv_event_get_param(event));
+      *extent=std::max(*extent,self->screen_.height);
+    },LV_EVENT_REFR_EXT_DRAW_SIZE,this);
+    lv_obj_refresh_ext_draw_size(chatControls_);
+    auto below=box(chatControls_,-geometry.composerX(),LV_PCT(100),screen_.width,screen_.height,theme::palette().background);
+    lv_obj_set_clickable(below,false);lv_obj_set_scrollable(below,false);
+  }
   const bool sendEnabled = contextBusy_ || generating_ || canSend();
   const int sendDiameter = geometry.composerSendDiameter();
   auto send = icon(
