@@ -65,8 +65,11 @@ def run(w,h):
             swipe(a,[(20,120),(80,120),(160,120)])
             assert not a.diag()['editor']['active'] and a.diag()['draft_length']==0
             a.open_settings();a.setting('reasoning');assert a.diag()['modal']
+            swipe(a,[(20,100),(20,140),(22,180)])
+            assert a.diag()['modal'], 'A vertical backdrop drag must keep the menu open'
             swipe(a,[(20,120),(80,120),(160,120)])
             assert not a.diag()['modal'] and a.diag()['view']=='settings'
+            assert not a.diag()['context_menu']['kind']
             a.to_chat();a.tap(128,h-34);assert a.diag()['attachments']
             swipe(a,[(20,120),(80,120),(160,120)])
             assert not a.diag()['attachments'] and a.diag()['back_navigation']['root']

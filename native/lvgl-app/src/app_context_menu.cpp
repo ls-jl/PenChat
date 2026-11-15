@@ -1,6 +1,7 @@
 #include "app.hpp"
 #include "icons.hpp"
 #include "ui_motion.hpp"
+#include "back_geometry.hpp"
 #include <cmath>
 namespace penchat {
 bool App::keepChatEditor() const {
@@ -120,10 +121,10 @@ bool App::popupTouch(const Json &message) {
   }
   if(contextMenuKind_=="balances" && readTouch(message.value("x",0),message.value("y",0),down,message.value("cancelled",false)))return true;
   auto panel=contextMenuPanel_?contextMenuPanel_:((keepChatEditor()||popupKind_=="attachments")?attachmentPanel_:nullptr);
-  if(!panel){popupTracking_=false;popupTouchPanel_=nullptr;return false;}
-  if(popupTouchPanel_!=panel){popupTracking_=false;popupTouchPanel_=panel;}
+  if(!panel){popupTracking_=popupBack_=false;popupTouchPanel_=nullptr;return false;}
+  if(popupTouchPanel_!=panel){popupTracking_=popupBack_=false;popupTouchPanel_=panel;}
   if(message.contains("points")&&message.at("points").is_array()&&message.at("points").size()>1) {
-    popupTracking_=false;popupConsumeTouch_=true;editorCancelKeys();input_.cancel();
+    popupTracking_=popupBack_=false;resetBack();popupConsumeTouch_=true;editorCancelKeys();input_.cancel();
     if(contextMenuKind_=="balances")readTouch(message.value("x",0),message.value("y",0),false,true);
     return true;
   }
@@ -132,7 +133,16 @@ bool App::popupTouch(const Json &message) {
   const bool inside=x>=bounds.x1&&x<=bounds.x2&&y>=bounds.y1&&y<=bounds.y2;
   if(down&&!popupTracking_) {
     popupTracking_=true;popupOutside_=!inside;popupMoved_=false;
+    popupBack_=!inside&&x>=0&&x<=backGeometry(screen_.width,uiMetrics_).edge&&!keyboard_;
     popupStartX_=x;popupStartY_=y;
+  }
+  if(popupBack_) {
+    const bool consumed=backTouch(message);
+    if(!down||!backCandidate_) {popupBack_=false;if(down&&!backCandidate_)resetBack();}
+    if(consumed){if(!down)popupTracking_=false;return true;}
+    // A vertical/retreating edge gesture remains a cancelled backdrop drag.
+    if(down)popupMoved_=true;
+    input_.cancel();
   }
   if(popupTracking_) {
     const int slop=uiMetrics_.dp(12);

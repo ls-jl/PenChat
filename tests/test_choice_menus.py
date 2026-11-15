@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Enum settings use small anchored popups in all three LVGL layouts."""
-import json,pathlib,sqlite3,tempfile,time
+import json,os,pathlib,sqlite3,tempfile,time
 import test_lvgl_app as ui
 from test_reasoning_ui import seed
 from settings_ui import locate
 from provider_ui import activate,capture
 from choice_ui import select,dismiss
 ui.port=1
+BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ui.ROOT/'build/host/penchat-lvgl'))
 OUT=ui.ROOT/'.work/choice-menus';OUT.mkdir(parents=True,exist_ok=True)
 
 def menu(a,kind,w,h):
@@ -47,7 +48,7 @@ def chat(a):
 for w,h in [(640,260),(960,266),(568,1210)]:
     with tempfile.TemporaryDirectory(prefix='penchat-options-') as folder:
         p=pathlib.Path(folder);seed(p,1)
-        a=ui.Native(ui.ROOT/'build/host/penchat-lvgl',p,screen={'width':w,'height':h,'direction':0})
+        a=ui.Native(BINARY,p,screen={'width':w,'height':h,'direction':0})
         def stored(key):
             with sqlite3.connect(p/'penchat.db') as db:return json.loads(db.execute('select value_json from app_settings where key=?',(key,)).fetchone()[0])
         try:

@@ -35,7 +35,10 @@ void App::nativeBack() {
   input_.cancel(); touchDown_ = false; composerTapAllowed_ = false;
   if (imageViewer_) closeImageViewer();
   else if (editor_.active) editorFinish(false);
-  else if (modal_) { auto object = modal_; modal_ = nullptr; historyContextId_.clear(); lv_obj_delete(object); }
+  else if (modal_) {
+    if(contextMenuPanel_)closeHistoryContext();
+    else {auto object=modal_;modal_=nullptr;historyContextId_.clear();lv_obj_delete(object);}
+  }
   else if (attachments_) closeAttachments();
   else if (!navigationOpen_ && view_ != "chat") goBack();
   else if(!messageEdit_.empty())cancelMessageEdit();
