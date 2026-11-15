@@ -788,7 +788,7 @@ void App::build() {
   const bool photo = view_ == "camera" || view_ == "crop";
   const int canvasW = photo ? photoWidth() : screen_.width;
   const int canvasH = photo ? photoHeight() : screen_.height;
-  screenObj_ = box(lv_screen_active(), (screen_.width-canvasW)/2, (screen_.height-canvasH)/2, canvasW, canvasH,view_=="chat"?theme::palette(theme::Mode::Dark).background:theme::palette().background);
+  screenObj_ = box(lv_screen_active(), (screen_.width-canvasW)/2, (screen_.height-canvasH)/2, canvasW, canvasH);
   if (photo && cameraAngle_ && !layout().portrait()) {
     lv_obj_set_style_transform_pivot_x(screenObj_,canvasW/2,0);
     lv_obj_set_style_transform_pivot_y(screenObj_,canvasH/2,0);

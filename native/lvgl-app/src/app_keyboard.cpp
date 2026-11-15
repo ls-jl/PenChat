@@ -8,7 +8,6 @@
 #include "candidate_rows.hpp"
 #include "keyboard_style.hpp"
 #include <cctype>
-#include <cstdio>
 namespace penchat {
 namespace {
 constexpr uint64_t layoutHoldMs=500;
@@ -1027,12 +1026,11 @@ void App::editorOfficial() {
   keyboard_=true;keyboardId_=uid("official");
   if(officialDocked_&&editorRoot_)lv_obj_set_hidden(editorRoot_,true);
   display_.visible(false);
-  char canvasColor[8];std::snprintf(canvasColor,sizeof(canvasColor),"#%06x",unsigned(view_=="chat"?theme::palette(theme::Mode::Dark).background:theme::palette().background));
   const bool sent = bridge_.send("keyboard.open",{{"requestId",keyboardId_},{"text",text},{"placeholder",editor_.placeholder},
     {"maxlength",editor_.limit},{"multiline",editor_.multiline},{"sensitive",editor_.secret},{"inline",officialDocked_},
     {"cursorIndex",editUtf16(text,editor_.cursor+editor_.preedit.size())},
     {"inputType",editor_.chinese?"ZhCNPreferred":"EnUSOnly"},
-    {"field",officialField},{"canvasColor",canvasColor}});
+    {"field",officialField}});
   if (!sent) {
     keyboard_ = false;officialDocked_=false;officialHeight_=0;officialForeground_=false;officialLayoutAt_=0;officialBackup_=EditorState{};
     keyboardId_.clear();display_.topHeight(0);

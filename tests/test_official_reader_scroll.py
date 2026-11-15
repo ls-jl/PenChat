@@ -11,7 +11,7 @@ with tempfile.TemporaryDirectory(prefix='official-reader-') as folder:
  try:
   ui.wait_for(lambda:not a.diag()['chat_render_pending'])
   b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
-  ui.wait_for(lambda:a.diag()['editor']['active']);a.editor_action('official');request=a.receive('keyboard.open');ident=request['requestId'];assert request['canvasColor']=='#000000'
+  ui.wait_for(lambda:a.diag()['editor']['active']);a.editor_action('official');request=a.receive('keyboard.open');ident=request['requestId']
   def lease():a.send('keyboard.layout',requestId=ident,height=590,foreground=True)
   def touch(y,down=True,x=200,points=None):
    lease();a.send('touch',x=x,y=y,pressed=down,**({'points':points} if points is not None else {}));time.sleep(.025)
