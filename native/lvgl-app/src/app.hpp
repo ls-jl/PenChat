@@ -97,6 +97,9 @@ class App {
   void portraitPage();
   void arrangeModal();
   bool roundedDisplay_ = false, contextMenuOpening_ = false, popupConsumeTouch_ = false;
+  lv_obj_t *popupTouchPanel_ = nullptr;
+  bool popupTracking_ = false, popupOutside_ = false, popupMoved_ = false;
+  int popupStartX_ = 0, popupStartY_ = 0;
   lv_obj_t *contextMenuPanel_ = nullptr, *contextMenuList_ = nullptr;
   std::string contextMenuKind_;
   lv_obj_t *attachmentPanel_ = nullptr;

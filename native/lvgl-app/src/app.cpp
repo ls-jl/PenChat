@@ -2791,7 +2791,7 @@ void App::cancelNativeInteraction() {
   // The cancelled contact may have started while a popup snapshot was retiring.
   // Its release is rejected after focus loss, so do not carry release absorption
   // into the next independently focused contact.
-  popupConsumeTouch_ = contextMenuOpening_ = false;
+  popupConsumeTouch_ = contextMenuOpening_ = popupTracking_ = false;
   resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
   finishImageGesture(false); nonImageMulti_ = false; viewerLastTap_ = 0;
   if (imageViewer_ || view_ == "crop") imageGesture_.mode = -2;

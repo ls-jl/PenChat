@@ -62,7 +62,7 @@ void App::choiceMenu(const std::string &kind,
 lv_obj_t *App::contextMenu(const std::string &kind,int rows,int width) {
   readReset();closeAttachments();resetPull();
   if(modal_)closeHistoryContext();
-  contextMenuKind_=kind;
+  contextMenuKind_=kind;popupTracking_=false;
   contextMenuOpening_=lastTouch_.value("pressed",false);
   input_.cancel();
   auto layer=box(screenObj_,0,0,screen_.width,screen_.height,theme::palette().scrim);
@@ -108,6 +108,7 @@ lv_obj_t *App::contextMenu(const std::string &kind,int rows,int width) {
 bool App::popupTouch(const Json &message) {
   const bool down=message.value("pressed",false)&&!message.value("cancelled",false);
   if(popupConsumeTouch_||contextMenuOpening_) {
+    popupTracking_=false;
     if(!down){popupConsumeTouch_=contextMenuOpening_=false;input_.cancel();}
     return true;
   }
@@ -119,19 +120,33 @@ bool App::popupTouch(const Json &message) {
   }
   if(contextMenuKind_=="balances" && readTouch(message.value("x",0),message.value("y",0),down,message.value("cancelled",false)))return true;
   auto panel=contextMenuPanel_?contextMenuPanel_:((keepChatEditor()||popupKind_=="attachments")?attachmentPanel_:nullptr);
-  if(!panel)return false;
+  if(!panel){popupTracking_=false;popupTouchPanel_=nullptr;return false;}
+  if(popupTouchPanel_!=panel){popupTracking_=false;popupTouchPanel_=panel;}
   if(message.contains("points")&&message.at("points").is_array()&&message.at("points").size()>1) {
-    popupConsumeTouch_=true;editorCancelKeys();input_.cancel();
+    popupTracking_=false;popupConsumeTouch_=true;editorCancelKeys();input_.cancel();
     if(contextMenuKind_=="balances")readTouch(message.value("x",0),message.value("y",0),false,true);
     return true;
   }
   lv_area_t bounds;lv_obj_get_coords(panel,&bounds);
   const int x=message.value("x",0),y=message.value("y",0);
   const bool inside=x>=bounds.x1&&x<=bounds.x2&&y>=bounds.y1&&y<=bounds.y2;
-  if(down&&!inside) {
-    popupConsumeTouch_=true;editorCancelKeys();input_.cancel();
-    if(contextMenuPanel_)closeHistoryContext();else closeAttachments();
-    return true;
+  if(down&&!popupTracking_) {
+    popupTracking_=true;popupOutside_=!inside;popupMoved_=false;
+    popupStartX_=x;popupStartY_=y;
+  }
+  if(popupTracking_) {
+    const int slop=uiMetrics_.dp(12);
+    popupMoved_|=std::abs(x-popupStartX_)>slop||std::abs(y-popupStartY_)>slop;
+    const bool outside=popupOutside_;
+    if(!down)popupTracking_=false;
+    if(outside) {
+      editorCancelKeys();input_.cancel();
+      if(!down&&!message.value("cancelled",false)&&!popupMoved_&&!inside) {
+        if(contextMenuPanel_)closeHistoryContext();else closeAttachments();
+      }
+      return true;
+    }
+    if(!down&&popupMoved_&&!inside){input_.cancel();return true;}
   }
   // These controls are on the page layer, not the retained keyboard root.
   // Route inside touches directly to LVGL, before key/caret arbitration.

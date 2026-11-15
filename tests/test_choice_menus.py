@@ -15,6 +15,21 @@ def menu(a,kind,w,h):
     assert (b[2]-b[0]+1)*(b[3]-b[1]+1)<w*h*.7,b
     assert sum(r['selected'] for r in d['choices'].values())==1,d
     for row in d['choices'].values():assert row['bounds'][3]-row['bounds'][1]+1>=44
+    # A scroll that leaves the panel must retain ownership until release.
+    x=(b[0]+b[2])//2;y=(b[1]+b[3])//2
+    a.send('touch',x=x,y=y,pressed=True)
+    for step in range(1,6):
+        a.send('touch',x=x+(1-x)*step//5,y=y,pressed=True);time.sleep(.025)
+    a.send('touch',x=1,y=y,pressed=False);time.sleep(.05)
+    assert a.diag()['context_menu']['kind']=='choice:'+kind,('Drag-out closed the menu',kind,a.diag()['context_menu'])
+    # A gesture beginning on the backdrop is not a tap after movement/cancel.
+    a.send('touch',x=1,y=2,pressed=True)
+    a.send('touch',x=1,y=40,pressed=True)
+    a.send('touch',x=1,y=40,pressed=False)
+    assert a.diag()['context_menu']['kind']=='choice:'+kind
+    a.send('touch',x=1,y=2,pressed=True)
+    a.send('touch',x=1,y=2,pressed=False,cancelled=True)
+    assert a.diag()['context_menu']['kind']=='choice:'+kind
     capture(a,OUT,f'{w}-{kind}')
     return d
 
