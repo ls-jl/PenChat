@@ -99,6 +99,8 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   display_.setRefreshRate(savedRefreshRate(config,screen_.width,screen_.height));
   composerShortcut_.configure(stringValue(config, "landscape_composer_shortcut", "auto"));
   wideKeyboardSwap_=config.value("wide_keyboard_swap",false);
+  const auto officialKeyboard=config.value("prefer_official_keyboard",Json());
+  preferOfficialKeyboard_=officialKeyboard.is_boolean()&&officialKeyboard.get<bool>();
   const auto idleSeconds = config.value("http_idle_seconds", Json());
   setHttpIdleSeconds(idleSeconds.is_number_integer() && idleSeconds.get<double>() >= 15 && idleSeconds.get<double>() <= 600
                       ? idleSeconds.get<int>() : 90);
@@ -2841,6 +2843,7 @@ void App::updateInputFocus() {
   if(inputFocused_!=media) {
     inputFocused_=media;
     if(!media) {
+      editorDefaultOfficial_.clear();
       camera_.stop();
       // This can occur after input already expired, so it must not depend on
       // touchLeaseActive_ changing a second time to release the OCR session.
@@ -3211,9 +3214,9 @@ void App::handle(const Json &m) {
       display_.topHeight(screen_.height-height);
       updateInputFocus();
     }
-    const auto area=editorTextArea();
-    bridge_.send("keyboard.field",{{"requestId",keyboardId_},{"x",area.x},{"y",area.y},
-        {"width",area.width},{"height",area.height},{"cursorIndex",editUtf16(editor_.text,editor_.cursor)}});
+    auto field=editorOfficialField();
+    field["requestId"]=keyboardId_;field["cursorIndex"]=editUtf16(editor_.text,editor_.cursor);
+    bridge_.send("keyboard.field",field);
   }
   else if (type == "keyboard.result") {
     if (!keyboard_ || m.value("requestId", std::string()) != keyboardId_)
@@ -3287,6 +3290,7 @@ void App::tick() {
   }
   imageReturnTick();
   for (const auto &saved : db_.saveEvents()) {
+    if(saved.data.value("key",std::string())=="prefer_official_keyboard"){officialKeyboardPreferenceSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="ui_refresh_hz"){refreshRateSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="theme_mode"){themeSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="ui_scale_percent"){uiScaleSaved(saved);continue;}

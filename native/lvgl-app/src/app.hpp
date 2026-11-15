@@ -715,6 +715,7 @@ class App {
   bool editorSendAssets_=false;
   EditorLayout::Popup editorLastTextArea_{0,0,0,0};
   EditorLayout::Popup editorTextArea() const;
+  Json editorOfficialField();
   bool editorInPlace() const {return layout().portrait()&&!editorSelectionOnly_;}
   bool editorSelectionOnly_ = false, editorInlineChat_ = false, editorReaderTouch_ = false;
   void editorViewport();
@@ -751,6 +752,10 @@ class App {
   mutable UiMetrics editorMetricsCache_;
   mutable uint64_t editorLayoutResolves_=0,editorLayoutCacheHits_=0;
   bool wideKeyboardSwap_=false, editorSwapSides_=false;
+  bool preferOfficialKeyboard_=false, officialPreferenceTarget_=false, officialPreferenceError_=false;
+  std::string officialPreferenceRequest_, editorDefaultOfficial_;
+  void requestOfficialKeyboardPreference();
+  void officialKeyboardPreferenceSaved(const Event &event);
   EditorState editor_;
   TextGesture editorTextGesture_;
   size_t editorTextSavedCursor_=0,editorTextSavedAnchor_=0,editorWordStart_=0,editorWordEnd_=0;

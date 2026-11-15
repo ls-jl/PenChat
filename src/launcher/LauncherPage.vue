@@ -1,9 +1,9 @@
 <template>
   <div class="native-page" :style="pageStyle">
-    <hole class="native-hole" :style="nativeAreaStyle"></hole>
+    <hole v-if="!officialInline" class="native-hole" :style="nativeAreaStyle"></hole>
     <div v-if="officialInline" class="official-editor" :style="appearanceStyles.officialPanel">
-      <input v-if="officialSingleLine" ref="officialInput" class="official-input" :style="officialInputStyle" :type="officialSensitive ? 'password' : 'text'" :value="officialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="true" :cursorColor="appearanceColors.caret" @input="inlineOfficialInput" @confirm="finishInlineOfficial" />
-      <textarea v-else ref="officialInput" class="official-input" :style="officialInputStyle" :value="officialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="true" :cursorColor="appearanceColors.caret" @input="inlineOfficialInput" @confirm="finishInlineOfficial" />
+      <input v-if="officialSingleLine" :key="officialControlKey" ref="officialInput" class="official-input" :style="officialInputStyle" :type="officialSensitive ? 'password' : 'text'" :value="officialInitialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="false" cursorColor="transparent" @input="officialInputHandlers.input" @confirm="officialInputHandlers.confirm" />
+      <textarea v-else :key="officialControlKey" ref="officialInput" class="official-input" :style="officialInputStyle" :value="officialInitialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="false" cursorColor="transparent" @input="officialInputHandlers.input" @confirm="officialInputHandlers.confirm" />
     </div>
     <div v-if="!nativeReady && !errorText" class="startup-panel" :style="appearanceStyles.panel">
       <text class="startup-title" :style="appearanceStyles.title">{{ appName }}</text>
@@ -40,8 +40,11 @@ function resolvedAppearance(c, m) {
   const pixel = value => value + 'px' // already resolved logical pixels
   return {
     page: { backgroundColor: c.background }, panel: { backgroundColor: c.background },
-    officialPanel: { backgroundColor: c.background },
-    officialInput: { backgroundColor: c.surface, color: c.text, fontSize: pixel(m.caption) },
+    officialPanel: { backgroundColor: 'transparent' },
+    // A real focused InputConnection owns system editing; LVGL paints the field.
+    // Falcon documents opacity for both input controls. Keep nonzero bounds
+    // and autofocus instead of hiding/removing the connection.
+    officialInput: { backgroundColor: 'transparent', color: 'transparent', opacity: 0, fontSize: pixel(m.caption) },
     title: { color: c.text, fontSize: pixel(m.title) },
     hint: { color: c.muted, fontSize: pixel(m.body), marginTop: pixel(m.gap) },
     failure: { backgroundColor: c.background, paddingLeft: pixel(m.inset), paddingTop: pixel(m.top) },
@@ -51,7 +54,7 @@ function resolvedAppearance(c, m) {
   }
 }
 export default {
-  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialInline: false, officialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
+  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
   mounted() { this.boot() },
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
@@ -140,7 +143,7 @@ export default {
               throw new Error('Invalid Falcon display configuration')
             this._screen = screen
             this.nativeAreaStyle = { left: '0px', top: '0px', width: screen.width + 'px', height: screen.height + 'px' }
-            this.pageStyle = Object.assign({}, this.nativeAreaStyle, this.appearanceStyles.page || {})
+            this.updatePageStyle()
             this.send('display.area', { x: 0, y: 0, width: screen.width, height: screen.height })
           }
           else if (event.type === 'appearance') this.applyAppearance(event)
@@ -320,8 +323,9 @@ export default {
     closeKeyboardState(closePanel = true) {
       clearTimeout(this._keyboardTimer); this._keyboardTimer = null
       clearInterval(this._keyboardMonitor); this._keyboardMonitor = null
-      this.officialInline = false; this.officialText = ''; this._officialOwner = ''
+      this._officialControlToken = null; this.officialInline = false; this.officialInitialText = ''; this.officialText = ''; this._officialOwner = ''; this._officialFontSize = 0
       this.keyboardOpen = false
+      this.updatePageStyle()
       this._keyboardUuid = ''; this._keyboardRequest = ''; this._keyboardWatchAt = 0; this._keyboardCompleting = false; this._officialOpenConfig = null
       try { if (closePanel && typeof launcher.closeOfficialKeyboard === 'function') launcher.closeOfficialKeyboard() } catch (_) {}
     },
@@ -356,7 +360,19 @@ export default {
         const state = launcher.officialKeyboard()
         if (this.officialInline) {
           if (state && state.supported && state.visible) {
+            // Invalid geometry must not renew the native top-region lease.
+            // Falcon retains the configured full-screen input coordinates.
+            if (!this._screen || !Number.isInteger(state.height) || state.height <= 0 || state.height >= this._screen.height - 100) {
+              const now = Date.now()
+              if ((!this._officialSeen && now >= this._officialDeadline) ||
+                  (this._officialSeen && now - this._officialValidLayoutAt >= 750))
+                this.cancelOfficialKeyboard('官方键盘高度无效，已恢复内置键盘')
+              return
+            }
+            this._officialValidLayoutAt = Date.now()
             this._officialSeen = true
+            // Register the vendor's confirmation result only after the proxy
+            // owns a real InputConnection. Do not supply or rewrite its text.
             if (!this._keyboardUuid && this._officialOpenConfig) {
               const uuid = this._global.startTextEdit(this._officialOpenConfig)
               if (typeof uuid !== 'string' || !uuid) throw new Error('official request rejected')
@@ -381,6 +397,13 @@ export default {
           this.cancelOfficialKeyboard('官方键盘未能显示，已恢复内置键盘')
       } catch (_) { this.cancelOfficialKeyboard('官方键盘状态异常，已恢复内置键盘') }
     },
+    updatePageStyle() {
+      // Native's independent top-region plane paints the retained official page.
+      // Its Falcon proxy needs neither a video-layer hole nor an opaque fill.
+      const page = Object.assign({}, this.nativeAreaStyle, this.appearanceStyles.page || {})
+      if (this.officialInline) page.backgroundColor = 'transparent'
+      if (Object.keys(page).some(key => page[key] !== this.pageStyle[key]) || Object.keys(page).length !== Object.keys(this.pageStyle).length) this.pageStyle = page
+    },
     applyAppearance(event) {
       if (!event || !['dark', 'light'].includes(event.mode)) return
       const c = event.colors || {}, m = event.metrics || {}
@@ -390,24 +413,51 @@ export default {
           !sizes.every(k => Number.isInteger(m[k]) && m[k] >= 0 && m[k] <= 4096)) return
       this.appearanceColors = c
       this.appearanceStyles = resolvedAppearance(c, m)
-      this.pageStyle = Object.assign({}, this.nativeAreaStyle, this.appearanceStyles.page)
-      if (this.officialInline) this.officialInputStyle = Object.assign({}, this.officialInputStyle, this.appearanceStyles.officialInput)
+      this.updatePageStyle()
+      if (this.officialInline) {
+        const style = Object.assign({}, this.officialInputStyle, this.appearanceStyles.officialInput)
+        if (this._officialFontSize) style.fontSize = this._officialFontSize + 'px'
+        if (Object.keys(style).some(key => style[key] !== this.officialInputStyle[key])) this.officialInputStyle = style
+      }
     },
     inlineOfficialField(field) {
       if (!this.officialInline || field.requestId !== this._keyboardRequest) return
       if (![field.x, field.y, field.width, field.height].every(Number.isFinite) || field.width <= 0 || field.height <= 0) return
-      this.officialInputStyle = Object.assign({}, this.appearanceStyles.officialInput || {}, { left: field.x + 'px', top: field.y + 'px', width: field.width + 'px', height: field.height + 'px' })
+      // Native supplies the focused field's resolved pixel size, including UI/text
+      // scaling. Caption metrics cannot represent Composer/FieldValue/Button.
+      if (Number.isFinite(field.fontSize) && field.fontSize > 0 && field.fontSize <= 4096) this._officialFontSize = field.fontSize
+      const style = Object.assign({}, this.appearanceStyles.officialInput || {}, { left: field.x + 'px', top: field.y + 'px', width: field.width + 'px', height: field.height + 'px' })
+      if (this._officialFontSize) style.fontSize = this._officialFontSize + 'px'
+      // Layout and cursor reports may echo unchanged field bounds. Keep the
+      // Falcon input's style identity while its InputConnection is active.
+      if (Object.keys(style).some(key => style[key] !== this.officialInputStyle[key])) this.officialInputStyle = style
     },
     openInlineOfficial(event) {
-      // Portrait themes expose an inline IM panel, not a standalone text
-      // editor. Give that panel a real Falcon InputConnection and return the
-      // reviewed value through the same native edit session.
+      // Portrait uses a transparent Falcon proxy to retain the real system
+      // InputConnection. The retained LVGL field paints text and caret, while
+      // Falcon alone owns IME editing and touch/cursor input in these bounds.
+      // Do not also enable native touch: that would create two caret owners.
+      // Falcon owns the live buffer. Its value property seeds a new control;
+      // feeding @input back through that property can replace the active text
+      // and relayout the system InputConnection on every edit. Keep the live
+      // result outside Vue data and leave the seed fixed until this edit closes.
       this.officialText = event.text || ''
+      this.officialInitialText = this.officialText
       this.officialSingleLine = !event.multiline
       this.officialSensitive = event.sensitive === true
       this.officialInputType = event.inputType || 'ZhCNPreferred'
       this.officialLimit = event.maxlength || 4096
+      const token = {}, ownerRequest = this._keyboardRequest, ownerGeneration = this._generation
+      this._officialControlToken = token
+      this.officialControlKey = ownerGeneration + ':' + ownerRequest
+      const ownsControl = () => this.keyboardOpen && this.officialInline && this._officialControlToken === token && this._keyboardRequest === ownerRequest && this._generation === ownerGeneration
+      this.officialInputHandlers = {
+        input: value => { if (ownsControl()) this.inlineOfficialInput(value) },
+        confirm: value => { if (ownsControl()) this.finishInlineOfficial(value) }
+      }
+      this._officialFontSize = 0
       this.officialInline = true
+      this.updatePageStyle()
       this.inlineOfficialField(Object.assign({ requestId: this._keyboardRequest }, event.field || {}))
       const requestId = this._keyboardRequest, generation = this._generation
       this.$nextTick(() => {
@@ -415,7 +465,7 @@ export default {
         const input = this.$refs && this.$refs.officialInput
         if (input && input.setCursorPosition) input.setCursorPosition(event.cursorIndex || 0)
       })
-      this._officialSeen = false; this._officialCursorPending = false; this._officialOwner = ''
+      this._officialSeen = false; this._officialValidLayoutAt = 0; this._officialCursorPending = false; this._officialOwner = ''
       this._officialDeadline = Date.now() + 3000
       this._keyboardWatchAt = Date.now() + 100
       this._keyboardMonitor = setInterval(() => this.checkOfficialKeyboard(), 200)

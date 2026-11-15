@@ -215,7 +215,19 @@ void App::edit(const std::string &text, const std::string &placeholder,
   };
   const auto id = editor_.id;
   if(reuse){editorViewport();editorAttachTarget();}
-  if(this->layout().portrait()&&!selectionOnly)editorOcrStart();
+  editorDefaultOfficial_.clear();
+  if(preferOfficialKeyboard_&&!selectionOnly) {
+    editorDefaultOfficial_=id;
+    whenScannerReleased([this,id] {
+      if(editorDefaultOfficial_!=id)return;
+      editorDefaultOfficial_.clear();
+      if(!editor_.active||editor_.id!=id||keyboard_||!visible_||!inputFocused_)return;
+      // Build the retained native field and hand off within the same UI tick,
+      // before a native keyboard frame or OCR registration can be presented.
+      editorBuild();editorOfficial();
+    });
+  }
+  else if(this->layout().portrait()&&!selectionOnly)editorOcrStart();
   else whenScannerReleased([this,id] { if (editor_.active && editor_.id == id) { editorBuild();editorOcrStart(); } });
   if(reuse)editorRefresh();
 }
@@ -933,6 +945,7 @@ void App::editorFinish(bool confirmed) {
     editorHandle_=editorHeld_=-1;editorRepeat_=0;editorInFlight_=editorDue_=0;
     editorChoosing_=editorSelectPending_=false;editorDeferred_.clear();++editorRevision_;
   } else editorInterrupt();
+  editorDefaultOfficial_.clear();
   editorDetachTarget();editor_.active=false; keyboard_=false;editorReaderTouch_=false;
   touchDown_=composerTapAllowed_=pullTrackActivity_=false;
   editorComposerOpenHeight_=0;
@@ -963,11 +976,21 @@ void App::editorFinish(bool confirmed) {
   const auto preferred=editor_.preferredChinese;editor_=EditorState{};editor_.preferredChinese=preferred; editorSelectionOnly_=false; editorDeferred_.clear(); syncScanner();
   if(leaving)leaving->show(0,exitDistance);
 }
+Json App::editorOfficialField() {
+  const auto area=editorTextArea();
+  int size=editorFontSize(KeyboardFont::Editor);
+  const auto target=inputTargets_.find(editorTarget_);
+  if(editorInPlace()&&target!=inputTargets_.end())
+    size=uiMetrics_.fontSize(editorInlineChat_?UiFont::Composer:target->second.style==1?UiFont::FieldValue:UiFont::Button);
+  const auto actualFont=editorText_?lv_obj_get_style_text_font(editorText_,LV_PART_MAIN):font(size);
+  return {{"x",area.x},{"y",area.y},{"width",area.width},{"height",area.height},
+          {"fontSize",size},{"fontLineHeight",actualFont->line_height}};
+}
 void App::editorOfficial() {
   if(editorText_)editorTextScroll_=lv_obj_get_scroll_y(editorText_);
   std::string text=editor_.text; text.insert(editByte(text,editor_.cursor),editor_.preedit);
   if (editLength(text)>editor_.limit) { editor_.notice="已达到长度上限"; editorBuild(); return; }
-  const auto officialField=editorTextArea();
+  const auto officialField=editorOfficialField();
   editorInterrupt();officialDocked_=editorLayout().docked&&display_.supportsTopRegion();officialHeight_=0;officialForeground_=false;officialLayoutAt_=0;
   if(officialDocked_)officialBackup_=editor_;
   keyboard_=true;keyboardId_=uid("official");
@@ -977,7 +1000,7 @@ void App::editorOfficial() {
     {"maxlength",editor_.limit},{"multiline",editor_.multiline},{"sensitive",editor_.secret},{"inline",officialDocked_},
     {"cursorIndex",editUtf16(text,editor_.cursor+editor_.preedit.size())},
     {"inputType",editor_.chinese?"ZhCNPreferred":"EnUSOnly"},
-    {"field",{{"x",officialField.x},{"y",officialField.y},{"width",officialField.width},{"height",officialField.height}}}});
+    {"field",officialField}});
   if (!sent) {
     keyboard_ = false;officialDocked_=false;officialHeight_=0;officialForeground_=false;officialLayoutAt_=0;officialBackup_=EditorState{};
     keyboardId_.clear();display_.topHeight(0);
@@ -1412,7 +1435,7 @@ void App::editorOcrFlushStop() {
 }
 void App::editorOcrStart() {
   if(!editorMultiLineSupported_)editorOcrMulti_=false;
-  if(editorSelectionOnly_||!editor_.active||keyboard_||!visible_||!inputFocused_||editorOcrActive_||!editorOcrStopId_.empty())return;
+  if(!editorDefaultOfficial_.empty()||editorSelectionOnly_||!editor_.active||keyboard_||!visible_||!inputFocused_||editorOcrActive_||!editorOcrStopId_.empty())return;
   const auto session=editor_.id;
   if(scanner_.nativeOcrKeys()) {
     editorOcrActive_=editorOcrPreparing_=true;editorOcrPrepareSent_=ticks();
@@ -1645,6 +1668,7 @@ void App::editorWordPreview() {
   editorWordPreview_=true;editorMenu_=false;editorSyncText();
 }
 void App::editorInterrupt(bool releaseOcr) {
+  editorDefaultOfficial_.clear();
   if(editorTextGesture_.active()){editor_.cursor=editorTextSavedCursor_;editor_.anchor=editorTextSavedAnchor_;editor_.all=editorTextSavedAll_;}
   editorTextGesture_.cancel();editorRangeDrag_=false;
   editorLayoutHold_=false;editorResetDismiss();editorReaderTouch_=false;
@@ -1797,7 +1821,7 @@ Json App::editorDiagnostic() const {
   }
   Json anchor=Json::array();
   if(editorTarget_){lv_area_t a;lv_obj_get_coords(editorTarget_,&a);anchor={a.x1,a.y1,a.x2,a.y2};}
-  return {{"text_visible",editorText_&&!lv_obj_is_hidden(editorText_)},{"compact_full",layout.compactFull},{"compact_expanded",editorCompactExpanded_},{"tools_open",editorToolsOpen_},{"compact_composition",editorCompactComposition()},{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"selection_bounds",editorSelectionBounds_.width>0?
+  return {{"official_preference",{{"saved",preferOfficialKeyboard_},{"pending",!officialPreferenceRequest_.empty()},{"error",officialPreferenceError_}}},{"text_visible",editorText_&&!lv_obj_is_hidden(editorText_)},{"compact_full",layout.compactFull},{"compact_expanded",editorCompactExpanded_},{"tools_open",editorToolsOpen_},{"compact_composition",editorCompactComposition()},{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"selection_bounds",editorSelectionBounds_.width>0?
     Json::array({editorSelectionBounds_.x,editorSelectionBounds_.y,editorSelectionBounds_.x+editorSelectionBounds_.width-1,editorSelectionBounds_.y+editorSelectionBounds_.height-1}):Json::array()},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"in_place",editor_.active&&editorInPlace()&&editorTarget_!=nullptr},{"input_anchor",editorTargetKey_},{"docked",layout.docked},{"dismiss_offset",editorDismissOffset_},{"dismiss_threshold",editorDismissThreshold_},{"dismissing",editorDismissing_},{"dismiss_returning",editorDismissReturnAt_!=0},{"inline_chat",editorInlineChat_},{"panel_top",layout.panelTop},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
     {"layout",editor_.layout==0?"zh26":editor_.layout==1?"en26":"zh9"},{"preferred_layout",editor_.preferredChinese==2?"zh9":"zh26"},
     {"layout_menu",editorLayoutMenu_},{"layout_popup",layoutPopup},{"layout_hold",editorLayoutHold_},{"expanded",editorExpanded_},{"punctuation_menu",editorPunctuation_},{"exact_count",editorExact_.size()},
@@ -1820,6 +1844,24 @@ Json App::editorDiagnostic() const {
 } // namespace penchat
 
 namespace penchat {
+void App::requestOfficialKeyboardPreference() {
+  if(view_!="keyboard_settings"||!officialPreferenceRequest_.empty())return;
+  officialPreferenceTarget_=!preferOfficialKeyboard_;
+  officialPreferenceError_=false;officialPreferenceRequest_=uid("official-keyboard-setting");
+  auto row=settingsControls_.find("prefer_official_keyboard");
+  if(row!=settingsControls_.end()) {
+    lv_obj_add_state(row->second.row,LV_STATE_DISABLED);
+    lv_label_set_text(row->second.detail,"正在保存…");
+  }
+  db_.queueSetting("prefer_official_keyboard",officialPreferenceTarget_,officialPreferenceRequest_);
+}
+void App::officialKeyboardPreferenceSaved(const Event &event) {
+  if(officialPreferenceRequest_.empty()||event.data.value("request",std::string())!=officialPreferenceRequest_)return;
+  if(event.type=="setting_saved")preferOfficialKeyboard_=officialPreferenceTarget_;
+  else if(event.type!="setting_error")return;
+  officialPreferenceError_=event.type=="setting_error";officialPreferenceRequest_.clear();
+  if(view_=="keyboard_settings")build();
+}
 void App::keyboardSettingsPage() {
   pageHeader("键盘与输入");
   const int width=layout().contentWidth(), column=(width-uiMetrics_.dp(16))/2;
@@ -1835,7 +1877,10 @@ void App::keyboardSettingsPage() {
   settingsRow("pinyin_correction","拼音纠错","为26键拼音补充错键候选",uiMetrics_.dp(10),uiMetrics_.dp(92),column,[this,correction]{db_.setting("pinyin_correction",!correction);build();},correction);
   const bool swapSides=wideKeyboardSwap_;
   settingsRow("wide_keyboard_swap","横屏键盘左右互换","左右分区时：键盘在右，编辑区在左",uiMetrics_.dp(26)+column,uiMetrics_.dp(92),column,[this,swapSides]{wideKeyboardSwap_=!swapSides;db_.queueSetting("wide_keyboard_swap",wideKeyboardSwap_);build();},swapSides);
+  const std::string officialDetail=!officialPreferenceRequest_.empty()?"正在保存…":officialPreferenceError_?"官方键盘偏好未能保存，请点按重试":preferOfficialKeyboard_?"新输入默认打开有道输入法":"新输入默认打开内置键盘";
+  settingsRow("prefer_official_keyboard","默认使用官方键盘",officialDetail,uiMetrics_.dp(10),uiMetrics_.dp(156),width-uiMetrics_.dp(20),[this]{requestOfficialKeyboardPreference();},preferOfficialKeyboard_);
+  if(!officialPreferenceRequest_.empty())lv_obj_add_state(settingsControls_.at("prefer_official_keyboard").row,LV_STATE_DISABLED);
   const auto preferred=editor_.preferredChinese==2?std::string("zh9"):std::string("zh26");
-  label(pageContent_,std::string("常用中文布局：")+(preferred=="zh9"?"9键拼音":"26键拼音")+"\n实际输入后自动记住；长按地球可直接选择布局。",uiMetrics_.dp(10),uiMetrics_.dp(168),width-uiMetrics_.dp(20),uiMetrics_.fontSize(UiFont::FormNote),theme::palette().muted);
+  label(pageContent_,std::string("常用中文布局：")+(preferred=="zh9"?"9键拼音":"26键拼音")+"\n实际输入后自动记住；长按地球可直接选择布局。",uiMetrics_.dp(10),uiMetrics_.dp(232),width-uiMetrics_.dp(20),uiMetrics_.fontSize(UiFont::FormNote),theme::palette().muted);
 }
 } // namespace penchat

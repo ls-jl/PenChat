@@ -450,28 +450,31 @@ test('portrait official field stays in the original page and forwards live text/
  f.page.dispose()
 })
 
-test('portrait system confirm/cancel signals match the active ID and never tear down reentrantly',async()=>{
+test('portrait proxy retains its connection with vendor confirmation and rejects stale control events',async()=>{
  const f=fixture();await f.page.boot();portraitOfficial(f)
  f.page.openKeyboard({requestId:'first',text:'原文',multiline:true})
+ const oldHandlers=f.page.officialInputHandlers,oldKey=f.page.officialControlKey
  f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
  assert.equal(f.calls.filter(c=>c[0]==='startTextEdit').length,1)
- const config=f.calls.find(c=>c[0]==='startTextEdit')[1]
- assert(!('text' in config),'Portrait system signal must not duplicate input contents')
- f.page.inlineOfficialInput('修改')
- f.edit('stale',JSON.stringify({editConfirmed:true,text:'stale'}));assert(!f.page._keyboardCompleting)
- f.edit('edit-1',JSON.stringify({editConfirmed:true,text:''}))
+ assert(!('text' in f.calls.find(c=>c[0]==='startTextEdit')[1]))
+ oldHandlers.input('修改')
+ assert(f.page._keyboardUuid);assert(!f.page._keyboardCompleting)
+ f.edit('stale-id',JSON.stringify({editConfirmed:true}));assert(!f.page._keyboardCompleting)
+ f.edit(f.page._keyboardUuid,JSON.stringify({editConfirmed:true,text:'ignored vendor buffer'}))
  assert(f.page._keyboardCompleting&&f.page.keyboardOpen)
- assert(!f.calls.some(c=>c[0]==='hideOfficial'))
  f.page._keyboardWatchAt=1;f.native.officialKeyboard=()=>({supported:true,visible:false})
  f.page.checkOfficialKeyboard();assert(f.page.keyboardOpen)
  f.timers.get(f.page._keyboardTimer)()
  const result=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').at(-1)[1]
  assert(result.confirmed);assert.equal(result.text,'修改')
  f.page.openKeyboard({requestId:'second',text:'原文'})
+ assert.notEqual(f.page.officialControlKey,oldKey)
+ oldHandlers.input('stale');oldHandlers.confirm('stale')
+ assert.equal(f.page.officialText,'原文');assert(!f.page._keyboardCompleting)
  f.native.officialKeyboard=()=>({supported:true,visible:true,height:550,foreground:true})
  f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
- f.edit('edit-1',JSON.stringify({editConfirmed:false}))
- assert(f.page.keyboardOpen);f.timers.get(f.page._keyboardTimer)()
+ f.native.officialKeyboard=()=>({supported:true,visible:false})
+ f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
  assert(!f.page.keyboardOpen)
  assert(!f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').at(-1)[1].confirmed)
  f.page.dispose()
@@ -544,8 +547,156 @@ test('native appearance uses resolved metrics and preserves official field coord
   page.officialInline=true;page._keyboardRequest='r'
   page.inlineOfficialField({requestId:'r',x:12,y:68,width:300,height:44})
   assert.equal(page.officialInputStyle.left,'12px')
-  assert.equal(page.officialInputStyle.color,'#20242d')
+  assert.equal(page.officialInputStyle.color,'transparent')
+  assert.equal(page.officialInputStyle.opacity,0)
+  assert.equal(page.appearanceStyles.officialPanel.backgroundColor,'transparent')
   const previous=page.appearanceStyles
   page.applyAppearance({mode:'light',colors:{...colors,text:'invalid'},metrics})
   assert.equal(page.appearanceStyles,previous)
+})
+
+
+test('portrait official edits retain the Falcon seed and unchanged field style', async () => {
+  const f = fixture(); await f.page.boot(); portraitOfficial(f)
+  const field = {x:24,y:520,width:520,height:44}
+  f.page.openKeyboard({requestId:'stable',text:'原文',field})
+  const style = f.page.officialInputStyle
+  f.page.inlineOfficialInput({text:'修改',cursorPosition:2})
+  assert.equal(f.page.officialInitialText,'原文')
+  assert.equal(f.page.officialText,'修改')
+  assert(!Object.hasOwn(f.options.data(),'officialText'),'Live text must not trigger Vue patches')
+  const template = fs.readFileSync('src/launcher/LauncherPage.vue','utf8').split('<script>')[0]
+  assert.equal((template.match(/:value="officialInitialText"/g)||[]).length,2)
+  assert.equal((template.match(/:showCursor="false"/g)||[]).length,2)
+  assert.equal((template.match(/:autofocus="true"/g)||[]).length,2)
+  assert.equal(style.opacity,0)
+  assert.equal(style.width,'520px')
+  assert.equal(style.height,'44px')
+  assert(!/display:\s*none|visibility:\s*hidden/.test(template))
+  f.page.inlineOfficialField({...field,requestId:'stable',cursorIndex:2})
+  assert.equal(f.page.officialInputStyle,style)
+  f.page.inlineOfficialField({...field,requestId:'stable',y:530})
+  assert.notEqual(f.page.officialInputStyle,style)
+  f.page.cancelOfficialKeyboard()
+  assert.equal(f.page.officialInitialText,'')
+  f.page.openKeyboard({requestId:'next',text:'下次',field})
+  assert.equal(f.page.officialInitialText,'下次')
+  assert.equal(f.page.officialText,'下次')
+  f.page.dispose()
+})
+
+
+test('official proxy uses native field pixels and retains them over appearance updates', async () => {
+  const f=fixture();await f.page.boot();portraitOfficial(f)
+  const field={x:24,y:520,width:520,height:44,fontSize:31,fontLineHeight:36}
+  f.page.openKeyboard({requestId:'font',text:'text',field})
+  const style=f.page.officialInputStyle
+  assert.equal(style.fontSize,'31px');assert(!('lineHeight' in style))
+  f.page.inlineOfficialField({...field,requestId:'font'})
+  assert.equal(f.page.officialInputStyle,style)
+  const colors={background:'#ffffff',text:'#20242d',muted:'#626b78',surface:'#eef1f5',primaryText:'#ffffff',caret:'#2457c5'}
+  const metrics={title:35,body:26,caption:25,gap:18,inset:40,top:25,bottom:31,retryWidth:225,leaveX:294,leaveWidth:150,controlHeight:56,radius:15}
+  f.page.applyAppearance({colors,metrics})
+  assert.equal(f.page.officialInputStyle,style)
+  f.page.inlineOfficialField({...field,requestId:'stale',fontSize:50})
+  assert.equal(f.page.officialInputStyle,style)
+  for(const fontSize of [undefined,0,-1,Infinity,4097,'30']) {
+    f.page.inlineOfficialField({...field,requestId:'font',fontSize})
+    assert.equal(f.page.officialInputStyle,style)
+  }
+  f.page.inlineOfficialField({...field,requestId:'font',fontSize:33})
+  assert.equal(f.page.officialInputStyle.fontSize,'33px')
+  f.page.cancelOfficialKeyboard()
+  f.page.openKeyboard({requestId:'next-font',text:'next',field:{...field,fontSize:22}})
+  assert.equal(f.page.officialInputStyle.fontSize,'22px')
+  f.page.dispose()
+})
+
+
+test('official viewport keeps full Falcon geometry while validating native keyboard leases', async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ f.page.nativeAreaStyle={left:'0px',top:'0px',width:'568px',height:'1210px'}
+ f.page.updatePageStyle()
+ const base=f.page.nativeAreaStyle
+ const field={x:24,y:520,width:520,height:44,fontSize:26}
+ f.page.openKeyboard({requestId:'clip',text:'text',field})
+ const inputStyle=f.page.officialInputStyle
+ const poll=height=>{f.native.officialKeyboard=()=>({supported:true,visible:true,height,foreground:true});f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()}
+ for(const height of [0,-1,1110,1210,Infinity,NaN,550.5,'550']) poll(height)
+ assert.equal(f.page.nativeAreaStyle.height,'1210px')
+ assert(!f.calls.some(c=>c[0]==='send'&&c[1].type==='keyboard.layout'))
+ poll(550)
+ assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.layout').at(-1)[1].height,550)
+ assert.equal(f.page.nativeAreaStyle.height,'1210px');assert.equal(f.page.pageStyle.height,'1210px')
+ assert.equal(f.page.nativeAreaStyle,base);assert.equal(base.height,'1210px');assert.equal(f.page._screen.height,1210)
+ const viewport=f.page.nativeAreaStyle,page=f.page.pageStyle
+ poll(550);assert.equal(f.page.nativeAreaStyle,viewport);assert.equal(f.page.pageStyle,page)
+ f.page.inlineOfficialField({...field,requestId:'clip'})
+ assert.equal(f.page.officialInputStyle,inputStyle)
+ const colors={background:'#ffffff',text:'#20242d',muted:'#626b78',surface:'#eef1f5',primaryText:'#ffffff',caret:'#2457c5'}
+ const metrics={title:35,body:26,caption:25,gap:18,inset:40,top:25,bottom:31,retryWidth:225,leaveX:294,leaveWidth:150,controlHeight:56,radius:15}
+ f.page.applyAppearance({mode:'light',colors,metrics})
+ assert.equal(f.page.nativeAreaStyle,viewport);assert.equal(f.page.pageStyle.height,'1210px')
+ assert.equal(f.page.officialInputStyle,inputStyle)
+ poll(590);assert.equal(f.page.pageStyle.height,'1210px')
+ assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.layout').at(-1)[1].height,590)
+ f.page.cancelOfficialKeyboard();assert.equal(f.page.pageStyle.height,'1210px');assert.equal(f.page.nativeAreaStyle.height,'1210px')
+ f.page.openKeyboard({requestId:'reclip',text:'again',field});assert.equal(f.page.pageStyle.height,'1210px')
+ poll(550);assert.equal(f.page.pageStyle.height,'1210px')
+ const template=fs.readFileSync('src/launcher/LauncherPage.vue','utf8').split('<script>')[0]
+ assert(template.includes('<hole v-if="!officialInline" class="native-hole" :style="nativeAreaStyle">'))
+ f.page.dispose()
+})
+
+
+test('invalid official heights expire at opening deadline or existing display lease', async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ const field={x:24,y:520,width:520,height:44,fontSize:26}
+ const poll=height=>{f.native.officialKeyboard=()=>({supported:true,visible:true,height,foreground:true});f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()}
+ f.page.openKeyboard({requestId:'bad-open',text:'original',field})
+ poll(0);assert(f.page.keyboardOpen)
+ f.page._officialDeadline=0;poll(0)
+ assert(!f.page.keyboardOpen)
+ let result=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').at(-1)[1]
+ assert(!result.confirmed);assert(result.error.includes('高度无效'))
+ f.page.openKeyboard({requestId:'recover',text:'original',field})
+ poll(550);const viewport=f.page.nativeAreaStyle
+ let layouts=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.layout').length
+ poll(0);assert(f.page.keyboardOpen);assert.equal(f.page.nativeAreaStyle,viewport)
+ assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.layout').length,layouts)
+ f.page._officialValidLayoutAt=Date.now()-751
+ poll(550);assert(f.page.keyboardOpen);assert(Date.now()-f.page._officialValidLayoutAt<750)
+ poll(0);assert(f.page.keyboardOpen)
+ f.page._officialValidLayoutAt=Date.now()-751;poll(0)
+ assert(!f.page.keyboardOpen)
+ result=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').at(-1)[1]
+ assert.equal(result.requestId,'recover');assert(!result.confirmed);assert(result.error.includes('高度无效'))
+ f.page.dispose()
+})
+
+
+test('portrait official proxy omits video hole and keeps its Falcon root transparent',async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ f.page.nativeAreaStyle={left:'0px',top:'0px',width:'568px',height:'1210px'}
+ f.page.updatePageStyle()
+ const normalColor=f.page.pageStyle.backgroundColor
+ assert.notEqual(normalColor,'transparent')
+ f.page.openKeyboard({requestId:'isolate',text:'original',field:{x:24,y:520,width:520,height:44,fontSize:26}})
+ assert(f.page.officialInline);assert.equal(f.page.pageStyle.backgroundColor,'transparent')
+ const root=f.page.pageStyle,field=f.page.officialInputStyle,handlers=f.page.officialInputHandlers
+ handlers.input('edited')
+ assert.equal(f.page.pageStyle,root);assert.equal(f.page.officialInputStyle,field)
+ f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
+ assert.equal(f.page.pageStyle.backgroundColor,'transparent');assert.equal(f.page.pageStyle.height,'1210px')
+ const colors={background:'#ffffff',text:'#20242d',muted:'#626b78',surface:'#eef1f5',primaryText:'#ffffff',caret:'#2457c5'}
+ const metrics={title:35,body:26,caption:25,gap:18,inset:40,top:25,bottom:31,retryWidth:225,leaveX:294,leaveWidth:150,controlHeight:56,radius:15}
+ f.page.applyAppearance({mode:'light',colors,metrics})
+ assert.equal(f.page.pageStyle.backgroundColor,'transparent');assert.equal(f.page.officialInputStyle,field)
+ f.page.cancelOfficialKeyboard()
+ assert(!f.page.officialInline);assert.equal(f.page.pageStyle.backgroundColor,'#ffffff')
+ assert.equal(f.page.pageStyle.height,'1210px')
+ f.page.openKeyboard({requestId:'legacy-hole',text:'landscape',inline:false})
+ assert(!f.page.officialInline);assert.equal(f.page.pageStyle.backgroundColor,'#ffffff')
+ assert.equal(f.calls.filter(c=>c[0]==='startTextEdit').length,2)
+ f.page.dispose()
 })

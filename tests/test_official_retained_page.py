@@ -20,8 +20,11 @@ def run(w,h):
             assert s['display_visible'] and not s['window_focused']
             assert s['display_top_height']==h-h//2 and s['composer_bounds'][3]<s['display_top_height']
             assert not s['touch_input']['active'] and not editor(app)['ocr_active']
+            assert editor(app)['text_visible'] and editor(app)['text_in_target']
             capture(app,OUT/f'{w}-official-upper.png')
             app.send('keyboard.change',requestId=ident,text='fixture',cursorIndex=7)
+            assert editor(app)['length']==7 and editor(app)['text_visible']
+            app.send('keyboard.change',requestId='stale',text='ignored',cursorIndex=0)
             assert editor(app)['length']==7
             time.sleep(.82);assert not app.diag()['display_visible'],'Expired monitor must release its plane'
             layout(request='stale');assert not app.diag()['display_visible']
@@ -38,7 +41,15 @@ def run(w,h):
             app.send('window.focus',focused=True,sequence=2)
             ui.wait_for(lambda:app.diag()['display_visible'])
             assert editor(app)['active'] and not app.diag()['display_top_height']
-            print('Official retained page: IME focus, clipping, expiry, stale IDs, overlay, background and cancel:',w,h,'passed',flush=True)
+            app.editor_action('official');reopened=app.receive('keyboard.open')['requestId']
+            assert reopened!=ident
+            app.send('keyboard.change',requestId=ident,text='stale',cursorIndex=5)
+            assert editor(app)['length']==0
+            app.send('keyboard.change',requestId=reopened,text='confirmed',cursorIndex=9)
+            assert editor(app)['length']==9 and editor(app)['text_visible']
+            app.send('keyboard.result',requestId=reopened,confirmed=True,text='confirmed')
+            assert not editor(app)['active']
+            print('Official retained page: IME focus, clipping, expiry, stale IDs, overlay, background, proxy mirror, cancel/reopen/confirm:',w,h,'passed',flush=True)
         finally:app.close()
 
 if __name__=='__main__':
