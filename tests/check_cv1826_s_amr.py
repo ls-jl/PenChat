@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Targeted ARM32 development package identity, architecture and isolation check."""
+"""ARM32 package identity, architecture, isolation and no-shell runtime check."""
 import hashlib
 import json
 from pathlib import Path

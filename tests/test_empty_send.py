@@ -17,7 +17,7 @@ for width, height in ((960, 266), (640, 260), (568, 1210)):
                     app.tap((bounds[0]+bounds[2])//2, (bounds[1]+bounds[3])//2)
                     request = app.receive('keyboard.open')
                     app.send('keyboard.result', requestId=request['requestId'], confirmed=True, text=draft)
-                    t.wait_for(lambda: not app.diag()['keyboard'] and not app.diag()['editor']['active'])
+                    t.wait_for(lambda: not app.diag()['keyboard'] and not app.diag()['editor']['active'] and not app.diag()['surface_motion'])
                 before = app.diag()
                 for _ in range(2):
                     app.tap(before['send_center_x2']//2, before['send_center_y2']//2)
@@ -31,7 +31,7 @@ for width, height in ((960, 266), (640, 260), (568, 1210)):
                 app.tap((bounds[0]+bounds[2])//2, (bounds[1]+bounds[3])//2)
                 t.wait_for(lambda: app.diag()['editor']['active'])
                 app.editor_action('done')
-                t.wait_for(lambda: not app.diag()['editor']['active'])
+                t.wait_for(lambda: not app.diag()['editor']['active'] and not app.diag()['surface_motion'])
             print(f'{width}x{height}: empty/whitespace send consumes touches; draft, session and editor focus preserved.', flush=True)
         finally:
             app.close()
