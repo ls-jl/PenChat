@@ -41,11 +41,19 @@ def run(d):
  d.tap(d.state()['composer_text_bounds']);d.wait(lambda:d.state()['keyboard']);time.sleep(.5)
  image=official_visual(d,'official-confirm-target')
  print(json.dumps({'stage':'official-confirm-target','image':str(image)},ensure_ascii=False),flush=True)
+ command=controller_command(d) if getattr(d,'official_controller_file',None) else ['official-delete','592','124']
+ assert len(command)==3 and command[0]=='official-delete'
+ tap_system(command);time.sleep(.5)
+ # The full-screen editor commits only with its matching result. Use a changed
+ # value so a premature hide/cancel that merely restores the seed cannot pass.
+ assert d.state()['editor']['length']==2
+ image=official_visual(d,'official-confirm-edited-target')
+ print(json.dumps({'stage':'official-confirm-edited-target','image':str(image)},ensure_ascii=False),flush=True)
  command=controller_command(d) if getattr(d,'official_controller_file',None) else ['official-confirm','592','222']
  assert len(command)==3 and command[0]=='official-confirm'
  tap_system(command);d.wait(lambda:not d.state()['keyboard'] and not d.state()['editor']['active'])
  d.wait(lambda:d.state()['input_focused'] and d.state()['touch_input']['active'])
- assert d.state()['draft_length']==2 and not d.state()['composer_hidden']
+ assert d.state()['draft_length']==1 and not d.state()['composer_hidden']
  d.capture('system-confirm-composer-retained')
  assert d.pid()==pid
- return {'direct_system_button':True,'default_system_route':True,'normal_return_no_native_fallback':True,'draft_preserved':True,'system_confirm_retains_composer':True,'completed_composer_visible':True,'native_pid_unchanged':True,'sent_messages':0}
+ return {'direct_system_button':True,'default_system_route':True,'normal_return_no_native_fallback':True,'draft_preserved':True,'confirmed_changed_text_committed':True,'system_confirm_retains_composer':True,'completed_composer_visible':True,'native_pid_unchanged':True,'sent_messages':0}
