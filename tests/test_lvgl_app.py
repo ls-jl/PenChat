@@ -199,7 +199,7 @@ class Native:
         assert self.diag()['navigation_open']
     def open_settings(self):
         self.open_navigation();state=self.diag();bounds=state['navigation_footer']['settings']['bounds'];self.tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
-        assert self.diag()['view']=='settings'
+        wait_for(lambda:self.diag()['view']=='settings' and not self.diag().get('surface_motion',False))
     def settings_swipe(self, delta):
         start=220 if delta<0 else 75
         state=self.diag()

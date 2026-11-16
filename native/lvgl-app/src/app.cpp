@@ -936,6 +936,12 @@ void App::build() {
   if (imageViewer_) lv_obj_move_foreground(imageViewer_);
 }
 void App::show(const std::string &view) {
+  const bool settingsEnter=view=="settings"&&view_=="chat";
+  std::unique_ptr<SurfaceSnapshot> settingsBackground;
+  if(settingsEnter&&screenObj_&&visible_&&inputFocused_)settingsBackground.reset(new SurfaceSnapshot(screenObj_));
+  std::unique_ptr<SurfaceSnapshot> settingsLeave;
+  if(view_=="settings"&&view=="chat"&&screenObj_&&visible_&&inputFocused_)
+    settingsLeave.reset(new SurfaceSnapshot(screenObj_));
   if(view_=="chat" && view!="chat")captureScaleAnchor();
   if (view != view_) composerShortcut_.reset();
   if ((view_ == "web_source" || view_ == "web_details") && view != "web_source")
@@ -981,6 +987,11 @@ void App::show(const std::string &view) {
   view_ = view;
   notice_.clear();
   build();
+  if(settingsEnter&&screenObj_&&visible_&&inputFocused_) {
+    if(settingsBackground)settingsBackground->show(0,0);
+    lv_obj_move_foreground(screenObj_);slideSurfaceIn(screenObj_,screen_.width,0);
+  }
+  if(settingsLeave)settingsLeave->show(screen_.width,0);
   if (view_ == "camera" && visible_)
     whenScannerReleased([this] {
       if (view_ == "camera" && visible_ && !keyboard_)
@@ -4258,7 +4269,7 @@ Json App::diagnostics() const {
         {"pending",!uiScaleRequest_.empty()},{"ready",uiScaleReady_},{"error",!uiScaleError_.empty()},
         {"changes",uiScaleChanges_},{"slider",bounds(uiScaleSlider_)},{"preview",bounds(uiScalePreview_)},
         {"anchor",{{"message",scaleAnchor_.message},{"region",scaleAnchor_.region},{"offset",scaleAnchor_.offset},{"y",scaleAnchor_.y},{"pending",scaleAnchor_.pending}}}}},
-      {"surface_motion",motion::retiring()},
+      {"surface_motion",motion::retiring()},{"page_slide_x",screenObj_?lv_obj_get_style_translate_x(screenObj_,LV_PART_MAIN):0},
       {"appearance",{{"theme",theme::name(theme::mode())},{"pending",!themeRequest_.empty()},{"ready",themeReady_}}},
       {"refresh_rate",{{"applied",display_.refreshRate()},
         {"period_ms",display_.refreshPeriod()},

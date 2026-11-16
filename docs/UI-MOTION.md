@@ -15,8 +15,9 @@ Floating menus use 150ms appearance and 100ms exit. Replacement adopts the old
 panel under the new overlay, disables its input and fades it out behind the new
 panel. The overlay owns the whole contact sequence, including contacts that
 start during exit, preventing clicks through to keys or Send. Full page changes
-retain their existing navigation behavior. The native keyboard and history drawer
-slide in and out over 180ms: keyboards move from/to the logical bottom, while
+retain their existing navigation behavior except the main Settings entry below.
+The landscape native keyboard slides over 120ms, while portrait keyboards and
+the history drawer retain 180ms: keyboards move from/to the logical bottom, while
 the history panel moves from/to the left edge under its stable backdrop. Panel
 opacity stays unchanged. Closing captures a bounded temporary raster and slides
 it from its current position; live editor/drawer objects are released immediately. This avoids
@@ -26,6 +27,13 @@ logical scaling and are released on DELETE. Contacts are blocked during entry
 and exit because native keyboard hit regions use resting coordinates. Selection-only
 editor overlays do not use keyboard motion. Translation is excluded from the
 reader layout; a partly completed entrance can reverse without a position jump.
+
+Main Settings enters from the logical right over the retained chat background;
+returning to chat slides the outgoing Settings snapshot to the right. Both use
+180ms without changing opacity. Child forms retain their existing navigation.
+`test_settings_motion.py` covers dark/light 960×266, 640×260 and 568×1210 entry,
+exit, final position and snapshot cleanup. The host Settings helper waits for
+motion completion before testing row gestures; it does not bypass the transition.
 
 `finishAll()` runs before lifecycle/appearance/scale teardown and after a close
 that creates an outgoing transition. Completion callbacks must finish while
