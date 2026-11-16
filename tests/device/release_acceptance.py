@@ -43,6 +43,7 @@ RELEASE = 'release-'+APP['version']
 OUT = ROOT/'.work'/RELEASE/'devices'
 # Reuse individual feature fixtures, never acceptance.py on original user data.
 FEATURES = {
+  'feedback-preview': 'CVI metadata-only feedback preview without opening ISP nodes',
   'keyboard-handoff': 'Direct system keyboard, normal return, default preference and completed composer visibility',
   'panel-snapshot': 'System panel background handoff and own-page restore',
   'official-editing-dark': 'Y07 retained official editing with opaque dark handoff backing',
@@ -1053,6 +1054,9 @@ class ReleaseDevice(ScopedDevice):
             entry['evidence'] = official_surface(self)
           elif feature in ('official-editing','official-editing-dark'):
             from release_official_editing import run
+            entry['evidence'] = run(self)
+          elif feature == 'feedback-preview':
+            from release_feedback_preview import run
             entry['evidence'] = run(self)
           elif feature == 'keyboard-handoff':
             from release_keyboard_handoff import run
