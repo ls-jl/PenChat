@@ -805,6 +805,7 @@ class App {
   int officialHeight_=0;
   Json editorLearning_ = Json::array(), editorExact_ = Json::array(), editorPinyinPending_;
   bool editorLayoutMenu_ = false, editorLayoutHold_ = false, editorPunctuation_ = false;
+  bool editorLeasePaused_ = false;
   std::map<std::string, lv_obj_t *> editorLocalActions_;
   void keyboardSettingsPage();
   void editorUseLayout(int layout, bool cycle = false);

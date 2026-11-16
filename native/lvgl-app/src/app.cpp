@@ -3036,7 +3036,10 @@ void App::updateInputFocus() {
       camera_.stop();
       // This can occur after input already expired, so it must not depend on
       // touchLeaseActive_ changing a second time to release the OCR session.
-      if(editor_.active){editorPolicy(false);editorOcrStop();}
+      if(editor_.active){
+        editorPolicy(false);editorOcrStop();
+        if(editorLeasePaused_)editorInterrupt();
+      }
     } else {
       if(view_=="camera"&&!keyboard_)startCamera();
       if(!penObserverReady_&&penObserverRequest_.empty()) {
@@ -3050,11 +3053,17 @@ void App::updateInputFocus() {
   if(touchLeaseActive_==touch)return;
   touchLeaseActive_=touch;
   recordInputFocus(InputFocusTrace::TouchApplied,touch);
-  if(!touch)cancelNativeInteraction();
+  if(!touch) {
+    editorLeasePaused_=editor_.active&&inputFocused_;
+    cancelNativeInteraction();
+  }
   else if(editor_.active){
     editorPolicy(!editorSelectionOnly_);
-    auto notice=std::move(editor_.notice);editorChanged();
-    if(editor_.notice.empty())editor_.notice=std::move(notice);
+    if(!editorLeasePaused_) {
+      auto notice=std::move(editor_.notice);editorChanged();
+      if(editor_.notice.empty())editor_.notice=std::move(notice);
+    }
+    editorLeasePaused_=false;
     editorOcrStart();
   }
 }

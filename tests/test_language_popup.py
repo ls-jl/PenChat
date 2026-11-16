@@ -6,7 +6,7 @@ from image_gestures import capture
 t.port=1
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
 OUT=t.ROOT/'.work/language-popup';OUT.mkdir(parents=True,exist_ok=True)
-for w,h in [(960,266),(568,1210)]:
+for w,h in [(960,266),(640,260),(568,1210)]:
  for native in [False,True]:
   with tempfile.TemporaryDirectory(prefix='penchat-language-popup-') as folder:
    a=t.Native(BINARY,folder,official_adapter=False,screen={'width':w,'height':h})

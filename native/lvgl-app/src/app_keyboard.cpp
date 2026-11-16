@@ -963,6 +963,7 @@ void App::editorResult(const Json &m) {
   editorRefresh();
 }
 void App::editorFinish(bool confirmed) {
+  editorLeasePaused_=false;
   const bool transfer=confirmed&&editorFocusSwitch_&&editorInPlace();
   const int exitDistance=editorLayout().docked?editorLayout().height-editorLayout().panelTop:screen_.height;
   std::unique_ptr<SurfaceSnapshot> leaving;
@@ -1765,15 +1766,26 @@ void App::editorWordPreview() {
 }
 void App::editorInterrupt(bool releaseOcr) {
   editorDefaultOfficial_.clear();
-  if(editorTextGesture_.active()){editor_.cursor=editorTextSavedCursor_;editor_.anchor=editorTextSavedAnchor_;editor_.all=editorTextSavedAll_;}
+  const bool restoreSelection=editorTextGesture_.active();
+  if(restoreSelection){editor_.cursor=editorTextSavedCursor_;editor_.anchor=editorTextSavedAnchor_;editor_.all=editorTextSavedAll_;}
   editorTextGesture_.cancel();editorRangeDrag_=false;
   editorLayoutHold_=false;editorResetDismiss();editorReaderTouch_=false;
   editorCancelKeys();
+  if(editorHeld_>=0&&editorPress_.object)
+    keyboardStyle::keyState(editorPress_.object,false,editorPress_.role,editorPress_.variant,editorPress_.selected);
   editorMagnify(false);
-  if(releaseOcr){editorPolicy(false);editorOcrStop();}
   editorTextTouch_=editorCursorDrag_=false;editorHandle_=-1;
-  editorPointer_=false; editorHeld_=-1; editorRepeat_=0; editorInFlight_=editorDue_=0; editorSelectPending_=editorSelectPending_||editorChoosing_;editorChoosing_=false;editorRefreshPending_=false; ++editorRevision_;
+  editorPointer_=false;editorHeld_=-1;editorRepeat_=0;
   input_.cancel();
+  if(!releaseOcr) {
+    // Expired touch permission still cancels every finger. The independent
+    // media lease retains this editor, its popup and valid dictionary request.
+    if(restoreSelection)editorSyncText();
+    return;
+  }
+  editorLeasePaused_=false;
+  editorPolicy(false);editorOcrStop();
+  editorInFlight_=editorDue_=0;editorSelectPending_=editorSelectPending_||editorChoosing_;editorChoosing_=false;editorRefreshPending_=false;++editorRevision_;
   editor_.globeChain=false;editorLayoutMenu_=editorPunctuation_=false;editorPinyinPending_=Json();
 }
 void App::editorTick() {
