@@ -32,7 +32,8 @@ public:
   bool presented() const {return presented_;}
   bool pending() const {return pending_;}
   bool visible() const { return shown_; }
-  bool systemOverlaySafe() const { return surface_ && surface_->systemOverlaySafe(); }
+  std::array<uint64_t,4> stacking() {return surface_?surface_->stacking():std::array<uint64_t,4>{{0,0,0,0}};}
+  bool systemOverlaySafe() const { return headless_ || (surface_ && surface_->systemOverlaySafe()); }
   void screenshot(const std::string &path);
   void flush(lv_display_t *, const lv_area_t *, uint8_t *);
   lv_display_t *handle() { return display_; }

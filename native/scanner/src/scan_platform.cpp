@@ -66,7 +66,7 @@ void Hardware::reserve(const Json &lease) {
                 std::string(name) == "led_control",
             "wrong scan key");
     int one = 1;
-    require(io(key_, EVIOCGRAB, &one) == 0, "scan key busy");
+    require(io(key_, EVIOCGRAB, &one) == 0, "scan key busy");grabbed_=true;
     resetKey();
   } catch (...) {
     close();
@@ -161,7 +161,13 @@ void Hardware::cameraToOcr() {
   // The launcher has already masked only its own host head-key clients. Let
   // CaptureFrame receive the physical edge too: it owns lamp/start/stop, while
   // this nonexclusive reader forwards the same edge to OCR without home UI.
-  require(io(key_, EVIOCGRAB, nullptr)==0,"cannot release OCR capture key grab");
+  require(io(key_, EVIOCGRAB, nullptr)==0,"cannot release OCR capture key grab");grabbed_=false;
+}
+void Hardware::observeKeysOnly(bool observing) {
+  if(key_<0||grabbed_==!observing)return;
+  int grab=observing?0:1;
+  require(io(key_,EVIOCGRAB,observing?nullptr:&grab)==0,"cannot update scan key observation");
+  grabbed_=!observing;
 }
 void Hardware::close() noexcept {
   bool safeRestore=true;
@@ -171,7 +177,7 @@ void Hardware::close() noexcept {
     io(key_, EVIOCGRAB, nullptr);
     ::close(key_);
   }
-  key_ = -1;
+  key_ = -1;grabbed_=false;
   if (!lease_.empty()) {
     // Parent retained the lease and will restore after its display is quiescent
     // if the child no longer has a working control channel.

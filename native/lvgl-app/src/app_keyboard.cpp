@@ -1042,6 +1042,12 @@ Json App::editorOfficialField() {
           {"fontSize",size},{"fontLineHeight",actualFont->line_height}};
 }
 void App::editorOfficial() {
+  if(!editor_.active||keyboard_)return;
+  if(!scanner_.released()) {
+    const auto id=editor_.id;
+    whenScannerReleased([this,id]{if(editor_.active&&editor_.id==id&&!keyboard_)editorOfficial();});
+    return;
+  }
   if(editorText_)editorTextScroll_=lv_obj_get_scroll_y(editorText_);
   std::string text=editor_.text; text.insert(editByte(text,editor_.cursor),editor_.preedit);
   if (editLength(text)>editor_.limit) { editor_.notice="已达到长度上限"; editorBuild(); return; }
@@ -1544,6 +1550,10 @@ void App::editorOcrPrepared(const Json &m) {
     editorBuild();return;
   }
   editorOcrPreparing_=false;keyboardTiming_.hardwareReady=ticks();
+  if(penObserverReady_) {
+    penObserverReady_=false;penObserverRequest_=uid("pen-observer-off");
+    bridge_.send("pen.observe",{{"requestId",penObserverRequest_},{"enabled",false}});
+  }
   if(editor_.notice.find("OCR")==0)editor_.notice.clear();
   const auto session=editor_.id,request=editorOcrId_;
   whenScannerReleased([this,session,request] {

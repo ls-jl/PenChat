@@ -3013,9 +3013,10 @@ void App::updateInputFocus() {
   const bool partialOfficial=keyboard_&&officialDocked_&&officialForeground_&&
       now>=officialLayoutAt_&&now-officialLayoutAt_<750&&display_.topHeight()>0&&
       display_.supportsTopRegion()&&!systemOverlayStatus_.value("panel_visible",false);
-  const auto permission=inputFocus_.permissions(now,pageVisible_,windowFocused_,keyboard_,
+  const auto permission=inputFocus_.permissions(now,pageVisible_,windowFocused_&&!systemOverlayStatus_.value("panel_visible",false),keyboard_,
       partialOfficial,display_.systemOverlaySafe(),!display_.presented());
-  const bool media=permission.media,shown=permission.display;
+  const bool retainCovered=systemOverlayStatus_.value("panel_visible",false)&&display_.systemOverlaySafe();
+  const bool media=permission.media&&pageAttached_,shown=(permission.display||(pageVisible_&&retainCovered))&&pageAttached_;
   if (display_.visible() != shown) display_.visible(shown);
   if(inputFocused_!=media) {
     inputFocused_=media;
@@ -3025,7 +3026,13 @@ void App::updateInputFocus() {
       // This can occur after input already expired, so it must not depend on
       // touchLeaseActive_ changing a second time to release the OCR session.
       if(editor_.active){editorPolicy(false);editorOcrStop();}
-    } else if(view_=="camera"&&!keyboard_)startCamera();
+    } else {
+      if(view_=="camera"&&!keyboard_)startCamera();
+      if(!penObserverReady_&&penObserverRequest_.empty()) {
+        penObserverRequest_=uid("pen-observer-reset");
+        bridge_.send("pen.observe",{{"requestId",penObserverRequest_},{"enabled",false}});
+      }
+    }
     syncScanner();
   }
   const bool touch=permission.input;
@@ -3042,7 +3049,7 @@ void App::updateInputFocus() {
 }
 void App::suspend(bool value) {
   if(pageVisible_==!value){updateInputFocus();return;}
-  if(value&&!systemOverlaySnapshot_.empty()){unlink(systemOverlaySnapshot_.c_str());systemOverlaySnapshot_.clear();}
+  if(value){penObserverRequest_.clear();penObserverReady_=false;}
   if(value)chatBottomState_.pause();
   if(value)motion::finishAll();
   if (value) composerShortcut_.reset();
@@ -3112,7 +3119,6 @@ void App::shutdown() {
 #endif
   if (shutdownComplete_) return;
   shutdownComplete_ = true;
-  if(!systemOverlaySnapshot_.empty()){unlink(systemOverlaySnapshot_.c_str());systemOverlaySnapshot_.clear();}
   motion::finishAll();
   cancelWebReader();
   cancelBalances();
@@ -3298,7 +3304,16 @@ void App::handle(const Json &m) {
   }
 #endif
   if (type == "init") {
+    const bool reattach=m.value("reattach",false);pageAttached_=true;
+    if(reattach) {
+      inputFocus_=InputFocus(true);windowFocusSequence_=0;windowFocused_=false;
+      penObserverRequest_.clear();penObserverReady_=false;
+      bridge_.generation(m.value("generation",0));
+      bridge_.send("booted",{{"screen",screen_.descriptor()},{"version",PENCHAT_VERSION},{"appid",PENCHAT_APP_ID}});
+      if(editor_.active)editorPolicy(!editorSelectionOnly_);
+    }
     bridge_.generation(m.value("generation", 0));sendAppearance();
+    bridge_.send("pen.capabilities",{{"observer",scanner_.available()}});
     editorOcrCapabilities(m.value("ocrCapabilities",Json::object()));
     startupReadyPending_ = true;
     syncBackPolicy();
@@ -3307,6 +3322,17 @@ void App::handle(const Json &m) {
   }
   if (m.value("generation", bridge_.generation()) != bridge_.generation())
     return;
+  if(type=="pen.observe.result") {
+    if(m.value("requestId",std::string())!=penObserverRequest_)return;
+    const bool enabled=m.value("enabled",false),ok=m.value("ok",false);
+    penObserverRequest_.clear();penObserverReady_=enabled&&ok;
+    systemOverlayStatus_["pen_observer_code"]=m.value("code",0);
+    if(enabled&&!ok)penObserverRequest_="unsupported"; // Do not spin/release an unfiltered key client.
+    syncScanner();return;
+  }
+  if(type=="page.detach") {
+    pageAttached_=false;windowFocus(false);updateInputFocus();touchInput_.close();return;
+  }
   if(type == "input.focus") {
     const auto before=inputFocus_.snapshot(ticks());
     if(inputFocus_.update(m.value("sequence",uint64_t(0)),m.value("active",false),ticks())) {
@@ -3370,18 +3396,6 @@ void App::handle(const Json &m) {
     if(sequence>windowFocusSequence_){recordInputFocus(InputFocusTrace::WindowReceived,m.value("focused",false),sequence);windowFocusSequence_=sequence;windowFocus(m.value("focused",false));}
   }
   else if(type=="system.overlay.status") {
-    const bool panel=m.value("panel_visible",systemOverlayStatus_.value("panel_visible",false));
-    if(panel&&!systemOverlayStatus_.value("panel_visible",false)&&pageVisible_&&visible_) {
-      // A single frozen page under Falcon's panel, never an interactive second UI.
-      // Keep it private and ephemeral; do not keep capturing while obscured.
-      try {
-        systemOverlaySnapshot_=join(dataDir_,uid("overlay")+".png");
-        display_.screenshot(systemOverlaySnapshot_);
-        bridge_.send("system.overlay.frame",{{"path",systemOverlaySnapshot_}});
-      } catch(...) {if(!systemOverlaySnapshot_.empty())unlink(systemOverlaySnapshot_.c_str());systemOverlaySnapshot_.clear();}
-    } else if(!panel&&!systemOverlaySnapshot_.empty()) {
-      unlink(systemOverlaySnapshot_.c_str());systemOverlaySnapshot_.clear();
-    }
     bool changed=false;
     for(const char *key:{"window_api","window_valid","app_focused","panel_api","panel_available","panel_supported","panel_visible"})
       if(m.contains(key)&&m[key].is_boolean()) {
@@ -4253,7 +4267,7 @@ Json App::diagnostics() const {
         {"default_hz",refresh::defaultRate(screen_.width,screen_.height)},
         {"configured",refreshSaved_},{"pending",!refreshRequest_.empty()},
         {"ready",refreshReady_},{"changes",refreshChanges_},{"error",refreshError_}}},
-      {"render_timing",displayTimingInfo()},
+      {"render_timing",displayTimingInfo()},{"display_stack",display_.stacking()},{"pen_observer",{{"ready",penObserverReady_},{"code",systemOverlayStatus_.value("pen_observer_code",0)},{"supported",penObserverRequest_!="unsupported"},{"pending",!penObserverRequest_.empty()&&penObserverRequest_!="unsupported"}}},
       {"surface_snapshot_timing",{{"count",surfaceSnapshotTiming().count},{"total_us",surfaceSnapshotTiming().totalUs},{"max_us",surfaceSnapshotTiming().maxUs}}},
       {"font_cache",fontCacheInfo()},
       {"reading_font", {{"percent", readingFontPercent_}, {"size", readingFontSize()},

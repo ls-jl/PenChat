@@ -102,6 +102,8 @@ class Native:
             if value.get("type")==kind:return self.pending.pop(i)
         while True:
             value=json.loads(self.parent.recv(65536))
+            if value.get('type')=='pen.observe':
+                self.send('pen.observe.result',requestId=value['requestId'],enabled=value['enabled'],ok=True);continue
             if value.get('type')=='ocr.cancel' and self.ocr_cancel_ack:
                 self.send('ocr.stopped',requestId=value['requestId'],ok=True)
                 continue

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 #include <pthread.h>
 #include <string>
 #include <vector>
@@ -34,6 +35,7 @@ public:
     bool ready() const { return fd_ >= 0 && planeId_ != 0; }
     uint32_t planeId() const { return planeId_; }
     uint32_t zpos() const { return zpos_; }
+    std::array<uint64_t,4> stacking();
     int crtcWidth() const { return crtcW_; }
     int crtcHeight() const { return crtcH_; }
     std::string lastError() const { return error_; }
@@ -103,6 +105,10 @@ private:
     uint32_t propCrtcH_;
     uint32_t propZpos_;
     uint32_t propOutFence_ = 0;
+    uint32_t hostPlane_ = 0, hostZprop_ = 0;
+    uint64_t hostOriginalZ_ = 0, hostDesiredZ_ = 0;
+    bool hostAdjusted_ = false;
+    bool restoreHostOrder();
 };
 
 void nv12ToBgra(const uint8_t* yPlane, const uint8_t* uvPlane, int width, int height,

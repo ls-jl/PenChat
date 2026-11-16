@@ -22,7 +22,7 @@ struct ScanService::Impl {
   mutable std::mutex mutex;
   std::condition_variable cv;
   std::thread worker;
-  bool desiredOcr = false, desiredPenInput = true;
+  bool desiredOcr = false, desiredPenInput = true, paused = false, observing = false;
   bool stopped = false, desired = false, disarmed = true, available = false;
   std::string session;
   uint64_t generation = 0, request = 0;
@@ -68,7 +68,7 @@ struct ScanService::Impl {
     return {{"v", ProtocolVersion},     {"type", type},
             {"generation", generation}, {"session", session},
             {"requestId", ++request},   {"scanId", scan},
-            {"pen_input_enabled", desiredPenInput}};
+            {"pen_input_enabled", desiredPenInput},{"paused",paused},{"observe_only",observing}};
   }
   void queue(const std::string &type, uint64_t scan = 0) {
     commands.push_back(command(type, scan));
@@ -125,8 +125,12 @@ struct ScanService::Impl {
       args.push_back("5");
     }
 #ifndef PENCHAT_NATIVE_DEVICE
-    if (getenv("PENCHAT_SCANNER_TEST"))
-      args.push_back("--simulate");
+    if (getenv("PENCHAT_SCANNER_TEST")) {
+      const auto profile=getenv("PENCHAT_SCANNER_TEST_PROFILE");
+      const std::string selected=profile?profile:"orange";
+      if(selected!="orange"&&selected!="s6"&&selected!="y02"&&selected!="y07"&&selected!="melon")throw std::runtime_error("Invalid simulated scan profile");
+      args.push_back(selected=="orange"?"--simulate":"--simulate-"+selected);
+    }
 #endif
     std::vector<char *> argv;
     for (auto &a : args)
@@ -302,7 +306,11 @@ struct ScanService::Impl {
             if (j.value("generation", uint64_t(0)) != generation ||
                 j.value("session", std::string()) != session)
               continue;
-            if (type == "pen_input")
+            if(type=="overlay_pause") {
+              status["overlay_paused"]=j.value("overlay_paused",false);
+              status["overlay_observing"]=j.value("overlay_observing",false);
+              status["observed_key_edges"]=j.value("observed_key_edges",uint64_t(0));
+            } else if (type == "pen_input")
               status["pen_input_enabled"] = j.value("pen_input_enabled", true);
             else
               status = j;
@@ -355,6 +363,16 @@ ScanService::ScanService(Events &e, const std::string &w, const std::string &d)
     : p_(new Impl(e, w, d)) {}
 ScanService::~ScanService() = default;
 void ScanService::stop() { p_->stop(); }
+bool ScanService::listening() const {
+  std::lock_guard<std::mutex> lock(p_->mutex);return p_->desired&&!p_->stopped;
+}
+void ScanService::pauseTriggers(bool paused,bool observerReady) {
+  std::lock_guard<std::mutex> lock(p_->mutex);
+  const bool observing=paused&&observerReady;
+  if(p_->paused==paused&&p_->observing==observing)return;
+  p_->paused=paused;p_->observing=observing;
+  if(p_->desired&&!p_->stopped)p_->queue("overlay_pause");
+}
 void ScanService::eligible(bool enabled, const std::string &session, bool ocrKeys,
                            bool penInput) {
   std::lock_guard<std::mutex> l(p_->mutex);
@@ -372,6 +390,7 @@ void ScanService::eligible(bool enabled, const std::string &session, bool ocrKey
                   {"generation", p_->generation},
                   {"session", session}};
     p_->queue(ocrKeys ? "ocr_keys" : "arm");
+    if(p_->paused)p_->queue("overlay_pause");
   } else if (enabled && p_->desiredPenInput != penInput) {
     p_->desiredPenInput = penInput;
     p_->queue("pen_input");

@@ -9,7 +9,7 @@ def run():
         for f in (BUNDLE/'resources/illumination').iterdir():
             (resources/f.name).symlink_to(f)
         shutil.copyfile(ROOT/'native/scanner/calibration/y07-sc2356.json',resources/'y07-sc2356.json')
-        for profile in ('orange','y02','y07','melon'):
+        for profile in ('orange','y02','y07','melon','s6'):
             directory=root/profile;directory.mkdir();s=Scanner(directory,profile=profile,resources=resources)
             try:
                 s.press();s.release();assert not s.receive('finished')['usable']
@@ -56,6 +56,6 @@ def run():
                 s.send('prepare_review')
             finally:s.close()
             assert not list((directory/'pending').iterdir())
-    print('All four mock profiles: missing 1/7/8 continue, 9/10 stop, repeated gaps, original review/cache, failure/retry, cancel and EOF cleanup passed.')
+    print('All five mock profiles: missing 1/7/8 continue, 9/10 stop, repeated gaps, original review/cache, failure/retry, cancel and EOF cleanup passed.')
 
 if __name__=='__main__':run()

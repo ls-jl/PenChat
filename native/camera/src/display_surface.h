@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <array>
 #include <memory>
 namespace camera {
 struct DisplayGeometry {
@@ -27,6 +28,7 @@ public:
   // A compositor may retain this lower layer while system windows own input.
   // Direct hardware planes must still hide when they lose window focus.
   virtual bool systemOverlaySafe() const {return false;}
+  virtual std::array<uint64_t,4> stacking() {return {{0,0,0,0}};}
   // Some legacy video drivers invalidate old handles when another owner opens.
   virtual bool releaseOnHide() const {return false;}
 };

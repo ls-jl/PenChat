@@ -19,6 +19,8 @@ public:
   }
   void hide() override {overlay_.disable();}
   bool supportsTopRegion() const override { return true; }
+  bool systemOverlaySafe() const override { return true; }
+  std::array<uint64_t,4> stacking() override {return overlay_.stacking();}
   void topRegion(int height) override {
     topHeight_=height;
     overlay_.setHole({0,0,geometry_.width,height?height:geometry_.height,

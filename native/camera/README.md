@@ -41,3 +41,11 @@ in `orientation-source.json` remain provenance records, not adapted-file hashes.
 The opt-in `python3 tests/device/display_pixels.py --serial <authorized serial>`
 checks actual framebuffer pixels, display ownership and real camera frames while
 PenChat is inactive, restores camera format/crop and never accesses app data.
+
+
+RK presentation now selects an unused ARGB overlay below the active ARGB Falcon primary.
+The primary must support a transparent hole; mutable zpos ranges are validated before upload.
+The primary is raised only when needed and its saved order is restored only if still leased.
+Atomic submissions retain OUT_FENCE_PTR binding and never retry without the verified order.
+Control-center covers retain this plane and its buffers; true background stops presentation.
+S6 continues using its separate shared compositor, not this RK plane path.

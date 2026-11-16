@@ -26,9 +26,10 @@ def run():
     env={'PENCHAT_SCANNER_BINARY':str(t.ROOT/'build/scanner-host/penchat-scanner'),
          'PENCHAT_SCAN_RESOURCES':str(BUNDLE/'resources/illumination'),'PENCHAT_SCANNER_TEST':'1',
          'LD_LIBRARY_PATH':str(BUNDLE/'third_party/opencv-host/lib/x86_64-linux-gnu')+':'+str(BUNDLE/'third_party/opencv-host/lib/x86_64-linux-gnu/openblas-pthread')}
-    before={k:os.environ.get(k) for k in env};os.environ.update(env);t.port=1
+    before={k:os.environ.get(k) for k in list(env)+['PENCHAT_SCANNER_TEST_PROFILE']};os.environ.update(env);t.port=1
     try:
-        for w,h in [(960,266),(936,280),(568,1210)]:
+        for w,h in [(960,266),(936,280),(568,1210),(640,260)]:
+            os.environ['PENCHAT_SCANNER_TEST_PROFILE']='s6' if (w,h)==(640,260) else 'orange'
             with tempfile.TemporaryDirectory(prefix='penchat-scan-review-ui-') as directory:
                 root=pathlib.Path(directory);a=t.Native(BINARY,root,screen={'width':w,'height':h,'direction':0},official_adapter=False)
                 try:
@@ -45,6 +46,17 @@ def run():
                     import struct
                     assert state['image_viewer']['frame']==list(struct.unpack('>II',original.read_bytes()[16:24]))
                     mtime=original.stat().st_mtime_ns
+                    retained=a.diag();identity=(retained['scanner']['worker_pid'],retained['scanner']['model_prepared_us'],retained['scanner']['model_prepare_requests'])
+                    a.send('system.overlay.status',panel_visible=True,panel_supported=True)
+                    a.send('window.focus',focused=False,sequence=1)
+                    t.wait_for(lambda:a.diag()['scanner'].get('overlay_observing'))
+                    covered=a.diag();assert covered['image_viewer']['loaded'] and covered['view']=='scan' and covered['display_visible']
+                    a.send('scanner.test',command='test.press',pressed=True);a.send('scanner.test',command='test.press',pressed=False)
+                    a.send('system.overlay.status',panel_visible=False,panel_supported=True)
+                    a.send('window.focus',focused=True,sequence=2)
+                    t.wait_for(lambda:not a.diag()['scanner'].get('overlay_paused',True))
+                    returned=a.diag();assert returned['scan_id']==scan and returned['image_viewer']['loaded']
+                    assert (returned['scanner']['worker_pid'],returned['scanner']['model_prepared_us'],returned['scanner']['model_prepare_requests'])==identity
                     pinch(a,w/2,h/2,scale=3);assert a.diag()['image_viewer']['zoom']>2
                     drag(a,w/2,h/2,-30,-30)
                     capture(a,OUT/f'{w}-original-zoom.png')
@@ -88,5 +100,5 @@ def run():
         for k,v in before.items():
             if v is None:os.environ.pop(k,None)
             else:os.environ[k]=v
-    print('Three LVGL viewports: warning, normal/partial/empty review, original image, pinch/pan, cached reopen, no save/send, background cancellation and file cleanup passed.')
+    print('Four LVGL viewports with explicit S6 profile and retained panel review: warning, normal/partial/empty review, original image, pinch/pan, cached reopen, no save/send, background cancellation and file cleanup passed.')
 if __name__=='__main__':run()

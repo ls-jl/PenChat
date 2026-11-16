@@ -22,6 +22,7 @@ public:
   virtual void light(bool)=0;
   virtual void exposure(bool)=0;
   virtual void cameraToOcr()=0;
+  virtual void observeKeysOnly(bool)=0;
   virtual void beforeRestore(std::function<void()>)=0;
   virtual void close() noexcept=0;
 };

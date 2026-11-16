@@ -34,14 +34,14 @@ def run(w,h):
             layout(request='stale');assert not app.diag()['display_visible']
             layout();assert app.diag()['display_visible']
             app.send('system.overlay.status',panel_visible=True)
-            ui.wait_for(lambda:not app.diag()['display_visible'])
-            layout();assert not app.diag()['display_visible']
+            ui.wait_for(lambda:app.diag()['display_visible'] and not app.diag()['input_focused'])
+            layout();assert app.diag()['display_visible']
             app.send('system.overlay.status',panel_visible=False);layout()
             assert app.diag()['display_visible']
             app.send('visibility',visible=False);layout();assert not app.diag()['display_visible']
             app.send('visibility',visible=True);layout();assert app.diag()['display_visible']
             app.send('keyboard.result',requestId=ident,confirmed=False)
-            assert not app.diag()['display_visible'] and not editor(app)['active']
+            assert app.diag()['display_visible'] and not app.diag()['input_focused'] and not editor(app)['active']
             assert app.diag()['draft_length']==7
             app.send('window.focus',focused=True,sequence=2)
             ui.wait_for(lambda:app.diag()['display_visible'])

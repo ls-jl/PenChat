@@ -181,7 +181,8 @@ class Worker {
   PreviewSlot *slot_;
   std::string resources_, directory_, session_, state_ = "disarmed";
   uint64_t generation_ = 0, request_ = 0, scan_ = 0;
-  bool ocrKeys_ = false, penInputEnabled_ = true;
+  bool ocrKeys_ = false, penInputEnabled_ = true, overlayPaused_ = false, overlayObserving_ = false;
+  uint64_t observedKeyEdges_=0, modelPrepareRequests_=0;
   unsigned ocrSequence_ = 0;
   bool mock_ = false, armed_ = false, capturing_ = false, finished_ = false;
 #ifdef SCANNER_TEST_SOURCE
@@ -306,6 +307,7 @@ class Worker {
     data["sensor_rotation"] = rotationName(config_.rotation);
     data["hardware_armed"] = armed_;
     data["pen_input_enabled"] = penInputEnabled_;
+    data["overlay_paused"] = overlayPaused_;data["overlay_observing"]=overlayObserving_;data["observed_key_edges"]=observedKeyEdges_;data["model_prepare_requests"]=modelPrepareRequests_;
     data["capture_strategy"] = startupName(profile_.capture.startup);
     data["runtime_path"] = mock_ ? "host_simulation" : scanRuntimePath(profile_,resources_);
     data["runtime_migration"] = profile_.inference.runtime==RuntimeKind::SystemRknn ? "pending_validation" :
@@ -452,8 +454,8 @@ class Worker {
   void keyEvent(bool down, int64_t eventUs = 0) {
     if (!armed_ || down == keyDown_)
       return;
-    keyDown_ = down;
-    if (!penInputEnabled_) {
+    keyDown_ = down;++observedKeyEdges_;
+    if (!penInputEnabled_ || overlayPaused_) {
       // Track edges while blocked. Re-enabling while held must not start a
       // scan; wait for the actual release and a fresh press.
       requireRelease_ = down;
@@ -697,12 +699,12 @@ public:
       disarm();
       ocrKeys_ = type == "ocr_keys";
       generation_ = generation;
-      penInputEnabled_ = j.value("pen_input_enabled", true);
+      penInputEnabled_ = j.value("pen_input_enabled", true);overlayPaused_=j.value("paused",false);overlayObserving_=overlayPaused_&&j.value("observe_only",false);
       session_ = j.at("session").get<std::string>();
       request_ = j.value("requestId", uint64_t(0));
       if (mock_) {
         if (ocrKeys_) { state_="ocr_keys"; emit("released",{{"ocr_keys",true}}); return; }
-        if (engine_->prepareModel() != Code::Ok)
+        if ((++modelPrepareRequests_,engine_->prepareModel()) != Code::Ok)
           throw std::runtime_error("model preparation unavailable");
         state_ = "warming";
         emit("preparing", {{"phase", "model_warmup"}});
@@ -722,17 +724,26 @@ public:
       // Reserve the key and pause the stock capture owner before model work,
       // but do not start our sensor. The parent already retained the lease.
       hardware_->reserve(lease_);
+      if(overlayObserving_)hardware_->observeKeysOnly(true);
       if (ocrKeys_) {
         hardware_->cameraToOcr(); lease_ = Json();
         state_ = "ocr_keys"; emit("released", {{"ocr_keys", true}}); return;
       }
-      if (engine_->prepareModel() != Code::Ok)
+      if ((++modelPrepareRequests_,engine_->prepareModel()) != Code::Ok)
         throw std::runtime_error("model preparation unavailable");
       state_ = "warming";
       emit("preparing", {{"phase", "model_warmup"}});
     } else if (type == "disarm" || type == "cancel") {
       disarm();
       emit("released");
+    } else if(type=="overlay_pause") {
+      overlayPaused_=j.value("paused",false);overlayObserving_=overlayPaused_&&j.value("observe_only",false);requireRelease_=keyDown_;
+      if(!mock_)hardware_->observeKeysOnly(overlayObserving_||ocrKeys_);
+      if(overlayPaused_) {
+        light_.off();
+        if(capturing_)drain(clockUs());
+      }
+      emit("overlay_pause");
     } else if (type == "pen_input") {
       penInputEnabled_ = j.value("pen_input_enabled", true);
       requireRelease_ = keyDown_;
@@ -768,7 +779,7 @@ public:
     } else if (mock_ && type == "test.press") {
       if (state_=="ocr_keys") {
         const bool down=j.value("pressed",false);
-        if (down!=keyDown_) { keyDown_=down; if(down)++ocrSequence_; emit("ocr_key",{{"down",down},{"sequence",ocrSequence_}}); }
+        if (down!=keyDown_) { keyDown_=down;++observedKeyEdges_;if(down)++ocrSequence_; if(!overlayPaused_)emit("ocr_key",{{"down",down},{"sequence",ocrSequence_}}); }
       } else keyEvent(j.value("pressed", false));
     } else if (mock_ && type == "test.frame" && capturing_) {
       std::vector<uint8_t> pixels(size_t(profile_.width) * profile_.height, 210);
@@ -869,6 +880,7 @@ public:
           emit("ready", {{"model_prepared_us", model.elapsedUs}});
         } else {
           hardware_->start();
+          if(overlayObserving_)hardware_->observeKeysOnly(true);
           armed_ = true;
           requireRelease_ = false;
           state_ = "ready";
@@ -900,7 +912,8 @@ public:
       bool down = false;
       while (hardware_->keyEvent(down)) {
         if (down) ++ocrSequence_;
-        emit("ocr_key", {{"down", down}, {"sequence", ocrSequence_}});
+        keyDown_=down;++observedKeyEdges_;
+        if(!overlayPaused_)emit("ocr_key", {{"down", down}, {"sequence", ocrSequence_}});
       }
     }
     if (armed_ && !mock_) {

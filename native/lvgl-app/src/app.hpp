@@ -242,7 +242,6 @@ class App {
   void scanEvent(const Event &);
   void whenScannerReleased(std::function<void()>);
   RichText rich_;
-  std::string systemOverlaySnapshot_;
   std::string workspace_, dataDir_, view_ = "chat", session_, draft_,
                                     assistant_, output_, reasoning_, notice_;
   Json providerForm_, rows_ = Json::array();
@@ -431,7 +430,9 @@ class App {
   int messageOffset_ = 0, historyOffset_ = 0, networkGeneration_ = 0;
   bool shutdownComplete_ = false;
   bool generating_ = false, visible_ = true, keyboard_ = false;
-  bool pageVisible_=true, windowFocused_=true;
+  std::string penObserverRequest_;
+  bool penObserverReady_=false;
+  bool pageVisible_=true, windowFocused_=true, pageAttached_=true;
   uint64_t windowFocusSequence_=0;
   Json systemOverlayStatus_=Json::object();
   bool systemEdgeDown_=false, systemEdgeGesture_=false;

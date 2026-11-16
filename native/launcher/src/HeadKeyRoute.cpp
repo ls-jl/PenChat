@@ -1,5 +1,4 @@
 #include "HeadKeyRoute.hpp"
-#include "../../scanner/src/profile.hpp"
 #include <dirent.h>
 #include <cstdlib>
 #include <cstring>
@@ -26,12 +25,8 @@ HeadKeyRoute::System HeadKeyRoute::realSystem() {
   return {
     [] {
       std::vector<int> result;
-      std::ifstream model("/proc/device-tree/model");std::string identity;
-      std::getline(model,identity,'\0');
-      std::ifstream sensorFile("/sys/class/video4linux/v4l-subdev2/name");std::string sensor;
-      std::getline(sensorFile,sensor);
-      const auto profile=penchat_scan::scanProfile(identity,sensor);
-      if(!profile.handoff.nativeOcrKeys)return result;
+      // Routing is an input-client capability, not a sensor adaptation.
+      // The native app gates requests by its validated scanner profile.
       auto directory=opendir("/proc/self/fd");if(!directory)return result;
       while(auto entry=readdir(directory)) {
         char *end=nullptr;const long fd=strtol(entry->d_name,&end,10);

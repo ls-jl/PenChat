@@ -144,3 +144,12 @@ S6共享内存合成把输入焦点和底图显示分开：`input.focus.active`�
 按Alpha合成，失去输入焦点不隐藏LVGL底图。后台、官方键盘、退出及300ms显示
 心跳过期仍回到系统提交路径。该策略仅由支持系统上层合成的DisplaySurface启用，
 直接硬件图层继续沿用失焦隐藏规则。
+
+
+Resident runtime lifecycle: Page detach revokes visibility/input and closes its system editor/OCR
+connections, while the app-scoped native module retains the child. Repeated start with the same
+workspace/data returns reused plus the cached ready/screen descriptor; a different identity is
+rejected. Explicit stop/context destruction still reaps the child. Reattach init resets bridge
+focus sequences and replays metadata without rebuilding the native editor or replaying requests.
+The internal pen.observe/requestId handshake filters only this host's KEY134 clients before a
+nonexclusive observer is enabled. OCR/observer filter leases compose and restore on handback.

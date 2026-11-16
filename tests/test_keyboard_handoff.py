@@ -24,17 +24,15 @@ for w,h in [(960,266),(640,260),(568,1210)]:
    assert 'official' in a.diag()['editor']['actions']
    a.editor_action('done');ui.wait_for(lambda:not a.diag()['editor']['active'])
    assert not a.diag()['composer_hidden']
-   # System overlay uses one private snapshot and cleans it on return.
-   # Y07 may lose focus before the panel reports visible.
+   # The underlay stays allocated/visible; only native input is yielded.
    a.send('window.focus',focused=False,sequence=1)
    a.send('system.overlay.status',panel_visible=True)
-   event=a.receive('system.overlay.frame');path=pathlib.Path(event['path'])
-   assert path.is_file() and path.read_bytes().startswith(b'\x89PNG')
-   assert not a.diag()['display_visible']
+   assert a.diag()['display_visible'] and not a.diag()['input_focused']
+   assert not list(a.directory.glob('overlay_*.png'))
    a.send('system.overlay.status',panel_visible=False)
    a.send('window.focus',focused=True,sequence=2)
-   ui.wait_for(lambda:a.diag()['display_visible']);assert not path.exists()
-   print('Keyboard handoff, retained draft/composer, overlay snapshot:',w,h,'passed',flush=True)
+   ui.wait_for(lambda:a.diag()['input_focused'])
+   print('Keyboard handoff, retained draft/composer and underlay:',w,h,'passed',flush=True)
   finally:a.close()
 
 from test_chat_style import seed

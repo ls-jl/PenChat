@@ -1,4 +1,5 @@
 #include "overlay.h"
+#include "plane_order.hpp"
 
 #include "camera_logic.h"
 
@@ -18,6 +19,7 @@
 #include <cmath>
 #include <chrono>
 #include <vector>
+#include <set>
 
 namespace camera {
 namespace {
@@ -239,7 +241,7 @@ bool Overlay::pickResources()
     }
     uint32_t overlayNv12 = 0;
     uint32_t overlayArgb = 0;
-    uint32_t primaryId = 0;
+    uint32_t primaryId = 0, primaryFb = 0;
     uint64_t primaryZpos = 0;
     bool primaryHasZpos = false;
     for (uint32_t i = 0; i < planes->count_planes; ++i) {
@@ -257,52 +259,56 @@ bool Overlay::pickResources()
             if (p->formats[f] == kFormatNv12) hasNv12 = true;
             if (p->formats[f] == kFormatArgb || p->formats[f] == DRM_FORMAT_XRGB8888) hasArgb = true;
         }
-        if (type == DRM_PLANE_TYPE_PRIMARY) {
-            primaryId = p->plane_id;
+        if (type == DRM_PLANE_TYPE_PRIMARY && p->fb_id && p->crtc_id == crtcId_) {
+            primaryId = p->plane_id;primaryFb=p->fb_id;
             primaryHasZpos = findProp(primaryId, DRM_MODE_OBJECT_PLANE, "zpos", &primaryZpos) != 0;
         }
-        if (type == DRM_PLANE_TYPE_OVERLAY) {
+        if (type == DRM_PLANE_TYPE_OVERLAY && !p->fb_id) {
             if (hasNv12 && !overlayNv12) overlayNv12 = p->plane_id;
             if (hasArgb && !overlayArgb) overlayArgb = p->plane_id;
         }
         freePlane(p);
     }
-    planeId_ = overlayNv12 ? overlayNv12 : overlayArgb;
-    useNv12_ = overlayNv12 != 0;
+    drm_mode_fb_cmd2 hostFrame{};hostFrame.fb_id=primaryFb;
+    const bool alphaPrimary=primaryFb&&ioctl(fd_,DRM_IOCTL_MODE_GETFB2,&hostFrame)==0&&hostFrame.pixel_format==DRM_FORMAT_ARGB8888;
+    std::set<uint32_t> handles;
+    for(auto handle:hostFrame.handles)if(handle&&handles.insert(handle).second) {
+        drm_gem_close closeHandle{};closeHandle.handle=handle;ioctl(fd_,DRM_IOCTL_GEM_CLOSE,&closeHandle);
+    }
+    if(!alphaPrimary){freePlanes(planes);freeRes(res);error_="Falcon primary is not an ARGB hole surface";return false;}
+    planeId_ = overlayArgb;
+    useNv12_ = false;
     if (!planeId_) {
         freePlanes(planes);
         freeRes(res);
         error_ = "no overlay plane";
         return false;
     }
-    uint64_t zval = 0;
-    propZpos_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "zpos", &zval);
-    minZpos_ = 0;
-    maxZpos_ = 0;
-    zpos_ = static_cast<uint32_t>(zval);
-    if (propZpos_) {
-        decltype(&drmModeGetProperty) getProp = DRM_SYM(drmModeGetProperty);
-        decltype(&drmModeFreeProperty) freeProp = DRM_SYM(drmModeFreeProperty);
-        drmModePropertyRes* prop = getProp ? getProp(fd_, propZpos_) : 0;
-        if (prop && (prop->flags & DRM_MODE_PROP_RANGE) && prop->count_values >= 2) {
-            minZpos_ = static_cast<uint32_t>(prop->values[0]);
-            maxZpos_ = static_cast<uint32_t>(prop->values[1]);
-            zpos_ = minZpos_;
-            if (primaryHasZpos) {
-                if (primaryZpos < maxZpos_)
-                    zpos_ = static_cast<uint32_t>(std::max<uint64_t>(minZpos_, primaryZpos + 1));
-                else
-                    CAMLOG("operation=zpos warning=overlay_cannot_above_primary plane=%u primary=%llu max=%u",
-                        planeId_, static_cast<unsigned long long>(primaryZpos), maxZpos_);
-            } else {
-                CAMLOG("operation=zpos warning=primary_zpos_unavailable plane=%u", planeId_);
-            }
-            if (zpos_ > maxZpos_) zpos_ = maxZpos_;
-            CAMLOG("operation=zpos min=%u max=%u primary=%llu use=%u",
-                minZpos_, maxZpos_, static_cast<unsigned long long>(primaryHasZpos ? primaryZpos : 0), zpos_);
-        }
-        if (prop && freeProp) freeProp(prop);
+    // The Falcon primary owns the UI above this plane. A hole exposes us;
+    // system panels/IME must occlude us without retiring our framebuffer.
+    hostPlane_=primaryId;
+    hostZprop_=findProp(hostPlane_,DRM_MODE_OBJECT_PLANE,"zpos",&hostOriginalZ_);
+    uint64_t nativeCurrent=0;
+    propZpos_=findProp(planeId_,DRM_MODE_OBJECT_PLANE,"zpos",&nativeCurrent);
+    auto range=[&](uint32_t property,uint64_t &low,uint64_t &high,bool &writable) {
+        auto get=DRM_SYM(drmModeGetProperty);auto release=DRM_SYM(drmModeFreeProperty);
+        auto p=get&&property?get(fd_,property):nullptr;
+        bool ok=p&&(p->flags&DRM_MODE_PROP_RANGE)&&p->count_values>=2;
+        if(ok){low=p->values[0];high=p->values[1];writable=!(p->flags&DRM_MODE_PROP_IMMUTABLE);}
+        if(p&&release)release(p);return ok;
+    };
+    uint64_t low=0,high=0,hostLow=0,hostHigh=0;bool writable=false,hostWritable=false;
+    UnderlayOrder order{};
+    bool valid=primaryId&&primaryHasZpos&&atomic_&&
+        range(propZpos_,low,high,writable)&&range(hostZprop_,hostLow,hostHigh,hostWritable)&&
+        underlayOrder({low,high,nativeCurrent,writable},{hostLow,hostHigh,hostOriginalZ_,hostWritable},order);
+    if(!valid||order.native>UINT32_MAX) {
+        freePlanes(planes);freeRes(res);error_="Cannot establish Falcon-above-native DRM order";return false;
     }
+    hostDesiredZ_=order.host;zpos_=static_cast<uint32_t>(order.native);
+    minZpos_=static_cast<uint32_t>(low);maxZpos_=static_cast<uint32_t>(high);
+    CAMLOG("operation=underlay native=%u zpos=%u falcon=%u original=%llu target=%llu",planeId_,zpos_,hostPlane_,
+           static_cast<unsigned long long>(hostOriginalZ_),static_cast<unsigned long long>(hostDesiredZ_));
     propOutFence_ = findProp(crtcId_, DRM_MODE_OBJECT_CRTC, "OUT_FENCE_PTR");
     propFb_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "FB_ID");
     propCrtc_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "CRTC_ID");
@@ -317,7 +323,7 @@ bool Overlay::pickResources()
     freePlanes(planes);
     freeRes(res);
     if (!atomic_ || !propFb_ || !propCrtc_) {
-        CAMLOG("%s", "atomic props incomplete, will use drmModeSetPlane");
+        error_="Atomic DRM underlay properties unavailable";return false;
     }
     return true;
 }
@@ -416,6 +422,7 @@ void Overlay::close()
     if (retired && presented_ && ownsCurrentPlane()) {
         commit(0, 0, 0, 0, 0, 1, 1);
     }
+    restoreHostOrder();
     freeBuf(&bufs_[0]);
     freeBuf(&bufs_[1]);
     if (fd_ >= 0) {
@@ -427,6 +434,26 @@ void Overlay::close()
     flipPending_ = false;
     completionFailed_ = false;
     pthread_mutex_unlock(&mu_);
+}
+
+std::array<uint64_t,4> Overlay::stacking() {
+    uint64_t native=0,host=0;
+    findProp(planeId_,DRM_MODE_OBJECT_PLANE,"zpos",&native);
+    findProp(hostPlane_,DRM_MODE_OBJECT_PLANE,"zpos",&host);
+    return {{planeId_,hostPlane_,native,host}};
+}
+
+bool Overlay::restoreHostOrder()
+{
+    if(!hostAdjusted_||fd_<0)return !hostAdjusted_;
+    uint64_t current=0;
+    auto set=DRM_SYM(drmModeObjectSetProperty);
+    // Never overwrite a subsequent owner's different order.
+    bool same=findProp(hostPlane_,DRM_MODE_OBJECT_PLANE,"zpos",&current)==hostZprop_&&current==hostDesiredZ_;
+    if(same&&(!set||set(fd_,hostPlane_,DRM_MODE_OBJECT_PLANE,hostZprop_,hostOriginalZ_)!=0)) {
+        CAMLOG("operation=restoreFalconOrder failed errno=%d",errno);return false;
+    }
+    hostAdjusted_=false;return true;
 }
 
 bool Overlay::ownsCurrentPlane() const
@@ -556,6 +583,17 @@ bool Overlay::finishPendingFlip(bool wait)
 
 bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int srcH)
 {
+    if(fbId) {
+        drm_mode_get_plane owner{};owner.plane_id=planeId_;
+        uint64_t hostZ=0;
+        if(ioctl(fd_,DRM_IOCTL_MODE_GETPLANE,&owner)!=0||
+           (owner.fb_id&&owner.fb_id!=bufs_[0].fbId&&owner.fb_id!=bufs_[1].fbId)||
+           findProp(hostPlane_,DRM_MODE_OBJECT_PLANE,"zpos",&hostZ)!=hostZprop_||
+           (hostZ!=hostOriginalZ_&&hostZ!=hostDesiredZ_)) {
+            error_="DRM underlay ownership/order changed";return false;
+        }
+    }
+
     if (atomic_ && propFb_ && propCrtc_) {
         decltype(&drmModeAtomicAlloc) alloc = DRM_SYM(drmModeAtomicAlloc);
         decltype(&drmModeAtomicFree) freeReq = DRM_SYM(drmModeAtomicFree);
@@ -582,7 +620,8 @@ bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int sr
             addProp(req, planeId_, propCrtcY_, static_cast<uint64_t>(y)) &&
             addProp(req, planeId_, propCrtcW_, static_cast<uint64_t>(w)) &&
             addProp(req, planeId_, propCrtcH_, static_cast<uint64_t>(h)) &&
-            (!propZpos_ || addProp(req, planeId_, propZpos_, zpos_));
+            addProp(req, planeId_, propZpos_, zpos_) &&
+            (!fbId || addProp(req,hostPlane_,hostZprop_,hostDesiredZ_));
         if (!propsOk) {
             error_ = "DRM atomic property setup failed";
             CAMLOG("operation=atomicAddProperty failed plane=%u", planeId_);
@@ -596,50 +635,20 @@ bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int sr
         const int commitError = errno;
         freeReq(req);
         if (rc == 0) {
+            if(fbId&&hostDesiredZ_!=hostOriginalZ_)hostAdjusted_=true;
             presented_ = fbId != 0;
             flipPending_ = fbId != 0;
             return true;
         }
         if (commitError == EBUSY || commitError == EAGAIN) return false;
-        CAMLOG("atomic commit rc=%d errno=%d, retry without zpos", rc, errno);
-        req = alloc();
-        if (!req) { error_="DRM atomic allocation failed"; return false; }
-        if (fbId && !addProp(req, crtcId_, propOutFence_, 0)) {
-            error_ = "DRM CRTC event binding failed";
-            freeReq(req);
-            return false;
-        }
-        addProp(req, planeId_, propFb_, fbId);
-        addProp(req, planeId_, propCrtc_, fbId ? crtcId_ : 0);
-        addProp(req, planeId_, propSrcX_, 0);
-        addProp(req, planeId_, propSrcY_, 0);
-        addProp(req, planeId_, propSrcW_, static_cast<uint64_t>(srcW) << 16);
-        addProp(req, planeId_, propSrcH_, static_cast<uint64_t>(srcH) << 16);
-        addProp(req, planeId_, propCrtcX_, static_cast<uint64_t>(x));
-        addProp(req, planeId_, propCrtcY_, static_cast<uint64_t>(y));
-        addProp(req, planeId_, propCrtcW_, static_cast<uint64_t>(w));
-        addProp(req, planeId_, propCrtcH_, static_cast<uint64_t>(h));
-        const int rc2 = commitFn(fd_, req, flags, fbId ? this : nullptr);
-        const int retryError = errno;
-        freeReq(req);
-        if (rc2 == 0) {
-            presented_ = fbId != 0;
-            flipPending_ = fbId != 0;
-            return true;
-        }
-        if (retryError == EBUSY || retryError == EAGAIN) return false;
-        CAMLOG("atomic commit failed rc=%d errno=%d", rc2, retryError);
+        // Retrying without zpos would silently place us above Falcon again.
+        const int retryError=commitError;
         // Atomic submission failures must not switch to a legacy path whose
         // buffer retirement/completion contract has not been established.
         error_ = "DRM atomic submission failed: " + std::to_string(retryError);
         return false;
     }
-    decltype(&drmModeSetPlane) setPlane = DRM_SYM(drmModeSetPlane);
-    if (!setPlane) { error_ = "DRM plane submission unavailable"; return false; }
-    const int rc = setPlane(fd_, planeId_, crtcId_, fbId, 0, x, y, w, h, 0, 0, srcW << 16, srcH << 16);
-    if (rc == 0) presented_ = fbId != 0;
-    else if(errno!=EBUSY && errno!=EAGAIN) error_="DRM plane submission failed: "+std::to_string(errno);
-    return rc == 0;
+    error_="Atomic DRM underlay submission unavailable";return false;
 }
 
 bool Overlay::commitPlacedBgra(const uint8_t* bgra, int cw, int ch, int cx, int cy)

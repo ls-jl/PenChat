@@ -8,7 +8,7 @@ function fixture() {
   const native = { alive: true, focused: true, panelVisible: false, focusQueries: 0, systemOverlay: () => ({supported:true,visible:native.panelVisible}), status: () => ({ alive: native.alive }), start: async value => { native.alive = true; calls.push(['start', value]) }, send: value => { calls.push(['send', value]); return true }, poll: () => [], stop: async () => calls.push(['stop']) }
   const keyboard = { textEditFinished: { on: fn => { editCallback = fn }, off: () => calls.push(['off']) }, startTextEdit: config => { calls.push(['startTextEdit', JSON.parse(config)]); return 'edit-1' }, closeTextEdit: () => calls.push(['closeEdit']) }
   const context = vm.createContext({
-    console, appConfig: JSON.parse(fs.readFileSync('package.json', 'utf8')), launcher: native, am: { hasWindowFocus: () => { ++native.focusQueries; return native.focused } }, globalModule: { Global: function () { return keyboard } }, module: {},
+    console, appConfig: JSON.parse(fs.readFileSync('package.json', 'utf8')), launcher: native, am: { getTopApp: () => 'other-app', hasWindowFocus: () => { ++native.focusQueries; return native.focused } }, globalModule: { Global: function () { return keyboard } }, module: {},
     $workspace: '/package', $dataDir: '/data', $falcon: { jsapi: { storage: { getStorage: async () => { throw new Error('Storage must not be read') } } } },
     setInterval: fn => { timers.set(++clock, fn); return clock }, clearInterval: id => timers.delete(id),
     setTimeout: fn => { timers.set(++clock, fn); return clock }, clearTimeout: id => timers.delete(id),
@@ -832,14 +832,11 @@ test('official gap uses theme backing and changes hole only with native geometry
  f.page.dispose()
 })
 
-test('system panel retains only its own temporary page frame and clears stale frames', async () => {
+test('system panel uses native underlay without a snapshot image on the Page', async () => {
  const f=fixture();await f.page.boot();f.native.panelVisible=true;f.page.syncWindowFocus(true)
- f.native.poll=()=>[{type:'system.overlay.frame',generation:f.page._generation,path:'/private/overlay_123_1.png'}]
- f.page.poll();assert.equal(f.page.overlayFrame,'file:///private/overlay_123_1.png')
- f.native.panelVisible=false;f.page.syncWindowFocus(true);assert.equal(f.page.overlayFrame,'')
- f.page.poll();assert.equal(f.page.overlayFrame,'')
- f.native.panelVisible=true;f.page.syncWindowFocus(true);f.page.poll()
- f.options.onHide.call(f.page);assert.equal(f.page.overlayFrame,'')
+ assert(f.page.visible);assert.equal(f.page._windowFocused,false)
+ assert(!fs.readFileSync('src/launcher/LauncherPage.vue','utf8').includes('class="overlay-frame"'))
+ f.native.panelVisible=false;f.page.syncWindowFocus(true);assert(f.page.visible)
  f.page.dispose()
 })
 
@@ -862,7 +859,7 @@ test('panel-induced Page hide retains native lifecycle and deduplicates Page sho
  f.page.dispose()
 })
 
-test('hide-before-panel ordering yields input at once and resolves within a bounded grace',async()=>{
+test('hide-before-panel ordering yields input immediately without a teardown deadline',async()=>{
  const f=fixture();await f.page.boot();let now=1000
  f.context.Date={now:()=>now};f.context.am.getTopApp=()=>f.context.appConfig.appid
  f.options.onHide.call(f.page)
@@ -873,24 +870,27 @@ test('hide-before-panel ordering yields input at once and resolves within a boun
  now=5000;f.page.poll();assert(f.page.visible)
  f.native.panelVisible=false;now=5100;f.page.poll();assert(!f.page._pageHidden)
  f.options.onHide.call(f.page);now=5400;f.page.poll()
+ assert(f.page.visible);assert(f.page.running)
+ f.context.am.getTopApp=()=>'other-app';f.options.onHide.call(f.page)
  assert(!f.page.visible);assert.equal(f.page._poll,null)
- assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='visibility'&&!c[1].visible).length,1)
  f.page.dispose()
 })
 
-test('real Home/app switch overrides an open panel; unsupported ownership fails closed',async()=>{
+test('panel visibility wins over transient top ownership; real background still releases hardware',async()=>{
  for(const owner of ['other-app',null]) {
   const f=fixture();await f.page.boot();let now=1000
   f.context.Date={now:()=>now};let top=f.context.appConfig.appid
   f.context.am.getTopApp=()=>top;f.native.panelVisible=true;f.options.onHide.call(f.page)
   assert(f.page.visible)
-  top=owner;now=1300;f.page.poll()
-  assert(!f.page.visible);assert.equal(f.page._poll,null)
+  top=owner;now=1300;f.page.poll();assert(f.page.visible)
+  f.native.panelVisible=false;now=1500;f.page.poll()
+  if(owner) {assert(!f.page.visible);assert.equal(f.page._poll,null)}
+  else {assert(f.page.visible);assert.equal(f.page._windowFocused,false)}
   f.page.dispose()
  }
  const f=fixture();await f.page.boot();f.context.am.getTopApp=()=>f.context.appConfig.appid
  f.native.systemOverlay=()=>({supported:false});f.options.onHide.call(f.page)
- assert(!f.page.visible);f.page.dispose()
+ assert(f.page.visible);assert.equal(f.page._windowFocused,false);f.page.dispose()
 })
 
 test('transient panel does not complete official input or turn a hidden system IME into failure',async()=>{
@@ -904,10 +904,13 @@ test('transient panel does not complete official input or turn a hidden system I
 })
 
 
-test('real unload during a retained panel still releases the native process exactly once',async()=>{
+test('Page unload detaches while explicit application finish stops native exactly once',async()=>{
  const f=fixture();await f.page.boot();f.context.am.getTopApp=()=>f.context.appConfig.appid
  f.native.panelVisible=true;f.options.onHide.call(f.page);assert(f.page._overlayHidden)
  f.options.onUnload.call(f.page);f.options.beforeDestroy.call(f.page)
+ assert.equal(f.calls.filter(c=>c[0]==='stop').length,0)
+ assert(f.calls.some(c=>c[0]==='send'&&c[1].type==='page.detach'))
+ f.page.dispose()
  assert.equal(f.calls.filter(c=>c[0]==='stop').length,1)
  assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='exit').length,1)
  assert.equal(f.timers.size,0)
@@ -919,7 +922,7 @@ test('real background after a panel does not strand the official keyboard monito
  let top=f.context.appConfig.appid;f.context.am.getTopApp=()=>top
  f.page.openKeyboard({requestId:'background-system-edit',text:'retained draft'})
  f.native.panelVisible=true;f.options.onHide.call(f.page);assert(f.page._overlayHidden)
- top='other-app';f.page.syncWindowFocus(true);assert(!f.page.visible)
+ top='other-app';f.native.panelVisible=false;f.page.syncWindowFocus(true);assert(!f.page.visible)
  f.native.officialKeyboard=()=>({supported:true,visible:false})
  f.page._officialDeadline=0;f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
  assert(!f.page.keyboardOpen);assert.equal(f.page._keyboardMonitor,null)
@@ -935,4 +938,69 @@ test('retry after a failure under the panel starts with fresh lifecycle classifi
  assert(f.page.visible);assert(f.page.running)
  assert.equal(f.calls.filter(c=>c[0]==='start').length,2)
  f.page.dispose()
+})
+
+
+test('observer handoff acknowledges exact request after filtering only the host head key',async()=>{
+ const f=fixture();await f.page.boot();let observing=false
+ f.native.panelVisible=true;f.page.syncWindowFocus(true)
+ f.native.observePen=active=>{observing=active;return true}
+ f.native.poll=()=>[{type:'pen.observe',generation:f.page._generation,requestId:'observer-1',enabled:true}]
+ f.page.poll();assert(observing)
+ const ack=f.calls.filter(c=>c[0]==='send'&&c[1].type==='pen.observe.result').at(-1)[1]
+ assert.equal(ack.requestId,'observer-1');assert(ack.ok&&ack.enabled)
+ f.native.observePen=()=>false
+ f.native.poll=()=>[{type:'pen.observe',generation:f.page._generation,requestId:'observer-2',enabled:true}]
+ f.page.poll();assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='pen.observe.result').at(-1)[1].ok,false)
+ f.page.dispose()
+})
+
+test('a remounted Page reuses the ready runtime and viewport without a startup cover',async()=>{
+ const f=fixture();await f.page.boot();f.options.onUnload.call(f.page)
+ f.native.status=()=>({alive:true,ready:true,screen:{width:960,height:266}})
+ f.native.start=async()=>({ok:true,reused:true,pid:123})
+ const page=Object.assign(f.options.data(),f.options.methods,{$page:f.page.$page})
+ await page.boot();assert(page.nativeReady);assert.equal(page.nativeAreaStyle.width,'960px')
+ const init=f.calls.filter(c=>c[0]==='send'&&c[1].type==='init').at(-1)[1]
+ assert(init.reattach);assert.equal(f.calls.filter(c=>c[0]==='stop').length,0)
+ page.dispose()
+})
+
+
+test('explicit Finish closes only this application context after stopping its runtime',async()=>{
+ const f=fixture();await f.page.boot();let closed
+ f.context.am.closeApp=(id,force)=>{closed=[id,force]}
+ f.page.finish();assert.equal(closed[0],f.context.appConfig.appid);assert.equal(closed[1],false)
+ assert.equal(f.calls.filter(c=>c[0]==='stop').length,1)
+})
+
+
+test('a trailing exit cannot replace the concrete startup failure or re-fail an intentional exit',async()=>{
+ const f=fixture();await f.page.boot()
+ f.native.poll=()=>[{type:'fatal',error:'DRM order unavailable'},{type:'exit',status:0}]
+ f.page.poll();assert.equal(f.page.errorText,'DRM order unavailable');f.page.dispose()
+ const g=fixture();await g.page.boot();g.native.poll=()=>[{type:'finish'},{type:'exit',status:0}]
+ g.page.poll();assert.equal(g.page.errorText,'')
+})
+
+test('a start completing after Page detach retains the runtime and yields display',async()=>{
+ const f=fixture();let complete
+ f.native.start=()=>new Promise(resolve=>{complete=resolve})
+ const pending=f.page.boot();f.options.onUnload.call(f.page);complete({ok:true})
+ await pending
+ assert.equal(f.calls.filter(c=>c[0]==='stop').length,0)
+ assert(f.calls.some(c=>c[0]==='send'&&c[1].type==='page.detach'))
+ assert(!f.page.running);assert.equal(f.timers.size,0)
+ f.page.dispose()
+})
+
+test('an old detached start cannot detach a newer mounted Page',async()=>{
+ const f=fixture();let complete
+ f.native.start=()=>new Promise(resolve=>{complete=resolve})
+ const pending=f.page.boot();f.options.onUnload.call(f.page)
+ f.native.start=async()=>({ok:true,reused:true})
+ const page=Object.assign(f.options.data(),f.options.methods,{$page:f.page.$page})
+ await page.boot();const offset=f.calls.length;complete({ok:true});await pending
+ assert(!f.calls.slice(offset).some(c=>c[0]==='stop'||c[0]==='send'&&c[1].type==='page.detach'))
+ page.dispose()
 })

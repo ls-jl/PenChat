@@ -1,7 +1,6 @@
 <template>
   <div class="native-page" :style="pageStyle">
     <hole class="native-hole" :style="officialInline ? officialHoleStyle : nativeAreaStyle"></hole>
-    <image v-if="overlayFrame" class="overlay-frame" :style="nativeAreaStyle" :src="overlayFrame" resize="stretch"></image>
     <div v-if="officialInline" class="official-backing" :style="officialBackingStyle"></div>
     <div v-if="officialInline" class="official-editor" :style="appearanceStyles.officialPanel">
       <input v-if="officialSingleLine" :key="officialControlKey" ref="officialInput" class="official-input" :style="officialInputStyle" :type="officialSensitive ? 'password' : 'text'" :value="officialInitialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="false" cursorColor="transparent" @input="officialInputHandlers.input" @confirm="officialInputHandlers.confirm" />
@@ -56,31 +55,27 @@ function resolvedAppearance(c, m) {
   }
 }
 export default {
-  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialHoleStyle: {}, officialBackingStyle: {}, overlayFrame: '', officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
+  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialHoleStyle: {}, officialBackingStyle: {}, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
   mounted() { this.boot() },
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
   onHide() { this.hidePage() },
-  onUnload() { this.dispose() },
-  beforeDestroy() { this.dispose() },
+  onUnload() { this.detachPage() },
+  beforeDestroy() { this.detachPage() },
   methods: {
     hidePage() {
       if (!this.visible) return
       // Some Falcon versions hide our Page before reporting the panel. Yield
       // input immediately; retain the page only with read-only owner evidence.
-      if (!this.running || this._disposed || !am || typeof am.getTopApp !== 'function' || typeof launcher.systemOverlay !== 'function') {
-        this.backgroundPage(); return
-      }
       this._pageHidden = true
-      this._overlayHidden = false
-      this._hideDeadline = Date.now() + 200
-      this.syncWindowFocus(true)
+      if(!this.running||this._disposed)return
+      this._overlayHidden = false;this._hidePending=true
+      this.syncWindowFocus(true);this._hidePending=false
     },
     backgroundPage() {
       this._pageHidden = this._overlayHidden = false
       this._panelVisible = false
       this.visible = false
-      this.overlayFrame = ''
       this.syncInputFocus(true)
       this.setBackPolicy(true)
       this.setNativeEditorPolicy(false)
@@ -91,7 +86,7 @@ export default {
     resume() {
       const wasVisible = this.visible
       this._pageHidden = this._overlayHidden = false
-      this._disposed = false
+      this._disposed = false;this._detached=false
       this.visible = true
       this.watchInputFocus()
       this.setBackPolicy(false)
@@ -106,6 +101,13 @@ export default {
       this.syncWindowFocus(true)
       if (!wasVisible) this.send('visibility', { visible: true })
       this.syncInputFocus(true)
+    },
+    applyNativeScreen(screen) {
+      if(!screen||!Number.isInteger(screen.width)||!Number.isInteger(screen.height)||screen.width<=0||screen.height<=0)
+        throw new Error('Invalid Falcon display configuration')
+      this._screen=screen
+      this.nativeAreaStyle={left:'0px',top:'0px',width:screen.width+'px',height:screen.height+'px'}
+      this.updatePageStyle()
     },
     send(type, payload) {
       if (!this.running) return false
@@ -123,10 +125,13 @@ export default {
       this.setBackPolicy(false)
       const generation = this._generation
       this.setNativeEditorPolicy(false)
-      this._nativeEditor = null; this._editorPolicySequence = 0
+      this._nativeEditor = null; this._editorPolicySequence = 0;this._penAvailable=false
       this._pageHidden = this._overlayHidden = this._panelVisible = false
       this._windowFocused = true; this._windowSequence = 0; this._focusNextCheck = 0; this._focusPending = false; this._overlayStatus = ''
-      this.nativeReady = false
+      let retained=null
+      try { if(typeof launcher.status==='function')retained=launcher.status() } catch (_) {}
+      this.nativeReady=!!(retained&&retained.alive&&retained.ready)
+      if(this.nativeReady&&retained.screen)this.applyNativeScreen(retained.screen)
       this.startupText = '正在打开…'
       this._focusSequence = 0; this._focusSent = null; this._focusAt = 0
       this.watchInputFocus()
@@ -136,10 +141,17 @@ export default {
         if (this._disposed) return
         let workspace = String(globalThis.$workspace || '')
         try { let info = pm.getPackageInfo(appConfig.appid); if (typeof info === 'string') info = JSON.parse(info); if (info && info.installPath) workspace = String(info.installPath) } catch (err) {}
-        await launcher.start({ workspace, dataDir: String(globalThis.$dataDir || '') })
-        if (this._disposed) { await launcher.stop(); return }
+        const started = await launcher.start({ workspace, dataDir: String(globalThis.$dataDir || '') })
+        if (this._disposed) {
+          if(this._detached) {
+            // A late start belongs to the application, not this destroyed Page.
+            // Do not detach a newer Page that already mounted the same runtime.
+            if(generation===generationSeed)launcher.send({v:1,type:'page.detach'})
+          } else await launcher.stop()
+          return
+        }
         this.running = true
-        this.send('init', { ocrCapabilities: this.ocrCapabilities() })
+        this.send('init', { ocrCapabilities: this.ocrCapabilities(), reattach: !!(started && started.reused) })
         this.send('visibility', { visible: this.visible })
         this.syncInputFocus(true)
         // Arm before polling: Falcon may deliver an already queued ready event
@@ -148,7 +160,7 @@ export default {
           if (this.running && !this.nativeReady && this._generation === generation) this.fail('原生页面启动超时，请重试')
         }, 15000)
         this._poll = setInterval(() => this.poll(), 20)
-      } catch (err) { this.fail(err && err.message ? err.message : String(err)) }
+      } catch (err) { if(!this._disposed)this.fail(err && err.message ? err.message : String(err)) }
       finally { this._starting = false }
     },
     poll() {
@@ -160,14 +172,9 @@ export default {
           if (event.generation !== undefined && event.generation !== this._generation && event.type !== 'booted' && event.type !== 'startup' && event.type !== 'fatal' && event.type !== 'exit') continue
           if (event.type === 'booted') {
             const screen = event.screen
-            if (!screen || !Number.isInteger(screen.width) || !Number.isInteger(screen.height) || screen.width <= 0 || screen.height <= 0)
-              throw new Error('Invalid Falcon display configuration')
-            this._screen = screen
-            this.nativeAreaStyle = { left: '0px', top: '0px', width: screen.width + 'px', height: screen.height + 'px' }
-            this.updatePageStyle()
+            this.applyNativeScreen(screen)
             this.send('display.area', { x: 0, y: 0, width: screen.width, height: screen.height })
           }
-          else if (event.type === 'system.overlay.frame') { if (this._panelVisible && this.visible && typeof event.path === 'string' && /^\/.*\/overlay_[^/]+\.png$/.test(event.path)) this.overlayFrame = 'file://' + event.path }
           else if (event.type === 'appearance') this.applyAppearance(event)
           else if (event.type === 'startup') { this.startupText = ({ display: '正在准备显示…', data: '正在读取数据…', interface: '正在准备页面…', frame: '正在显示页面…' })[event.stage] || '正在打开…' }
           else if (event.type === 'ready') { this.nativeReady = true; this.syncWindowFocus(true); this.syncInputFocus(true); clearTimeout(this._readyTimer); this._readyTimer = null; if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
@@ -177,6 +184,21 @@ export default {
           else if (event.type === 'keyboard.edit') this.editOfficial(event)
           else if (event.type === 'keyboard.commit-action') this.commitOfficialAction(event)
           else if (event.type === 'keyboard.field') this.inlineOfficialField(event)
+          else if (event.type === 'pen.capabilities') this._penAvailable=event.observer===true
+          else if (event.type === 'pen.observe') {
+            let ok=false
+            try {
+              // Native checks actual panel/owner state; local Page flags may
+              // lag onHide. Confirm the applied lease through status as well.
+              if(!this._disposed&&this.running&&typeof launcher.observePen==='function') {
+                const enabled=event.enabled===true,result=launcher.observePen(enabled),status=launcher.status()
+                ok=result===true||(status.observer_active===enabled&&status.head_route_error===0)
+              }
+            } catch (_) {}
+            let code=0
+            if(!ok)try { code=typeof launcher.observePen==='function' ? (launcher.status().head_route_error||0) : 6 } catch (_) {code=7}
+            this.send('pen.observe.result',{requestId:event.requestId,enabled:event.enabled===true,ok,code})
+          }
           else if (event.type === 'ocr.prepare') this.startOcr(event, true)
           else if (event.type === 'ocr.pen') { if (this._ocr) this._ocr.pen(event) }
           else if (event.type === 'ocr.start') this.startOcr(event)
@@ -184,7 +206,7 @@ export default {
           else if (event.type === 'update.install') this.installUpdate(event)
           else if (event.type === 'finish') this.finish()
           else if (event.type === 'fatal') this.fail(event.error || '原生页面启动失败')
-          else if (event.type === 'exit' && !this._updating) this.fail(event.status < 0 ? '原生程序意外退出，请重试' : `原生程序已退出（${event.status}）`)
+          else if (event.type === 'exit' && !this._updating && this.running) this.fail(event.status < 0 ? '原生程序意外退出，请重试' : `原生程序已退出（${event.status}）`)
         }
       } catch (err) { this.fail('原生页面通信失败') }
     },
@@ -261,24 +283,27 @@ export default {
         let top
         try { top = am.getTopApp() } catch (_) {}
         const owned = top === appConfig.appid
-        if (status.panel_supported && status.panel_visible && owned) {
+        if (status.panel_visible) {
           this._overlayHidden = true
-        } else if (this._overlayHidden && !status.panel_visible && owned) {
+        } else if (owned && focused === true && !this._hidePending) {
           this._pageHidden = this._overlayHidden = false
-        } else if (!status.panel_supported || (typeof top === 'string' && top && !owned) || Date.now() >= this._hideDeadline) {
+        } else if (typeof top === 'string' && top && !owned) {
           this.backgroundPage(); return
         }
+        // Ambiguous focus/ownership is a paused cover, never a teardown timeout.
         if (this._pageHidden) focused = false
       }
       this._panelVisible = status.panel_visible
-      if (!this._panelVisible) this.overlayFrame = ''
       const signature = JSON.stringify(status)
       if (signature !== this._overlayStatus && this.send('system.overlay.status', status)) this._overlayStatus = signature
       if (typeof focused !== 'boolean' || (focused === this._windowFocused && !this._focusPending)) return
       this._windowFocused = focused
       this.setBackPolicy(!focused)
       this.setNativeEditorPolicy(!!this._nativeEditor && !this.keyboardOpen)
-      if (!focused) this.stopOcr()
+      if (!focused) {
+        if(this._penAvailable&&(this._panelVisible||this._pageHidden))try { if(typeof launcher.observePen==='function')launcher.observePen(true) } catch (_) {}
+        this.stopOcr()
+      }
       this._focusPending = !this.send('window.focus', { focused, sequence: ++this._windowSequence })
       this.syncInputFocus(true)
     },
@@ -718,10 +743,30 @@ export default {
       launcher.stop().catch(() => {})
     },
     async retry() { if (this._updateInstalled) { launcher.reopen(); return }; if (this._starting) return; await launcher.stop(); this.running = false; this.boot() },
-    finish() { this.dispose(); this.$page.finish() },
+    finish() {
+      this.dispose()
+      if(am&&typeof am.closeApp==='function')am.closeApp(appConfig.appid,false)
+      else this.$page.finish()
+    },
+    detachPage() {
+      if(this._disposed)return
+      // Page destruction is not application exit. Native/module ownership lasts
+      // until explicit finish or destruction of the application's JS context.
+      this._pageHidden=true;this._windowFocused=false;this.syncInputFocus(true)
+      this.send('window.focus',{focused:false,sequence:++this._windowSequence})
+      this.send('page.detach')
+      this.stopOcr();this.cancelOfficialKeyboard()
+      clearInterval(this._poll);clearTimeout(this._readyTimer)
+      this._poll=this._readyTimer=null
+      if(this._focusListener&&am&&typeof am.off==='function') {
+        try{am.off('topApp',this._focusListener)}catch(_){}
+        try{am.off('windowAttachState',this._focusListener)}catch(_){}
+      }
+      this._focusListener=null;this._disposed=true;this._detached=true;this.running=false
+    },
     dispose() {
-      this.overlayFrame = ''
-      if (this._disposed) return
+      if (this._disposed && !this._detached) return
+      if(this._detached){this.running=true;this._detached=false;}
       this._nativeImage = false
       this.setBackPolicy(true)
       this.setNativeEditorPolicy(false)
@@ -752,7 +797,6 @@ export default {
 <style lang="less" scoped>
 .native-page { width: 100vw; height: 100vh; position: relative; }
 .native-hole { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
-.overlay-frame { position: absolute; left: 0px; top: 0px; }
 .official-backing { position: absolute; left: 0px; }
 .official-editor { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
 .official-input { position: absolute; padding: 0px; }

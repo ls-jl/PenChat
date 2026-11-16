@@ -47,16 +47,18 @@ class Launcher : public JQBaseObject {
   std::mutex mutex_;
   penchat::HeadKeyRoute headRoute_{penchat::HeadKeyRoute::realSystem()};
   penchat::SystemOverlay systemOverlay_{penchat::SystemOverlay::realSystem()};
+  bool ocrRouting_=false, observingPen_=false, ready_=false;
+  Bson screenDescriptor_;
   int fd_ = -1;
   pid_t pid_ = -1;
-  std::string ownId_, ownData_;
+  std::string ownId_, ownData_, runtimeWorkspace_, runtimeData_;
   std::set<std::string> installations_;
 #ifdef PENCHAT_CVI_PLATFORM
   std::uint64_t focusSequence_ = 0;
   int generation_ = 0;
 #endif
   void stopLocked() {
-    headRoute_.stop();
+    headRoute_.stop();ocrRouting_=observingPen_=false;ready_=false;
     if (fd_ >= 0) {
       shutdown(fd_, SHUT_RDWR);
       close(fd_);
@@ -136,7 +138,6 @@ public:
   }
   void start(JQAsyncInfo &info) {
     std::lock_guard<std::mutex> lock(mutex_);
-    stopLocked();
     auto o = info[0];
     auto workspace = o["workspace"].string_value(),
          data = o["dataDir"].string_value();
@@ -144,6 +145,11 @@ public:
       info.postError("Missing application paths");
       return;
     }
+    if(pid_>0&&fd_>=0&&waitpid(pid_,nullptr,WNOHANG)==0) {
+      if(workspace!=runtimeWorkspace_||data!=runtimeData_){info.postError("A different runtime is already active");return;}
+      info.post(Bson::object{{"ok",true},{"pid",int(pid_)},{"reused",true},{"ready",ready_},{"screen",screenDescriptor_}});return;
+    }
+    stopLocked();runtimeWorkspace_=workspace;runtimeData_=data;
     auto binary = workspace + "/assets/bin/penchat-lvgl";
     chmod(binary.c_str(), 0755);
     int pair[2];
@@ -217,6 +223,10 @@ public:
     std::lock_guard<std::mutex> lock(mutex_);
     auto input = info.toParamsHolder();
     auto payload = input[0].dump();
+    const auto messageType=input[0]["type"].string_value();
+    if(messageType=="page.detach"||(messageType=="visibility"&&!input[0]["visible"].bool_value())) {
+      observingPen_=false;if(!ocrRouting_)headRoute_.stop();
+    }
     bool ok = fd_ >= 0 && payload.size() <= 65536 &&
               ::send(fd_, payload.data(), payload.size(),
                      MSG_NOSIGNAL | MSG_DONTWAIT) == ssize_t(payload.size());
@@ -236,7 +246,7 @@ public:
             penchat_compositor::Composite::instance().focus(message.value("displayActive",inputActive));
           }
         }
-      } else if(type=="exit" || (type=="visibility"&&!input[0]["visible"].bool_value()))
+      } else if(type=="exit" || type=="page.detach" || (type=="visibility"&&!input[0]["visible"].bool_value()))
         penchat_compositor::Composite::instance().focus(false);
     }
 #endif
@@ -256,7 +266,7 @@ public:
         }
       }
     }
-    Bson::object state{{"alive", pid_ > 0 && fd_ >= 0}, {"pid", int(pid_)}};
+    Bson::object state{{"alive", pid_ > 0 && fd_ >= 0}, {"pid", int(pid_)},{"ready",ready_},{"screen",screenDescriptor_},{"head_route_error",headRoute_.failure()},{"head_route_clients",int(headRoute_.clients())},{"observer_active",observingPen_}};
 #ifdef PENCHAT_CVI_PLATFORM
     const auto compositor=penchat_compositor::Composite::instance().stats();
     state["display_frames"]=int(compositor.outputFrames);state["system_frames"]=int(compositor.systemFrames);
@@ -294,12 +304,22 @@ public:
     const auto state=systemOverlay_.state();
     info.GetReturnValue().Set(Bson::object{{"available",systemOverlay_.available()},{"supported",state.supported},{"visible",state.visible}});
   }
-  void ocrRoute(JQFunctionInfo &info) {
+  void updateHeadRoute(JQFunctionInfo &info,bool observing) {
+    std::lock_guard<std::mutex> lock(mutex_);
     const auto p=info.toParamsHolder();
     if(!p[0].is_bool()){info.GetReturnValue().Set(false);return;}
-    if(!p[0].bool_value()){headRoute_.stop();info.GetReturnValue().Set(true);return;}
-    info.GetReturnValue().Set(headRoute_.start());
+    if(observing&&p[0].bool_value()&&!systemOverlay_.state().visible&&JQuick::getTopApp()!=ownId_) {
+      info.GetReturnValue().Set(false);return;
+    }
+    bool &flag=observing?observingPen_:ocrRouting_;
+    const bool previous=flag;flag=p[0].bool_value();
+    bool ok=true;
+    if(ocrRouting_||observingPen_)ok=headRoute_.start();else headRoute_.stop();
+    if(!ok)flag=previous;
+    info.GetReturnValue().Set(ok);
   }
+  void ocrRoute(JQFunctionInfo &info) {updateHeadRoute(info,false);}
+  void observePen(JQFunctionInfo &info) {updateHeadRoute(info,true);}
   void ocrStroke(JQFunctionInfo &info) {
     const auto parameters = info.toParamsHolder();
     const bool down = parameters[0].bool_value();
@@ -331,8 +351,11 @@ public:
       if (n > 0) {
         std::string error;
         auto j = Bson::parse(std::string(b, n), error);
-        if (error.empty())
+        if (error.empty()) {
+          if(j["type"].string_value()=="ready")ready_=true;
+          if(j["type"].string_value()=="booted")screenDescriptor_=j["screen"];
           messages.push_back(j);
+        }
       } else if (n == 0) {
         headRoute_.stop();
         close(fd_);
@@ -373,6 +396,7 @@ int init(JSContext *ctx, JSModuleDef *module) {
   tpl->SetProtoMethod("send", &Launcher::send);
   tpl->SetProtoMethod("poll", &Launcher::poll);
   tpl->SetProtoMethod("ocrRoute", &Launcher::ocrRoute);
+  tpl->SetProtoMethod("observePen", &Launcher::observePen);
   tpl->SetProtoMethod("ocrStroke", &Launcher::ocrStroke);
   tpl->SetProtoMethod("status", &Launcher::status);
   tpl->SetProtoMethod("systemOverlay", &Launcher::systemOverlay);

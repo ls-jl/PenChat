@@ -19,7 +19,7 @@ class Hardware final : public ScanPlatform {
   std::shared_ptr<const ResolvedDeviceProfile> resolved_;
   std::function<void()> beforeRestore_;
   int key_ = -1;
-  bool pressed_ = false, waitRelease_ = false, keyMonotonic_ = false;
+  bool pressed_ = false, waitRelease_ = false, keyMonotonic_ = false, grabbed_ = false;
   Json lease_;
   const CaptureProfile &profile() const { return resolved_->profile; }
   void openCamera();
@@ -32,6 +32,7 @@ public:
   void start() override;
   void close() noexcept override;
   void cameraToOcr() override;
+  void observeKeysOnly(bool) override;
   bool keyEvent(bool &down, int64_t *timestamp=nullptr) override;
   bool readFrame(const FrameConsumer &) override;
   bool readFrame(const LegacyFrameConsumer &consume) {

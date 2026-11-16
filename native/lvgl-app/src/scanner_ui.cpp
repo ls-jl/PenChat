@@ -28,10 +28,18 @@ std::string scanReason(const std::string &reason) {
 } // namespace
 void App::syncScanner() {
   bool active = view_ == "scan" && scanId_ && scanSession_ == session_;
-  // A transient global overlay must not disarm and destroy the result that
-  // this page (or its original-image reader) still owns. Real backgrounding
-  // continues through suspend() and its normal cancel/join/release path.
-  if(active&&pageVisible_&&(!windowFocused_||!inputFocused_))return;
+  // Overlay/lease loss gates triggers without disarming the healthy worker,
+  // changing its generation or releasing a review result and its readers.
+  if(!pageVisible_||!pageAttached_||keyboard_) {scanner_.eligible(false,session_);return;}
+  const bool covered=!inputFocused_;
+  scanner_.pauseTriggers(covered,penObserverReady_);
+  if(covered) {
+    if(scanner_.listening()&&!penObserverReady_&&penObserverRequest_.empty()) {
+      penObserverRequest_=uid("pen-observer");
+      bridge_.send("pen.observe",{{"requestId",penObserverRequest_},{"enabled",true}});
+    }
+    return;
+  }
   bool eligible = bridge_.generation() > 0 && visible_ && inputFocused_ && !keyboard_ &&
                   !editor_.active && !imageStoreBusy_ && !contextBusy_ && !replyBusy_ && !editorOcrActive_ && editorOcrStopId_.empty() &&
                   !navigationOpen_ && !modal_ && !attachments_ && !pulling_ &&
@@ -160,9 +168,17 @@ void App::viewScanResult() {
 }
 void App::scanEvent(const Event &event) {
   const auto &j = event.data;
-  if (j.value("generation", uint64_t(0)) != scanner_.generation() ||
-      j.value("session", std::string()) != session_)
-    return;
+  if(j.value("generation",uint64_t(0))!=scanner_.generation())return;
+  const bool foreground=pageVisible_&&pageAttached_&&windowFocused_&&inputFocused_;
+  const bool ocrSafe=!editor_.active||!scanner_.nativeOcrKeys()||(editorOcrActive_&&!editorOcrPreparing_);
+  if((event.type=="scan_overlay_pause"&&!j.value("overlay_paused",false)&&foreground&&ocrSafe)||
+      (event.type=="scan_released"&&!scanner_.listening())) {
+    if(penObserverReady_||!penObserverRequest_.empty()) {
+      penObserverReady_=false;penObserverRequest_=uid("pen-observer-off");
+      bridge_.send("pen.observe",{{"requestId",penObserverRequest_},{"enabled",false}});
+    }
+  }
+  if(j.value("session",std::string())!=session_)return;
   if (event.type == "scan_ocr_key") {
     if (editor_.active && editorOcrActive_ && !editorOcrPreparing_ && visible_ && !keyboard_)
       bridge_.send("ocr.pen", {{"requestId",editorOcrId_},{"session",editor_.id},
