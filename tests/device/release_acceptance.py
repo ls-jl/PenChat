@@ -43,6 +43,9 @@ RELEASE = 'release-'+APP['version']
 OUT = ROOT/'.work'/RELEASE/'devices'
 # Reuse individual feature fixtures, never acceptance.py on original user data.
 FEATURES = {
+  'resource-residency': 'Control center retains underlay/worker/model and observes but gates pen input',
+  'scan-original': 'Real scan result original PNG, reopen cache and no persistence/send',
+  'scan-original-codec': 'Synthetic saved scan original on device: failed decode retry, long PNG and zoom; no optical claim',
   'feedback-preview': 'CVI metadata-only feedback preview without opening ISP nodes',
   'keyboard-handoff': 'Direct system keyboard, normal return, default preference and completed composer visibility',
   'panel-snapshot': 'System panel background handoff and own-page restore',
@@ -211,6 +214,8 @@ class ReleaseDevice(ScopedDevice):
     super().__init__(serial, package)
     self.name = DEVICES[serial]
     self.features = features
+    if 'scan-original-codec' in features:
+      assert features == ['scan-original-codec'], 'The saved-scan codec fixture needs its own isolated scope'
     self.discard_input = discard_input
     self.startup_rollback_guard = startup_rollback_guard
     self.out = OUT/serial
@@ -911,6 +916,9 @@ class ReleaseDevice(ScopedDevice):
       with tempfile.TemporaryDirectory(prefix='penchat-release-') as temp:
         folder = pathlib.Path(temp)
         self.fixture(folder/'penchat.db')
+        if self.features == ['scan-original-codec']:
+          from release_scan_original import codec_fixture
+          codec_fixture(self,folder)
         if self.features==['real-background-scanner']:
           import sqlite3
           with sqlite3.connect(folder/'penchat.db') as db:
@@ -1055,6 +1063,15 @@ class ReleaseDevice(ScopedDevice):
           elif feature in ('official-editing','official-editing-dark'):
             from release_official_editing import run
             entry['evidence'] = run(self)
+          elif feature == 'resource-residency':
+            from release_resource_residency import run
+            entry['evidence'] = run(self)
+          elif feature == 'scan-original':
+            from release_scan_original import run
+            entry['evidence'] = run(self)
+          elif feature == 'scan-original-codec':
+            from release_scan_original import codec
+            entry['evidence'] = codec(self)
           elif feature == 'feedback-preview':
             from release_feedback_preview import run
             entry['evidence'] = run(self)
