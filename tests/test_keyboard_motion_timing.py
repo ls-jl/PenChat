@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Actual LVGL entry timing and geometry; baseline uses the same release-to-frame observer."""
-import argparse,json,pathlib,tempfile,time,statistics,math
+import argparse,json,os,pathlib,tempfile,time,statistics,math
 import test_lvgl_app as ui
 ui.port=1
-p=argparse.ArgumentParser();p.add_argument('--binary',type=pathlib.Path,default=ui.ROOT/'build/host/penchat-lvgl');p.add_argument('--output',type=pathlib.Path,default=ui.ROOT/'.work/resource-residency/keyboard-timing.json');args=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--binary',type=pathlib.Path,default=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ui.ROOT/'build/host/penchat-lvgl')));p.add_argument('--output',type=pathlib.Path,default=ui.ROOT/'.work/resource-residency/keyboard-timing.json');args=p.parse_args()
 results=[]
 for w,h in [(960,266),(640,260),(568,1210)]:
  with tempfile.TemporaryDirectory(prefix='penchat-motion-timing-') as folder:

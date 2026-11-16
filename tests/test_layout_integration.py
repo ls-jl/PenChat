@@ -44,7 +44,9 @@ for w,h in [(568,1210),(960,266),(936,280),(640,260)]:
             t.wait_for(lambda:e()['length']==4)
             action('official');r=a.receive('keyboard.open');assert r['text']=='alal'
             a.send('keyboard.result',requestId=r['requestId'],confirmed=False)
-            t.wait_for(lambda:not a.diag()['keyboard']);assert e()['length']==4
+            t.wait_for(lambda:not a.diag()['keyboard']);assert not e()['active'] and a.diag()['draft_length']==4
+            b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+            t.wait_for(lambda:e()['active']);assert e()['length']==4
             action('official');r=a.receive('keyboard.open')
             text='多行输入 English words\n第二行内容，用于检查文字与工具栏。'*4
             a.send('keyboard.result',requestId=r['requestId'],confirmed=True,text=text)

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Real LVGL editor survives detach/reattach without losing composition/objects."""
-import pathlib,tempfile,time
+import os,pathlib,tempfile,time
 import test_lvgl_app as ui
 ui.port=1
 for w,h in [(960,266),(640,260),(568,1210)]:
  with tempfile.TemporaryDirectory(prefix='penchat-runtime-attach-') as folder:
-  a=ui.Native(ui.ROOT/'build/host/penchat-lvgl',folder,official_adapter=False,screen={'width':w,'height':h})
+  a=ui.Native(pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ui.ROOT/'build/host/penchat-lvgl')),folder,official_adapter=False,screen={'width':w,'height':h})
   try:
    b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
    ui.wait_for(lambda:bool(a.diag()['editor']['keys']))

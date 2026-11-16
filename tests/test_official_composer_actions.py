@@ -61,7 +61,7 @@ with http.server.ThreadingHTTPServer(('127.0.0.1',0),ui.Server) as server,tempfi
   ui.wait_for(lambda:not a.diag()['generating'])
   assert a.diag()['keyboard'] and a.diag()['editor']['session']==editing and not actions()
   a.send('keyboard.result',requestId=request,confirmed=False)
-  ui.wait_for(lambda:not a.diag()['keyboard']);a.editor_action('done')
+  ui.wait_for(lambda:not a.diag()['keyboard'] and not a.diag()['editor']['active'])
   assert len(ui.Server.requests)==1
   with sqlite3.connect(pathlib.Path(folder)/'penchat.db') as db:
    rows=db.execute("select output_text from chat_messages where role='user'").fetchall();assert rows==[('一次发送',)],rows

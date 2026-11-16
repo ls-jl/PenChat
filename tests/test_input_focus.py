@@ -27,7 +27,10 @@ with tempfile.TemporaryDirectory(prefix='penchat-focus-') as directory:
         focus(True);time.sleep(.38);app.tap(40,32)
         state=app.diag();assert not state['navigation_open'] and not state['input_focused']
         assert state['visible'] and state['display_visible']
-        time.sleep(1.3);assert not app.diag()['display_visible']
+        time.sleep(1.3);state=app.diag()
+        assert state['display_visible'] and not state['input_focused']
+        app.send('visibility',visible=False);assert not app.diag()['display_visible']
+        app.send('visibility',visible=True)
         focus(True);wait_for(lambda:app.diag()['input_focused'] and app.diag()['display_visible'])
         app.tap(40,32);assert app.diag()['navigation_open']
     finally:app.close()

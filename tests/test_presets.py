@@ -39,8 +39,10 @@ with tempfile.TemporaryDirectory(prefix='penchat-presets-') as directory:
         s=app.diag();assert s['session_preferences']['model_id']=='b' and s['effective_effort']=='max'
         assert s['summary']['sessions']==0
         app.tap(500,232);q=app.receive('keyboard.open');assert q['text']=='保留草稿'
-        app.send('keyboard.result',requestId=q['requestId'],confirmed=False,text='')
+        app.send('keyboard.result',requestId=q['requestId'],confirmed=False)
+        assert app.diag()['draft_length']==len('保留草稿')
         app.tap(908,232);wait_for(lambda:not app.diag()['generating'])
+        wait_for(lambda:bool(Server.requests))
         body=Server.requests[-1][1]
         assert_chat_prompt(body['instructions'],'EXPERT SYSTEM')
         assert body['reasoning']['effort']=='max' and body['model']=='b',body

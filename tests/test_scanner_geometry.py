@@ -31,7 +31,10 @@ def run():
                     assert result['counts']['committed']==30 and result['counts']['unlocated']==count-30, result
                     if held: app.send('scanner.test', command='test.press', pressed=False)
                     assert not app.read_messages() and app.diag()['summary']['sessions']==0
-                    t.wait_for(lambda:app.diag()['scanner'].get('type')=='preview')
+                    # Asynchronous original preparation can be the latest IPC
+                    # packet after the final preview; wait on a stable result
+                    # milestone rather than racing a transient status string.
+                    t.wait_for(lambda:app.diag()['scan_latency']['prepared']>0)
                     time.sleep(.15) # The final preview is deliberately read off the capture thread.
                     image = pathlib.Path(folder)/'lvgl-diagnostic.png'
                     app.process.send_signal(signal.SIGUSR1)

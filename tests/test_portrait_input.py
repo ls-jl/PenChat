@@ -154,8 +154,8 @@ def run():
                 assert request['text']=='test'
                 a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
                 t.wait_for(lambda:not a.diag()['keyboard'])
-                assert a.diag()['editor']['length']==4 and a.diag()['editor']['docked']
-                a.editor_action('done');t.wait_for(lambda:not a.diag()['editor']['active'])
+                assert not a.diag()['editor']['active'] and a.diag()['draft_length']==4
+                assert not a.diag()['composer_hidden']
                 assert len(a.read_messages())==2 # Done never sends.
                 d=a.diag()
                 if d['to_bottom_visible']:a.tap(d['to_bottom_x']+22,d['to_bottom_y']+22)
@@ -187,7 +187,7 @@ def run():
                 assert request['text']=='OpenAInihao',request
                 a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
                 t.wait_for(lambda:not a.diag()['keyboard'])
-                a.editor_action('cancel');t.wait_for(lambda:not a.diag()['editor']['active'])
+                t.wait_for(lambda:not a.diag()['editor']['active'])
                 a.tap(220,240);t.wait_for(lambda:a.diag()['editor']['active'])
                 assert a.diag()['editor']['secret'] and a.diag()['editor']['docked']
                 key(a,'a');assert a.diag()['editor']['length']==1
@@ -202,7 +202,7 @@ def run():
                 assert a.diag()['editor']['text_in_target']
                 a.editor_action('official');request=a.receive('keyboard.open');assert request['text']=='90'
                 a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
-                t.wait_for(lambda:not a.diag()['keyboard']);a.editor_action('cancel')
+                t.wait_for(lambda:not a.diag()['keyboard'] and not a.diag()['editor']['active'])
                 # A long field expands the actual form row, not a duplicate box.
                 open_settings(a);a.setting('presets');a.tap(260,288)
                 focus(a,'field:系统提示词');e=a.diag()['editor']
@@ -255,8 +255,8 @@ def run():
                 shot(a,'reply-finished-draft-preserved')
                 a.editor_action('official');request=a.receive('keyboard.open');assert request['text']=='q'
                 a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
-                t.wait_for(lambda:not a.diag()['keyboard']);a.editor_action('done')
-                assert len(a.read_messages())==2
+                t.wait_for(lambda:not a.diag()['keyboard'] and not a.diag()['editor']['active'])
+                assert a.diag()['draft_length']==1 and len(a.read_messages())==2
             finally:a.close()
         # The real composer grows upward, caps at 3x, and then scrolls.
         with tempfile.TemporaryDirectory(prefix='penchat-input-grow-') as directory:

@@ -68,9 +68,11 @@ def run(w,h):
             selected=a.diag()['editor'];assert selected['selection_end']-selected['selection_start']<selected['length']
             a.tap(w-62,28);shot(a,f'{w}-partial-selection');assert a.diag()['editor']['clipboard_count']>=1
             a.tap(40,30);assert rows(p)==original and not a.diag()['editor']['active']
-            # Initial keyboard cancel is a full branch cancel; no archive yet.
+            # Explicit native Cancel aborts the branch; hiding official input only stages.
             request=begin(a,True)
-            a.send('keyboard.result',requestId=request['requestId'],confirmed=False,text='discard')
+            a.send('keyboard.result',requestId=request['requestId'],confirmed=False,error='fixture handoff unavailable')
+            t.wait_for(lambda:a.diag()['editor']['active'] and not a.diag()['keyboard'])
+            a.editor_action('cancel')
             t.wait_for(lambda:not a.diag()['editor']['active']);assert not a.diag()['message_interactions']['editing'] and rows(p)==original
             # Done only stages. X restores the old pending image and clears text.
             request=begin(a,True);a.send('keyboard.result',requestId=request['requestId'],confirmed=True,text='Changed question')
@@ -111,8 +113,9 @@ def run(w,h):
             edited_id=next(id for id,role,text in rows(p) if text=='Edited and sent')
             menu(a,edited_id);action(a,'edit');request=a.receive('keyboard.open')
             assert request['text']=='Edited and sent' # saved policy bypasses the warning
-            a.send('keyboard.result',requestId=request['requestId'],confirmed=False,text='')
-            t.wait_for(lambda:not a.diag()['editor']['active']);assert not a.diag()['message_interactions']['editing']
+            a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
+            t.wait_for(lambda:not a.diag()['editor']['active']);assert a.diag()['message_interactions']['editing']
+            a.tap(40,30);assert not a.diag()['message_interactions']['editing']
         finally:a.close();server.shutdown()
 def generation_guard():
     gate=threading.Event()

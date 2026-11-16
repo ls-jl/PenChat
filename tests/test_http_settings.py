@@ -15,7 +15,7 @@ def run(w,h):
             row=a.diag()['settings']['rows']['http_idle_seconds']['bounds'];a.tap((row[0]+row[2])//2,(row[1]+row[3])//2)
             t.wait_for(lambda:a.diag()['editor']['active']);a.editor_action('official');r=a.receive('keyboard.open')
             assert r['multiline'] is False and r['inputType']=='EnUSOnly'
-            a.send('keyboard.result',requestId=r['requestId'],confirmed=confirmed,text=text)
+            a.send('keyboard.result',requestId=r['requestId'],confirmed=confirmed,**({'text':text} if confirmed else {}))
             t.wait_for(lambda:not a.diag()['keyboard'])
         try:
             assert value()==90;a.open_settings();a.setting('http_idle');assert a.diag()['view']=='http_settings';shot('default')
@@ -24,8 +24,8 @@ def run(w,h):
             for bad in ['14','601','1.5','-15','abc','']:
                 submit(bad);assert value()==90 and a.diag()['modal'];a.tap(w-70,h-44)
             submit('15');t.wait_for(lambda:value()==15);submit('600',False)
-            assert a.diag()['editor']['active'] and value()==15
-            a.editor_action('cancel');a.page_action('恢复默认');assert value()==90
+            assert not a.diag()['editor']['active'] and value()==15
+            a.page_action('恢复默认');assert value()==90
             submit('600');t.wait_for(lambda:value()==600);a.tap(40,32);assert a.diag()['view']=='settings'
             assert a.diag()['scroll_y']>0;shot('settings-row')
             a.send('visibility',visible=False);a.send('visibility',visible=True);assert value()==600

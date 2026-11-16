@@ -92,9 +92,9 @@ with tempfile.TemporaryDirectory(prefix='penchat-portrait-') as folder:
   if a.diag()['editor']['preedit_length']:key(a,'enter')
   a.editor_action('clipboard');shot(a,'keyboard-clipboard');a.editor_action('clip-close')
   a.editor_action('official');request=a.receive('keyboard.open');a.send('keyboard.result',requestId=request['requestId'],confirmed=False);t.wait_for(lambda:not a.diag()['keyboard'])
-  assert a.diag()['editor']['active'];
-  if a.diag()['editor']['preedit_length']:key(a,'enter')
-  a.editor_action('done');t.wait_for(lambda:not a.diag()['editor']['active'])
+  assert not a.diag()['editor']['active']
+  assert a.diag()['draft_length']==len(request['text'])
+  assert not a.diag()['composer_hidden']
   begin(a,p,w=800,h=600);shot(a,'crop');x,y,w,h=a.diag()['crop_selection'];pinch(a,x+w/2,y+h/2,scale=2,crop=True);shot(a,'crop-zoom');action(a,'reset');assert a.diag()['crop_source_rect']==[0,0,800,600]
   action(a,'confirm');t.wait_for(lambda:a.diag()['view']=='chat');shot(a,'pending-photo')
  finally:a.close()

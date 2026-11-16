@@ -80,8 +80,8 @@ def run(w,h,rotation):
             assert a.diag()['keyboard']
             a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
             t.wait_for(lambda:not a.diag()['keyboard'])
-            a.tap(w-80,h-30);t.wait_for(lambda:not a.diag()['editor']['active'])
-            a.tap(40,32);a.tap(w*2//3-70,h-30);assert a.diag()['view']=='settings'
+            t.wait_for(lambda:not a.diag()['editor']['active'])
+            a.open_settings();assert a.diag()['view']=='settings'
             screenshot(a,f'{w}-{h}-settings',w,h)
             assert a.diag()['settings']['viewport'][1:4:2]==[0,h-1]
             a.settings_swipe(-120);t.wait_for(lambda:not a.diag()['settings']['scrolling'])

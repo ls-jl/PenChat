@@ -11,6 +11,7 @@ Overlay::~Overlay()=default;
 bool Overlay::open(){return true;}
 void Overlay::setHole(const HoleRect &hole){region=hole;}
 void Overlay::disable(){}
+std::array<uint64_t,4> Overlay::stacking(){return {{75,54,0,3}};}
 bool Overlay::presentBgra(const uint8_t *,int width,int height){
   lastWidth=width;lastHeight=height;error_.clear();errno=failure;
   if(failure&&failure!=EBUSY&&failure!=EAGAIN)error_="injected permanent DRM failure";
@@ -19,6 +20,8 @@ bool Overlay::presentBgra(const uint8_t *,int width,int height){
 }
 int main(){
   auto surface=camera::makeDisplaySurface({568,1210,180,0,0,568,1210});
+  assert(surface->systemOverlaySafe());
+  assert((surface->stacking()==std::array<uint64_t,4>{{75,54,0,3}}));
   uint8_t pixels[4]={};
   assert(!surface->present(pixels,568,1210));
   failure=EAGAIN;assert(!surface->present(pixels,568,1210));

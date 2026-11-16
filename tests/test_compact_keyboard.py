@@ -28,11 +28,13 @@ for width, height in [(640, 260), (720, 280)]:
                 a.long_press(*point(k['x'], k['y']), .56)
                 t.wait_for(lambda: editor()['layout_menu'])
                 action('layout:' + str(index))
+            # Read-only probes use failed-handoff recovery, not normal dismissal.
             def official(text=None):
                 action('official')
                 request = a.receive('keyboard.open')
                 a.send('keyboard.result', requestId=request['requestId'],
-                       confirmed=text is not None, text=text or '')
+                       confirmed=text is not None, text=text or '',
+                       **({} if text is not None else {'error':'fixture text probe'}))
                 t.wait_for(lambda: not a.diag()['keyboard'])
                 return request
             def open_editor():
@@ -177,7 +179,7 @@ for width, height in [(640, 260), (720, 280)]:
             action('clip-close')
             action('official');request=a.receive('keyboard.open')
             assert request['field']['x']==8
-            a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
+            a.send('keyboard.result',requestId=request['requestId'],confirmed=False,error='fixture open failure')
             t.wait_for(lambda:not a.diag()['keyboard'])
             assert editor()['keyboard_swapped']
             action('compact-view')

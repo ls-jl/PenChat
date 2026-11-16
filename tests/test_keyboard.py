@@ -17,7 +17,8 @@ def layout(a,value):
  a.editor_action('layout:'+str({'zh26':0,'en26':1,'zh9':2}[value]))
  assert state(a)['layout']==value
 def official(a,confirmed=False,text=''):
- a.editor_action('official');r=a.receive('keyboard.open');a.send('keyboard.result',requestId=r['requestId'],confirmed=confirmed,text=text);time.sleep(.1);return r
+ a.editor_action('official');r=a.receive('keyboard.open');a.send('keyboard.result',requestId=r['requestId'],confirmed=confirmed,text=text,**({} if confirmed else {'error':'fixture text probe'}));time.sleep(.1);return r
+# A deliberately failed handoff inspects text without ending native editing.
 def export_text(a):return official(a)['text']
 def hold(a,x,y,duration=.52):
  t.wait_for(lambda:not a.diag().get('surface_motion',False))

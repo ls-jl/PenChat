@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-field-switch-') as folder:
             if not e()['active']:time.sleep(.22)  # Let the retiring keyboard absorb its closing release.
             activate(a,'field:'+name);settle()
         def text():
-            a.editor_action('official');r=a.receive('keyboard.open');a.send('keyboard.result',requestId=r['requestId'],confirmed=False);settle();return r['text']
+            a.editor_action('official');r=a.receive('keyboard.open');a.send('keyboard.result',requestId=r['requestId'],confirmed=False,error='fixture text probe');settle();return r['text']
         a.open_settings();a.setting('models');a.page_action('添加 Provider');focus('name')
         old=e();keyboard=old['keyboard_session'];generation=a.diag()['scanner'].get('generation')
         for c in 'nihao':key(c)

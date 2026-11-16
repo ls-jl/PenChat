@@ -4,8 +4,8 @@ import argparse,json,os,pathlib,tempfile,time
 import test_lvgl_app as ui
 from test_scanner_process import BUNDLE
 ui.port=1
-p=argparse.ArgumentParser();p.add_argument('--binary',type=pathlib.Path,default=ui.ROOT/'build/host/penchat-lvgl');p.add_argument('--baseline',action='store_true');args=p.parse_args()
-os.environ.update(PENCHAT_SCANNER_BINARY=str(ui.ROOT/'build/scanner-host/penchat-scanner'),PENCHAT_SCAN_RESOURCES=str(BUNDLE/'resources/illumination'),PENCHAT_SCANNER_TEST='1',PENCHAT_TEST_SCAN_INFER_MS='500',LD_LIBRARY_PATH=str(BUNDLE/'third_party/opencv-host/lib/x86_64-linux-gnu')+':'+str(BUNDLE/'third_party/opencv-host/lib/x86_64-linux-gnu/openblas-pthread'))
+p=argparse.ArgumentParser();p.add_argument('--binary',type=pathlib.Path,default=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ui.ROOT/'build/host/penchat-lvgl')));p.add_argument('--baseline',action='store_true');args=p.parse_args()
+os.environ.update(PENCHAT_SCANNER_BINARY=os.environ.get('PENCHAT_SCANNER_TEST_BINARY',str(ui.ROOT/'build/scanner-host/penchat-scanner')),PENCHAT_SCAN_RESOURCES=str(BUNDLE/'resources/illumination'),PENCHAT_SCANNER_TEST='1',PENCHAT_TEST_SCAN_INFER_MS='500',LD_LIBRARY_PATH=str(BUNDLE/'third_party/opencv-host/lib/x86_64-linux-gnu')+':'+str(BUNDLE/'third_party/opencv-host/lib/x86_64-linux-gnu/openblas-pthread'))
 results=[]
 for w,h in [(960,266),(640,260)]:
  with tempfile.TemporaryDirectory(prefix='penchat-async-keyboard-') as folder:

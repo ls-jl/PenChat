@@ -17,9 +17,10 @@ def burst(a,text,positions,interval=.002):
         a.send('touch',x=x,y=y,pressed=True)
         a.send('touch',x=x,y=y,pressed=False)
         if interval:time.sleep(interval)
+# Keep the typing fixture active via the documented failure recovery path.
 def official(a):
     a.editor_action('official');r=a.receive('keyboard.open')
-    a.send('keyboard.result',requestId=r['requestId'],confirmed=False,text='')
+    a.send('keyboard.result',requestId=r['requestId'],confirmed=False,error='fixture text probe')
     t.wait_for(lambda:state(a)['active'] and not a.diag()['keyboard'])
     return r['text']
 def layout(a,name):

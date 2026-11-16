@@ -96,7 +96,8 @@ for width,height,split in [(640,260,False),(640,260,True),(960,266,False),(568,1
             a.editor_action('clip-close');assert e()['session']==session
             a.editor_action('official');request=a.receive('keyboard.open')
             assert '你好' in request['text'] and ',.,.' in request['text'],request['text']
-            a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
+            # Exercise native recovery explicitly; normal dismissal ends editing.
+            a.send('keyboard.result',requestId=request['requestId'],confirmed=False,error='fixture open failure')
             t.wait_for(lambda:e()['active'] and not a.diag()['keyboard']);assert e()['session']==session
             choose_layout(2)
             for digit in '64426':key('t9:'+digit)

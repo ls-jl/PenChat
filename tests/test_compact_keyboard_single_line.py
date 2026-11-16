@@ -37,8 +37,8 @@ try:
                 # The generic helper must now reach the explicit globe entry.
                 a.editor_action('official');request=a.receive('keyboard.open')
                 a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
-                t.wait_for(lambda:not a.diag()['keyboard'] and e()['active'])
-                current=ocr();assert e()['session']==session
+                t.wait_for(lambda:not a.diag()['keyboard'] and not e()['active'])
+                open_editor();current=ocr();assert e()['session']!=session;session=e()['session']
                 for capture_id,text in [(1,'第一行'),(2,'第二行')]:
                     a.send('ocr.result',requestId=current['requestId'],session=current['session'],
                            mode='single',capture=capture_id,confirmed=True,text=text)
@@ -57,8 +57,8 @@ try:
                 a.editor_action('official');request=a.receive('keyboard.open')
                 assert request['text']=='a' and request['inputType']=='EnUSOnly'
                 a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
-                t.wait_for(lambda:not a.diag()['keyboard'] and e()['active'])
-                ocr();a.editor_action('cancel')
+                t.wait_for(lambda:not a.diag()['keyboard'] and not e()['active'])
+                assert not a.read_messages()
                 assert not a.read_messages()
             finally:a.close()
 finally:

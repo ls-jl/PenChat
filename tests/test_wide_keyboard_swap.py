@@ -78,7 +78,8 @@ def run(w,h):
             if wide:assert request['field']['x']<e()['keyboard_origin']
             a.send('keyboard.result',requestId='stale',confirmed=True,text='discard')
             assert a.diag()['keyboard']
-            a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
+            # Exercise native recovery explicitly; normal dismissal ends editing.
+            a.send('keyboard.result',requestId=request['requestId'],confirmed=False,error='fixture open failure')
             t.wait_for(lambda:not a.diag()['keyboard'])
             assert e()['length']==len(expected) and not e()['layout_menu']
             # Candidates, expansion and the editing controls follow the editor.
@@ -95,7 +96,8 @@ def run(w,h):
             if e().get('compact_full'):a.editor_action('compact-view')
             a.editor_action('official');request=a.receive('keyboard.open')
             assert request['text']==expected+'nihao'
-            a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
+            # Exercise native recovery explicitly; normal dismissal ends editing.
+            a.send('keyboard.result',requestId=request['requestId'],confirmed=False,error='fixture open failure')
             t.wait_for(lambda:not a.diag()['keyboard'])
             close_editor();a.close();a=launch();open_editor()
             assert e()['keyboard_swapped']==wide,'setting must survive process restart'
@@ -163,7 +165,8 @@ def details():
             a.tap(revealX+22,28);key('a');capture(a,OUT/'960-secret.png')
             a.editor_action('official');request=a.receive('keyboard.open')
             assert request['text']=='a' and request['inputType']=='EnUSOnly'
-            a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
+            # Exercise native recovery explicitly; normal dismissal ends editing.
+            a.send('keyboard.result',requestId=request['requestId'],confirmed=False,error='fixture open failure')
             t.wait_for(lambda:not a.diag()['keyboard'])
             print('Swapped editor detail: numbers/symbols/nine-filter, raw codes, caret/magnifier, selection menu/clipboard and password reveal/official field passed.',flush=True)
         finally:a.close()

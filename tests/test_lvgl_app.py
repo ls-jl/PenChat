@@ -90,10 +90,8 @@ class Native:
             raise RuntimeError("Native startup failed: "+(self.directory/'runtime.log').read_text(errors='replace')[-12000:])
     def send(self, kind, **kwargs):
         self.parent.send(json.dumps({'v':1,'generation':self.generation,'type':kind,**kwargs}).encode())
-        # Existing business tests use the visible official fallback. Dedicated
-        # editor tests disable this adapter and exercise native composition.
-        if self.official_adapter and kind=='keyboard.result' and not kwargs.get('confirmed',False):
-            time.sleep(.12);self.tap(630,236)
+        # Normal official dismissal now ends editing itself. The old synthetic
+        # Cancel tap would land on the restored composer and reopen the editor.
 
     def receive(self, kind):
         if kind=='keyboard.open' and self.official_adapter:
@@ -310,7 +308,8 @@ if __name__ == '__main__':
                     wait_for(lambda:not app.diag()['keyboard'])
                     provider_control(app,'field:apiKey');request=app.receive('keyboard.open')
                     assert request['text']==dummy_key
-                    app.send('keyboard.result',requestId=request['requestId'],confirmed=False,text='')
+                    # A normal close without a returned value keeps the seeded key.
+                    app.send('keyboard.result',requestId=request['requestId'],confirmed=False)
                     wait_for(lambda:not app.diag()['keyboard'])
                     provider_back(app);choose(app,'discard')
                     with sqlite3.connect(directory/'penchat.db') as db:

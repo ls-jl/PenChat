@@ -104,7 +104,8 @@ for width,height in [(960,266),(568,1210)]:
                 assert not e()['cursor_drag'] and not e()['magnifier']
                 a.editor_action('official');request=a.receive('keyboard.open')
                 assert request['text']==text,'Caret dragging must not insert a newline or change the text'
-                a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
+                # Inspect unchanged caret text through an explicit failed handoff.
+                a.send('keyboard.result',requestId=request['requestId'],confirmed=False,error='fixture text probe')
                 t.wait_for(lambda:not a.diag()['keyboard'] and e()['active'])
             if height>width:
                 a.editor_action('done');a.open_settings();a.setting('models');a.page_action('添加 Provider')

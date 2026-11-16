@@ -35,7 +35,8 @@ for w,h in [(640,260),(960,266)]:
             action('official');request=a.receive('keyboard.open')
             assert request['text']==text,'Presentation must not flatten the editable draft'
             a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
-            t.wait_for(lambda:not a.diag()['keyboard']);action('cancel')
+            t.wait_for(lambda:not a.diag()['keyboard'] and not a.diag()['editor']['active'])
+            assert a.diag()['draft_length']==len(text)
             with sqlite3.connect(pathlib.Path(directory)/'penchat.db') as db:
                 assert db.execute('select count(*) from chat_messages').fetchone()[0]==0
         finally:a.close()

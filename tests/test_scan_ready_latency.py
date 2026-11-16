@@ -5,12 +5,12 @@ import test_lvgl_app as ui
 from test_scanner_process import BUNDLE
 from test_scanner_review_ui import press,finish,preview_tap
 ui.port=1
-os.environ.update(PENCHAT_SCANNER_BINARY=str(ui.ROOT/'build/scanner-host/penchat-scanner'),PENCHAT_SCAN_RESOURCES=str(BUNDLE/'resources/illumination'),PENCHAT_SCANNER_TEST='1',LD_LIBRARY_PATH=str(BUNDLE/'third_party/opencv-host/lib/x86_64-linux-gnu')+':'+str(BUNDLE/'third_party/opencv-host/lib/x86_64-linux-gnu/openblas-pthread'))
+os.environ.update(PENCHAT_SCANNER_BINARY=os.environ.get('PENCHAT_SCANNER_TEST_BINARY',str(ui.ROOT/'build/scanner-host/penchat-scanner')),PENCHAT_SCAN_RESOURCES=str(BUNDLE/'resources/illumination'),PENCHAT_SCANNER_TEST='1',LD_LIBRARY_PATH=str(BUNDLE/'third_party/opencv-host/lib/x86_64-linux-gnu')+':'+str(BUNDLE/'third_party/opencv-host/lib/x86_64-linux-gnu/openblas-pthread'))
 rows=[]
 for w,h in [(960,266),(640,260),(568,1210)]:
  os.environ['PENCHAT_SCANNER_TEST_PROFILE']='s6' if w==640 else 'orange'
  with tempfile.TemporaryDirectory(prefix='penchat-scan-latency-') as folder:
-  a=ui.Native(ui.ROOT/'build/host/penchat-lvgl',folder,official_adapter=False,screen={'width':w,'height':h})
+  a=ui.Native(pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ui.ROOT/'build/host/penchat-lvgl')),folder,official_adapter=False,screen={'width':w,'height':h})
   try:
    press(a);finish(a)
    ready=ui.wait_for(lambda:(s if (s:=a.diag())['scan_latency']['decoded'] else None))
