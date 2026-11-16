@@ -2,6 +2,21 @@
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include <cmath>
 namespace penchat {
+namespace {
+void viewerTexture(lv_obj_t *image,const std::shared_ptr<ImageFrame> &frame) {
+  struct Owned {lv_image_dsc_t descriptor{};std::shared_ptr<ImageFrame> frame;};
+  auto owned=new Owned;owned->frame=frame;
+  auto &d=owned->descriptor;d.header.magic=LV_IMAGE_HEADER_MAGIC;d.header.cf=LV_COLOR_FORMAT_ARGB8888;
+  d.header.w=frame->width;d.header.h=frame->height;d.header.stride=frame->width*4;
+  d.data_size=frame->pixels.size();d.data=frame->pixels.data();
+  lv_obj_add_event_cb(image,[](lv_event_t *e) {
+    auto owned=static_cast<Owned *>(lv_event_get_user_data(e));
+    lv_image_set_src(lv_event_get_target_obj(e),nullptr);
+    lv_image_cache_drop(&owned->descriptor);delete owned;
+  },LV_EVENT_DELETE,owned);
+  lv_image_set_src(image,&d);
+}
+}
 void App::requestImageViewer(const std::string &path) {
   events_.push("image_view_request",{{"session",view_=="archive_chat"?archiveReaderId_:session_},{"path",path}});
 }
@@ -28,6 +43,17 @@ void App::openImageViewer(const std::string &path, bool scanResult) {
   viewerClose_=icon(imageViewer_,"close",screen_.width-uiMetrics_.touchTarget()-(layout().portrait()?layout().navigationX():uiMetrics_.dp(16)),layout().portrait()?layout().safeTop():uiMetrics_.dp(8),uiMetrics_.touchTarget(),uiMetrics_.touchTarget(),[this]{events_.push("image_view_close");},theme::palette().surface);
   if(!path.empty())images_.retry(path); // Explicit reopen retries failures, keeps successful frames.
   viewerKey_=path.empty()?std::string():images_.request(path,32768,32768);
+  if(scanResult&&!images_.get(viewerKey_))if(auto preview=scanner_.preview(scanId_)) {
+    // Open immediately with the existing bounded preview, clearly labelled
+    // while the full original prepares. It never counts as a loaded original.
+    viewerTexture(viewerImage_,preview);
+    const int scale=std::max(1,std::min(65535,std::min(screen_.width*256/preview->width,screen_.height*256/preview->height)));
+    lv_image_set_scale(viewerImage_,scale);
+    lv_obj_set_pos(viewerImage_,(screen_.width-preview->width*scale/256)/2,
+                   (screen_.height-preview->height*scale/256)/2);
+    lv_label_set_text(viewerStatus_,"正在加载原图…");
+    lv_obj_align(viewerStatus_,LV_ALIGN_BOTTOM_MID,0,-uiMetrics_.dp(12));
+  }
   lv_obj_update_layout(imageViewer_);lv_obj_move_foreground(imageViewer_);
   syncScanner();
   refreshImageViewer();
@@ -63,16 +89,8 @@ void App::refreshImageViewer() {
     return;
   }
   viewerFrame_=frame;
-  auto t=new Texture;t->frame=frame;
-  auto &d=t->descriptor;d.header.magic=LV_IMAGE_HEADER_MAGIC;d.header.cf=LV_COLOR_FORMAT_ARGB8888;
-  d.header.w=frame->width;d.header.h=frame->height;d.header.stride=frame->width*4;
-  d.data_size=frame->pixels.size();d.data=frame->pixels.data();
-  lv_obj_add_event_cb(viewerImage_,[](lv_event_t *e) {
-    auto t=static_cast<Texture *>(lv_event_get_user_data(e));
-    lv_image_set_src(lv_event_get_target_obj(e),nullptr);
-    lv_image_cache_drop(&t->descriptor);delete t;
-  },LV_EVENT_DELETE,t);
-  lv_image_set_src(viewerImage_,&t->descriptor);lv_obj_set_hidden(viewerStatus_,true);
+  if(viewerScanResult_)scanViewLoadedAt_=ticks();
+  viewerTexture(viewerImage_,frame);lv_obj_set_hidden(viewerStatus_,true);
   zoomImageViewer(1);
 }
 double App::imageViewerFit() const {
@@ -107,6 +125,7 @@ Json App::imageViewerDiagnostic() const {
   if(!imageViewer_)return state;
   state["scan_result"]=viewerScanResult_;
   state["loaded"]=bool(viewerFrame_);state["failed"]=viewerFailed_;
+  state["preview_visible"]=!viewerFrame_&&viewerImage_&&lv_image_get_src(viewerImage_);
   state["zoom"]=viewerZoom_;state["pan"]={viewerPanX_,viewerPanY_};
   state["frame"]=viewerFrame_?Json::array({viewerFrame_->width,viewerFrame_->height}):Json::array({0,0});
   state["viewport"]={0,0,screen_.width,screen_.height};

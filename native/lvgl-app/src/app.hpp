@@ -229,6 +229,9 @@ class App {
   Json scanResult_ = Json::object();
   bool scanConfirming_ = false;
   uint64_t scanViewRequest_ = 0;
+  std::string scanOriginalPath_,scanOriginalKey_;
+  uint64_t scanFinishedAt_=0,scanPreparedAt_=0,scanDecodedAt_=0,scanViewClickedAt_=0,scanViewLoadedAt_=0;
+  uint64_t scanConfirmClickedAt_=0,scanStoredAt_=0,scanExportUs_=0;
   lv_obj_t *scanWarning_ = nullptr, *scanHolder_ = nullptr;
   void updateScanWarning(const Json &);
   void viewScanResult();

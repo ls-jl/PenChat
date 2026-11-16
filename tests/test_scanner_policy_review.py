@@ -43,8 +43,8 @@ def run():
                 assert r['status']==1 and r['counts']['dropped_raw']==17,r
                 s.send('discard');s.receive('ready')
                 # A failed review is recoverable; it must not consume the scan.
-                s.press();s.frames(1);s.release();assert s.receive('finished')['usable']
                 pending=directory/'pending';pending.rmdir();pending.write_text('not a directory')
+                s.press();s.frames(1);s.release();assert s.receive('finished')['usable']
                 s.send('prepare_review');failure=s.receive('review_error')
                 assert failure['requestId']==s.request
                 pending.unlink();pending.mkdir()

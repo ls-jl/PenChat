@@ -105,8 +105,8 @@ def run():
             gen,scan=struct.unpack_from('<QQ',s.memory,16)
             assert seq>0 and seq%2==0 and 0<w<=1024 and 0<h<=256
             assert gen==s.generation and scan==s.scan
-            # No image is saved until explicit confirmation.
-            assert not list((pathlib.Path(directory)/'pending').glob('*.png'))
+            # Only derived, private temporary PNGs may be prepared before use.
+            # User messages/assets still require explicit confirmation.
             s.send('confirm');image=s.receive('exported')['image']
             for key in ['path','previewPath']:
                 path=pathlib.Path(image[key])
@@ -165,7 +165,7 @@ def backlog():
             assert result['counts']['committed']==400 and result['counts']['discarded_backlog']==0,result
             assert result['counts']['spilled']==0,result
             assert result['counts']['selected_peak']>0,result
-            assert not list((pathlib.Path(directory)/'pending').iterdir())
+            # Preparation may now run after normal seal, never during ingress.
             worker.send('discard');worker.receive('ready');worker.press()
             for i in range(400):
                 worker.send('test.frame');time.sleep(.002)

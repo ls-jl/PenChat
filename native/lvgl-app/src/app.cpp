@@ -3868,6 +3868,8 @@ void App::tick() {
     } else if (e.type == "models") {
       providerModelsResult(e);
     } else if (e.type == "image_ready" || e.type == "image_error") {
+      if(e.type=="image_ready"&&view_=="scan"&&!scanOriginalKey_.empty()&&e.data.value("key",std::string())==scanOriginalKey_)
+        scanDecodedAt_=ticks();
       refreshImages(); refreshImageViewer();
     }
     else if (e.type == "camera_mode" && view_ == "camera" && visible_ && !cameraCapturing_)
@@ -4129,6 +4131,9 @@ Json App::diagnostics() const {
       {"scanner", scanner_.state()},
       {"scan_id", scanId_},
       {"scan_result", scanResult_},
+      {"scan_latency",{{"finished",scanFinishedAt_},{"prepared",scanPreparedAt_},{"decoded",scanDecodedAt_},{"export_us",scanExportUs_},
+        {"view_clicked",scanViewClickedAt_},{"view_loaded",scanViewLoadedAt_},
+        {"confirm_clicked",scanConfirmClickedAt_},{"stored",scanStoredAt_}}},
       {"scan_preview_area", [this] {
         if(!scanHolder_)return Json::array();
         lv_area_t a;lv_obj_get_coords(scanHolder_,&a);return Json::array({a.x1,a.y1,a.x2,a.y2});

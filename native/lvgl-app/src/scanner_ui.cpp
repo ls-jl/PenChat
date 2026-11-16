@@ -40,6 +40,13 @@ void App::syncScanner() {
     }
     return;
   }
+  if(active&&scanConfirming_) {
+    // The DB worker still reads the private PNGs. Gate new presses, retaining
+    // their owner until the save acknowledgement; a progress modal is no
+    // reason to tear down/rearm capture or delete the files being copied.
+    scanner_.eligible(true,session_,false,false);
+    return;
+  }
   bool eligible = bridge_.generation() > 0 && visible_ && inputFocused_ && !keyboard_ &&
                   !editor_.active && !imageStoreBusy_ && !contextBusy_ && !replyBusy_ && !editorOcrActive_ && editorOcrStopId_.empty() &&
                   !navigationOpen_ && !modal_ && !attachments_ && !pulling_ &&
@@ -101,6 +108,7 @@ void App::scanPage() {
                           !scanResult_.value("usable", false))
                         return;
                       scanConfirming_ = true;
+                      scanConfirmClickedAt_=ticks();
                       lv_obj_set_clickable(scanUse_, false);
                       lv_label_set_text(scanLabel_, "正在保存扫描图片…");
                       scanner_.confirm(scanId_);
@@ -164,7 +172,8 @@ void App::updateScanWarning(const Json &counts) {
 void App::viewScanResult() {
   if(view_!="scan" || imageViewer_ || scanConfirming_ || !scanResult_.value("usable",false) ||
      scanResult_.value("type",std::string())!="finished" || !visible_)return;
-  openImageViewer("",true);scanViewRequest_=scanner_.prepareReview(scanId_);
+  scanViewClickedAt_=ticks();scanViewLoadedAt_=0;
+  openImageViewer(scanOriginalPath_,true);scanViewRequest_=scanner_.prepareReview(scanId_);
 }
 void App::scanEvent(const Event &event) {
   const auto &j = event.data;
@@ -213,6 +222,8 @@ void App::scanEvent(const Event &event) {
     scanSession_ = session_;
     scanResult_ = Json::object();
     scanConfirming_ = false;
+    scanOriginalPath_.clear();scanOriginalKey_.clear();scanFinishedAt_=scanPreparedAt_=scanDecodedAt_=scanViewClickedAt_=scanViewLoadedAt_=0;
+    scanConfirmClickedAt_=scanStoredAt_=scanExportUs_=0;
     show("scan");
     return;
   }
@@ -230,6 +241,14 @@ void App::scanEvent(const Event &event) {
       j.value("scanId", uint64_t(0)) != scanId_ ||
       scanGeneration_ != scanner_.generation() || scanSession_ != session_)
     return;
+  if(event.type=="scan_prepared") {
+    scanOriginalPath_=j.at("image").at("path").get<std::string>();
+    scanPreparedAt_=ticks();scanExportUs_=j.value("prepare_us",uint64_t(0));
+    scanResult_["preparation"]=j.value("timing",Json::object());
+    if(pageVisible_&&pageAttached_&&!scanConfirming_)
+      scanOriginalKey_=images_.request(scanOriginalPath_,32768,32768);
+    return;
+  }
   if((event.type=="scan_review_ready" || event.type=="scan_review_error")) {
     if(!imageViewer_ || !viewerScanResult_ || !scanViewRequest_ ||
        j.value("requestId",uint64_t(0))!=scanViewRequest_)return;
@@ -269,6 +288,7 @@ void App::scanEvent(const Event &event) {
   else if (event.type == "scan_finished") {
     diagnosticRecord("scanner", "finished", j.value("counts",Json::object()));
     scanResult_ = j;
+    scanFinishedAt_=ticks();
     build();
   } else if (event.type == "scan_exported" && scanConfirming_ &&
              scanConfirmed_ != scanId_) {
@@ -282,10 +302,9 @@ void App::scanEvent(const Event &event) {
         scanConfirming_ = false;
         if (!ok)
           return;
+        scanStoredAt_=ticks();
         scanConfirmed_ = scan;
-        scanner_.discard(scan);
-        if (session != session_)
-          return;
+        if (session != session_) {scanner_.discard(scan);return;}
         show("chat");
         chatFollowing_ = true;
         messageOffset_ = 0;

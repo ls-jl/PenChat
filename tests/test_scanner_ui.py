@@ -42,9 +42,10 @@ def run():
                 wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
                 assert app.diag()['scanner']['generation']==finished['scan_result']['generation']
                 assert app.diag()['session']==original and app.diag()['summary']['sessions']==0
-                scan(app)
+                saved=scan(app);saved_generation=saved['scan_result']['generation']
                 app.tap(840,54);app.tap(840,54)
                 wait_for(lambda:app.diag()['view']=='chat')
+                assert app.diag()['scanner']['generation']==saved_generation
                 rows=app.read_messages();assert len(rows)==1 and rows[0][0]=='user',rows
                 with sqlite3.connect(pathlib.Path(directory)/'penchat.db') as db:
                     asset=db.execute('select stored_path,display_src,source_type,metadata_json from message_assets').fetchone()

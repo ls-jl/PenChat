@@ -212,7 +212,7 @@ class MemoryCanvas {
     std::map<std::pair<int, int>, std::unique_ptr<Tile>> tiles_;
     std::uint64_t clock_ = 0;
     Bounds bounds_{};
-    alignas(float) std::array<std::uint8_t, N * 7> scratch_{};
+    alignas(float) std::array<std::uint8_t, N * 7 + T * sizeof(std::uint32_t)> scratch_{};
     bool compress(Tile &);
     bool room(std::size_t);
     bool heat(Tile &);

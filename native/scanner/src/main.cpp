@@ -232,8 +232,10 @@ class Worker {
           drainDeadline_ = 0, sourceCutoffUs_ = 0;
   std::future<Json> exportTask_;
   std::atomic<bool> exportCancel_{false};
-  bool exportReview_ = false;
-  uint64_t exportRequest_ = 0;
+  struct ExportReply { bool pending=false; uint64_t request=0; };
+  std::array<ExportReply,2> exportReplies_{}; // Latest review and confirm share one preparation.
+  int64_t exportStartedUs_=0, exportElapsedUs_=0;
+  Json exportTiming_=Json::object();
   Json lease_, exported_, memoryAtStop_ = Json::object();
   std::mutex eventMutex_;
   std::deque<Event> events_;
@@ -546,24 +548,33 @@ class Worker {
   void cancelExport() {
     exportCancel_=true;
     if(exportTask_.valid()) {try{exported_=exportTask_.get();}catch(...) {}}
-    exportCancel_=false;
+    exportCancel_=false;exportReplies_={};exportStartedUs_=exportElapsedUs_=0;exportTiming_=Json::object();
   }
   void pollExport() {
     if(!exportTask_.valid() || exportTask_.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
     try {
       exported_=exportTask_.get();
-      emit(exportReview_?"review_ready":"exported",{{"image",exported_}},exportRequest_);
+      exportTiming_=exported_.value("_prepare_timing",Json::object());exported_.erase("_prepare_timing");
+      exportElapsedUs_=clockUs()-exportStartedUs_;
+      emit("prepared",{{"image",exported_},{"prepare_us",exportElapsedUs_},{"timing",exportTiming_}});
+      for(unsigned i=0;i<exportReplies_.size();++i)if(exportReplies_[i].pending)
+        emit(i==0?"review_ready":"exported",{{"image",exported_},{"prepare_us",exportElapsedUs_}},exportReplies_[i].request);
     } catch(const std::exception &e) {
-      emit(exportReview_?"review_error":"error",{{"error",e.what()}},exportRequest_);
+      // Speculative preparation may fail; report only explicit callers, which
+      // can retry without consuming the retained scan result.
+      for(unsigned i=0;i<exportReplies_.size();++i)if(exportReplies_[i].pending)
+        emit(i==0?"review_error":"error",{{"error",e.what()}},exportReplies_[i].request);
     }
+    exportReplies_={};
   }
-  void exportResult(bool review = false) {
+  void exportResult(bool review = false, bool eager = false) {
     if (!exported_.empty()) {
-      emit(review?"review_ready":"exported", {{"image", exported_}});
+      if(!eager)emit(review?"review_ready":"exported", {{"image", exported_},{"prepare_us",exportElapsedUs_},{"cached",true}});
       return;
     }
-    if (!finished_ || !result_ || exportTask_.valid())
-      return;
+    if(!eager)exportReplies_[review?0:1]={true,request_};
+    if(exportTask_.valid())return;
+    if (!finished_ || !result_)return;
     auto b = result_->bounds();
     if (b.width < 1 || b.height < 1 || b.width > 1024 * 1024)
       throw std::runtime_error(
@@ -599,25 +610,41 @@ class Worker {
           {"captureEndedUs", sourceCutoffUs_},
           {"releaseObservedUs", releaseObservedUs_}}}};
     const auto result=result_;
-    exportCancel_=false;exportReview_=review;exportRequest_=request_;
+    exportCancel_=false;exportStartedUs_=clockUs();
     exportTask_=std::async(std::launch::async,[this,result,image,b]() mutable {
       try {
+#ifdef SCANNER_TEST_SOURCE
+        if(mock_)if(const char *delay=getenv("PENCHAT_TEST_SCAN_EXPORT_MS")) {
+          const auto end=clockUs()+std::max(0,std::min(2000,atoi(delay)))*1000;
+          while(!exportCancel_&&clockUs()<end)std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+#endif
         std::vector<uint8_t> mask(b.width);
+        PngTiming originalTiming,previewTiming;int64_t rowUs=0;
+        const auto originalStart=clockUs();
         writeGrayPng(image["path"],b.width,b.height,[&](int y,uint8_t *pixels) {
+          const auto started=clockUs();
           if(exportCancel_ || result->readRow(y,pixels,mask.data(),b.width)!=Code::Ok)
             throw std::runtime_error("scan image preparation cancelled or unavailable");
-        });
+          rowUs+=clockUs()-started;
+        },&originalTiming);
+        const auto originalDone=clockUs();
         if(exportCancel_)throw std::runtime_error("scan image preparation cancelled");
         const double scale=std::min(1.,std::min(1024./b.width,256./b.height));
         const int w=std::max(1,int(b.width*scale)),h=std::max(1,int(b.height*scale));
         std::vector<uint8_t> preview(size_t(w)*h),valid(preview.size());
         if(result->readPreview(w,h,preview.data(),valid.data(),preview.size())!=Code::Ok)
           throw std::runtime_error("scan preview unavailable");
+        const auto previewRead=clockUs();
         writeGrayPng(image["previewPath"],w,h,[&](int y,uint8_t *row) {
           if(exportCancel_)throw std::runtime_error("scan image preparation cancelled");
           memcpy(row,preview.data()+size_t(y)*w,w);
-        });
+        },&previewTiming);
         if(exportCancel_)throw std::runtime_error("scan image preparation cancelled");
+        image["_prepare_timing"]={{"row_us",rowUs},{"original_us",originalDone-originalStart},
+          {"original_png_rows_us",originalTiming.rowsUs},{"original_sync_us",originalTiming.syncUs},
+          {"preview_read_us",previewRead-originalDone},{"preview_png_rows_us",previewTiming.rowsUs},
+          {"preview_sync_us",previewTiming.syncUs}};
         return image;
       } catch(...) {
         for(const char *key:{"path","previewPath"}) {
@@ -757,7 +784,8 @@ public:
       try {exportResult(true);}
       catch(const std::exception &e) {emit("review_error",{{"error",e.what()}});}
     } else if(type=="cancel_review" && j.value("scanId",uint64_t(0))==scan_) {
-      if(exportReview_)cancelExport();
+      // Closing a viewer drops its reply, not work shared with a pending save.
+      exportReplies_[0]={};
     } else if (type == "confirm" && j.value("scanId", uint64_t(0)) == scan_) {
       try {
         exportResult();
@@ -989,6 +1017,10 @@ public:
               {"captureEndedUs", sourceCutoffUs_},
               {"releaseObservedUs", releaseObservedUs_},
               {"lastSourceFrameUs", lastRawTimestamp_}});
+        // Derived row-PNGs stay private/temporary until explicit confirmation.
+        // Start only after all accepted work is sealed; never read the canvas
+        // in the capture loop or delay the finished notification on file IO.
+        if(b.width>0&&b.height>0)try {exportResult(false,true);}catch(...) {}
         if (retryWhenEmpty_ && keyDown_)
           retryEmpty();
       }

@@ -1,5 +1,17 @@
 """Real sensor -> model -> normal seal -> original viewer/cache; never sends."""
-import json,time
+import hashlib,json,pathlib,subprocess,time
+
+def close_viewer(d):
+ # A synchronous diagnostic screenshot can outlast the 300ms input lease on
+ # ARMv7. Wait for the real read-only channel to recover before injecting a tap.
+ s=d.wait(lambda:(s if (s:=d.state())['input_focused'] and s['touch_input']['active'] else None))
+ d.input_release()
+ scale=s['ui_scale']['applied'];dp=lambda n:(n*scale+50)//100
+ target=max(44,dp(44));portrait=d.h>d.w
+ right=s['screen_safety']['navigation_x'] if portrait else dp(16)
+ top=s['safe_insets'][1] if portrait else dp(8)
+ d.touch(d.w-right-target/2,top+target/2)
+ d.wait(lambda:not d.state()['image_viewer']['open'])
 
 def run(d):
  assert d.s6
@@ -22,6 +34,8 @@ def run(d):
  scan=d.state()['scan_id'];rows=[]
  for cycle in range(3):
   d.tap(d.state()['scan_preview_area'])
+  initial_view=d.state()['image_viewer']
+  assert initial_view['open']
   def loaded():
    s=d.state();v=s['image_viewer']
    if v.get('failed'):raise AssertionError('Original image stage failed: '+str(v))
@@ -30,11 +44,47 @@ def run(d):
   files=d.sh('find '+d.data+'/.scan-pending -maxdepth 1 -name "*.png" -exec sha256sum {} \\;')
   assert files
   if rows:assert files==rows[0]['files_sha256']
-  rows.append({'cycle':cycle,'frame':s['image_viewer']['frame'],'files_sha256':files,'native_memory':d.sh("grep -E 'VmRSS|VmHWM' /proc/"+pid+'/status')})
+  rows.append({'cycle':cycle,'initial_view':initial_view,'frame':s['image_viewer']['frame'],'files_sha256':files,'latency':s.get('scan_latency',{}),'prepare_timing':s['scan_result'].get('preparation',{}),'native_memory':d.sh("grep -E 'VmRSS|VmHWM' /proc/"+pid+'/status')})
+  if manual and cycle==0:
+   for line in files.splitlines():
+    digest,remote=line.split(None,1);remote=remote.strip()
+    if remote.endswith('.preview.png'):continue
+    assert pathlib.PurePosixPath(remote).parent==pathlib.PurePosixPath(d.data+'/.scan-pending')
+    local=d.out/'paper-original.png'
+    subprocess.run(['adb','-s',d.serial,'pull',remote,str(local)],check=True,capture_output=True)
+    assert hashlib.sha256(local.read_bytes()).hexdigest()==digest
+  # Loaded is a data-ready marker; allow presentation before a visual capture.
+  time.sleep(.12)
   d.capture('scan-original-'+str(cycle))
-  d.touch(d.w-38,30);d.wait(lambda:not d.state()['image_viewer']['open'])
+  close_viewer(d)
  assert d.pid()==pid and d.state()['scanner']['worker_pid']==worker
  return {'profile':r['profile'],'sensor_geometry':[320,240],'original_cycles':rows,'result_preserved':True,'scan_id':scan,'no_confirmation_or_send':True,'manual_paper_scan':manual,'scan_result':result,'paper_quality':'User forward paper scan; optical quality requires separate review' if manual else 'Not measured; source is automatic sensor capture'}
+
+
+def latency(d):
+ """Confirm only the outer runner's fixture; verify bytes after DB commit."""
+ import sqlite3
+ from release_lifecycle import pull_database
+ evidence=run(d)
+ assert d.s6 and (d.w,d.h)==(640,260) and d.state()['ui_scale']['applied']==100
+ original=next(line.split()[0] for line in evidence['original_cycles'][0]['files_sha256'].splitlines() if not line.endswith('.preview.png'))
+ generation=d.state()['scanner']['generation']
+ d.touch(d.w-205,54)
+ s=d.wait(lambda:(s if (s:=d.state())['view']=='chat' and s['scan_latency']['stored'] else None),60)
+ assert not s['generating'] and s['scanner']['generation']==generation
+ backup=d.out/'confirmed-fixture.db';pull_database(d.serial,d.data,backup,d.sh)
+ with sqlite3.connect(backup) as db:
+  assert db.execute('select count(*) from chat_messages').fetchone()[0]==2
+  assets=db.execute('select stored_path,display_src,width,height,source_type from message_assets').fetchall()
+ assert len(assets)==1 and assets[0][4]=='scan'
+ stored,preview,width,height,_=assets[0]
+ assert stored.startswith(d.data+'/assets/') and preview.startswith(d.data+'/assets/')
+ assert d.sh('sha256sum '+stored).split()[0]==original
+ evidence['review_stage_no_confirmation_or_send']=evidence.pop('no_confirmation_or_send')
+ evidence.update(confirmed_into_isolated_fixture=True,network_send=False,stored_original_sha256=original,
+  stored_size=[width,height],final_latency=s['scan_latency'])
+ d.capture('scan-confirmed-chat')
+ return evidence
 
 
 def codec_fixture(d,folder):
@@ -70,7 +120,7 @@ def codec(d):
   d.touch(image['x']+image['width']//2,image['y']+image['height']//2)
   d.wait(lambda:d.state()['image_viewer']['open'])
  open_image();d.wait(lambda:d.state()['image_viewer']['failed'])
- d.touch(d.w-38,30);d.wait(lambda:not d.state()['image_viewer']['open'])
+ close_viewer(d)
  original=d.out/'synthetic-long-original.png';png(original,12000,32)
  d.push(original,d.data+'/assets/scan-original.png')
  rows=[]
@@ -81,8 +131,10 @@ def codec(d):
   x,y=d.raw(d.w//2,d.h//2)
   command='PENCHAT_TOUCH_DEVICE='+d.event+' '+d.helper+' '+str(x)+' '+str(y)
   d.sh(command+'; '+command);d.wait(lambda:d.state()['image_viewer']['zoom']==2)
-  d.capture('synthetic-scan-original-'+str(cycle))
   rows.append({'cycle':cycle,'frame':[12000,32],'native_memory':d.sh("grep -E 'VmRSS|VmHWM' /proc/"+pid+'/status')})
-  d.touch(d.w-38,30);d.wait(lambda:not d.state()['image_viewer']['open'])
+  if cycle<2:close_viewer(d)
+ # Capture after the reopen workload so synchronous PNG diagnostics cannot
+ # expire the input lease between its taps. Outer cleanup closes the last view.
+ d.capture('synthetic-scan-original-final')
  assert d.pid()==pid and d.state()['session']==session and d.state()['draft_length']==draft and not d.state()['generating']
  return {'synthetic_source':True,'real_sensor_or_model_acceptance':False,'failed_decode_repaired_and_retried':True,'cycles':rows,'top_panel_disabled_in_image_workspace':True,'no_send':True}

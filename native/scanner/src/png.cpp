@@ -1,5 +1,6 @@
 #include "png.hpp"
 #include <cerrno>
+#include <chrono>
 #include <fcntl.h>
 #include <png.h>
 #include <stdexcept>
@@ -28,7 +29,10 @@ void output(png_structp png, png_bytep bytes, png_size_t count) {
 }
 } // namespace
 void writeGrayPng(const std::string &path, int w, int h,
-                  const std::function<void(int, uint8_t *)> &row) {
+                  const std::function<void(int, uint8_t *)> &row,
+                  PngTiming *timing) {
+  const auto now=[] {return uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());};
+  if(timing)*timing={};
   if (w < 1 || h < 1 || w > 1024 * 1024)
     throw std::runtime_error("unsupported scan image dimensions");
   auto part = path + ".part";
@@ -46,6 +50,7 @@ void writeGrayPng(const std::string &path, int w, int h,
     png_set_IHDR(png, info, w, h, 8, PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
     png_write_info(png, info);
+    const auto started=now();
     for (int y = 0; y < h; ++y) {
       bool read = true;
       try {
@@ -57,13 +62,16 @@ void writeGrayPng(const std::string &path, int w, int h,
         png_error(png, "scan row unavailable");
       png_write_row(png, pixels.data());
     }
+    const auto rowsDone=now();
     png_write_end(png, info);
+    if(timing){timing->rowsUs=rowsDone-started;timing->finishUs=now()-rowsDone;}
     okay = true;
   }
   if (png)
     png_destroy_write_struct(&png, info ? &info : nullptr);
-  if (okay && fsync(fd))
-    okay = false;
+  const auto syncStart=now();
+  if (okay && fsync(fd))okay=false;
+  if(timing)timing->syncUs=now()-syncStart;
   if (close(fd))
     okay = false;
   if (okay && rename(part.c_str(), path.c_str()))

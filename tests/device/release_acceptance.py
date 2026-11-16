@@ -45,6 +45,7 @@ OUT = ROOT/'.work'/RELEASE/'devices'
 FEATURES = {
   'resource-residency': 'Control center retains underlay/worker/model and observes but gates pen input',
   'scan-original': 'Real scan result original PNG, reopen cache and no persistence/send',
+  'scan-confirm-latency': 'S6 paper original/reopen plus explicit isolated save timing and exact stored file hash; never sends',
   'scan-original-codec': 'Synthetic saved scan original on device: failed decode retry, long PNG and zoom; no optical claim',
   'feedback-preview': 'CVI metadata-only feedback preview without opening ISP nodes',
   'keyboard-handoff': 'Direct system keyboard, normal return, default preference and completed composer visibility',
@@ -1069,6 +1070,9 @@ class ReleaseDevice(ScopedDevice):
           elif feature == 'scan-original':
             from release_scan_original import run
             entry['evidence'] = run(self)
+          elif feature == 'scan-confirm-latency':
+            from release_scan_original import latency
+            entry['evidence'] = latency(self)
           elif feature == 'scan-original-codec':
             from release_scan_original import codec
             entry['evidence'] = codec(self)
@@ -1212,7 +1216,7 @@ def main():
     return
   if not args.serial or not args.package:
     parser.error('execution requires --serial and --package')
-  if args.manual_paper_scan and (args.serial != 'JDA0700006552216' or args.features != ['scan-original']):
+  if args.manual_paper_scan and (args.serial != 'JDA0700006552216' or args.features not in (['scan-original'],['scan-confirm-latency'])):
     parser.error('--manual-paper-scan requires the isolated S6 scan-original scope')
   def interrupted(signum, frame):
     raise SystemExit('Interrupted; restoring isolated private/public data')

@@ -3,11 +3,11 @@
   "files": {
     "engine/include/pen_stream/stream.hpp": "b8a4de620c117525b3433f1302ff152db3061852dfaa5dcb26eb7ef8a8695090",
     "engine/include/rknn/rknn_api.h": "c48e11a6f41b451a5fd1e4ad774ea60252d3d94f78bee9b21ea3d21b21deba9a",
-    "engine/src/canvas.cpp": "5810e4049196048818f861bcc6e957d92a9cacf98b60272bed1765fe72311173",
+    "engine/src/canvas.cpp": "be90f755d2ba811034697ff7e7491be54a7554495233babc1a364b48d1b45982",
     "engine/src/geometry.cpp": "c000d303ebc84aa9696b658dae838499c0e0fb9152814e539b70d84625132842",
     "engine/src/geometry_decoder.cpp": "044f6de680b4514277b3691ad972facef29d48038a83423e312e2dfb5c932766",
     "engine/src/geometry_decoder.hpp": "055c87481ee716559b58f22adf997d7a1a0e9bd96d118e65ca434ce2ab8b8fdd",
-    "engine/src/internal.hpp": "8b3e718eefb06ec39041201804a2d01aeda77517d9ff05db7f9b68274095692d",
+    "engine/src/internal.hpp": "096ec31841a4a8e6b7087cfdf977b0e462e387e97e891b5ff6d9248187b2e37b",
     "engine/src/photo_cpu.hpp": "93853dd21d8d654c230e525149912be6a0e2408160ec9f586aa7a362068231b0",
     "engine/src/resize_compat.cpp": "cd379a3215484087753ef6d929c7e60d9b2db5e22daa589c67a5b58495a3fa82",
     "engine/src/rknn.cpp": "0012ef4a069673647aa6106f6aae151ac88fee3ef915755a89772fcc406ea442",
@@ -23,7 +23,7 @@
     "src/memory_policy.hpp": "ad5ca5cb32d7debc4e0009a89f8d892ca6ee4b520de4c4b0790f5362f6077886",
     "src/runtime_io.hpp": "1920f786a5faf268e9f14a21274690b8c280fa5006a234d1a9c251e4f857ef94",
     "src/runtime_guard.cpp": "2866a54afd4e71a58e84e8362392cc462cbadebda95cdcd85f32514a30c50fb9",
-    "src/main.cpp": "5e763e592637dbea9af1debab6494d9a685778a602f82be506101ebeb333c840",
+    "src/main.cpp": "5df8f6938b6c755905a893494288e87a7de0519c4424d4ef2a0672df0c4336ed",
     "runtime-symbols.list": "868ca8503bbdbfab6029fe3fca3aceb20e76b4908f63be8bfdcf0f9c9ac92951",
     "tests/test_runtime_io.cpp": "726a9a9e417ad3520743a286ae755f0c857a7b164d74b7b9ea22525c31fd7d05",
     "src/hardware.cpp": "965465ba63282b955d5b51531cf50ca01ce3fbe861f339e2380ae59a49881895",
@@ -53,10 +53,13 @@
     "src/scan_platform.cpp": "9216f5ac7504bbe03378ca2dc3b6d449782f7736d7b4662c837d14ca9de9bfb8",
     "src/hardware_ops.hpp": "8342f7ab134bd63e4401af11fa0c02c0ca9db7b892556556ecdcbe9f1c08732b",
     "src/rk_capture.cpp": "d0dab4d88649b20a3e0699bcadceabfe57e96d06f08c1c0845af2be8cb194c89",
-    "CMakeLists.txt": "8f5eb18f010304ad58fa00e8b7e062d16c0d97111124acd92693eb022f43cd75",
+    "CMakeLists.txt": "167b1bc3eb4abdf7cc1eeed6d2d0f356650b118d7bae888f00ccf526c0599be4",
     "src/cvi_startup.hpp": "d318117bde0cb6f0dad41348d2b227b014eb7be3d393274131f6f455a4b58409",
     "src/capture_owner.hpp": "9787070779126f9ca472b94d849bb76f2784bebe6676513d064c7b6396fc5555",
-    "tests/test_capture_contract.cpp": "b196033a0b94d151ac923c761c6d8b2d5cd20b67b319fad40a548802561738cd"
+    "tests/test_capture_contract.cpp": "b196033a0b94d151ac923c761c6d8b2d5cd20b67b319fad40a548802561738cd",
+    "tests/test_canvas_rows.cpp": "fbd6eaee44192abf19b4422db2d3a703247366acd36b033c9fac26427ff9601a",
+    "src/png.hpp": "664b7ab5e273e5c3472d4f6ef80b43fe8bb21503326c2a7cc9b5da3d5be6d9c8",
+    "src/png.cpp": "c6309fc8430d61a1ff27757384e1a121dba4282650ff03878bd491e654c75edd"
   },
   "resources": {
     "pintu_32.rknn": {
