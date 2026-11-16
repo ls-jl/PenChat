@@ -1198,6 +1198,7 @@ def main():
   parser.add_argument('--discard-pending-input', action='store_true', help='Explicitly authorized: discard unsent editor/draft; preserve saved user data')
   parser.add_argument('--official-controller-file', type=pathlib.Path, help='Append-only host command file for reconnectable owned official controls')
   parser.add_argument('--startup-rollback-guard', action='store_true', help='Retain original-data isolation on candidate startup/presentation failure until explicit full-package recovery')
+  parser.add_argument('--manual-paper-scan', action='store_true', help='Wait for a user paper scan instead of injecting the pen key; scan-original scope only')
   parser.add_argument('--features', nargs='+', choices=tuple(FEATURES), default=['smoke'])
   args = parser.parse_args()
   if args.plan:
@@ -1211,12 +1212,15 @@ def main():
     return
   if not args.serial or not args.package:
     parser.error('execution requires --serial and --package')
+  if args.manual_paper_scan and (args.serial != 'JDA0700006552216' or args.features != ['scan-original']):
+    parser.error('--manual-paper-scan requires the isolated S6 scan-original scope')
   def interrupted(signum, frame):
     raise SystemExit('Interrupted; restoring isolated private/public data')
   for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
     signal.signal(number, interrupted)
   device = ReleaseDevice(args.serial, args.package, args.features, args.discard_pending_input, args.startup_rollback_guard)
   device.official_controller_file = args.official_controller_file
+  device.manual_paper_scan = args.manual_paper_scan
   device.run()
 
 

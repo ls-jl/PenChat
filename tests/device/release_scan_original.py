@@ -1,13 +1,23 @@
 """Real sensor -> model -> normal seal -> original viewer/cache; never sends."""
-import time
+import json,time
 
 def run(d):
  assert d.s6
  d.chat();d.wait(lambda:d.state()['scanner'].get('type')=='ready' and d.state()['scanner'].get('model_ready'),90)
  pid=d.pid();r=d.state()['scanner'];worker=r['worker_pid']
  assert r['profile']=='s6-pag7920' and [r['sensor_width'],r['sensor_height']]==[320,240]
- d.sh(d.key_helper+' /dev/input/by-path/platform-led_control-event 134 1 500 100')
- result=d.wait(lambda:(s['scan_result'] if (s:=d.state())['scan_result'].get('type')=='finished' else None),120)
+ manual=getattr(d,'manual_paper_scan',False)
+ if manual:
+  initial=d.state()['scan_id']
+  print(json.dumps({'stage':'manual-paper-ready','profile':r['profile'],'scan_id_before':initial,'size':[d.w,d.h]}),flush=True)
+  def completed():
+   s=d.state()
+   return s['scan_result'] if s['scan_id']>initial and s['scan_result'].get('type')=='finished' else None
+  result=d.wait(completed,600)
+ else:
+  d.sh(d.key_helper+' /dev/input/by-path/platform-led_control-event 134 1 500 100')
+  result=d.wait(lambda:(s['scan_result'] if (s:=d.state())['scan_result'].get('type')=='finished' else None),120)
+ (d.out/'scan-result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
  assert result['usable'],{'stage':'scan_result','reason':result.get('reason'),'counts':result.get('counts')}
  scan=d.state()['scan_id'];rows=[]
  for cycle in range(3):
@@ -24,7 +34,7 @@ def run(d):
   d.capture('scan-original-'+str(cycle))
   d.touch(d.w-38,30);d.wait(lambda:not d.state()['image_viewer']['open'])
  assert d.pid()==pid and d.state()['scanner']['worker_pid']==worker
- return {'profile':r['profile'],'sensor_geometry':[320,240],'original_cycles':rows,'result_preserved':True,'scan_id':scan,'no_confirmation_or_send':True,'paper_quality':'Not measured; source is automatic sensor capture'}
+ return {'profile':r['profile'],'sensor_geometry':[320,240],'original_cycles':rows,'result_preserved':True,'scan_id':scan,'no_confirmation_or_send':True,'manual_paper_scan':manual,'scan_result':result,'paper_quality':'User forward paper scan; optical quality requires separate review' if manual else 'Not measured; source is automatic sensor capture'}
 
 
 def codec_fixture(d,folder):
