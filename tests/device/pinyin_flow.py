@@ -71,17 +71,27 @@ def run(ctx):
     tap(right-2,y);length+=1;wait(lambda:state()['length']==length and state()['shift']==2);key('shift')
     capture('keyboard-edge-keys');action('cancel');wait(lambda:not state()['active'])
     open_editor();assert state()['layout']=='zh26';capture('pinyin-26')
-    # Follow the nine-key layout's different globe position, while requiring
-    # a completed contact just like ordinary keys. A cancelled lease frame
-    # must not be treated as an immediate failed layout change.
-    current=state()
-    cycle_times=[]
-    for wanted in ['en26','zh9','zh26']:
-        globe=next(k for k in current['keys'] if k['key']=='language')
-        tap(globe['x'],globe['y'])
-        wait(lambda:state()['layout']==wanted)
-        observed=read();current=observed['editor'];cycle_times.append(observed['touch']['event_time_ms'])
+    # Resolve each real layout's globe first. Diagnostic round trips on S6
+    # can exceed the two-second cycle window, so send this bounded sequence
+    # in one helper call, like the existing physical double-tap fixture.
+    globes={}
+    for layout in ['en26','zh9','zh26']:
+        choose_layout(layout)
+        globe=next(k for k in state()['keys'] if k['key']=='language')
+        globes[layout]=ctx['raw'](globe['x'],globe['y'])
+    before=ctx['wait_native_input']()
+    probe='/tmp/penchat-release-input-state'
+    kernel=json.loads(ctx['shell'](probe+' /dev/input/'+ctx['event']))
+    assert not kernel.get('error') and not kernel['btn_touch'] and not kernel['active_slots']
+    ctx['shell'](probe+' /dev/input/'+ctx['event']+' --release')
+    before=ctx['wait_native_input']()
+    coordinates=' '.join(str(v) for layout in ['zh26','en26','zh9'] for v in globes[layout])
+    output=ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap --sequence '+coordinates+' 2>/dev/null',_touch_checked=True)
+    cycle_times=json.loads(output)['press_ms']
     assert all(0<b-a<2000 for a,b in zip(cycle_times,cycle_times[1:])),('rapid cycle exceeded actual two-second window',cycle_times)
+    wait(lambda:state()['layout']=='zh26' and state()['revision']==before['editor']['revision']+3)
+    after=read()
+    assert not after['touch']['pressed'] and after['touch']['gesture']==before['touch']['gesture']+3
     ctx['result']['rapid_globe_event_times']=cycle_times
     for c in 'niao':key(c)
     ready();assert 0<state()['corrected_count']<=2;capture('pinyin-valid-alternatives')

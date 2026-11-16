@@ -39,10 +39,11 @@ int main(int argc, char** argv)
     const bool doubleTap = argc == 5 && !strcmp(argv[1], "--double");
     const bool dragHold = argc == 8 && !strcmp(argv[1], "--drag-hold");
     const bool moveHold = argc == 8 && !strcmp(argv[1], "--move-hold");
+    const bool sequence = argc == 8 && !strcmp(argv[1], "--sequence");
     const bool heldDrag = dragHold || moveHold;
     const bool pinch = argc == 10 && !strcmp(argv[1], "--pinch");
-    if (argc != 3 && argc != 5 && argc != 6 && !pinch && !heldDrag) return 2;
-    const int x = std::atoi(argv[(pinch || hold || doubleTap || heldDrag) ? 2 : 1]), y = std::atoi(argv[(pinch || hold || doubleTap || heldDrag) ? 3 : 2]);
+    if (argc != 3 && argc != 5 && argc != 6 && !pinch && !heldDrag && !sequence) return 2;
+    const int x = std::atoi(argv[(pinch || hold || doubleTap || heldDrag || sequence) ? 2 : 1]), y = std::atoi(argv[(pinch || hold || doubleTap || heldDrag || sequence) ? 3 : 2]);
     const int endX = (hold || doubleTap) ? x : heldDrag ? std::atoi(argv[4]) : pinch ? std::atoi(argv[6]) : (argc == 5 || argc == 6) ? std::atoi(argv[3]) : x;
     const int endY = (hold || doubleTap) ? y : heldDrag ? std::atoi(argv[5]) : pinch ? std::atoi(argv[7]) : (argc == 5 || argc == 6) ? std::atoi(argv[4]) : y;
     const char* requestedDevice = std::getenv("PENCHAT_TOUCH_DEVICE");
@@ -66,6 +67,32 @@ int main(int argc, char** argv)
         close(candidate);
     }
     if (fd < 0) { perror("touch device"); return 1; }
+    if (sequence) {
+        int points[3][2] = {};
+        for (int i = 0; i < 3; ++i) {
+            points[i][0] = std::atoi(argv[2 + i * 2]);
+            points[i][1] = std::atoi(argv[3 + i * 2]);
+            if (points[i][0] < ax.minimum || points[i][0] > ax.maximum ||
+                points[i][1] < ay.minimum || points[i][1] > ay.maximum) { close(fd); return 2; }
+        }
+        long long times[3] = {};
+        bool ok = true;
+        for (int i = 0; i < 3; ++i) {
+            timeval stamp = {};gettimeofday(&stamp, nullptr);
+            times[i] = static_cast<long long>(stamp.tv_sec) * 1000 + stamp.tv_usec / 1000;
+            ok = event(fd, EV_ABS, ABS_MT_SLOT, 0) &&
+                event(fd, EV_ABS, ABS_MT_TRACKING_ID, getpid() % 60000 + i + 1) &&
+                event(fd, EV_ABS, ABS_MT_POSITION_X, points[i][0]) && event(fd, EV_ABS, ABS_MT_POSITION_Y, points[i][1]) &&
+                event(fd, EV_KEY, BTN_TOOL_FINGER, 1) && event(fd, EV_KEY, BTN_TOUCH, 1) && event(fd, EV_SYN, SYN_REPORT, 0) && ok;
+            usleep(150000);
+            const bool released = event(fd, EV_ABS, ABS_MT_TRACKING_ID, -1) && event(fd, EV_KEY, BTN_TOUCH, 0) &&
+                event(fd, EV_KEY, BTN_TOOL_FINGER, 0) && event(fd, EV_SYN, SYN_REPORT, 0);
+            ok = released && ok;
+            if (i < 2) usleep(150000);
+        }
+        std::printf("{\"press_ms\":[%lld,%lld,%lld]}\n", times[0], times[1], times[2]);
+        close(fd);return ok ? 0 : 1;
+    }
     if (pinch) {
         input_absinfo slots = {};
         const int x2 = std::atoi(argv[4]), y2 = std::atoi(argv[5]);
