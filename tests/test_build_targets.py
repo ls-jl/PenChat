@@ -5,6 +5,11 @@ ROOT=pathlib.Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('package_identity',ROOT/'scripts/package_identity.py')
 identity=importlib.util.module_from_spec(spec);spec.loader.exec_module(identity)
 class BuildTargets(unittest.TestCase):
+    def test_production_rebuilds_native_before_packaging(self):
+        source=(ROOT/'scripts/build-prod.sh').read_text()
+        build=source.index('npm run build:native')
+        self.assertLess(build,source.index('strip-production.sh'))
+        self.assertLess(build,source.index('aiot-cli'))
     def test_platform_ocr_capability(self):
         with tempfile.TemporaryDirectory(prefix='penchat-device-capability-') as folder:
             for cvi in (False,True):

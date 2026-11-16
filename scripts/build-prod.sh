@@ -2,6 +2,7 @@
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
+npm run build:native
 python3 "$ROOT/scripts/stage-fonts.py"
 python3 "$ROOT/scripts/stage-licenses.py"
 python3 "$ROOT/scripts/prepare-scanner.py" --stage
