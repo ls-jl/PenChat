@@ -38,16 +38,18 @@ def database_failure():
 
 def official_failure():
     with tempfile.TemporaryDirectory(prefix='penchat-official-recovery-') as tmp:
-        a=t.Native(BINARY,pathlib.Path(tmp),official_adapter=False,bridge_send_buffer=8192)
+        a=t.Native(BINARY,pathlib.Path(tmp),official_adapter=False,bridge_send_buffer=12288)
         def state():return a.diag()['editor']
         def key(value):
             item=next(k for k in state()['keys'] if k['key']==value);a.tap(item['x'],item['y'])
         try:
             a.tap(500,232);t.wait_for(lambda:state()['active'])
             a.editor_action('official');request=a.receive('keyboard.open')
-            text='字'*6000
+            # Leave two native preedit characters of headroom. The UTF-8 open
+            # packet exceeds the socket capacity while diagnostics still fit.
+            text='字'*8190
             a.send('keyboard.result',requestId=request['requestId'],confirmed=True,text=text)
-            t.wait_for(lambda:not state()['active'] and a.diag()['draft_length']==6000)
+            t.wait_for(lambda:not state()['active'] and a.diag()['draft_length']==len(text))
             a.tap(500,232);t.wait_for(lambda:state()['active'])
             key('n');key('i');t.wait_for(lambda:state()['preedit_length']==2)
             t.wait_for(lambda:not state()['pending']);time.sleep(.35)
@@ -76,13 +78,13 @@ def official_failure():
             assert after['ocr_active'] and after['notice_present'] and a.diag()['display_visible']
             # A result for the preceding handoff cannot commit after rollback.
             a.send('keyboard.result',requestId=request['requestId'],confirmed=True,text='stale')
-            assert state()['length']==6000 and state()['active']
+            assert state()['length']==len(text) and state()['active']
             image=a.directory/'lvgl-diagnostic.png';a.process.send_signal(signal.SIGUSR1);t.wait_for(image.exists)
             (OUT/'official-send-failed.png').write_bytes(image.read_bytes())
             key('delete');t.wait_for(lambda:state()['preedit_length']==1)
             key('enter');t.wait_for(lambda:state()['preedit_length']==0)
             a.editor_action('done');t.wait_for(lambda:not state()['active'])
-            assert a.diag()['draft_length']>=6000
+            assert a.diag()['draft_length']>=len(text)
         finally:a.close()
     print('Official IPC failure restores display, editor, composition, cursor, OCR and further input; stale result ignored.',flush=True)
 
