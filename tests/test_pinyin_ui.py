@@ -24,7 +24,10 @@ def ready(a):return t.wait_for(lambda:editor(a)['candidate_count']>0 and not edi
 def selected(a):return t.wait_for(lambda:not editor(a)['preedit_length'] and not editor(a)['pending'])
 def official(a,confirmed=False,text=''):
     a.editor_action('official');request=a.receive('keyboard.open')
-    a.send('keyboard.result',requestId=request['requestId'],confirmed=confirmed,text=text)
+    # This helper inspects the exported text without finishing the native edit.
+    # Normal system-keyboard dismissal now finishes editing by design.
+    if confirmed:a.send('keyboard.result',requestId=request['requestId'],confirmed=True,text=text)
+    else:a.send('keyboard.result',requestId=request['requestId'],confirmed=False,error='fixture inspection',text=request['text'])
     t.wait_for(lambda:not a.diag()['keyboard']);return request
 
 def run(w,h):

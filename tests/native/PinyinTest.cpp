@@ -105,6 +105,19 @@ int main(int argc,char **argv) {
   r=f.search("6442664","zh9");selected=f.choose(r,"你好");assert(selected["remaining"]=="64"&&selected["consumed"]==5);
   r=f.search("64426","zh9");bool exact=false;for(const auto &v:r["exact"])if(v=="ni")exact=true;assert(exact);
   r=f.search("64426","zh9","ni");assert(std::find(r["candidates"].begin(),r["candidates"].end(),Json("你好"))!=r["candidates"].end());selected=f.choose(r,"你");assert(selected["remaining"]=="426"&&selected["fixed"]=="");
+  // Reported nine-key sequence: 4685426, fix gou then jian, choose 构.
+  r=f.search("4685426","zh9","gou");
+  assert(std::find(r["exact"].begin(),r["exact"].end(),Json("jian"))!=r["exact"].end());
+  r=f.search("4685426","zh9","gou'jian");selected=f.choose(r,"构");
+  assert(selected["consumed"]==3&&selected["remaining"]=="5426"&&selected["fixed"]=="jian");
+  r=f.search("5426","zh9","jian");selected=f.choose(r,"建");
+  assert(selected["consumed"]==4&&selected["remaining"]==""&&selected["fixed"]=="");
+  r=f.search("4685426","zh9","gou'jian");selected=f.choose(r,"构建");
+  assert(selected["consumed"]==7&&selected["remaining"]=="");
+  r=f.search("64426","zh9","ni'hao");selected=f.choose(r,"你");
+  assert(selected["consumed"]==2&&selected["remaining"]=="426"&&selected["fixed"]=="hao");
+  r=f.search("gou'jian","zh26");selected=f.choose(r,"构");
+  assert(selected["consumed"]==4&&selected["remaining"]=="jian");
   auto wrong=f.query;wrong["sequence"]=++f.sequence;wrong["operation"]="choose";wrong["revision"]=uint64_t(0);wrong["candidate"]=0;
   f.service->request(wrong);assert(f.await(f.sequence)["ok"]==false);
   r=f.search(std::string(129,'a'));assert(r["ok"]==false);
