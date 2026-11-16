@@ -211,7 +211,7 @@ inline KeyboardDesign resolveKeyboardDesign(const KeyboardDesign &base,const UiM
   result.wide.bottomInset=metrics.dp(base.wide.bottomInset);
   result.compact.headerHeight=std::max(result.controls.height,metrics.dp(base.compact.headerHeight));
   result.compact.headerGap=metrics.dp(base.compact.headerGap);
-  result.compact.textLeading=std::max(metrics.dp(base.compact.textLeading),2*result.controls.height+3*result.controls.gap);
+  result.compact.textLeading=std::max(metrics.dp(base.compact.textLeading),3*result.controls.height+4*result.controls.gap);
   result.compact.textTrailing=std::max(metrics.dp(base.compact.textTrailing),result.controls.height+2*result.controls.gap);
   result.compact.doneWidth=metrics.dp(base.compact.doneWidth);
   result.compact.bottomInset=metrics.dp(base.compact.bottomInset);

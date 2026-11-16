@@ -43,6 +43,7 @@ RELEASE = 'release-'+APP['version']
 OUT = ROOT/'.work'/RELEASE/'devices'
 # Reuse individual feature fixtures, never acceptance.py on original user data.
 FEATURES = {
+  'panel-snapshot': 'System panel background handoff and own-page restore',
   'official-editing-dark': 'Y07 retained official editing with opaque dark handoff backing',
   'official-editing': 'Y07 retained IME cursor, selection, copy/cut/paste, local single send and light boundary pixels',
   'scanner-cycles': 'Twenty profile-verified real capture/discard, resident worker and guardian return cycles; no optical claim',
@@ -1050,6 +1051,9 @@ class ReleaseDevice(ScopedDevice):
             entry['evidence'] = official_surface(self)
           elif feature in ('official-editing','official-editing-dark'):
             from release_official_editing import run
+            entry['evidence'] = run(self)
+          elif feature == 'panel-snapshot':
+            from release_panel_snapshot import run
             entry['evidence'] = run(self)
           elif feature == 'scanner-cycles':
             from release_scanner_cycles import run

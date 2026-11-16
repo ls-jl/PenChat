@@ -311,6 +311,7 @@ void App::editorBuild() {
       // Grow only the invisible target; leave space below the Enter key.
       lv_obj_set_ext_click_area(b,editorDesign().controls.finishTouchGrow);
     }
+    if(actionName=="official")attachIcon(b,"keyboard",editorDesign().style(KeyboardRole::Auxiliary).foreground,editorDesign().icons.controlScale, editorMetrics());
     if(actionName=="clipboard"&&!layout.compactFull)attachIcon(b,"clipboard",editorDesign().style(KeyboardRole::Auxiliary).foreground,editorDesign().icons.controlScale, editorMetrics());
   }
   } else {
@@ -970,6 +971,7 @@ void App::editorFinish(bool confirmed) {
     editorChoosing_=editorSelectPending_=false;editorDeferred_.clear();++editorRevision_;
   } else editorInterrupt();
   editorDefaultOfficial_.clear();
+  if(confirmed&&editorInlineChat_&&!transfer)composerShortcut_.reveal(screen_.height);
   editorDetachTarget();editor_.active=false; keyboard_=false;editorReaderTouch_=false;
   touchDown_=composerTapAllowed_=pullTrackActivity_=false;
   editorComposerOpenHeight_=0;
@@ -1156,7 +1158,7 @@ void App::editorAction(const std::string &a) {
   if(a=="dismiss") {editorAccept();return;}
   if(a=="cancel") { editorFinish(false); return; }
   if (a=="official") {
-    if(editorLayoutMenu_) {editorLayoutMenu_=false;editorOfficial();}
+    editorLayoutMenu_=false;editorOfficial();
     return;
   }
   if(a=="copy"||a=="cut") {

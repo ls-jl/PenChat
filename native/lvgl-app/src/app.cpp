@@ -3039,6 +3039,7 @@ void App::updateInputFocus() {
   }
 }
 void App::suspend(bool value) {
+  if(value&&!systemOverlaySnapshot_.empty()){unlink(systemOverlaySnapshot_.c_str());systemOverlaySnapshot_.clear();}
   if(value)chatBottomState_.pause();
   if(value)motion::finishAll();
   if (value) composerShortcut_.reset();
@@ -3108,6 +3109,7 @@ void App::shutdown() {
 #endif
   if (shutdownComplete_) return;
   shutdownComplete_ = true;
+  if(!systemOverlaySnapshot_.empty()){unlink(systemOverlaySnapshot_.c_str());systemOverlaySnapshot_.clear();}
   motion::finishAll();
   cancelWebReader();
   cancelBalances();
@@ -3365,6 +3367,18 @@ void App::handle(const Json &m) {
     if(sequence>windowFocusSequence_){recordInputFocus(InputFocusTrace::WindowReceived,m.value("focused",false),sequence);windowFocusSequence_=sequence;windowFocus(m.value("focused",false));}
   }
   else if(type=="system.overlay.status") {
+    const bool panel=m.value("panel_visible",systemOverlayStatus_.value("panel_visible",false));
+    if(panel&&!systemOverlayStatus_.value("panel_visible",false)&&pageVisible_&&visible_) {
+      // A single frozen page under Falcon's panel, never an interactive second UI.
+      // Keep it private and ephemeral; do not keep capturing while obscured.
+      try {
+        systemOverlaySnapshot_=join(dataDir_,uid("overlay")+".png");
+        display_.screenshot(systemOverlaySnapshot_);
+        bridge_.send("system.overlay.frame",{{"path",systemOverlaySnapshot_}});
+      } catch(...) {if(!systemOverlaySnapshot_.empty())unlink(systemOverlaySnapshot_.c_str());systemOverlaySnapshot_.clear();}
+    } else if(!panel&&!systemOverlaySnapshot_.empty()) {
+      unlink(systemOverlaySnapshot_.c_str());systemOverlaySnapshot_.clear();
+    }
     bool changed=false;
     for(const char *key:{"window_api","window_valid","app_focused","panel_api","panel_available","panel_supported","panel_visible"})
       if(m.contains(key)&&m[key].is_boolean()) {
@@ -3432,9 +3446,10 @@ void App::handle(const Json &m) {
     // frame cannot flash over a system IME that is still finishing teardown.
     display_.visible(false);keyboard_ = false;display_.topHeight(0);
     if (editor_.active) {
-      if (m.value("confirmed", false)) {
+      const bool closedNormally=m.value("error",std::string()).empty();
+      if (m.value("confirmed", false)||closedNormally) {
         closeAttachments();
-        auto text = m.value("text", std::string());
+        auto text = m.value("text", editor_.text);
         if (editLength(text) <= editor_.limit) { editor_.text = text; editor_.preedit.clear(); editorFinish(true); }
         else { editor_.notice = "官方输入超过长度上限，请调整";editorPolicy(true);editorBuild();editorOcrStart(); }
       } else {editorPolicy(true);editorChanged();editor_.notice=m.value("error",std::string());editorFollowCursor_=false;editorBuild();editorOcrStart();}

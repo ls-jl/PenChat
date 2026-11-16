@@ -1,6 +1,7 @@
 <template>
   <div class="native-page" :style="pageStyle">
     <hole class="native-hole" :style="officialInline ? officialHoleStyle : nativeAreaStyle"></hole>
+    <image v-if="overlayFrame" class="overlay-frame" :style="nativeAreaStyle" :src="overlayFrame" resize="stretch"></image>
     <div v-if="officialInline" class="official-backing" :style="officialBackingStyle"></div>
     <div v-if="officialInline" class="official-editor" :style="appearanceStyles.officialPanel">
       <input v-if="officialSingleLine" :key="officialControlKey" ref="officialInput" class="official-input" :style="officialInputStyle" :type="officialSensitive ? 'password' : 'text'" :value="officialInitialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="false" cursorColor="transparent" @input="officialInputHandlers.input" @confirm="officialInputHandlers.confirm" />
@@ -55,12 +56,13 @@ function resolvedAppearance(c, m) {
   }
 }
 export default {
-  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialHoleStyle: {}, officialBackingStyle: {}, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
+  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialHoleStyle: {}, officialBackingStyle: {}, overlayFrame: '', officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
   mounted() { this.boot() },
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
   onHide() {
     this.visible = false
+    this.overlayFrame = ''
     this.syncInputFocus(true)
     this.setBackPolicy(true)
     this.setNativeEditorPolicy(false)
@@ -147,6 +149,7 @@ export default {
             this.updatePageStyle()
             this.send('display.area', { x: 0, y: 0, width: screen.width, height: screen.height })
           }
+          else if (event.type === 'system.overlay.frame') { if (this._panelVisible && this.visible && typeof event.path === 'string' && /^\/.*\/overlay_[^/]+\.png$/.test(event.path)) this.overlayFrame = 'file://' + event.path }
           else if (event.type === 'appearance') this.applyAppearance(event)
           else if (event.type === 'startup') { this.startupText = ({ display: '正在准备显示…', data: '正在读取数据…', interface: '正在准备页面…', frame: '正在显示页面…' })[event.stage] || '正在打开…' }
           else if (event.type === 'ready') { this.nativeReady = true; this.syncWindowFocus(true); this.syncInputFocus(true); clearTimeout(this._readyTimer); this._readyTimer = null; if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
@@ -236,6 +239,8 @@ export default {
         status.panel_visible = !!(panel && panel.visible === true)
         if (panel && panel.supported === true && typeof panel.visible === 'boolean') focused = focused !== false && !panel.visible
       } catch (_) {}
+      this._panelVisible = status.panel_visible
+      if (!this._panelVisible) this.overlayFrame = ''
       const signature = JSON.stringify(status)
       if (signature !== this._overlayStatus && this.send('system.overlay.status', status)) this._overlayStatus = signature
       if (typeof focused !== 'boolean' || (focused === this._windowFocused && !this._focusPending)) return
@@ -340,7 +345,9 @@ export default {
       // Clear identity before closing: Falcon may emit its cancellation inline.
       this.closeKeyboardState()
       try { if (this._global && uuid && this._global.closeTextEdit) this._global.closeTextEdit(uuid) } catch (_) {}
-      this.send('keyboard.result', { requestId, confirmed: retained && !error, retained, text, error })
+      const result = { requestId, confirmed: retained && !error, retained, error }
+      if (retained) result.text = text
+      this.send('keyboard.result', result)
     },
     inlineOfficialForeground(state) {
       if (!this.visible || this._disposed) return false
@@ -615,7 +622,7 @@ export default {
       }, 0)
     },
     openKeyboard(event) {
-      if (this.keyboardOpen || !this.visible || this._windowFocused === false) { this.send('keyboard.result', { requestId: event.requestId, confirmed: false, text: '' }); return }
+      if (this.keyboardOpen || !this.visible || this._windowFocused === false) { this.send('keyboard.result', { requestId: event.requestId, confirmed: false, error: '当前无法打开官方键盘' }); return }
       this.setNativeEditorPolicy(false)
       this.stopOcr()
       this.keyboardOpen = true
@@ -682,6 +689,7 @@ export default {
     async retry() { if (this._updateInstalled) { launcher.reopen(); return }; if (this._starting) return; await launcher.stop(); this.running = false; this.boot() },
     finish() { this.dispose(); this.$page.finish() },
     dispose() {
+      this.overlayFrame = ''
       if (this._disposed) return
       this._nativeImage = false
       this.setBackPolicy(true)
@@ -713,6 +721,7 @@ export default {
 <style lang="less" scoped>
 .native-page { width: 100vw; height: 100vh; position: relative; }
 .native-hole { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
+.overlay-frame { position: absolute; left: 0px; top: 0px; }
 .official-backing { position: absolute; left: 0px; }
 .official-editor { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
 .official-input { position: absolute; padding: 0px; }

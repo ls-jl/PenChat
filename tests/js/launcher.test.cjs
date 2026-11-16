@@ -831,3 +831,14 @@ test('official gap uses theme backing and changes hole only with native geometry
  f.page.cancelOfficialKeyboard();assert.equal(f.page.officialBackingStyle.height,'0px')
  f.page.dispose()
 })
+
+test('system panel retains only its own temporary page frame and clears stale frames', async () => {
+ const f=fixture();await f.page.boot();f.native.panelVisible=true;f.page.syncWindowFocus(true)
+ f.native.poll=()=>[{type:'system.overlay.frame',generation:f.page._generation,path:'/private/overlay_123_1.png'}]
+ f.page.poll();assert.equal(f.page.overlayFrame,'file:///private/overlay_123_1.png')
+ f.native.panelVisible=false;f.page.syncWindowFocus(true);assert.equal(f.page.overlayFrame,'')
+ f.page.poll();assert.equal(f.page.overlayFrame,'')
+ f.native.panelVisible=true;f.page.syncWindowFocus(true);f.page.poll()
+ f.options.onHide.call(f.page);assert.equal(f.page.overlayFrame,'')
+ f.page.dispose()
+})

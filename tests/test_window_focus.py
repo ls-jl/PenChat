@@ -51,7 +51,7 @@ for width,height in [(960,266),(568,1210)]:
             a.editor_action('official');request=a.receive('keyboard.open');focus(False)
             a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
             assert not a.diag()['display_visible']
-            focus(True);assert a.diag()['editor']['active'] and a.diag()['display_visible']
+            focus(True);assert not a.diag()['editor']['active'] and a.diag()['display_visible']
             focus(False);a.send('visibility',visible=False);focus(True)
             assert not a.diag()['visible'] and not a.diag()['page_visible']
             a.send('visibility',visible=True);assert a.diag()['visible'] and a.diag()['display_visible']

@@ -346,7 +346,7 @@ and candidate subtrees. Pending space/Done selection must retain subsequent keys
 in bounded order, not reject them because a dictionary query is still pending.
 The native editor owns libpinyinime on one background worker. Never reintroduce the Falcon
 shared decoder, system pinyin imports, symbol borrowing or a fallback bridge for candidates.
-The official text editor is available as 有道输入法 inside the globe long-press menu; ordinary globe taps never cycle into it. The opt-in 默认使用官方键盘 setting routes new editable fields to it and defaults off. Retain the proxy InputConnection during edits; seed its value once, mirror changes to native, and match vendor confirmation by request UUID. OCR is independent. Keep
+The official text editor has a direct keyboard action and is also available as 有道输入法 inside the globe long-press menu; ordinary globe taps never cycle into it. The opt-in 默认使用官方键盘 setting routes new editable fields to it and defaults off. Retain the proxy InputConnection during edits; seed its value once, mirror changes to native, and match vendor confirmation by request UUID. OCR is independent. Keep
 26-key Chinese, English and nine-key main layouts separate from number/symbol pages.
 Ordinary globe taps toggle preferred Chinese/English; rapid unedited taps under 2s cycle
 Chinese26/English/Chinese9. Only actual Chinese typing changes the persisted preference.

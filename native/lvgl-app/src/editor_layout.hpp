@@ -265,11 +265,13 @@ struct EditorLayout {
   std::vector<Action> actions(bool chat=false, bool singleLineOcr=false) const {
     const auto &c=controlMetrics;const int gap=c.gap;
     if(compactFull)return {{"cancel",gap,c.height,0},{singleLineOcr?"clipboard":"tools",2*gap+c.height,c.height,0},
+      {"official",3*gap+2*c.height,c.height,0},
       {"done",width-compactMetrics.doneWidth-compactMetrics.bottomInset,compactMetrics.doneWidth,bottomY}};
     if(portrait) {
       std::vector<Action> a;
       if(!chat)a.push_back({"cancel",0,c.portraitCancelWidth,actionsY});
       if(!singleLineOcr)a.push_back({"ocr-mode",0,c.portraitOcrWidth,actionsY});
+      a.push_back({"official",0,c.height,actionsY});
       a.push_back({"clipboard",0,c.portraitClipboardWidth,actionsY});
       int total=0;for(const auto &v:a)total+=v.width;
       const int spacing=a.size()>1?(textWidth-total)/int(a.size()-1):0;int x=textX;
@@ -282,8 +284,9 @@ struct EditorLayout {
     const int clip=compact?compactTouchWidth():c.clipboardWidth;
     const int ocr=compact?compactTouchWidth():c.ocrWidth;
     const int doneX=textRight()-clip-gap-c.doneWidth;
-    std::vector<Action> a{{"cancel",textX,textWidth-clip-c.doneWidth-2*gap-(singleLineOcr?0:ocr+gap),actionsY}};
+    std::vector<Action> a{{"cancel",textX,textWidth-clip-c.doneWidth-c.height-3*gap-(singleLineOcr?0:ocr+gap),actionsY}};
     if(!singleLineOcr)a.push_back({"ocr-mode",doneX-gap-ocr,ocr,actionsY});
+    a.push_back({"official",doneX-(singleLineOcr?0:ocr+gap)-gap-c.height,c.height,actionsY});
     a.push_back({"done",doneX,c.doneWidth,actionsY});
     a.push_back({"clipboard",textRight()-clip,clip,actionsY});
     return a;

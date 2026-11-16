@@ -148,6 +148,10 @@ void paint(lv_event_t *event) {
     line(-3,-3,4,-3);line(-3,2,2,2);
   } else if(k=="check") {
     line(-8,0,-2,6);line(-2,6,9,-7);
+  } else if(k=="keyboard") {
+    rect(-11,-8,22,16,3);
+    for(int y:{-4,0})for(int x:{-7,-2,3,7})rect(x,y,1.5,1.5,.5,true);
+    line(-5,5,5,5);
   } else if(k=="keyboard-done") {
     // Compact native chevron: its two equal diagonals meet at 90 degrees.
     line(-8,-4,0,4);line(0,4,8,-4);

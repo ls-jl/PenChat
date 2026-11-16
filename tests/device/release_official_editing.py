@@ -60,6 +60,25 @@ def run(d):
  d.wait(lambda:not d.state()['generating'] and not d.state()['keyboard'])
  assert d.state()['draft_length']==0 and d.pid()==pid
  d.capture('official-text-sent')
+ # Normal system hide must finish editing, not reveal another keyboard.
+ b=d.state()['composer_text_bounds'];rawtap((b[0]+b[2])//2,(b[1]+b[3])//2)
+ d.wait(lambda:d.state()['keyboard'])
+ surface.official_visual(d,'official-hide-target')
+ rawtap(530,680)
+ d.wait(lambda:not d.state()['keyboard'] and not d.state()['editor']['active'])
+ assert not d.state()['composer_hidden']
+ d.capture('official-hidden-no-native-fallback')
+ # Disable the default through its real setting, then use the direct button.
+ d.settings();d.tap(d.reveal(lambda s:s['settings']['rows']['keyboard']['bounds']))
+ d.wait(lambda:d.state()['view']=='keyboard_settings')
+ d.tap(d.reveal(lambda s:s['settings']['rows']['prefer_official_keyboard']['bounds']))
+ d.wait(lambda:not d.state()['editor']['official_preference']['saved'])
+ d.chat();b=d.state()['composer_text_bounds'];d.tap(b)
+ d.wait(lambda:d.state()['editor']['active'] and not d.state()['keyboard'])
+ d.capture('native-direct-system-key')
+ d.editor_action('official');d.wait(lambda:d.state()['keyboard'])
+ rawtap(530,680);d.wait(lambda:not d.state()['keyboard'] and not d.state()['editor']['active'])
+ d.capture('direct-system-hidden')
  # Normal shutdown checkpoints the isolated DB; inspect only this fixture.
  d.close()
  import subprocess,sqlite3
@@ -68,4 +87,4 @@ def run(d):
   row=db.execute("select output_text from chat_messages where role='user' order by rowid desc limit 1").fetchone()
   assert row and row[0]=='比',row
  saved.unlink()
- return {'caret_tap':True,'caret_drag':True,'select_all':True,'copy_cut_paste':True,'type_after_paste':True,'single_local_send':True,'native_pid_stable':True,'selection_handle_drag':True,'selected_chinese_replacement':True,'saved_message_exact':True,'empty_caret_tap_paste':True,'gap_pixels_match_theme':True,'theme':theme}
+ return {'caret_tap':True,'caret_drag':True,'select_all':True,'copy_cut_paste':True,'type_after_paste':True,'single_local_send':True,'native_pid_stable':True,'selection_handle_drag':True,'selected_chinese_replacement':True,'saved_message_exact':True,'empty_caret_tap_paste':True,'normal_hide_finishes_editing':True,'direct_system_button':True,'completed_composer_visible':True,'gap_pixels_match_theme':True,'theme':theme}

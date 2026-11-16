@@ -11,7 +11,7 @@ KEY='prefer_official_keyboard'
 def preference(a):return editor(a)['official_preference']
 def close_native(a):a.editor_action('cancel' if 'cancel' in editor(a)['actions'] else 'done')
 def settings(a):a.open_settings();a.setting('keyboard')
-def cancel_official(a,request,error=''):
+def cancel_official(a,request,error='fixture unavailable'):
     a.send('keyboard.result',requestId=request['requestId'],confirmed=False,error=error)
     ui.wait_for(lambda:not a.diag()['keyboard'])
     ui.wait_for(lambda:bool(editor(a)['keys']))

@@ -17,6 +17,7 @@ public:
   bool shown() const { return shown_; }
   int64_t distance() const { return distance_; }
   int64_t limit() const { return limit_; }
+  void reveal(int height) { pause(); shown_=true; distance_=0; limit_=int64_t(height)*3/2; }
   void pause() { down_ = moved_ = false; tapAt_ = 0; }
   void reset() { pause(); shown_ = false; distance_ = limit_ = 0; }
   bool touch(int x, int y, bool pressed, bool cancelled, bool inside, int64_t now, int height, int slop = 12) {

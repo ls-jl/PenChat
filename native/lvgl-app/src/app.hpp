@@ -242,6 +242,7 @@ class App {
   void scanEvent(const Event &);
   void whenScannerReleased(std::function<void()>);
   RichText rich_;
+  std::string systemOverlaySnapshot_;
   std::string workspace_, dataDir_, view_ = "chat", session_, draft_,
                                     assistant_, output_, reasoning_, notice_;
   Json providerForm_, rows_ = Json::array();
