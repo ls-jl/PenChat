@@ -77,14 +77,13 @@ std::string balanceVendorName(const std::string &vendor) {
 }
 std::string balanceEndpoint(const Json &provider) {
   const auto vendor = objectField(provider, "metadata_json").value("balance_vendor", std::string());
-  std::string host, path;
-  if (vendor == "deepseek") { host = "api.deepseek.com"; path = "/user/balance"; }
-  else if (vendor == "kimi") { host = "api.moonshot.cn"; path = "/v1/users/me/balance"; }
-  else if (vendor == "siliconflow") { host = "api.siliconflow.cn"; path = "/v1/user/info"; }
-  else if (vendor == "302ai") { host = "api.302.ai"; path = "/dashboard/balance"; }
+  std::string path;
+  if (vendor == "deepseek") { path = "/user/balance"; }
+  else if (vendor == "kimi") { path = "/v1/users/me/balance"; }
+  else if (vendor == "siliconflow") { path = "/v1/user/info"; }
+  else if (vendor == "302ai") { path = "/dashboard/balance"; }
   else throw BalanceError("尚未启用余额查询");
-  // Parse, rather than substring-match, the origin. Never forward a relay key
-  // to an official vendor chosen in the form, nor accept a URL userinfo trick.
+  // Vendor chooses the wire contract; the configured provider owns the origin.
   CURLU *url = curl_url();
   if (!url) throw BalanceError("无法解析服务地址");
   auto input = provider.value("base_url", std::string());
@@ -94,13 +93,23 @@ std::string balanceEndpoint(const Json &provider) {
     if (curl_url_get(url, kind, &v, 0) == CURLUE_OK) { out = v; curl_free(v); }
     return out;
   };
-  auto actual = part(CURLUPART_HOST), scheme = part(CURLUPART_SCHEME), port = part(CURLUPART_PORT);
-  std::transform(actual.begin(), actual.end(), actual.begin(), [](unsigned char c) { return char(std::tolower(c)); });
-  const bool valid = parsed && scheme == "https" && actual == host && (port.empty() || port == "443") &&
-                     part(CURLUPART_USER).empty() && part(CURLUPART_PASSWORD).empty();
+  const auto scheme=part(CURLUPART_SCHEME);
+  const bool valid=parsed&&(scheme=="https"||scheme=="http")&&!part(CURLUPART_HOST).empty()&&
+      part(CURLUPART_USER).empty()&&part(CURLUPART_PASSWORD).empty()&&
+      part(CURLUPART_QUERY).empty()&&part(CURLUPART_FRAGMENT).empty()&&input.find_first_of("\r\n")==std::string::npos;
+  auto prefix=part(CURLUPART_PATH);
   curl_url_cleanup(url);
-  if (!valid) throw BalanceError("当前地址不支持此厂商的余额查询");
-  return "https://" + host + path;
+  if(!valid)throw BalanceError("余额查询需使用不含用户信息、查询或片段的 HTTP(S) Provider 地址");
+  while(!prefix.empty()&&prefix.back()=='/')prefix.pop_back();
+  for(const std::string suffix:{"/chat/completions","/responses","/messages","/models"})
+    if(prefix.size()>=suffix.size()&&prefix.compare(prefix.size()-suffix.size(),suffix.size(),suffix)==0) {
+      prefix.resize(prefix.size()-suffix.size());break;
+    }
+  if(prefix.size()>=3&&prefix.compare(prefix.size()-3,3,"/v1")==0)prefix.resize(prefix.size()-3);
+  // Retain a relay's path prefix and explicit port, never substitute a vendor host.
+  auto originEnd=input.find('/',input.find("://")+3);
+  const auto origin=originEnd==std::string::npos?input:input.substr(0,originEnd);
+  return origin+prefix+path;
 }
 std::string balanceIdentity(const Json &provider) {
   const auto metadata = objectField(provider, "metadata_json");

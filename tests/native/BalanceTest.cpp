@@ -11,16 +11,19 @@ Json provider(const std::string &vendor, const std::string &base) {
 int main() {
   auto deep = provider("deepseek", "https://api.deepseek.com/v1/responses");
   assert(balanceEndpoint(deep) == "https://api.deepseek.com/user/balance");
-  for (const auto &url : {"https://api.deepseek.com.evil.invalid/v1", "http://api.deepseek.com/v1",
-                         "https://api.deepseek.com:444/v1", "https://api.deepseek.com@evil.invalid/v1",
-                         "https://user@api.deepseek.com/v1", "https://example.invalid/api.deepseek.com"}) {
-    auto bad = deep; bad["base_url"] = url;
-    std::atomic<bool> cancel{false}; int calls = 0;
-    auto result = queryBalance(bad, cancel, [&](const std::string &, const Json &, std::atomic<bool> &, const ApiOptions &) {
-      ++calls; return HttpResult{};
-    });
-    assert(!calls && result.at("status") == "error");
-    assert(result.dump().find("fixture-secret") == std::string::npos);
+  for(const auto &url:{"https://relay.example:9443/gateway/v1/responses", "http://127.0.0.1:8200/gateway/v1"}) {
+    auto relay=deep;relay["base_url"]=url;
+    assert(balanceEndpoint(relay)==std::string(url).substr(0,std::string(url).find("/gateway"))+"/gateway/user/balance");
+    for(const auto &v:{std::make_pair("kimi","/v1/users/me/balance"),{"siliconflow","/v1/user/info"},{"302ai","/dashboard/balance"}}) {
+      relay["metadata_json"]["balance_vendor"]=v.first;
+      assert(balanceEndpoint(relay)==std::string(url).substr(0,std::string(url).find("/gateway"))+"/gateway"+v.second);
+    }
+  }
+  for(const auto &url:{"ftp://example.invalid/v1","https://user@host.invalid/v1","https://user:pass@host.invalid/v1",
+                       "https://host.invalid/v1?key=secret","https://host.invalid/v1#fragment","not-a-url"}) {
+    auto bad=deep;bad["base_url"]=url;std::atomic<bool> cancel{false};int calls=0;
+    auto result=queryBalance(bad,cancel,[&](const std::string &,const Json &,std::atomic<bool> &,const ApiOptions &){++calls;return HttpResult{};});
+    assert(!calls&&result.at("status")=="error"&&result.dump().find("fixture-secret")==std::string::npos);
   }
   const std::string deepBody = R"({"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"0.000000000000000123","granted_balance":"0","topped_up_balance":"0.000000000000000123"},{"currency":"USD","total_balance":"-0.12"}]})";
   auto parsed = parseBalance("deepseek", deepBody);
