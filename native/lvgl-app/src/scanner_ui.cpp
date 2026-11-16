@@ -218,9 +218,18 @@ void App::scanEvent(const Event &event) {
     if(!imageViewer_ || !viewerScanResult_ || !scanViewRequest_ ||
        j.value("requestId",uint64_t(0))!=scanViewRequest_)return;
     if(event.type=="scan_review_error") {
-      viewerFailed_=true;lv_label_set_text(viewerStatus_,"原图准备失败，请关闭后重试");return;
+      viewerFailed_=true;
+      const auto error=redactApiError(j.value("error",std::string("原图准备失败")),Json::object());
+      const int code=error.find("cancel")!=std::string::npos?1:
+        error.find("memory")!=std::string::npos||error.find("alloc")!=std::string::npos?2:
+        error.find("open")!=std::string::npos||error.find("write")!=std::string::npos?3:
+        error.find("limit")!=std::string::npos||error.find("size")!=std::string::npos?4:5;
+      diagnosticRecord("scanner","review_error",{{"stage",1},{"scan_id",scanId_},{"request_id",scanViewRequest_},{"code",code}});
+      lv_label_set_text(viewerStatus_,("原图准备失败："+error+"\n请关闭后重试").c_str());return;
     }
-    viewerKey_=images_.request(j.at("image").at("path").get<std::string>(),32768,32768);
+    const auto path=j.at("image").at("path").get<std::string>();
+    images_.retry(path);
+    viewerKey_=images_.request(path,32768,32768);
     lv_label_set_text(viewerStatus_,"正在加载原图…");refreshImageViewer();return;
   }
   if (event.type == "scan_preview" && scanImage_) {

@@ -26,6 +26,7 @@ void App::openImageViewer(const std::string &path, bool scanResult) {
   viewerStatus_=label(viewerCanvas_,path.empty()?"正在准备原图…":"正在加载原图…",uiMetrics_.dp(12),0,screen_.width-uiMetrics_.dp(24),uiMetrics_.fontSize(UiFont::SettingsTitle),theme::palette().muted);
   lv_obj_set_style_text_align(viewerStatus_,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(viewerStatus_);
   viewerClose_=icon(imageViewer_,"close",screen_.width-uiMetrics_.touchTarget()-(layout().portrait()?layout().navigationX():uiMetrics_.dp(16)),layout().portrait()?layout().safeTop():uiMetrics_.dp(8),uiMetrics_.touchTarget(),uiMetrics_.touchTarget(),[this]{events_.push("image_view_close");},theme::palette().surface);
+  if(!path.empty())images_.retry(path); // Explicit reopen retries failures, keeps successful frames.
   viewerKey_=path.empty()?std::string():images_.request(path,32768,32768);
   lv_obj_update_layout(imageViewer_);lv_obj_move_foreground(imageViewer_);
   syncScanner();

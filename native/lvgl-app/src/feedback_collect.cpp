@@ -29,7 +29,7 @@ const std::set<std::string> events = {
   "lifecycle.start", "lifecycle.background", "lifecycle.foreground", "lifecycle.stop", "lifecycle.startup_error",
   "ui.error", "camera.started", "camera.error", "camera.photo", "camera.orientation",
   "storage.save_error", "storage.save_complete", "scanner.started", "scanner.finished",
-  "scanner.released", "scanner.error", "scanner.stopped", "network.request_end", "feedback.request_end", "feedback.upload_result"};
+  "scanner.released", "scanner.error", "scanner.review_error", "scanner.stopped", "network.request_end", "feedback.request_end", "feedback.upload_result"};
 const std::set<std::string> numbers = {
   "status", "curl_code", "elapsed_ms", "dns_ms", "tcp_ms", "tls_ms", "first_byte_ms", "queue_ms",
   "new_connections", "connection_reused", "attempts", "count", "width", "height", "angle",
@@ -38,7 +38,7 @@ const std::set<std::string> numbers = {
   "peak_frame_bytes", "peak_canvas_bytes", "rss_bytes", "rss_peak_bytes", "swap_bytes",
   "system_available_bytes", "system_reserve_bytes", "memory_stop_code",
   "stop_rss_bytes", "stop_swap_bytes", "stop_frame_bytes", "stop_canvas_bytes",
-  "batches", "unsaved", "failed", "active", "code"};
+  "batches", "unsaved", "failed", "active", "code", "stage", "scan_id", "request_id"};
 Json safeFields(const Json &input) {
   Json out = Json::object();
   if (!input.is_object()) return out;
