@@ -200,33 +200,38 @@ Onboarding::Onboarding(lv_obj_t *parent,int width,int height,int step,bool repla
     lv_point_t textSize{};lv_text_get_size(&textSize,item.second.c_str(),font(metrics_.sp(18)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
     naturalWidth=std::max(naturalWidth,int(textSize.x)+metrics_.dp(16));
   }
-  const bool twoRows=(!metrics_.identity()||metrics_.textPercent()!=100)&&navigation.size()>2&&
+  // Compact text and a third navigation action also need the adaptive reader
+  // at 100%; fixed footer positions overlap on narrow landscape workspaces.
+  const bool adaptive=!metrics_.identity()||metrics_.textPercent()!=100||
+    (!portrait&&measure<metrics_.dp(340));
+  const bool twoRows=adaptive&&navigation.size()>2&&
     int(navigation.size())*naturalWidth+int(navigation.size()-1)*navGap>navWidth;
   const int footerTop=footer-(twoRows?metrics_.touchTarget(44)+navGap:0);
   auto reader=root_;
   int textX=right,textY=top;
-  if(!metrics_.identity()||metrics_.textPercent()!=100) {
+  if(adaptive) {
     reader=rect(root_,right,top,measure,std::max(metrics_.touchTarget(44),footerTop-top-metrics_.dp(12)),theme::palette().background,0);
-    lv_obj_set_scrollable(reader,true);lv_obj_set_scroll_dir(reader,LV_DIR_VER);
+    lv_obj_set_clickable(reader,true);lv_obj_set_scrollable(reader,true);lv_obj_set_scroll_dir(reader,LV_DIR_VER);
     textX=textY=0;
   }
+  reader_=reader;
   text(reader,std::to_string(step+1)+" / 7"+(step<3?" · 必看":" · 功能介绍"),textX,textY,measure,16,theme::palette().muted);
   auto heading=text(reader,titles[step],textX,textY+metrics_.dp(30),measure,portrait?28:24);
   int descriptionY=textY+metrics_.dp(70);
-  if(!metrics_.identity()||metrics_.textPercent()!=100) {
+  if(adaptive) {
     lv_obj_update_layout(heading);
     descriptionY=std::max(descriptionY,int(lv_obj_get_y(heading)+lv_obj_get_height(heading))+metrics_.dp(8));
   }
   auto description=text(reader,copy[step],textX,descriptionY,measure,portrait?21:(measure<metrics_.dp(340)?16:18));
   lv_obj_set_style_text_line_space(description,measure<metrics_.dp(340)&&!portrait?metrics_.dp(3):metrics_.dp(5),0);
-  int hintY=portrait?textY+metrics_.dp(176):174;
-  if(!metrics_.identity()||metrics_.textPercent()!=100) {lv_obj_update_layout(description);hintY=descriptionY+lv_obj_get_height(description)+metrics_.dp(12);}
+  int hintY=portrait?textY+metrics_.dp(176):metrics_.dp(174);
+  if(adaptive) {lv_obj_update_layout(description);hintY=descriptionY+lv_obj_get_height(description)+metrics_.dp(12);}
   if(step==2&&configured)text(reader,"已配置模型，可直接继续",textX,hintY,measure,16,theme::palette().link);
   if(step==6)text(reader,"可在“关于 PenChat”中重看引导",textX,hintY,measure,16,theme::palette().muted);
   const int playbackY=portrait?demoH+metrics_.dp(28)+demoY-metrics_.dp(12):footer;
   pause_=control("pause","暂停",metrics_.dp(16),playbackY,metrics_.dp(80));control("replay","重播",metrics_.dp(104),playbackY,metrics_.dp(80));
   auto phaseCaption=text(demo,captions[step][0],metrics_.dp(126),metrics_.dp(8),safety_.enabled()?demoWidth-metrics_.dp(158):portrait?width-metrics_.dp(190):split-metrics_.dp(166),16,theme::palette().link);actions_["caption"]=phaseCaption;
-  if(metrics_.identity()&&metrics_.textPercent()==100) {
+  if(!adaptive) {
   if(step>0)control("back","上一步",width-end-metrics_.dp(200),footer,metrics_.dp(92));
   control("next",step==6?"开始使用":"下一步",width-end-metrics_.dp(100),footer,metrics_.dp(100),true);
   if(step==2)control("configure","去配置",right,footer,metrics_.dp(100));
@@ -294,7 +299,10 @@ void Onboarding::replay(){elapsed_=0;phase_=-1;last_=0;paused_=false;lv_label_se
 void Onboarding::busy(bool b){busy_=b;for(auto &e:actions_)if(e.first!="caption"){if(b)lv_obj_add_state(e.second,LV_STATE_DISABLED);else lv_obj_remove_state(e.second,LV_STATE_DISABLED);}}
 Json Onboarding::diagnostic() const {
   Json actions=Json::object();for(const auto &e:actions_){if(e.first=="caption")continue;lv_area_t a;lv_obj_get_coords(e.second,&a);actions[e.first]=Json::array({a.x1,a.y1,a.x2,a.y2});}
+  lv_area_t reader;lv_obj_get_coords(reader_,&reader);
   return {{"step",step_},{"phase",phase_},{"elapsed",elapsed_},{"paused",paused_},{"busy",busy_},{"actions",actions},{"objects",lv_obj_get_child_count(root_)},
+    {"reader_bounds",Json::array({reader.x1,reader.y1,reader.x2,reader.y2})},{"reader_scroll",lv_obj_get_scroll_y(reader_)},
+    {"reader_scroll_max",lv_obj_get_scroll_top(reader_)+lv_obj_get_scroll_bottom(reader_)},
     {"renderer",renderer_?"software_3d":"flat"},{"render_failed",renderFailed_},
     {"render_snapshots",textureSnapshots_},{"render_frames",renderSamples_},{"render_mean_us",renderSamples_?renderTotalUs_/renderSamples_:0},
     {"render_max_us",renderMaxUs_},{"render_bytes",renderer_?renderer_->bytes()+texture_->data_size:0},

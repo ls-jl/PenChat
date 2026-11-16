@@ -11,7 +11,7 @@ class Onboarding {
   UiMetrics metrics_;
   ScreenSafety safety_;
   struct Motion { lv_obj_t *object; int x, y, dx, dy; };
-  lv_obj_t *root_ = nullptr, *pause_ = nullptr;
+  lv_obj_t *root_ = nullptr, *pause_ = nullptr, *reader_ = nullptr;
   std::array<lv_obj_t *, 4> stages_{};
   std::array<std::vector<Motion>, 4> motions_;
   std::map<std::string, lv_obj_t *> actions_;

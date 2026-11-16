@@ -16,7 +16,7 @@ def counts(p):
   return {table:db.execute('select count(*) from '+table).fetchone()[0] for table in ('chat_sessions','chat_messages','providers','model_configs','message_assets')}
 def marker(p):
  with sqlite3.connect(p/'penchat.db') as db:return json.loads(db.execute("select value_json from app_settings where key='onboarding'").fetchone()[0])
-for w,h in [(960,266),(936,280),(568,1210)]:
+for w,h in [(960,266),(936,280),(640,260),(568,1210)]:
  with tempfile.TemporaryDirectory(prefix='penchat-onboard-') as folder:
   p=pathlib.Path(folder);a=t.Native(binary,p,seed_model=False,onboarding=True,screen={'width':w,'height':h,'direction':0,'tp_direction':0})
   try:
@@ -28,6 +28,9 @@ for w,h in [(960,266),(936,280),(568,1210)]:
     assert ('finish' in d['actions'])==(step>=3)
     assert ('back' in d['actions'])==(step>0)
     for b in d['actions'].values():assert b[0]>=0 and b[1]>=0 and b[2]<w and b[3]<h and b[3]-b[1]+1>=44
+    controls=[b for key,b in d['actions'].items() if key!='caption']
+    for i,b in enumerate(controls):
+     for c in controls[i+1:]:assert b[2]<c[0] or c[2]<b[0] or b[3]<c[1] or c[3]<b[1],(w,h,step,b,c)
     action(a,'replay');shot(a,f'{w}-{h}-{step}-start')
     # Verify animation really progresses, can pause, and stays paused in background.
     t.wait_for(lambda:a.diag()['onboarding']['phase']>=1,timeout=4);action(a,'pause');before=a.diag()['onboarding'];time.sleep(.12)
@@ -81,4 +84,4 @@ with tempfile.TemporaryDirectory(prefix='penchat-onboard-save-failure-') as fold
   with sqlite3.connect(p/'penchat.db') as db:db.execute('DROP TRIGGER reject_guide')
   a.tap(890,222);t.wait_for(lambda:not a.diag()['modal']);action(a,'next');assert marker(p)['step']==1
  finally:a.close()
-print('Onboarding: seven animated pages / three sizes, mandatory steps, pause/replay/background, configuration return, restart, upgrade, no business writes and About replay passed.')
+print('Onboarding: seven animated pages / four sizes, disjoint controls, mandatory steps, pause/replay/background, configuration return, restart, upgrade, no business writes and About replay passed.')
