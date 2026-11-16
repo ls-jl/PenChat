@@ -71,14 +71,18 @@ def run(ctx):
     tap(right-2,y);length+=1;wait(lambda:state()['length']==length and state()['shift']==2);key('shift')
     capture('keyboard-edge-keys');action('cancel');wait(lambda:not state()['active'])
     open_editor();assert state()['layout']=='zh26';capture('pinyin-26')
-    # Reuse the just-read snapshot for the next tap, avoiding diagnostic
-    # latency while following the nine-key layout's different globe position.
+    # Follow the nine-key layout's different globe position, while requiring
+    # a completed contact just like ordinary keys. A cancelled lease frame
+    # must not be treated as an immediate failed layout change.
     current=state()
+    cycle_times=[]
     for wanted in ['en26','zh9','zh26']:
         globe=next(k for k in current['keys'] if k['key']=='language')
-        gx,gy=ctx['raw'](globe['x'],globe['y'])
-        ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap '+f'{gx} {gy} 2>/dev/null')
-        current=state();actual=current['layout'];assert actual==wanted,(wanted,actual,'rapid globe cycle')
+        tap(globe['x'],globe['y'])
+        wait(lambda:state()['layout']==wanted)
+        observed=read();current=observed['editor'];cycle_times.append(observed['touch']['event_time_ms'])
+    assert all(0<b-a<2000 for a,b in zip(cycle_times,cycle_times[1:])),('rapid cycle exceeded actual two-second window',cycle_times)
+    ctx['result']['rapid_globe_event_times']=cycle_times
     for c in 'niao':key(c)
     ready();assert 0<state()['corrected_count']<=2;capture('pinyin-valid-alternatives')
     action(f"choose:{state()['revision']}:3");wait(lambda:state()['length']==2 and not state()['preedit_length'])
