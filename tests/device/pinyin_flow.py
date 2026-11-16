@@ -16,6 +16,10 @@ def run(ctx):
             ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap --hold '+f'{x} {y} 700 2>/dev/null')
             wait(lambda:state()['layout_menu'])
         e=state()
+        if name.startswith(('choose:','exact:')):
+            # Bind the visible candidate from this snapshot, not a revision
+            # captured before an asynchronous focus/query update.
+            kind,_,index=name.split(':');name=kind+':'+str(e['revision'])+':'+index
         if name=='expand' and 'expand' not in e['actions'] and e['compact_full']:
             assert e['compact_composition'];name='compact-view'
         b=e['actions'][name];tap((b[0]+b[2])//2,(b[1]+b[3])//2)

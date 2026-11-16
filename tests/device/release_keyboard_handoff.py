@@ -32,5 +32,14 @@ def run(d):
  d.wait(lambda:d.state()['input_focused'] and d.state()['touch_input']['active'])
  assert d.state()['draft_length']==2 and not d.state()['composer_hidden']
  d.capture('default-system-return-no-native-keyboard')
+ d.tap(d.state()['composer_text_bounds']);d.wait(lambda:d.state()['keyboard']);time.sleep(.5)
+ image=d.system_capture('official-confirm-target')
+ print(json.dumps({'stage':'official-confirm-target','image':str(image)},ensure_ascii=False),flush=True)
+ command=controller_command(d) if getattr(d,'official_controller_file',None) else ['official-confirm','592','222']
+ assert len(command)==3 and command[0]=='official-confirm'
+ tap_system(command);d.wait(lambda:not d.state()['keyboard'] and not d.state()['editor']['active'])
+ d.wait(lambda:d.state()['input_focused'] and d.state()['touch_input']['active'])
+ assert d.state()['draft_length']==2 and not d.state()['composer_hidden']
+ d.capture('system-confirm-composer-retained')
  assert d.pid()==pid
- return {'direct_system_button':True,'default_system_route':True,'normal_return_no_native_fallback':True,'draft_preserved':True,'completed_composer_visible':True,'native_pid_unchanged':True,'sent_messages':0}
+ return {'direct_system_button':True,'default_system_route':True,'normal_return_no_native_fallback':True,'draft_preserved':True,'system_confirm_retains_composer':True,'completed_composer_visible':True,'native_pid_unchanged':True,'sent_messages':0}

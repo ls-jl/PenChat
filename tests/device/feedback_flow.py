@@ -33,8 +33,14 @@ def run_inner(c):
  go('start_scan');wait(lambda:step('scan').get('status')=='listening');assert step('scan')['blocking']
  actual=[d for d in step('scan')['devices'] if not d.get('name','').startswith('PenChat-')]
  scan_path=next(d['path'] for d in actual if 134 in d.get('key_codes',[]))
- physical_home=next((d['path'] for d in actual if 102 in d.get('key_codes',[])),None)
- home_path=physical_home or next(d['path'] for d in step('scan')['devices'] if d.get('name','').startswith('PenChat-') and 102 in d.get('key_codes',[]))
+ home_code=102;expected_home=None
+ if c.get('TARGET')=='cv1826-s':
+  config=json.loads(shell('cat /usr/configs/hal_key_config.json'))['Plum_V0']
+  home_code=int(config['home_key_code']);assert home_code==139
+  expected_home=shell('readlink -f /dev/input/by-path/'+config['home_key_id'])
+ physical_home=next((d['path'] for d in actual if home_code in d.get('key_codes',[]) and (expected_home is None or d['path']==expected_home)),None)
+ assert physical_home,'Declared physical Home capability not discovered'
+ home_path=physical_home
  assert shell(c['key_source']+' --probe '+scan_path)=='busy'
  assert shell(c['key_source']+' --probe '+home_path)=='busy'
  shell(c['key_source']+' --scan '+c['key_socket'])
@@ -42,9 +48,9 @@ def run_inner(c):
  assert [e['value'] for e in step('scan')['events'] if e['code']==134]==[1,0];capture('feedback-scan-blocked')
  go('start_home');wait(lambda:step('home').get('status')=='listening');assert step('home')['blocking']
  assert shell(c['key_source']+' --probe '+home_path)=='busy'
- shell(c['key_source']+' --home '+c['key_socket'])
+ shell(c['key_source']+(' --home139 ' if home_code==139 else ' --home ')+c['key_socket'])
  wait(lambda:step('home').get('status')=='complete');assert not step('home')['blocking'];assert c['pid']()==native and read()['visible'] and read()['view']=='feedback'
- assert [e['value'] for e in step('home')['events'] if e['code']==102]==[1,0];capture('feedback-home-blocked')
+ assert [e['value'] for e in step('home')['events'] if e['code']==home_code]==[1,0];capture('feedback-home-blocked')
  # Verify the real production 30-second limit, without a host-only test clock.
  go('start_scan');wait(lambda:step('scan').get('status')=='listening');started=time.monotonic();last_touch=started
  while time.monotonic()-started<35 and step('scan').get('status') in ('listening','pressed'):
@@ -59,7 +65,7 @@ def run_inner(c):
  assert not step('scan')['blocking'];assert shell('ls -l /proc/'+native+'/fd').count(' -> /dev/input/')<=1
  # Home must regain its actual function after the capture ends.
  if physical_home:
-  assert shell(c['key_source']+' --physical '+physical_home)=='sent';time.sleep(.4)
+  assert shell(c['key_source']+(' --physical139 ' if home_code==139 else ' --physical ')+physical_home)=='sent';time.sleep(.4)
  shell('miniapp_cli capture /tmp/penchat-feedback-home.png');subprocess.run(['adb','-s',c['SERIAL'],'pull','/tmp/penchat-feedback-home.png',str(c['OUT']/'feedback-home-restored.png')],check=True,capture_output=True)
  c['start_app']();wait(lambda:read()['visible']);time.sleep(.4);open_feedback()
  if read()['feedback']['screen']=='form':go('adapt')
@@ -70,7 +76,7 @@ def run_inner(c):
   if read()['view']=='settings':break
   c['navigate_back_or_menu']()
  wait(lambda:read()['view']=='settings')
- c['result']['feedback']={'exclusive_capture':True,'scan_suppressed':True,'home_suppressed':True,'early_release':True,'timeout_ms':s['elapsed_ms'],'timeout_popup':True,'cancel_released':True,'physical_home_available':bool(physical_home),'home_capture_source':'physical and test input' if physical_home else 'virtual test input only','home_restored':True if physical_home else 'not applicable: no physical KEY_HOME capability','no_upload':True}
+ c['result']['feedback']={'exclusive_capture':True,'scan_suppressed':True,'home_suppressed':True,'early_release':True,'timeout_ms':s['elapsed_ms'],'timeout_popup':True,'cancel_released':True,'physical_home_available':bool(physical_home),'physical_home_code':home_code,'home_capture_source':'physical and test input' if physical_home else 'virtual test input only','home_restored':True if physical_home else 'not applicable: no physical KEY_HOME capability','no_upload':True}
 
 def run(c):
  import os,select
