@@ -47,6 +47,8 @@ def _main(stop_requests):
   parser.add_argument('--candidate', required=True)
   parser.add_argument('--features', required=True, nargs='+', choices=tuple(FEATURES))
   parser.add_argument('--continue-functional-failures', action='store_true')
+  parser.add_argument('--discard-pending-images', action='store_true')
+  parser.add_argument('--official-controller-file', type=pathlib.Path)
   args = parser.parse_args()
   out = ROOT/'.work'/RELEASE/'matrix'/args.candidate/args.serial
   out.mkdir(parents=True, exist_ok=True)
@@ -74,7 +76,10 @@ def _main(stop_requests):
     record()
     command = [sys.executable, str(ROOT/'tests/device/release_acceptance.py'),
       '--serial', args.serial, '--package', str(args.package.resolve()),
-      '--discard-pending-input', '--features', feature]
+      '--discard-pending-input', '--startup-rollback-guard', '--features', feature]
+    if args.discard_pending_images:command.append('--discard-pending-images')
+    if args.official_controller_file:
+      command.extend(['--official-controller-file',str(args.official_controller_file.resolve())])
     started = time.time()
     with (folder/'run.log').open('w') as log:
       supervision = supervise(command, log)

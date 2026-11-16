@@ -232,7 +232,7 @@ class ReleaseDevice(ScopedDevice):
     self.key_helper = '/tmp/penchat-release-key'
     self.key_helper_ready = False
     self.testing_payload_installed = False
-    self.official_readback_probe = features in (['owned-official-readback'],['official-editing'],['official-editing-dark'])
+    self.official_readback_probe = features in (['owned-official-readback'],['official-editing'],['official-editing-dark']) or (features == ['keyboard-handoff'] and serial != 'JDA0700006552216')
     self.official_default_probe = features in (['owned-official-default'],['owned-official-drm'],['owned-official-readback'],['official-editing'],['official-editing-dark'])
     self.official_confirm_probe = features in (['owned-official-ime'], ['owned-official-default'], ['owned-official-readback'], ['official-editing'],['official-editing-dark'])
     self.official_fake_text='penchatimefixture-'+uuid.uuid4().hex[:8]
@@ -353,14 +353,20 @@ class ReleaseDevice(ScopedDevice):
 
   def inject(self, values, kind):
     if self.pid():
-      s = self.state()
-      focused = bool(s.get('visible') and s.get('page_visible', True) and s.get('window_focused') and
-                     s.get('input_focused') and s.get('touch_input', {}).get('active'))
-      if not focused:
-        self.result.setdefault('foreground_failures', []).append({k: s.get(k) for k in
-          ('pid', 'view', 'visible', 'page_visible', 'window_focused', 'input_focused', 'touch_input')})
-        self.record()
-        raise AssertionError('Touch injection stopped after foreground loss; no focus takeover attempted')
+      def ready():
+        s = self.state()
+        owned = bool(s.get('visible') and s.get('page_visible', True) and s.get('window_focused') and
+                     not s.get('system_overlay', {}).get('panel_visible') and not s.get('keyboard'))
+        if not owned:
+          self.result.setdefault('foreground_failures', []).append({k: s.get(k) for k in
+            ('pid', 'view', 'visible', 'page_visible', 'window_focused', 'input_focused', 'touch_input')})
+          self.record()
+          raise AssertionError('Touch injection stopped after foreground loss; no focus takeover attempted')
+        return s if s.get('input_focused') and s.get('touch_input', {}).get('active') else None
+      # Synchronous screenshot encoding can expire the 300ms input lease.
+      # Await its normal renewal only while the page still owns foreground;
+      # never synthesize focus, touch through a panel, or hide a held contact.
+      self.wait(ready,3)
     before = self.input_release()
     command = ('PENCHAT_TOUCH_DEVICE='+shlex.quote(self.event)+' '+self.helper+' '+' '.join(map(str, values))+' 2>&1\n'
                'penchat_touch_status=$?\nprintf "\\nremote_exit=%s\\n" "$penchat_touch_status"')
@@ -457,8 +463,8 @@ class ReleaseDevice(ScopedDevice):
         return d
       else:
         # Use the actual scrolling page's native back button for this scoped
-        # keyboard/performance run. Edge-back remains a separate unresolved
-        # acceptance item after the observed incomplete native touch trace.
+        # keyboard/performance run. Edge-back has its own explicit acceptance
+        # scope, rather than being mixed into every settings navigation.
         heading = d['page']['heading']
         if heading[1] < d['safe_insets'][1]:
           v = d['page']['viewport']
@@ -877,7 +883,7 @@ class ReleaseDevice(ScopedDevice):
     self.w, self.h = self.screen['width'], self.screen['height']
     if self.s6 and self.screen.get('direction') in (90,270):self.w,self.h=self.h,self.w
     assert self.sh('uname -m') == ('armv7l' if self.s6 else 'aarch64')
-    self.preflight(discard_input=self.discard_input)
+    self.preflight(discard_input=self.discard_input,discard_images=getattr(self,'discard_image_input',False))
     self.host = self.sh('pidof miniapp')
     self.boot = self.sh('cat /proc/sys/kernel/random/boot_id')
     assert self.host, 'MiniApp host is not running; runner never starts/restarts it'
@@ -1200,6 +1206,7 @@ def main():
   parser.add_argument('--serial', choices=tuple(DEVICES))
   parser.add_argument('--package', type=pathlib.Path)
   parser.add_argument('--discard-pending-input', action='store_true', help='Explicitly authorized: discard unsent editor/draft; preserve saved user data')
+  parser.add_argument('--discard-pending-images', action='store_true', help='Separate explicit authorization: abandon temporary scan/image work; saved DB/assets still restored')
   parser.add_argument('--official-controller-file', type=pathlib.Path, help='Append-only host command file for reconnectable owned official controls')
   parser.add_argument('--startup-rollback-guard', action='store_true', help='Retain original-data isolation on candidate startup/presentation failure until explicit full-package recovery')
   parser.add_argument('--manual-paper-scan', action='store_true', help='Wait for a user paper scan instead of injecting the pen key; scan-original scope only')
@@ -1224,6 +1231,7 @@ def main():
     signal.signal(number, interrupted)
   device = ReleaseDevice(args.serial, args.package, args.features, args.discard_pending_input, args.startup_rollback_guard)
   device.official_controller_file = args.official_controller_file
+  device.discard_image_input = args.discard_pending_images
   device.manual_paper_scan = args.manual_paper_scan
   device.run()
 

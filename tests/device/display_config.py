@@ -40,18 +40,18 @@ install_termination_handler()
 assert not args.pinyin_core_only or args.pinyin
 assert not args.native_touch_core_only or args.native_touch
 assert not args.scanner_profile_core_only or args.scanner_profile
-assert sum((args.camera_orientation,args.transfer_format,args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch,args.http_pool,args.chat_whitespace,args.stream_reading,args.scanner_profile,args.feedback,args.update,args.portrait,args.official_keyboard))<=1,'Run isolated feature fixtures separately'
+feature_flags=(args.camera_orientation,args.transfer_format,args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch,args.http_pool,args.chat_whitespace,args.stream_reading,args.scanner_profile,args.feedback,args.update,args.portrait,args.official_keyboard)
+assert sum(feature_flags)<=1,'Run isolated feature fixtures separately'
 TARGET='cv1826-s' if SERIAL=='JDA0700006552216' else 'rk3562'
 DATA=('/userdisk/miniapp' if TARGET=='cv1826-s' else '/userdisk/secondary/miniapp')+'/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 class FeatureComplete(Exception):
     """Successful scoped run; shared finally still restores both user directories."""
 
-def shell(command):
+def shell(command, _touch_checked=False):
     raw_touch=('PENCHAT_TOUCH_DEVICE=' in command and ' /tmp/penchat-display-tap ' in command) or command.startswith('/tmp/penchat-touch-burst-test /dev/input/')
-    if raw_touch and pid():
-        s=state()
-        assert s['visible'] and s.get('page_visible',True) and s['window_focused'] and s['input_focused'] and s['touch_input']['active'], 'Raw touch stopped after foreground loss'
+    if raw_touch and pid() and not _touch_checked:
+        wait_native_input()
     return subprocess.check_output(['adb','-s',SERIAL,'shell',command],text=True).replace('\r','').strip()
 def wait(fn,timeout=8):
     end=time.monotonic()+timeout
@@ -67,14 +67,22 @@ def pid():
         if stat and stat[0] not in ('Z','X'):return p
     return ''
 def state(image=False):
-    p=pid();assert p
+    def signal_ready():
+        current=pid()
+        if not current:return None
+        raw=shell("awk '/SigCgt/{print $2}' /proc/"+current+'/status 2>/dev/null || true')
+        try:caught=int(raw,16)
+        except ValueError:return None
+        return current if caught&(1<<(9 if image else 11)) else None
+    # A normal Home/finish followed by start can reap the old PID between pidof
+    # and /proc. Resolve a live, signal-ready owner instead of parsing its error.
+    p=wait(signal_ready)
     target=DATA+'/lvgl-diagnostic.json'
     old=shell('cat '+target+' 2>/dev/null || true')
     saved=json.loads(old) if old else {}
     # Restored user diagnostics can belong to an earlier process or boot, whose
     # monotonic clock may be ahead of this one. Only compare this process's time.
     previous=saved.get('diagnostic_time',-1) if str(saved.get('pid'))==p else -1
-    wait(lambda:int(shell("awk '/SigCgt/{print $2}' /proc/"+p+'/status'),16)&(1<<(9 if image else 11)))
     shell('kill -'+('USR1' if image else 'USR2')+' '+p)
     def fresh():
         value=json.loads(shell('cat '+target))
@@ -106,15 +114,48 @@ def raw(x,y):
     elif rotation==90:rx,ry=H-1-y,x
     else:rx,ry=x,y
     return rx+screen.get('tp_xoffset',0),ry+screen.get('tp_yoffset',0)
-def tap(x,y):
-    if pid():
+def wait_native_input():
+    def ready():
         d=state()
-        assert d['visible'] and d.get('page_visible',True) and d['window_focused'] and d['touch_input']['active'], 'Touch stopped after foreground loss'
-    rx,ry=raw(x,y)
-    shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap '+str(rx)+' '+str(ry)+' 2>/dev/null');time.sleep(.08)
+        assert d['visible'] and d.get('page_visible',True) and d['window_focused'] and not d.get('system_overlay',{}).get('panel_visible') and not d.get('keyboard'), 'Raw touch stopped after foreground loss'
+        return d if d['input_focused'] and d['touch_input']['active'] else None
+    return wait(ready,timeout=3)
+def tap(x,y):
+    from touch_ack import retry_unseen_tap
+    for attempt in range(2):
+        before=None
+        if pid():
+            wait(lambda:not state().get('surface_motion',False))
+            before=wait_native_input()
+        rx,ry=raw(x,y)
+        shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap '+str(rx)+' '+str(ry)+' 2>/dev/null',_touch_checked=before is not None)
+        time.sleep(.08)
+        if before is None or pid()!=str(before['pid']):return
+        observed=[]
+        def acknowledged():
+            if pid()!=str(before['pid']):return True
+            current=state();observed.append(current)
+            return current.get('touch',{}).get('gesture')!=before.get('touch',{}).get('gesture') and not current.get('touch',{}).get('pressed',False)
+        try:wait(acknowledged,timeout=1.2);return
+        except AssertionError:
+            if attempt==0 and observed and retry_unseen_tap(before,observed[-1],allow_cancelled_down=True):
+                probe='/tmp/penchat-release-input-state'
+                if shell('test -x '+probe+' && echo yes')=='yes':
+                    kernel=json.loads(shell(probe+' /dev/input/'+event))
+                    if kernel.get('error') or kernel.get('btn_touch') or kernel.get('active_slots'):return
+                    wait_native_input()
+                    # Only an already empty kernel contact set is resynchronized.
+                    # If this completes a delayed original release, do not press again.
+                    shell(probe+' /dev/input/'+event+' --release');time.sleep(.2)
+                    current=state()
+                    if current.get('touch',{}).get('gesture')!=before.get('touch',{}).get('gesture') and not current.get('touch',{}).get('pressed',False):return
+                    if not retry_unseen_tap(before,current,allow_cancelled_down=True):return
+                    result['cancelled_input_tap_retries']=result.get('cancelled_input_tap_retries',0)+1
+                    continue
+            return
 def drag(x,y,ex,ey):
-    d=state()
-    assert d['visible'] and d.get('page_visible',True) and d['window_focused'] and d['touch_input']['active'], 'Drag stopped after foreground loss'
+    wait_native_input()
+    wait(lambda:not state().get('surface_motion',False))
     sx,sy=raw(x,y);tx,ty=raw(ex,ey)
     # Ordinary page movement must begin before the 450ms text-selection hold.
     # Tests that need long-press dragging invoke --drag-hold explicitly.
@@ -163,7 +204,7 @@ def open_navigation():
     wait(lambda:state()['navigation_open'])
 def open_settings():
     open_navigation();tap_bounds(state()['navigation_footer']['settings']['bounds'])
-    wait(lambda:state()['view']=='settings')
+    wait(lambda:state()['view']=='settings' and not state().get('surface_motion',False))
 def navigate_back_or_menu():
     d=state()
     if d['editor']['active']:
@@ -401,18 +442,30 @@ try:
             wait(lambda:not (state().get('onboarding') or {}).get('busy',False))
         wait(lambda:state()['view']=='chat')
     s=state();assert (s['width'],s['height'],s['rotation'])==(W,H,screen.get('direction',0));capture('chat')
-    # Firmware may swallow the first touch while leaving its idle state. Use
-    # a blank-area wake tap, then require subsequent exact mapped events.
-    tap(W//2,2);time.sleep(.6)
-    # S6's shared compositor reserves the system-panel origin band; it must
-    # not be replayed as an application corner tap. Test the usable top edge.
-    top=max(8,min(W,H)//25)+2 if TARGET=='cv1826-s' else 2
-    for x,y in [(2,top),(W-3,top),(2,H-3),(W-3,H-3)]:
-        tap(x,y)
-        def mapped():
-            p=state()['touch']
-            return p if abs(p.get('x',-100)-x)<=1 and abs(p.get('y',-100)-y)<=1 else None
-        p=wait(mapped);result['corners'].append([p['x'],p['y']])
+    # Mapping is a dedicated fixture, not a prelude that may copy text or
+    # open images in an unrelated feature's prepared conversation.
+    if args.native_touch or not any(feature_flags):
+        # Edge contacts belong to native Back/system-panel arbitration, and the
+        # portrait corners may be physically masked. Verify the same affine touch
+        # mapping at four well-separated reader points; dedicated edge tests cover
+        # Back and system-panel ownership instead of opening them in every fixture.
+        reader=s['chat_header']['reader_bounds'];margin=44
+        left=max(reader[0]+8,margin);right=min(reader[2]-8,W-margin)
+        top=max(reader[1]+12,s['safe_insets'][1]+margin)
+        bottom=min(reader[3]-12,s['composer_bounds'][1]-12) if not s['composer_hidden'] else reader[3]-12
+        assert left<right and top<bottom,(reader,s['composer_bounds'])
+        tap((left+right)//2,(top+bottom)//2);time.sleep(.6)
+        result['mapping_scope']='Reader interior; native Back/system edges tested separately'
+        for x,y in [(left,top),(right,top),(left,bottom),(right,bottom)]:
+            tap(x,y)
+            def mapped():
+                p=state()['touch']
+                return p if abs(p.get('x',-100)-x)<=1 and abs(p.get('y',-100)-y)<=1 else None
+            p=wait(mapped);result['corners'].append([p['x'],p['y']])
+        # An image fixture can occupy the whole reader: the mapping probe may open
+        # its viewer. Close that known surface before exercising page navigation.
+        if state().get('image_viewer',{}).get('open'):
+            side_back();wait(lambda:not state()['image_viewer']['open'])
     if args.transfer_format:
         import transfer_format_flow
         transfer_format_flow.run(globals())
@@ -520,7 +573,7 @@ try:
     glyph=state()['navigation_footer']['settings']['glyph'];size=26
     subprocess.run([str(pixel_probe),str(OUT/'drawer.png'),str((glyph[0]+glyph[2]+1-size)//2),str((glyph[1]+glyph[3]+1-size)//2),str(size),'0'],check=True)
     result['gear_pixel_symmetry']=True
-    tap_bounds(state()['navigation_footer']['settings']['bounds']);wait(lambda:state()['view']=='settings');capture('settings')
+    tap_bounds(state()['navigation_footer']['settings']['bounds']);wait(lambda:state()['view']=='settings' and not state().get('surface_motion',False));capture('settings')
     assert state()['settings']['viewport'][1:4:2]==[0,H-1]
     # A settled drag reveals Settings controls in the former title-bar area.
     sx,sy=raw(W//2,H-50);ex,ey=raw(W//2,H-170)
@@ -570,7 +623,7 @@ try:
                     wait(lambda:state()['history_actions']['export'][3]<=state()['context_menu']['list'][3])
                     result['history_popup_local_overflow_scrolled']=True
                 capture('history-full-title');tap(W-10,H-10)
-            tap_bounds(state()['navigation_footer']['settings']['bounds']);wait(lambda:state()['view']=='settings')
+            tap_bounds(state()['navigation_footer']['settings']['bounds']);wait(lambda:state()['view']=='settings' and not state().get('surface_motion',False))
         result['history_time_modes']=3;result['history_static_title']=True;result['missing_history_time_hidden']=True
         assert shell('pidof miniapp')==host;result['host_unchanged']=True
         raise FeatureComplete()
@@ -578,7 +631,7 @@ try:
         native=pid();blocked(True)
         from settings_ui import activate
         activate(state,tap,settings_swipe,'models');wait(lambda:state()['view']=='provider');blocked(True);capture('back-provider')
-        side_back();wait(lambda:state()['view']=='settings');assert pid()==native
+        side_back();wait(lambda:state()['view']=='settings' and not state().get('surface_motion',False));assert pid()==native
         side_back();wait(lambda:state()['navigation_open']);blocked(True)
         drag(W*5//6,H//2,W-10,H//2);assert state()['navigation_open']
         result['child_back_and_drawer_tap_only']=True

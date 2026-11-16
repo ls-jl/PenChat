@@ -7,10 +7,7 @@ def run(ctx):
     portrait=H>W
     from settings_ui import locate
     def settings():
-        if portrait:
-            ctx['open_settings']();return
-        tap(40,32);assert state()['navigation_open']
-        tap(W*2//3-70,H-30);assert state()['view']=='settings'
+        ctx['open_settings']()
     def picker():
         b=locate(state,swipe,'pull_sensitivity')['bounds']
         tap((b[0]+b[2])//2,(b[1]+b[3])//2);assert state()['modal']
@@ -19,11 +16,7 @@ def run(ctx):
         x=b[0]+round((b[2]-b[0])*(percent-d['minimum'])/(d['maximum']-d['minimum']))
         tap(x,(b[1]+b[3])//2);ctx['wait'](lambda:state()['pull_preferences']['draft']==percent)
     def chat():
-        if portrait:
-            ctx['ensure_chat']();return
-        tap(40,32)
-        if state()['navigation_open']:tap(W-30,80)
-        assert state()['view']=='chat'
+        ctx['ensure_chat']()
     def pull(distance):
         if portrait:
             s=state();b=s['composer_text_bounds'];x=(b[0]+b[2])//2;y=(b[1]+b[3])//2

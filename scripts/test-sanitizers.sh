@@ -29,3 +29,4 @@ python3 tests/test_scanner_y02.py
 python3 tests/test_scanner_ui.py
 python3 tests/test_scanner_geometry.py
 python3 tests/test_chat_style.py
+python3 tests/test_input_heartbeat_editor.py

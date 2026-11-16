@@ -1,4 +1,4 @@
-"""Real inner-edge Back, cancellation and ownership validation on Y07."""
+"""Real inner-edge Back, cancellation and ownership validation on explicit device profiles."""
 import hashlib
 import json
 import time
@@ -8,7 +8,7 @@ from release_lifecycle import free_back_start
 
 
 def run(d):
-  assert d.serial in ('7G12000010905426','MEB0400008900794','MEA2300009007113')
+  assert d.serial in ('7G12000010905426','MEB0400008900794','MEA2300009007113','JDA0700006552216')
   with zipfile.ZipFile(d.package) as package:
     expected = hashlib.sha256(package.read('assets/bin/penchat-lvgl')).hexdigest()
   assert d.sh('sha256sum /proc/'+d.pid()+'/exe').split()[0] == expected

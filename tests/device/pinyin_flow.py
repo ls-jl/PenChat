@@ -24,12 +24,26 @@ def run(ctx):
             assert e['compact_composition'];name='compact-view'
         b=e['actions'][name];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
     def key(name):
-        k=next(k for k in state()['keys'] if k['key']==name);tap(k['x'],k['y'])
+        before=state();k=next(k for k in before['keys'] if k['key']==name);tap(k['x'],k['y'])
+        if before['chinese'] and (len(name)==1 and name.isalpha() or name.startswith('t9:')):
+            wait(lambda:state()['preedit_length']==before['preedit_length']+1)
+        elif before['preedit_length'] and name=='delete':
+            wait(lambda:state()['preedit_length']==before['preedit_length']-1)
+        elif before['preedit_length'] and name=='enter':
+            wait(lambda:not state()['preedit_length'])
     def open_editor():ctx['open_chat_editor']()
     def choose_layout(value):
-        k=next(k for k in state()['keys'] if k['key']=='language');x,y=ctx['raw'](k['x'],k['y'])
-        ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap --hold '+f'{x} {y} 850 2>/dev/null')
-        wait(lambda:state()['layout_menu']);capture('pinyin-layout-menu')
+        def open_menu():
+            k=next(k for k in state()['keys'] if k['key']=='language');x,y=ctx['raw'](k['x'],k['y'])
+            ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap --hold '+f'{x} {y} 850 2>/dev/null')
+            wait(lambda:state()['layout_menu'] and not state()['layout_hold'])
+        open_menu();capture('pinyin-layout-menu')
+        # A synchronous debug PNG can expire the normal input lease. Resolve
+        # live targets after its ordinary renewal, never tap an old menu bound.
+        current=ctx['wait_native_input']()
+        if not current['editor']['layout_menu']:
+            ctx['result']['layout_menu_reopened_after_capture']=ctx['result'].get('layout_menu_reopened_after_capture',0)+1
+            open_menu()
         action('layout:'+str({'zh26':0,'en26':1,'zh9':2}[value]));wait(lambda:state()['layout']==value)
     def ready():
         wait(lambda:state()['candidate_count']>0 and not state()['pending'])
@@ -106,13 +120,13 @@ def run(ctx):
     old=ctx['shell']('sha256sum '+ctx['DATA']+'/ime/user.json').split()[0]
     action('cancel');wait(lambda:not state()['active']);assert ctx['shell']('sha256sum '+ctx['DATA']+'/ime/user.json').split()[0]==old
     chat_settings();setting('keyboard');assert read()['view']=='keyboard_settings';capture('pinyin-settings')
-    b=read()['settings']['rows']['pinyin_correction']['bounds'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
-    assert not read()['settings']['rows']['pinyin_correction']['checked'];capture('pinyin-correction-disabled')
-    b=read()['settings']['rows']['pinyin_correction']['bounds'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
-    assert read()['settings']['rows']['pinyin_correction']['checked']
-    b=read()['settings']['rows']['pinyin_learning']['bounds'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
-    assert not read()['settings']['rows']['pinyin_learning']['checked']
-    b=read()['settings']['rows']['clear_pinyin']['bounds'];tap((b[0]+b[2])//2,(b[1]+b[3])//2);wait(lambda:read()['modal']);capture('pinyin-clear-confirm')
+    setting('pinyin_correction')
+    wait(lambda:not read()['settings']['rows']['pinyin_correction']['checked']);capture('pinyin-correction-disabled')
+    setting('pinyin_correction')
+    wait(lambda:read()['settings']['rows']['pinyin_correction']['checked'])
+    setting('pinyin_learning')
+    wait(lambda:not read()['settings']['rows']['pinyin_learning']['checked'])
+    setting('clear_pinyin');wait(lambda:read()['modal']);capture('pinyin-clear-confirm')
     ctx['modal_action'](1,200);wait(lambda:profile()['records']==[]);ctx['modal_action'](0,W-70)
     ctx['navigate_back_or_menu']();ctx['navigate_back_or_menu']();wait(lambda:read()['view']=='chat');
     if read()['navigation_open']:tap(W-30,80)

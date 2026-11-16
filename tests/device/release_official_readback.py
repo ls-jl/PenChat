@@ -11,7 +11,10 @@ import zlib
 
 
 def capture(d, name):
-  s=d.state();assert s['page_visible'] and not s['system_overlay'].get('panel_visible',False)
+  s=d.state()
+  owned_fullscreen = (s['keyboard'] and s['editor']['active'] and s['editor']['official'] and
+                      not s['editor']['docked'] and s['system_overlay'].get('app_focused'))
+  assert (s['page_visible'] or owned_fullscreen) and not s['system_overlay'].get('panel_visible',False)
   assert (s['keyboard'] and s['editor']['active'] and s['editor']['official']) or (s['input_focused'] and s['touch_input']['active'])
   state=d.sh('cat /sys/kernel/debug/dri/0/state')
   candidates=[]

@@ -163,7 +163,7 @@ class Device:
         self.touch(x+max(44, dp(48))/2, y+max(44, dp(48))/2)
         self.wait(lambda: self.state()['navigation_open'])
         self.tap(self.state()['navigation_footer']['settings']['bounds'])
-        self.wait(lambda: self.state()['view'] == 'settings')
+        self.wait(lambda: self.state()['view'] == 'settings' and not self.state()['surface_motion'])
 
     def rate(self, hz):
         self.tap(self.reveal(lambda d: d['settings']['rows']['refresh_rate']['bounds']))
@@ -235,7 +235,7 @@ class Device:
             self.drag(x, min(b[3]-15, b[1]+140), x, b[1]+12)
         self.idle_bottom(str(hz)+'hz-drag-return')
 
-    def preflight(self, discard_input=False):
+    def preflight(self, discard_input=False, discard_images=False):
         if not self.pid():
             return
         d = self.state()
@@ -247,15 +247,15 @@ class Device:
             not discard_input or not editing['active'] or editing.get('ocr_busy') or editing.get('ocr_preparing'))
         volatile = (input_busy or d['generating'] or
                     d.get('compressing') or d['storage']['unsaved'] or d['provider_workspace']['dirty'] or
-                    d.get('transfer_busy') or d.get('crop_busy') or d['view'] in ('camera', 'crop', 'scan') or
-                    d.get('scan_result') or d.get('scan_id') or ocr_busy or
+                    d.get('transfer_busy') or d.get('crop_busy') or
+                    (not discard_images and (d['view'] in ('camera', 'crop', 'scan') or d.get('scan_result') or d.get('scan_id'))) or ocr_busy or
                     d.get('title_busy') or d.get('title_pending') or
                     d.get('pull_active') or d.get('session_info_busy') or d.get('chat_render_pending') or
                     d.get('message_interactions', {}).get('editing') or
                     d.get('message_interactions', {}).get('busy') or
                     d.get('reply_actions', {}).get('busy') or d.get('reply_actions', {}).get('confirm') or
                     (not discard_input and editing.get('pending')) or d.get('feedback', {}).get('collecting') or
-                    d.get('image_viewer', {}).get('open') or
+                    (not discard_images and d.get('image_viewer', {}).get('open')) or
                     any(d.get(key, {}).get('pending') for key in ('ui_scale', 'appearance', 'refresh_rate')))
         assert not volatile, 'Pending input/work preserved; scoped acceptance deferred'
         # Only image-only tail rows in the *current* session can represent
@@ -284,7 +284,10 @@ class Device:
                     self.result['original_refresh_setting'] = {'exists': row is not None, 'value_json': row[0] if row else None}
                     value = json.loads(row[0]) if row else None
                     self.original_rate = value if type(value) is int and value in (30, 60) else 0
-                assert count == 0, 'Current-session pending images preserved; scoped acceptance deferred'
+                assert count == 0 or discard_images, 'Current-session pending images preserved; scoped acceptance deferred'
+                if discard_images:
+                    self.result['discard_pending_images_authorized'] = True
+                    self.result['pending_images_in_original_snapshot'] = count
             finally:
                 self.sh('rm -f '+self.snapshot+' '+self.snapshot_helper)
 

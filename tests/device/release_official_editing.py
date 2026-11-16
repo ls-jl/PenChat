@@ -73,6 +73,9 @@ def run(d):
  d.wait(lambda:d.state()['view']=='keyboard_settings')
  d.tap(d.reveal(lambda s:s['settings']['rows']['prefer_official_keyboard']['bounds']))
  d.wait(lambda:not d.state()['editor']['official_preference']['saved'])
+ if not d.state()['editor']['official_shortcut']['saved']:
+  d.tap(d.reveal(lambda s:s['settings']['rows']['quick_official_keyboard']['bounds']))
+  d.wait(lambda:d.state()['editor']['official_shortcut']['saved'])
  d.chat();b=d.state()['composer_text_bounds'];d.tap(b)
  d.wait(lambda:d.state()['editor']['active'] and not d.state()['keyboard'])
  d.capture('native-direct-system-key')
