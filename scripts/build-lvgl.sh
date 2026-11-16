@@ -29,8 +29,10 @@ else
   "$PENCHAT_BUILD_STRIP" --strip-unneeded "$STAGE/libs/$PENCHAT_BUILD_LIBDIR/libjsapi_penchat_launcher.so"
   if [ "$TARGET" = rk3562 ]; then
     mkdir -p "$ROOT/assets/bin" "$ROOT/native/prebuilt/arm64-rk3562"
-    cp "$STAGE/assets/bin/"* "$ROOT/assets/bin/"
-    cp "$STAGE/libs/arm64-rk3562/"* "$ROOT/native/prebuilt/arm64-rk3562/"
+    for name in penchat-lvgl penchat-sensor-guard; do
+      cp "$STAGE/assets/bin/$name" "$ROOT/assets/bin/$name"
+    done
+    cp "$STAGE/libs/arm64-rk3562/libjsapi_penchat_launcher.so" "$ROOT/native/prebuilt/arm64-rk3562/"
   fi
   python3 "$ROOT/scripts/stage-lvgl-assets.py"
 fi
