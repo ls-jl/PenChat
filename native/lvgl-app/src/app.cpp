@@ -3478,6 +3478,11 @@ void App::handle(const Json &m) {
       if (m.value("confirmed", false)||closedNormally) {
         closeAttachments();
         auto text = m.value("text", editor_.text);
+        // A normal dismissal may omit text. Preserve the exact seed including
+        // unfinished native phonetics; an explicitly returned empty value still
+        // means the user deleted everything. Live proxy changes clear preedit.
+        if(!m.contains("text")&&!editor_.preedit.empty())
+          text.insert(editByte(text,editor_.cursor),editor_.preedit);
         if (editLength(text) <= editor_.limit) { editor_.text = text; editor_.preedit.clear(); editorFinish(true); }
         else { editor_.notice = "官方输入超过长度上限，请调整";editorPolicy(true);editorBuild();editorOcrStart(); }
       } else {editorPolicy(true);editorChanged();editor_.notice=m.value("error",std::string());editorFollowCursor_=false;editorBuild();editorOcrStart();}
