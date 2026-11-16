@@ -779,6 +779,11 @@ class App {
   mutable KeyboardDesign editorDesignCache_;
   mutable UiMetrics editorMetricsCache_;
   mutable uint64_t editorLayoutResolves_=0,editorLayoutCacheHits_=0;
+  struct KeyboardTiming {
+    uint64_t requested=0, animation=0, firstFrame=0, hardwareReady=0, framesBefore=0;
+    uint64_t entryFinished=0,exitStarted=0,exitFinished=0;
+    int duration=0;
+  } keyboardTiming_;
   bool wideKeyboardSwap_=false, editorSwapSides_=false;
   bool preferOfficialKeyboard_=false, officialShortcut_=false, officialPreferenceTarget_=false;
   bool officialPreferenceError_=false, officialShortcutError_=false;

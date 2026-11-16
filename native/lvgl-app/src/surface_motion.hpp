@@ -46,7 +46,7 @@ public:
   ~SurfaceSnapshot(){if(buffer_)lv_draw_buf_destroy(buffer_);}
   SurfaceSnapshot(const SurfaceSnapshot &)=delete;
   SurfaceSnapshot &operator=(const SurfaceSnapshot &)=delete;
-  void show(int dx,int dy,bool scrim=false) {
+  void show(int dx,int dy,bool scrim=false,int duration=180,std::function<void()> completed={}) {
     if(!buffer_)return;
     auto layer=lv_obj_create(lv_screen_active());lv_obj_remove_style_all(layer);
     lv_obj_set_size(layer,LV_PCT(100),LV_PCT(100));lv_obj_set_scrollable(layer,false);
@@ -65,19 +65,19 @@ public:
     buffer_=nullptr;motion::block(layer);motion::state(layer)->closing=true;
     if(scrim)lv_obj_set_style_bg_color(layer,lv_color_hex(0),0);
     const int startX=x_,startY=y_;
-    motion::animate(layer,0,1000,180,[layer,picture,startX,startY,dx,dy,scrim](int progress){
+    motion::animate(layer,0,1000,duration,[layer,picture,startX,startY,dx,dy,scrim](int progress){
       lv_obj_set_style_translate_x(picture,startX+(dx-startX)*progress/1000,0);
       lv_obj_set_style_translate_y(picture,startY+(dy-startY)*progress/1000,0);
       if(scrim)lv_obj_set_style_bg_opa(layer,120*(1000-progress)/1000,0);
-    },[layer]{lv_obj_delete(layer);});
+    },[layer,completed]{lv_obj_delete(layer);if(completed)completed();});
   }
 };
-inline void slideSurfaceIn(lv_obj_t *object,int dx,int dy,int duration=180) {
+inline void slideSurfaceIn(lv_obj_t *object,int dx,int dy,int duration=180,std::function<void()> completed={}) {
   lv_obj_set_style_opa(object,LV_OPA_COVER,0);
   motion::state(object)->closing=true; // Native key hit bounds remain at their resting geometry.
   motion::animate(object,0,1000,duration,[object,dx,dy](int progress){
     lv_obj_set_style_translate_x(object,dx*(1000-progress)/1000,0);
     lv_obj_set_style_translate_y(object,dy*(1000-progress)/1000,0);
-  },[object]{motion::state(object)->closing=false;});
+  },[object,completed]{motion::state(object)->closing=false;if(completed)completed();});
 }
 } // namespace penchat

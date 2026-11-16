@@ -148,6 +148,7 @@ void App::edit(const std::string &text, const std::string &placeholder,
                const char *inputType, std::function<void()> cancelled,
                bool multiline, bool secret, bool selectionOnly, bool inlineChat) {
   if (editor_.active || keyboard_ || replyBusy_ || contextRegenerating_) return;
+  keyboardTiming_=KeyboardTiming{};keyboardTiming_.requested=ticks();
   // Entering an editor revokes any chat press captured before a selection/menu
   // took ownership. Its release is routed to the editor, not back to chatTouch.
   touchDown_=composerTapAllowed_=pullTrackActivity_=false;
@@ -229,7 +230,10 @@ void App::edit(const std::string &text, const std::string &placeholder,
     });
   }
   else if(this->layout().portrait()&&!selectionOnly)editorOcrStart();
-  else whenScannerReleased([this,id] { if (editor_.active && editor_.id == id) { editorBuild();editorOcrStart(); } });
+  else {
+    // Render/animate immediately; OCR alone waits for the capture handoff.
+    editorBuild();editorOcrStart();
+  }
   if(reuse)editorRefresh();
 }
 void App::editorBuild() {
@@ -528,8 +532,16 @@ void App::editorBuild() {
   if(!editorSelectionOnly_&&visible_&&inputFocused_&&(!previousRoot||entering)) {
     const int distance=layout.docked?layout.height-layout.panelTop:screen_.height;
     const int from=entering?enteringY:distance;
-    const int duration=entering?std::max(1,180*from/std::max(1,distance)):180;
-    slideSurfaceIn(editorRoot_,0,from,duration);
+    const int fullDuration=layout.portrait?180:120;
+    const int duration=entering?std::max(1,fullDuration*from/std::max(1,distance)):fullDuration;
+    if(!entering) {
+      keyboardTiming_.animation=ticks();keyboardTiming_.duration=duration;
+      keyboardTiming_.framesBefore=displayTimingInfo().value("frames",uint64_t(0));
+    }
+    const auto animationRoot=editorRoot_;
+    slideSurfaceIn(editorRoot_,0,from,duration,[this,animationRoot]{
+      if(editorRoot_==animationRoot)keyboardTiming_.entryFinished=ticks();
+    });
     if(editorInlineChat_&&chatControls_) {
       lv_area_t area;lv_obj_get_coords(chatControls_,&area);
       const int composerFrom=entering?composerEntryY:std::max(0,editorComposerEntryBottom_-int(area.y2));
@@ -1007,7 +1019,12 @@ void App::editorFinish(bool confirmed) {
     if(toBottom_)slideSurfaceIn(toBottom_,0,offset);
     lv_obj_update_layout(chatControls_);
   }
-  if(leaving)leaving->show(0,exitDistance);
+  if(leaving) {
+    keyboardTiming_.exitStarted=ticks();const auto request=keyboardTiming_.requested;
+    leaving->show(0,exitDistance,false,editorLayout().portrait?180:120,[this,request]{
+      if(keyboardTiming_.requested==request)keyboardTiming_.exitFinished=ticks();
+    });
+  }
 }
 Json App::editorOfficialField() {
   const auto area=editorTextArea();
@@ -1512,7 +1529,7 @@ void App::editorOcrStart() {
   }
   whenScannerReleased([this,session] {
     if(editorSelectionOnly_||!editor_.active||editor_.id!=session||keyboard_||!visible_||!inputFocused_||editorOcrActive_||!editorOcrStopId_.empty())return;
-    editorOcrActive_=true;editorOcrId_=uid("editor-ocr");editorOcrCapture_=0;
+    editorOcrActive_=true;keyboardTiming_.hardwareReady=ticks();editorOcrId_=uid("editor-ocr");editorOcrCapture_=0;
     if(!bridge_.send("ocr.start",{{"requestId",editorOcrId_},{"session",session},{"mode",editorOcrMulti_?"multi":"single"},{"continuous",true}}))
       editorOcrResult({{"requestId",editorOcrId_},{"session",session},{"mode",editorOcrMulti_?"multi":"single"},
         {"capture",1},{"confirmed",false},{"terminal",true},{"error","OCR请求未送达，请重试或手动输入"}});
@@ -1526,7 +1543,7 @@ void App::editorOcrPrepared(const Json &m) {
     editorOcrActive_=false;editor_.notice="OCR未就绪，笔头已暂停；可重试或手动输入";
     editorBuild();return;
   }
-  editorOcrPreparing_=false;
+  editorOcrPreparing_=false;keyboardTiming_.hardwareReady=ticks();
   if(editor_.notice.find("OCR")==0)editor_.notice.clear();
   const auto session=editor_.id,request=editorOcrId_;
   whenScannerReleased([this,session,request] {
@@ -1750,6 +1767,9 @@ void App::editorInterrupt(bool releaseOcr) {
   editor_.globeChain=false;editorLayoutMenu_=editorPunctuation_=false;editorPinyinPending_=Json();
 }
 void App::editorTick() {
+  if(keyboardTiming_.animation&&!keyboardTiming_.firstFrame&&editorRoot_&&
+      displayTimingInfo().value("frames",uint64_t(0))>keyboardTiming_.framesBefore)
+    keyboardTiming_.firstFrame=ticks();
   if(keyboard_&&officialReaderInput()) {
     if(editorTextTouch_&&editorTextGesture_.hold(ticks()))editorWordPreview();
     return;
@@ -1894,7 +1914,10 @@ Json App::editorDiagnostic() const {
   }
   Json anchor=Json::array();
   if(editorTarget_){lv_area_t a;lv_obj_get_coords(editorTarget_,&a);anchor={a.x1,a.y1,a.x2,a.y2};}
-  return {{"official_action",{{"pending",!officialActionId_.empty()},{"uncommitted",officialKeyEventAt_>officialTextEventAt_},{"key_time",officialKeyEventAt_},{"text_time",officialTextEventAt_}}},{"official_preference",{{"saved",preferOfficialKeyboard_},{"pending",!officialPreferenceRequest_.empty()&&officialPreferenceKey_=="prefer_official_keyboard"},{"error",officialPreferenceError_}}},{"official_shortcut",{{"saved",officialShortcut_},{"pending",!officialPreferenceRequest_.empty()&&officialPreferenceKey_=="quick_official_keyboard"},{"error",officialShortcutError_}}},{"text_visible",editorText_&&!lv_obj_is_hidden(editorText_)},{"compact_full",layout.compactFull},{"compact_expanded",editorCompactExpanded_},{"tools_open",editorToolsOpen_},{"compact_composition",editorCompactComposition()},{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"selection_bounds",editorSelectionBounds_.width>0?
+  return {{"timing",{{"requested",keyboardTiming_.requested},{"animation",keyboardTiming_.animation},
+    {"first_frame",keyboardTiming_.firstFrame},{"hardware_ready",keyboardTiming_.hardwareReady},{"duration_ms",keyboardTiming_.duration},
+    {"entry_finished",keyboardTiming_.entryFinished},{"exit_started",keyboardTiming_.exitStarted},{"exit_finished",keyboardTiming_.exitFinished}}},
+    {"official_action",{{"pending",!officialActionId_.empty()},{"uncommitted",officialKeyEventAt_>officialTextEventAt_},{"key_time",officialKeyEventAt_},{"text_time",officialTextEventAt_}}},{"official_preference",{{"saved",preferOfficialKeyboard_},{"pending",!officialPreferenceRequest_.empty()&&officialPreferenceKey_=="prefer_official_keyboard"},{"error",officialPreferenceError_}}},{"official_shortcut",{{"saved",officialShortcut_},{"pending",!officialPreferenceRequest_.empty()&&officialPreferenceKey_=="quick_official_keyboard"},{"error",officialShortcutError_}}},{"text_visible",editorText_&&!lv_obj_is_hidden(editorText_)},{"compact_full",layout.compactFull},{"compact_expanded",editorCompactExpanded_},{"tools_open",editorToolsOpen_},{"compact_composition",editorCompactComposition()},{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"selection_bounds",editorSelectionBounds_.width>0?
     Json::array({editorSelectionBounds_.x,editorSelectionBounds_.y,editorSelectionBounds_.x+editorSelectionBounds_.width-1,editorSelectionBounds_.y+editorSelectionBounds_.height-1}):Json::array()},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"in_place",editor_.active&&editorInPlace()&&editorTarget_!=nullptr},{"input_anchor",editorTargetKey_},{"docked",layout.docked},{"dismiss_offset",editorDismissOffset_},{"dismiss_threshold",editorDismissThreshold_},{"dismissing",editorDismissing_},{"dismiss_returning",editorDismissReturnAt_!=0},{"inline_chat",editorInlineChat_},{"panel_top",layout.panelTop},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
     {"layout",editor_.layout==0?"zh26":editor_.layout==1?"en26":"zh9"},{"preferred_layout",editor_.preferredChinese==2?"zh9":"zh26"},
     {"layout_menu",editorLayoutMenu_},{"layout_popup",layoutPopup},{"layout_hold",editorLayoutHold_},{"expanded",editorExpanded_},{"punctuation_menu",editorPunctuation_},{"exact_count",editorExact_.size()},
