@@ -425,7 +425,7 @@ for(const failure of ['throw','empty-uuid','missing-window']) {
   if(failure==='empty-uuid')f.keyboard.startTextEdit=()=>''
   if(failure==='throw')f.keyboard.startTextEdit=()=>{throw Error('fixture')}
   f.page.openKeyboard({requestId:'failed',text:'保留'})
-  if(failure==='missing-window'){f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()}
+  if(failure==='missing-window'){f.page._officialDeadline=0;f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()}
   assert.equal(f.page.keyboardOpen,false)
   const results=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result')
   assert.equal(results.length,1);assert.equal(results[0][1].confirmed,false);assert(results[0][1].error)
@@ -1003,4 +1003,39 @@ test('an old detached start cannot detach a newer mounted Page',async()=>{
  await page.boot();const offset=f.calls.length;complete({ok:true});await pending
  assert(!f.calls.slice(offset).some(c=>c[0]==='stop'||c[0]==='send'&&c[1].type==='page.detach'))
  page.dispose()
+})
+
+test('legacy IME hiding waits for its matching confirmation instead of error fallback',async()=>{
+ const f=fixture();await f.page.boot();f.context.legacyClock=1000;vm.runInContext('Date.now=()=>legacyClock',f.context)
+ f.native.officialKeyboard=()=>({supported:true,visible:true})
+ f.page.openKeyboard({requestId:'legacy-hide-confirm',text:'seed',inline:false})
+ f.context.legacyClock=1100;f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard();assert(f.page._officialSeen)
+ f.native.officialKeyboard=()=>({supported:true,visible:false})
+ f.context.legacyClock=1200;f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard();assert(f.page.keyboardOpen)
+ f.edit('edit-1',JSON.stringify({editConfirmed:true,text:'latest confirmed'}))
+ const results=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result')
+ assert.equal(results.length,1);assert.equal(results[0][1].text,'latest confirmed');assert.equal(results[0][1].confirmed,true)
+ f.context.legacyClock=1900;f.page.checkOfficialKeyboard();assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').length,1)
+ f.page.dispose()
+})
+test('legacy page round-trip without a vendor result closes normally once',async()=>{
+ const f=fixture();await f.page.boot();f.context.legacyClock=1000;vm.runInContext('Date.now=()=>legacyClock',f.context)
+ f.native.officialKeyboard=()=>({supported:true,visible:false})
+ f.page.openKeyboard({requestId:'legacy-hide-return',text:'seed',inline:false})
+ f.page._legacyOfficialHidden=true
+ f.context.legacyClock=1200;f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard();assert(f.page.keyboardOpen)
+ f.context.legacyClock=1601;f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
+ const results=f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result')
+ assert.equal(results.length,1);assert.equal(results[0][1].error,'');assert.equal(results[0][1].confirmed,false);assert(!('text' in results[0][1]))
+ f.edit('edit-1',JSON.stringify({editConfirmed:true,text:'late'}));assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').length,1)
+ f.page.dispose()
+})
+test('legacy startup still reports a genuinely missing panel after its opening deadline',async()=>{
+ const f=fixture();await f.page.boot();f.context.legacyClock=1000;vm.runInContext('Date.now=()=>legacyClock',f.context)
+ f.native.officialKeyboard=()=>({supported:true,visible:false})
+ f.page.openKeyboard({requestId:'legacy-never-visible',text:'seed',inline:false})
+ f.context.legacyClock=1100;f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard();assert(f.page.keyboardOpen)
+ f.context.legacyClock=3001;f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
+ assert(!f.page.keyboardOpen);assert(f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').at(-1)[1].error)
+ f.page.dispose()
 })

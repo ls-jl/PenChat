@@ -65,6 +65,7 @@ export default {
   methods: {
     hidePage() {
       if (!this.visible) return
+      if (this.keyboardOpen && !this.officialInline) this._legacyOfficialHidden = true
       // Some Falcon versions hide our Page before reporting the panel. Yield
       // input immediately; retain the page only with read-only owner evidence.
       this._pageHidden = true
@@ -392,6 +393,7 @@ export default {
       this.keyboardOpen = false
       this.updatePageStyle()
       this._keyboardUuid = ''; this._keyboardRequest = ''; this._keyboardWatchAt = 0; this._keyboardCompleting = false; this._officialOpenConfig = null
+      this._legacyOfficialHidden = false; this._legacyOfficialHideAt = 0
       try { if (closePanel && typeof launcher.closeOfficialKeyboard === 'function') launcher.closeOfficialKeyboard() } catch (_) {}
     },
     cancelOfficialKeyboard(error = '') {
@@ -422,7 +424,7 @@ export default {
       } catch (_) { return false }
     },
     checkOfficialKeyboard() {
-      if (!this.keyboardOpen || this._keyboardCompleting || this._pageHidden || this._panelVisible || !this._keyboardWatchAt || Date.now() < this._keyboardWatchAt) return
+      if (!this.keyboardOpen || this._keyboardCompleting || this._pageHidden || this._panelVisible || (!this.officialInline && !this.visible) || !this._keyboardWatchAt || Date.now() < this._keyboardWatchAt) return
       this._keyboardWatchAt = Date.now() + 200
       try {
         const state = launcher.officialKeyboard()
@@ -467,7 +469,15 @@ export default {
           } else if (this._officialSeen || Date.now() >= this._officialDeadline) {
             this.cancelOfficialKeyboard(this._officialSeen ? '' : '官方键盘未能显示，已恢复内置键盘')
           }
-        } else if (!state || !state.supported || !state.visible)
+        } else if (state && state.supported && state.visible) {
+          this._officialSeen = true; this._legacyOfficialHideAt = 0
+        } else if (this._officialSeen || this._legacyOfficialHidden) {
+          // The vendor can hide its panel before delivering confirmation.
+          // Let the UUID-matched result win; a real dismissal is not a failure.
+          const now = Date.now()
+          if (!this._legacyOfficialHideAt) this._legacyOfficialHideAt = now
+          else if (now - this._legacyOfficialHideAt >= 400) this.cancelOfficialKeyboard()
+        } else if (Date.now() >= this._officialDeadline)
           this.cancelOfficialKeyboard('官方键盘未能显示，已恢复内置键盘')
       } catch (_) { this.cancelOfficialKeyboard('官方键盘状态异常，已恢复内置键盘') }
     },
@@ -720,10 +730,12 @@ export default {
           this._keyboardTimer = null
           if (!this.keyboardOpen || this._keyboardRequest !== event.requestId || this._generation !== generation || this._disposed) return
           try {
+            this._officialSeen = false; this._legacyOfficialHidden = false; this._legacyOfficialHideAt = 0
+            this._officialDeadline = Date.now() + 2000
             const uuid = this._global.startTextEdit(JSON.stringify({ text: event.text || '', placeholder: event.placeholder || '请输入', inputType: event.inputType || 'ZhCNPreferred', maxlength: event.maxlength || 4096, autofocus: true, showCursor: true, multiLinesEditVisible: event.multiline === true, cursorIndex: event.cursorIndex || 0, confirmButtonDisabledOnTextEmpty: false, enterButtonText: '确认' }))
             if (typeof uuid !== 'string' || !uuid) throw new Error('official editor rejected request')
             this._keyboardUuid = uuid
-            this._keyboardWatchAt = typeof launcher.officialKeyboard === 'function' ? Date.now() + 2000 : 0
+            this._keyboardWatchAt = typeof launcher.officialKeyboard === 'function' ? Date.now() + 100 : 0
           } catch (_) { this.cancelOfficialKeyboard('未能打开官方键盘，输入已保留') }
         }
         start()
