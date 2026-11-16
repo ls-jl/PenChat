@@ -842,3 +842,97 @@ test('system panel retains only its own temporary page frame and clears stale fr
  f.options.onHide.call(f.page);assert.equal(f.page.overlayFrame,'')
  f.page.dispose()
 })
+
+test('panel-induced Page hide retains native lifecycle and deduplicates Page show', async () => {
+ const f=fixture();await f.page.boot()
+ f.context.am.getTopApp=()=>f.context.appConfig.appid
+ f.native.panelVisible=true;f.options.onHide.call(f.page)
+ assert(f.page.visible);assert(f.page._overlayHidden)
+ const hidden=()=>f.calls.filter(c=>c[0]==='send'&&c[1].type==='visibility'&&!c[1].visible)
+ assert.equal(hidden().length,0)
+ assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='window.focus').at(-1)[1].focused,false)
+ assert(f.page._poll)
+ f.native.panelVisible=false;f.page.syncWindowFocus(true);f.page.poll()
+ assert(f.page.visible);assert(!f.page._pageHidden)
+ const visible=()=>f.calls.filter(c=>c[0]==='send'&&c[1].type==='visibility').length
+ const before=visible();f.options.onShow.call(f.page);f.options.onShow.call(f.page)
+ assert.equal(visible(),before);assert.equal(hidden().length,0)
+ assert.equal(f.calls.filter(c=>c[0]==='start').length,1)
+ assert.equal(f.calls.filter(c=>c[0]==='stop').length,0)
+ f.page.dispose()
+})
+
+test('hide-before-panel ordering yields input at once and resolves within a bounded grace',async()=>{
+ const f=fixture();await f.page.boot();let now=1000
+ f.context.Date={now:()=>now};f.context.am.getTopApp=()=>f.context.appConfig.appid
+ f.options.onHide.call(f.page)
+ assert(f.page.visible);assert(f.page._pageHidden)
+ let focus=f.calls.filter(c=>c[0]==='send'&&c[1].type==='input.focus').at(-1)[1]
+ assert.equal(focus.active,false)
+ now=1100;f.native.panelVisible=true;f.page.poll();assert(f.page._overlayHidden)
+ now=5000;f.page.poll();assert(f.page.visible)
+ f.native.panelVisible=false;now=5100;f.page.poll();assert(!f.page._pageHidden)
+ f.options.onHide.call(f.page);now=5400;f.page.poll()
+ assert(!f.page.visible);assert.equal(f.page._poll,null)
+ assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='visibility'&&!c[1].visible).length,1)
+ f.page.dispose()
+})
+
+test('real Home/app switch overrides an open panel; unsupported ownership fails closed',async()=>{
+ for(const owner of ['other-app',null]) {
+  const f=fixture();await f.page.boot();let now=1000
+  f.context.Date={now:()=>now};let top=f.context.appConfig.appid
+  f.context.am.getTopApp=()=>top;f.native.panelVisible=true;f.options.onHide.call(f.page)
+  assert(f.page.visible)
+  top=owner;now=1300;f.page.poll()
+  assert(!f.page.visible);assert.equal(f.page._poll,null)
+  f.page.dispose()
+ }
+ const f=fixture();await f.page.boot();f.context.am.getTopApp=()=>f.context.appConfig.appid
+ f.native.systemOverlay=()=>({supported:false});f.options.onHide.call(f.page)
+ assert(!f.page.visible);f.page.dispose()
+})
+
+test('transient panel does not complete official input or turn a hidden system IME into failure',async()=>{
+ const f=fixture();await f.page.boot()
+ f.native.officialKeyboard=()=>({supported:true,visible:false})
+ f.page.openKeyboard({requestId:'retained-system-edit',text:'draft'})
+ f.page._keyboardWatchAt=1;f.native.panelVisible=true;f.page.syncWindowFocus(true)
+ f.page.checkOfficialKeyboard();assert(f.page.keyboardOpen)
+ assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').length,0)
+ f.page.dispose()
+})
+
+
+test('real unload during a retained panel still releases the native process exactly once',async()=>{
+ const f=fixture();await f.page.boot();f.context.am.getTopApp=()=>f.context.appConfig.appid
+ f.native.panelVisible=true;f.options.onHide.call(f.page);assert(f.page._overlayHidden)
+ f.options.onUnload.call(f.page);f.options.beforeDestroy.call(f.page)
+ assert.equal(f.calls.filter(c=>c[0]==='stop').length,1)
+ assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='exit').length,1)
+ assert.equal(f.timers.size,0)
+})
+
+
+test('real background after a panel does not strand the official keyboard monitor',async()=>{
+ const f=fixture();await f.page.boot();portraitOfficial(f)
+ let top=f.context.appConfig.appid;f.context.am.getTopApp=()=>top
+ f.page.openKeyboard({requestId:'background-system-edit',text:'retained draft'})
+ f.native.panelVisible=true;f.options.onHide.call(f.page);assert(f.page._overlayHidden)
+ top='other-app';f.page.syncWindowFocus(true);assert(!f.page.visible)
+ f.native.officialKeyboard=()=>({supported:true,visible:false})
+ f.page._officialDeadline=0;f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
+ assert(!f.page.keyboardOpen);assert.equal(f.page._keyboardMonitor,null)
+ f.page.dispose()
+})
+
+
+test('retry after a failure under the panel starts with fresh lifecycle classification',async()=>{
+ const f=fixture();await f.page.boot();f.context.am.getTopApp=()=>f.context.appConfig.appid
+ f.native.panelVisible=true;f.options.onHide.call(f.page);assert(f.page._overlayHidden)
+ f.page.fail('fixture native failure');f.native.panelVisible=false;await f.page.boot()
+ assert(!f.page._pageHidden);assert(!f.page._overlayHidden)
+ assert(f.page.visible);assert(f.page.running)
+ assert.equal(f.calls.filter(c=>c[0]==='start').length,2)
+ f.page.dispose()
+})

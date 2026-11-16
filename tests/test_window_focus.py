@@ -40,6 +40,12 @@ for width,height in [(960,266),(568,1210)]:
             for letter in 'ni':
                 key=next(k for k in a.diag()['editor']['keys'] if k['key']==letter);a.tap(key['x'],key['y'])
             before=a.diag()['editor'];assert before['preedit_length']==2
+            # Duplicate Page onShow/visibility heartbeats must not rebuild a
+            # retained editor or disturb its unfinished composition.
+            for _ in range(2):a.send('visibility',visible=True)
+            after=a.diag()['editor']
+            assert after['build_count']==before['build_count'] and after['keyboard_session']==before['keyboard_session']
+            assert after['preedit_length']==2 and after['keys']==before['keys']
             focus(False);s=a.diag();assert s['editor']['active'] and not s['editor']['ocr_active'] and not s['display_visible']
             key=next(k for k in before['keys'] if k['key']=='a');a.tap(key['x'],key['y']);assert a.diag()['editor']['preedit_length']==2
             focus(True);s=a.diag();after=s['editor']

@@ -60,20 +60,37 @@ export default {
   mounted() { this.boot() },
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
-  onHide() {
-    this.visible = false
-    this.overlayFrame = ''
-    this.syncInputFocus(true)
-    this.setBackPolicy(true)
-    this.setNativeEditorPolicy(false)
-    this.stopOcr()
-    this.send('visibility', { visible: false })
-    clearInterval(this._poll); this._poll = null
-  },
+  onHide() { this.hidePage() },
   onUnload() { this.dispose() },
   beforeDestroy() { this.dispose() },
   methods: {
+    hidePage() {
+      if (!this.visible) return
+      // Some Falcon versions hide our Page before reporting the panel. Yield
+      // input immediately; retain the page only with read-only owner evidence.
+      if (!this.running || this._disposed || !am || typeof am.getTopApp !== 'function' || typeof launcher.systemOverlay !== 'function') {
+        this.backgroundPage(); return
+      }
+      this._pageHidden = true
+      this._overlayHidden = false
+      this._hideDeadline = Date.now() + 200
+      this.syncWindowFocus(true)
+    },
+    backgroundPage() {
+      this._pageHidden = this._overlayHidden = false
+      this._panelVisible = false
+      this.visible = false
+      this.overlayFrame = ''
+      this.syncInputFocus(true)
+      this.setBackPolicy(true)
+      this.setNativeEditorPolicy(false)
+      this.stopOcr()
+      this.send('visibility', { visible: false })
+      clearInterval(this._poll); this._poll = null
+    },
     resume() {
+      const wasVisible = this.visible
+      this._pageHidden = this._overlayHidden = false
       this._disposed = false
       this.visible = true
       this.watchInputFocus()
@@ -87,7 +104,7 @@ export default {
       clearInterval(this._poll)
       this._poll = setInterval(() => this.poll(), 20)
       this.syncWindowFocus(true)
-      this.send('visibility', { visible: true })
+      if (!wasVisible) this.send('visibility', { visible: true })
       this.syncInputFocus(true)
     },
     send(type, payload) {
@@ -107,6 +124,7 @@ export default {
       const generation = this._generation
       this.setNativeEditorPolicy(false)
       this._nativeEditor = null; this._editorPolicySequence = 0
+      this._pageHidden = this._overlayHidden = this._panelVisible = false
       this._windowFocused = true; this._windowSequence = 0; this._focusNextCheck = 0; this._focusPending = false; this._overlayStatus = ''
       this.nativeReady = false
       this.startupText = '正在打开…'
@@ -179,7 +197,7 @@ export default {
     syncInputFocus(force = false) {
       if (!this.running) return
       let active = false
-      try { active = this.nativeReady && this.visible && !this._disposed && !this.keyboardOpen && this._windowFocused !== false && am.hasWindowFocus() === true } catch (_) {}
+      try { active = this.nativeReady && this.visible && !this._disposed && !this.keyboardOpen && !this._pageHidden && this._windowFocused !== false && am.hasWindowFocus() === true } catch (_) {}
       // A system overlay owns input, but its transparent pixels still reveal
       // the compositor's lower LVGL layer. Background/official input withdraw it.
       const displayActive = this.nativeReady && this.visible && !this._disposed && !this.keyboardOpen
@@ -239,6 +257,19 @@ export default {
         status.panel_visible = !!(panel && panel.visible === true)
         if (panel && panel.supported === true && typeof panel.visible === 'boolean') focused = focused !== false && !panel.visible
       } catch (_) {}
+      if (this._pageHidden) {
+        let top
+        try { top = am.getTopApp() } catch (_) {}
+        const owned = top === appConfig.appid
+        if (status.panel_supported && status.panel_visible && owned) {
+          this._overlayHidden = true
+        } else if (this._overlayHidden && !status.panel_visible && owned) {
+          this._pageHidden = this._overlayHidden = false
+        } else if (!status.panel_supported || (typeof top === 'string' && top && !owned) || Date.now() >= this._hideDeadline) {
+          this.backgroundPage(); return
+        }
+        if (this._pageHidden) focused = false
+      }
       this._panelVisible = status.panel_visible
       if (!this._panelVisible) this.overlayFrame = ''
       const signature = JSON.stringify(status)
@@ -366,7 +397,7 @@ export default {
       } catch (_) { return false }
     },
     checkOfficialKeyboard() {
-      if (!this.keyboardOpen || this._keyboardCompleting || !this._keyboardWatchAt || Date.now() < this._keyboardWatchAt) return
+      if (!this.keyboardOpen || this._keyboardCompleting || this._pageHidden || this._panelVisible || !this._keyboardWatchAt || Date.now() < this._keyboardWatchAt) return
       this._keyboardWatchAt = Date.now() + 200
       try {
         const state = launcher.officialKeyboard()

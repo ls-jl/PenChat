@@ -3041,6 +3041,7 @@ void App::updateInputFocus() {
   }
 }
 void App::suspend(bool value) {
+  if(pageVisible_==!value){updateInputFocus();return;}
   if(value&&!systemOverlaySnapshot_.empty()){unlink(systemOverlaySnapshot_.c_str());systemOverlaySnapshot_.clear();}
   if(value)chatBottomState_.pause();
   if(value)motion::finishAll();
