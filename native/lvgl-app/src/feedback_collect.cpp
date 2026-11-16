@@ -228,46 +228,21 @@ Json feedbackScreen(const Json &configuration, const Screen &s) {
   effective["lvgl_buffer_count"] = 1; // Display supplies one LVGL full-frame buffer.
   return {{"source","falcon_configuration"},{"configured",original},{"effective",effective}};
 }
-Json feedbackHardware(bool native) {
-  Json out = {{"input_devices",Json::array()},{"video_devices",Json::array()}};
-  utsname u{};
-  if (!uname(&u)) out["system"] = {{"kernel",clean(u.release,sizeof(u.release))},{"architecture",clean(u.machine,sizeof(u.machine))}};
-  if (!native) { out["status"] = "host_test"; return out; }
-  auto model = text("/proc/device-tree/model");
-  out["model"] = clean(model.data(),model.size());
-  if(model.empty())out["model_status"]="unknown: device-tree model unavailable";
-  auto compatibles = text("/proc/device-tree/compatible"); out["compatible"] = Json::array();
-  std::istringstream list(compatibles); std::string part;
-  while (out["compatible"].size() < 16 && std::getline(list,part,'\0')) out["compatible"].push_back(clean(part.data(),part.size()));
-  if(compatibles.empty())out["compatible_status"]="unknown: device-tree compatible unavailable";
-  for (const auto &name : names("/dev/input","event",128)) {
-    const auto path = "/dev/input/" + name;
-    int fd = open(path.c_str(),O_RDONLY|O_NONBLOCK|O_CLOEXEC);
-    Json device = {{"path",path}};
-    if (fd < 0) { device["errno"] = errno; device["status"] = "unavailable"; out["input_devices"].push_back(device); continue; }
-    char title[256]{}; input_id id{};
-    if (ioctl(fd, EVIOCGNAME(sizeof(title)), title) >= 0) device["name"] = clean(title,sizeof(title));
-    if (ioctl(fd, EVIOCGID, &id) == 0) device["id"] = {{"bus",id.bustype},{"vendor",id.vendor},{"product",id.product},{"version",id.version}};
-    unsigned char bits[(KEY_MAX+8)/8]{};
-    if (ioctl(fd,EVIOCGBIT(EV_KEY,sizeof(bits)),bits) >= 0) {
-      device["key_codes"] = Json::array();
-      for (int code = 0; code <= KEY_MAX; ++code) if (bits[code/8] & (1u << (code%8))) device["key_codes"].push_back(code);
-    }
-    device["axes"] = Json::object();
-    for (int code : {ABS_X,ABS_Y,ABS_MT_POSITION_X,ABS_MT_POSITION_Y,ABS_MT_SLOT,ABS_MT_TRACKING_ID}) {
-      input_absinfo axis{};
-      if (ioctl(fd,EVIOCGABS(code),&axis) == 0)
-        device["axes"][std::to_string(code)] = {{"minimum",axis.minimum},{"maximum",axis.maximum},{"resolution",axis.resolution}};
-    }
-    close(fd); out["input_devices"].push_back(device);
-  }
-  for (const auto &name : names("/sys/class/video4linux","",128)) {
+Json feedbackVideoDevices(bool probeFormats, const std::string &sysfsRoot, const std::string &devRoot) {
+  Json devices = Json::array();
+  for (const auto &name : names(sysfsRoot,"",128)) {
     if (name.find("video") != 0 && name.find("v4l-subdev") != 0) continue;
-    const auto path = "/dev/" + name;
-    const auto title = text("/sys/class/video4linux/" + name + "/name");
+    const auto path = devRoot + "/" + name;
+    const auto title = text(sysfsRoot + "/" + name + "/name");
     Json device = {{"path",path},{"name",clean(title.data(),title.size())}};
+    if (!probeFormats) {
+      device["status"] = "metadata_only";
+      device["probe_status"] = "not_opened";
+      devices.push_back(std::move(device));
+      continue;
+    }
     int fd = open(path.c_str(),O_RDONLY|O_NONBLOCK|O_CLOEXEC);
-    if (fd < 0) { device["status"] = "unavailable"; device["errno"] = errno; out["video_devices"].push_back(device); continue; }
+    if (fd < 0) { device["status"] = "unavailable"; device["errno"] = errno; devices.push_back(device); continue; }
     if (name.find("v4l-subdev") == 0) {
       v4l2_subdev_format f{}; f.which = V4L2_SUBDEV_FORMAT_ACTIVE;
       if (ioctl(fd,VIDIOC_SUBDEV_G_FMT,&f) == 0) device["current"] = {{"width",f.format.width},{"height",f.format.height},{"media_bus_code",f.format.code}};
@@ -303,8 +278,51 @@ Json feedbackHardware(bool native) {
         }
       } else { device["status"] = "unavailable"; device["errno"] = errno; }
     }
-    close(fd); out["video_devices"].push_back(device);
+    close(fd); devices.push_back(device);
   }
+  return devices;
+}
+Json feedbackHardware(bool native) {
+  Json out = {{"input_devices",Json::array()},{"video_devices",Json::array()}};
+  utsname u{};
+  if (!uname(&u)) out["system"] = {{"kernel",clean(u.release,sizeof(u.release))},{"architecture",clean(u.machine,sizeof(u.machine))}};
+  if (!native) { out["status"] = "host_test"; return out; }
+  auto model = text("/proc/device-tree/model");
+  out["model"] = clean(model.data(),model.size());
+  if(model.empty())out["model_status"]="unknown: device-tree model unavailable";
+  auto compatibles = text("/proc/device-tree/compatible"); out["compatible"] = Json::array();
+  std::istringstream list(compatibles); std::string part;
+  while (out["compatible"].size() < 16 && std::getline(list,part,'\0')) out["compatible"].push_back(clean(part.data(),part.size()));
+  if(compatibles.empty())out["compatible_status"]="unknown: device-tree compatible unavailable";
+  for (const auto &name : names("/dev/input","event",128)) {
+    const auto path = "/dev/input/" + name;
+    int fd = open(path.c_str(),O_RDONLY|O_NONBLOCK|O_CLOEXEC);
+    Json device = {{"path",path}};
+    if (fd < 0) { device["errno"] = errno; device["status"] = "unavailable"; out["input_devices"].push_back(device); continue; }
+    char title[256]{}; input_id id{};
+    if (ioctl(fd, EVIOCGNAME(sizeof(title)), title) >= 0) device["name"] = clean(title,sizeof(title));
+    if (ioctl(fd, EVIOCGID, &id) == 0) device["id"] = {{"bus",id.bustype},{"vendor",id.vendor},{"product",id.product},{"version",id.version}};
+    unsigned char bits[(KEY_MAX+8)/8]{};
+    if (ioctl(fd,EVIOCGBIT(EV_KEY,sizeof(bits)),bits) >= 0) {
+      device["key_codes"] = Json::array();
+      for (int code = 0; code <= KEY_MAX; ++code) if (bits[code/8] & (1u << (code%8))) device["key_codes"].push_back(code);
+    }
+    device["axes"] = Json::object();
+    for (int code : {ABS_X,ABS_Y,ABS_MT_POSITION_X,ABS_MT_POSITION_Y,ABS_MT_SLOT,ABS_MT_TRACKING_ID}) {
+      input_absinfo axis{};
+      if (ioctl(fd,EVIOCGABS(code),&axis) == 0)
+        device["axes"][std::to_string(code)] = {{"minimum",axis.minimum},{"maximum",axis.maximum},{"resolution",axis.resolution}};
+    }
+    close(fd); out["input_devices"].push_back(device);
+  }
+#ifdef PENCHAT_CVI_PLATFORM
+  // CVI open/release can enter the ISP even on a read-only fd. A feedback
+  // preview must not compete with the system capture owner's sensor lease.
+  constexpr bool probeVideoFormats = false;
+#else
+  constexpr bool probeVideoFormats = true;
+#endif
+  out["video_devices"] = feedbackVideoDevices(probeVideoFormats, "/sys/class/video4linux", "/dev");
   return out;
 }
 } // namespace penchat

@@ -10,6 +10,7 @@ void flushDiagnostics() noexcept;
 Json diagnosticRecords();
 Json feedbackScreen(const Json &configuration, const Screen &effective);
 Json feedbackHardware(bool native);
+Json feedbackVideoDevices(bool probeFormats, const std::string &sysfsRoot, const std::string &devRoot);
 std::string feedbackUuid();
 void feedbackWrite(const std::string &path, const Json &value);
 Json feedbackRead(const std::string &path, size_t limit);
