@@ -203,6 +203,15 @@ def close_app(serial, appid, shell, pid, state):
         x, y = free_back_start(s, w, h)
       result.setdefault('back_starts', []).append([x, y])
       _touch(context, shell, state, [(x, y), (min(w-1, x+max(80, w/4)), y)])
+      if requested_root_finish:
+        # Root Back can stop the UI loop before child teardown has reaped the
+        # process. Do not request diagnostics from that exiting loop.
+        deadline=time.monotonic()+3
+        while pid() and time.monotonic()<deadline:
+          time.sleep(.05)
+        if not pid():
+          result['normal_finish']=True
+          return result
       if pid():
         after = state()
         result.setdefault('back_attempts', []).append({

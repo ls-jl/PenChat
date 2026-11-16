@@ -33,7 +33,8 @@ def run_inner(c):
  go('start_scan');wait(lambda:step('scan').get('status')=='listening');assert step('scan')['blocking']
  actual=[d for d in step('scan')['devices'] if not d.get('name','').startswith('PenChat-')]
  scan_path=next(d['path'] for d in actual if 134 in d.get('key_codes',[]))
- home_path=next(d['path'] for d in actual if 102 in d.get('key_codes',[]))
+ physical_home=next((d['path'] for d in actual if 102 in d.get('key_codes',[])),None)
+ home_path=physical_home or next(d['path'] for d in step('scan')['devices'] if d.get('name','').startswith('PenChat-') and 102 in d.get('key_codes',[]))
  assert shell(c['key_source']+' --probe '+scan_path)=='busy'
  assert shell(c['key_source']+' --probe '+home_path)=='busy'
  shell(c['key_source']+' --scan '+c['key_socket'])
@@ -57,7 +58,8 @@ def run_inner(c):
  assert shell(c['key_source']+' --probe '+scan_path)=='free'
  assert not step('scan')['blocking'];assert shell('ls -l /proc/'+native+'/fd').count(' -> /dev/input/')<=1
  # Home must regain its actual function after the capture ends.
- assert shell(c['key_source']+' --physical '+home_path)=='sent';time.sleep(.4)
+ if physical_home:
+  assert shell(c['key_source']+' --physical '+physical_home)=='sent';time.sleep(.4)
  shell('miniapp_cli capture /tmp/penchat-feedback-home.png');subprocess.run(['adb','-s',c['SERIAL'],'pull','/tmp/penchat-feedback-home.png',str(c['OUT']/'feedback-home-restored.png')],check=True,capture_output=True)
  c['start_app']();wait(lambda:read()['visible']);time.sleep(.4);open_feedback()
  if read()['feedback']['screen']=='form':go('adapt')
@@ -68,7 +70,7 @@ def run_inner(c):
   if read()['view']=='settings':break
   c['navigate_back_or_menu']()
  wait(lambda:read()['view']=='settings')
- c['result']['feedback']={'exclusive_capture':True,'scan_suppressed':True,'home_suppressed':True,'early_release':True,'timeout_ms':s['elapsed_ms'],'timeout_popup':True,'cancel_released':True,'home_restored':True,'no_upload':True}
+ c['result']['feedback']={'exclusive_capture':True,'scan_suppressed':True,'home_suppressed':True,'early_release':True,'timeout_ms':s['elapsed_ms'],'timeout_popup':True,'cancel_released':True,'physical_home_available':bool(physical_home),'home_capture_source':'physical and test input' if physical_home else 'virtual test input only','home_restored':True if physical_home else 'not applicable: no physical KEY_HOME capability','no_upload':True}
 
 def run(c):
  import os,select

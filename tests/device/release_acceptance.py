@@ -43,6 +43,7 @@ RELEASE = 'release-'+APP['version']
 OUT = ROOT/'.work'/RELEASE/'devices'
 # Reuse individual feature fixtures, never acceptance.py on original user data.
 FEATURES = {
+  'keyboard-handoff': 'Direct system keyboard, normal return, default preference and completed composer visibility',
   'panel-snapshot': 'System panel background handoff and own-page restore',
   'official-editing-dark': 'Y07 retained official editing with opaque dark handoff backing',
   'official-editing': 'Y07 retained IME cursor, selection, copy/cut/paste, local single send and light boundary pixels',
@@ -400,15 +401,16 @@ class ReleaseDevice(ScopedDevice):
   def launch(self):
     # Keep the source helper's foreground stability guard. A retained Falcon
     # launcher may expose its supported Retry action after native termination.
-    if self.serial in ('MEA2300009007113','7G12000010905426','JDA0700006552216') and self.key_helper_ready:
+    if self.serial in ('MEA2300009007113','7G12000010905426') and self.key_helper_ready:
       backlight='/sys/class/backlight/'+('dcs-backlight' if self.serial=='7G12000010905426' else 'backlight')+'/actual_brightness'
       for _ in range(2):
         if int(self.sh('cat '+backlight)) > 5:
           break
-        power='platform-502b000.i2c-platform-axp2101-pek.0-event' if self.serial=='JDA0700006552216' else 'rk805-pwrkey'
-        self.sh(self.key_helper+' /dev/input/by-path/'+power+' 116 1 100 300')
+        self.sh(self.key_helper+' /dev/input/by-path/rk805-pwrkey 116 1 100 300')
         time.sleep(.4)
       assert int(self.sh('cat '+backlight)) > 5, 'Device did not wake with its paired power key'
+    # S6's brightness=5 can still be interactive; superclass readiness checks
+    # its actual focus/evdev lease instead of treating this value as sleep.
     self.sh('miniapp_cli start '+APP['appid'])
     deadline = time.monotonic()+3
     while not self.pid() and time.monotonic() < deadline:
@@ -1052,6 +1054,9 @@ class ReleaseDevice(ScopedDevice):
           elif feature in ('official-editing','official-editing-dark'):
             from release_official_editing import run
             entry['evidence'] = run(self)
+          elif feature == 'keyboard-handoff':
+            from release_keyboard_handoff import run
+            entry['evidence'] = run(self)
           elif feature == 'panel-snapshot':
             from release_panel_snapshot import run
             entry['evidence'] = run(self)
@@ -1181,7 +1186,7 @@ def main():
                                          'Real OCR text and secret-field key review',
                                          'Camera printed target pose and sharpness',
                                          'Update install/rollback requires separate package strategy'],
-                      'scope_exclusions': ['S6: no access of any kind', 'Real provider/model requests', 'MiniApp host restart']}, ensure_ascii=False, indent=2))
+                      'scope_exclusions': ['S6: unsupported photo camera and multiline OCR', 'Real provider/model requests', 'MiniApp host restart']}, ensure_ascii=False, indent=2))
     return
   if not args.serial or not args.package:
     parser.error('execution requires --serial and --package')

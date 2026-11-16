@@ -31,6 +31,7 @@ int main(int argc,char **argv) {
       e=emit(fd,EV_KEY,BTN_TOUCH,active?1:0),f=emit(fd,EV_SYN,SYN_REPORT,0);
     return a&&b&&c&&d&&e&&f;
   };
+  const int observer=down==0&&gap==0?open(argv[1],O_RDONLY|O_NONBLOCK|O_CLOEXEC):-1;
   bool ok=true;
   for(int i=0;i<count&&ok;++i) {
     const int slot=i%slots;
@@ -44,5 +45,14 @@ int main(int argc,char **argv) {
     ok=ok&&released;usleep(gap*1000);
   }
   if(rollover)for(int slot=0;slot<slots;++slot)ok=release(slot,false)&&ok;
+  if(observer>=0) {
+    input_event events[64];int dropped=0,total=0;ssize_t bytes;
+    while((bytes=read(observer,events,sizeof(events)))>0) {
+      for(size_t i=0;i<size_t(bytes)/sizeof(input_event);++i) {
+        ++total;if(events[i].type==EV_SYN&&events[i].code==SYN_DROPPED)++dropped;
+      }
+    }
+    close(observer);printf("observer_events=%d observer_syn_dropped=%d\n",total,dropped);
+  }
   close(fd);return ok?0:3;
 }

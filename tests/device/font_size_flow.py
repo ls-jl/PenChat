@@ -19,7 +19,7 @@ def run(ctx):
         # needs an ordinary swipe so the test does not invoke long-press Copy.
         for _ in range(15):
             if state()['scroll_y']==0:return
-            d=state();v=d['chat_header']['reader_bounds'];top=v[1]+12;bottom=v[3]-12
+            d=state();v=d['chat_header']['reader_bounds'];top=max(v[1]+12,(44*d['ui_scale']['applied']+50)//100);bottom=v[3]-12
             if not d['composer_hidden']:bottom=min(bottom,d['composer_bounds'][1]-12)
             assert bottom>top
             x,y=ctx['raw']((v[0]+v[2])//2,top);ex,ey=ctx['raw']((v[0]+v[2])//2,bottom)

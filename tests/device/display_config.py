@@ -372,6 +372,20 @@ try:
             shell('mkdir -p '+DATA+'/assets');files.append((sample/'assets/original.png',DATA+'/assets/original.png'))
         for source,target in files:
             subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
+    if not args.onboarding:
+        # Feature fixtures are already private and native is stopped. Keep
+        # animated first-run onboarding in its dedicated acceptance scope.
+        import sqlite3,tempfile
+        with tempfile.TemporaryDirectory(prefix='penchat-feature-onboarding-') as temp:
+            fixture=pathlib.Path(temp)/'penchat.db'
+            if shell('test -f '+DATA+'/penchat.db && echo yes || true')=='yes':
+                subprocess.run(['adb','-s',SERIAL,'pull',DATA+'/penchat.db',str(fixture)],check=True,capture_output=True)
+            with sqlite3.connect(fixture) as db:
+                if not db.execute("select count(*) from sqlite_master where name='app_settings'").fetchone()[0]:
+                    db.executescript((ROOT/'native/lvgl-app/src/schema.hpp').read_text().split('R"SQL(')[1].split(')SQL"')[0])
+                db.execute('insert or replace into app_settings values(?,?,1)',('onboarding',json.dumps({'version':1,'complete':True,'step':6})))
+            db.close()
+            subprocess.run(['adb','-s',SERIAL,'push',str(fixture),DATA+'/penchat.db'],check=True,capture_output=True)
     wake()
     start_app();time.sleep(2.2) # Let Falcon's app transition finish before corner mapping.
     if SERIAL=='MEA2300009007113' and int(shell('cat /sys/class/backlight/backlight/actual_brightness'))<=5:

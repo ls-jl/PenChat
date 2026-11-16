@@ -15,7 +15,10 @@ def run(ctx):
             k=next(k for k in state()['keys'] if k['key']=='language');x,y=ctx['raw'](k['x'],k['y'])
             ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap --hold '+f'{x} {y} 700 2>/dev/null')
             wait(lambda:state()['layout_menu'])
-        b=state()['actions'][name];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+        e=state()
+        if name=='expand' and 'expand' not in e['actions'] and e['compact_full']:
+            assert e['compact_composition'];name='compact-view'
+        b=e['actions'][name];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
     def key(name):
         k=next(k for k in state()['keys'] if k['key']==name);tap(k['x'],k['y'])
     def open_editor():ctx['open_chat_editor']()
@@ -50,8 +53,14 @@ def run(ctx):
     tap(right-2,y);length+=1;wait(lambda:state()['length']==length and state()['shift']==2);key('shift')
     capture('keyboard-edge-keys');action('cancel');wait(lambda:not state()['active'])
     open_editor();assert state()['layout']=='zh26';capture('pinyin-26')
+    # Reuse the just-read snapshot for the next tap, avoiding diagnostic
+    # latency while following the nine-key layout's different globe position.
+    current=state()
     for wanted in ['en26','zh9','zh26']:
-        key('language');assert state()['layout']==wanted
+        globe=next(k for k in current['keys'] if k['key']=='language')
+        gx,gy=ctx['raw'](globe['x'],globe['y'])
+        ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap '+f'{gx} {gy} 2>/dev/null')
+        current=state();actual=current['layout'];assert actual==wanted,(wanted,actual,'rapid globe cycle')
     for c in 'niao':key(c)
     ready();assert 0<state()['corrected_count']<=2;capture('pinyin-valid-alternatives')
     action(f"choose:{state()['revision']}:3");wait(lambda:state()['length']==2 and not state()['preedit_length'])
@@ -74,7 +83,7 @@ def run(ctx):
     for c in '64426':key('t9:'+c)
     ready();assert state()['preferred_layout']=='zh9'
     action('expand');assert state()['expanded']
-    if H>W:
+    if H>W or state()['compact_full']:
         assert not any(k['key'].startswith('t9:') for k in state()['keys'])
         action('expand');assert not state()['expanded']
     key('t9:6');assert state()['preedit_length']==6 and not state()['expanded']
