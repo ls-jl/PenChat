@@ -35,6 +35,27 @@ int main(int argc,char **argv) {
       for(size_t role=0;role<size_t(KeyboardFont::Count);++role)
         assert(scaled.font(KeyboardFont(role),view)==metrics.sp(defaults.font(KeyboardFont(role),view)));
   }
+  for(auto size:{std::make_pair(960,266),{936,280},{640,260},{568,1210}})
+    for(bool expanded:{false,true})for(bool swapped:{false,true})for(bool shortcut:{false,true}) {
+      const UiMetrics metrics;
+      const EditorLayout layout(size.first,size.second,false,false,swapped,expanded,false,
+                                defaults,false,metrics,shortcut);
+      const auto actions=layout.actions();
+      int officialCount=0;
+      for(const auto &action:actions) {
+        if(std::string(action.name)=="official") {
+          ++officialCount;
+          assert(action.width==(layout.compactFull?layout.controlMetrics.height:layout.controlMetrics.officialWidth));
+        }
+        assert(action.x>=0&&action.x+action.width<=layout.width&&action.width>0);
+      }
+      assert(officialCount==int(shortcut));
+      if(shortcut&&!layout.portrait&&!layout.compactFull) {
+        const auto cancel=actions.front();
+        for(const auto &action:actions)if(std::string(action.name)=="official")
+          assert(action.x==cancel.x+cancel.width+layout.controlMetrics.gap);
+      }
+    }
   KeyboardDesign design=defaults;
   design.base.radius=13;
   design.roles[size_t(KeyboardRole::Function)].background=theme::palette().accent;

@@ -623,8 +623,9 @@ try:
     tap(W//2,H-34);wait(lambda:state()['editor']['active']);capture('keyboard')
     assert state()['editor']['top_panel_blocked']
     actions=state()['editor']['actions']
-    assert list(sorted(actions,key=lambda k:actions[k][0]))==['cancel','official','ocr-mode','done','clipboard']
-    for name,width in [('official',64),('ocr-mode',48),('done',104),('clipboard',44)]:
+    quick=state()['editor']['official_shortcut']['saved']
+    assert list(sorted(actions,key=lambda k:actions[k][0]))==(['cancel','official','ocr-mode','done','clipboard'] if quick else ['cancel','ocr-mode','done','clipboard'])
+    for name,width in ([('official',64)] if quick else [])+[('ocr-mode',48),('done',104),('clipboard',44)]:
         x1,y1,x2,y2=actions[name];assert x2-x1+1==width and y2-y1+1==44
     x1,y1,x2,y2=actions['ocr-mode'];tap((x1+x2)//2,(y1+y2)//2)
     wait(lambda:state()['editor']['ocr_multi']);capture('keyboard-multi')

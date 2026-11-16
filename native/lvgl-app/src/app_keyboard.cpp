@@ -34,9 +34,9 @@ std::string keyboardPunctuation(const std::string &key,bool chinese,int mode) {
 }
 const EditorLayout &App::editorLayout() const {
   const int official=officialDocked_&&keyboard_?officialHeight_:0;
-  const std::array<int,12> key{{screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,
+  const std::array<int,13> key{{screen_.width,screen_.height,editorSelectionOnly_,editorInlineChat_,
     editorSwapSides_,editorCompactExpanded_,editor_.secret,roundedDisplay_,official,
-    uiMetrics_.densityPercent(),uiMetrics_.scalePercent(),uiMetrics_.textPercent()}};
+    uiMetrics_.densityPercent(),uiMetrics_.scalePercent(),uiMetrics_.textPercent(),officialShortcut_}};
   if(editorLayoutCache_&&key==editorLayoutKey_){++editorLayoutCacheHits_;return *editorLayoutCache_;}
   const int requested=int(std::lround(uiMetrics_.factor()*100));
   for(int percent=requested;percent>=std::min(100,requested);--percent) {
@@ -44,7 +44,7 @@ const EditorLayout &App::editorLayout() const {
     auto design=resolveKeyboardDesign(keyboardDesign(),metrics);
     auto candidate=std::unique_ptr<EditorLayout>(new EditorLayout(screen_.width,screen_.height,
       editorSelectionOnly_,editorInlineChat_,editorSwapSides_,editorCompactExpanded_,editor_.secret,
-      design,roundedDisplay_,metrics));
+      design,roundedDisplay_,metrics,officialShortcut_));
     bool fits=true;
     if((percent!=100 || uiMetrics_.textPercent()!=100) && !editorSelectionOnly_) {
       fits=candidate->keyTop>=0 && candidate->rowHeight>0 && candidate->bottomHeight>0 &&
@@ -300,7 +300,7 @@ void App::editorBuild() {
   if(!layout.docked)lv_obj_move_background(editorPanel);
   for(const auto &a:layout.actions(editorInlineChat_,!editorMultiLineSupported_)) {
     const std::string actionName=a.name;
-    const std::string title=actionName=="cancel"?"取消":
+    const std::string title=actionName=="cancel"?"取消":actionName=="official"?(layout.compactFull?"":"官方"):
       actionName=="done"?(layout.portrait?"":editorInlineChat_?"收起":"完成"):actionName=="ocr-mode"?
       (!editorOcrActive_&&!editorOcrId_.empty()?"重试":editorOcrMulti_?(layout.portrait?"多行扫描":"多行"):(layout.portrait?"单行扫描":"单行")):"";
     auto b=control(title,a.x,a.y,a.width,actionName);
@@ -311,7 +311,7 @@ void App::editorBuild() {
       // Grow only the invisible target; leave space below the Enter key.
       lv_obj_set_ext_click_area(b,editorDesign().controls.finishTouchGrow);
     }
-    if(actionName=="official")attachIcon(b,"keyboard",editorDesign().style(KeyboardRole::Auxiliary).foreground,editorDesign().icons.controlScale, editorMetrics());
+    if(actionName=="official"&&layout.compactFull)attachIcon(b,"keyboard",editorDesign().style(KeyboardRole::Auxiliary).foreground,editorDesign().icons.controlScale, editorMetrics());
     if(actionName=="clipboard"&&!layout.compactFull)attachIcon(b,"clipboard",editorDesign().style(KeyboardRole::Auxiliary).foreground,editorDesign().icons.controlScale, editorMetrics());
   }
   } else {
@@ -466,7 +466,7 @@ void App::editorBuild() {
       auto globe=layout.globeKey();
       for(const auto &key:editorKeys_)if(key.value=="language")globe={key.x,key.y,key.w,key.h};
       const int width=layout.portrait?std::min(popupStyle.portraitMenuWidth,screen_.width-2*this->layout().safeSide()):popupStyle.menuWidth;
-      const int height=std::min(layout.height-editorMetrics().dp(8),4*rowHeight+2*padding);
+      const int height=std::min(layout.height-editorMetrics().dp(8),(officialShortcut_?3:4)*rowHeight+2*padding);
       popup=layout.floatingPopup(layout.portrait?this->layout().safeSide():globe.x-editorMetrics().dp(16),
                                   globe.y-popupStyle.menuGap-height,width,height);
     }
@@ -477,7 +477,7 @@ void App::editorBuild() {
     if(layouts)stylePopupPanel(panel,layout.portrait);
     if(layouts) {
       const char *names[]={"26键拼音","English","9键拼音","有道输入法"};
-      for(int i=0;i<4;++i) {
+      for(int i=0;i<(officialShortcut_?3:4);++i) {
         const auto command=i==3?std::string("official"):"layout:"+std::to_string(i);
         const int itemHeight=rowHeight-(layout.portrait?editorMetrics().dp(8):editorMetrics().dp(4));
         auto item=editorButton(panel,names[i],padding,padding+i*rowHeight,popup.width-2*padding,itemHeight,
@@ -1894,7 +1894,7 @@ Json App::editorDiagnostic() const {
   }
   Json anchor=Json::array();
   if(editorTarget_){lv_area_t a;lv_obj_get_coords(editorTarget_,&a);anchor={a.x1,a.y1,a.x2,a.y2};}
-  return {{"official_action",{{"pending",!officialActionId_.empty()},{"uncommitted",officialKeyEventAt_>officialTextEventAt_},{"key_time",officialKeyEventAt_},{"text_time",officialTextEventAt_}}},{"official_preference",{{"saved",preferOfficialKeyboard_},{"pending",!officialPreferenceRequest_.empty()},{"error",officialPreferenceError_}}},{"text_visible",editorText_&&!lv_obj_is_hidden(editorText_)},{"compact_full",layout.compactFull},{"compact_expanded",editorCompactExpanded_},{"tools_open",editorToolsOpen_},{"compact_composition",editorCompactComposition()},{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"selection_bounds",editorSelectionBounds_.width>0?
+  return {{"official_action",{{"pending",!officialActionId_.empty()},{"uncommitted",officialKeyEventAt_>officialTextEventAt_},{"key_time",officialKeyEventAt_},{"text_time",officialTextEventAt_}}},{"official_preference",{{"saved",preferOfficialKeyboard_},{"pending",!officialPreferenceRequest_.empty()&&officialPreferenceKey_=="prefer_official_keyboard"},{"error",officialPreferenceError_}}},{"official_shortcut",{{"saved",officialShortcut_},{"pending",!officialPreferenceRequest_.empty()&&officialPreferenceKey_=="quick_official_keyboard"},{"error",officialShortcutError_}}},{"text_visible",editorText_&&!lv_obj_is_hidden(editorText_)},{"compact_full",layout.compactFull},{"compact_expanded",editorCompactExpanded_},{"tools_open",editorToolsOpen_},{"compact_composition",editorCompactComposition()},{"keyboard_session",editorKeyboardId_},{"build_count",editorBuildCount_},{"refresh_count",editorRefreshCount_},{"deferred_keys",editorDeferred_.size()},{"select_pending",editorSelectPending_},{"shared_candidate_row",editorCandidateRow()},{"candidate_y",layout.candidateY},{"function_y",layout.actionsY},{"targets",targets},{"target_bounds",anchor},{"text_in_target",editorTarget_&&editorText_&&lv_obj_get_parent(editorText_)==editorTarget_},{"magnifier",editorMagnifier_!=nullptr},{"magnifier_bounds",magnifierBounds},{"magnifier_caret",magnifierCaret},{"selection_popup",selectionPopup},{"selection_bounds",editorSelectionBounds_.width>0?
     Json::array({editorSelectionBounds_.x,editorSelectionBounds_.y,editorSelectionBounds_.x+editorSelectionBounds_.width-1,editorSelectionBounds_.y+editorSelectionBounds_.height-1}):Json::array()},{"cursor_drag",editorCursorDrag_},{"selection_handles",handles},{"caret",{caret.x,caret.y}},{"text_scroll",editorText_?lv_obj_get_scroll_y(editorText_):0},{"controls",controls},{"actions",actions},{"in_place",editor_.active&&editorInPlace()&&editorTarget_!=nullptr},{"input_anchor",editorTargetKey_},{"docked",layout.docked},{"dismiss_offset",editorDismissOffset_},{"dismiss_threshold",editorDismissThreshold_},{"dismissing",editorDismissing_},{"dismiss_returning",editorDismissReturnAt_!=0},{"inline_chat",editorInlineChat_},{"panel_top",layout.panelTop},{"selection_only",editorSelectionOnly_},{"active",editor_.active},{"official",keyboard_},{"session",editor_.id},{"mode",editor_.mode},
     {"layout",editor_.layout==0?"zh26":editor_.layout==1?"en26":"zh9"},{"preferred_layout",editor_.preferredChinese==2?"zh9":"zh26"},
     {"layout_menu",editorLayoutMenu_},{"layout_popup",layoutPopup},{"layout_hold",editorLayoutHold_},{"expanded",editorExpanded_},{"punctuation_menu",editorPunctuation_},{"exact_count",editorExact_.size()},
@@ -1917,22 +1917,27 @@ Json App::editorDiagnostic() const {
 } // namespace penchat
 
 namespace penchat {
-void App::requestOfficialKeyboardPreference() {
+void App::requestOfficialKeyboardPreference(bool shortcut) {
   if(view_!="keyboard_settings"||!officialPreferenceRequest_.empty())return;
-  officialPreferenceTarget_=!preferOfficialKeyboard_;
-  officialPreferenceError_=false;officialPreferenceRequest_=uid("official-keyboard-setting");
-  auto row=settingsControls_.find("prefer_official_keyboard");
+  officialPreferenceKey_=shortcut?"quick_official_keyboard":"prefer_official_keyboard";
+  officialPreferenceTarget_=!(shortcut?officialShortcut_:preferOfficialKeyboard_);
+  (shortcut?officialShortcutError_:officialPreferenceError_)=false;
+  officialPreferenceRequest_=uid("official-keyboard-setting");
+  auto row=settingsControls_.find(officialPreferenceKey_);
   if(row!=settingsControls_.end()) {
     lv_obj_add_state(row->second.row,LV_STATE_DISABLED);
     lv_label_set_text(row->second.detail,"正在保存…");
   }
-  db_.queueSetting("prefer_official_keyboard",officialPreferenceTarget_,officialPreferenceRequest_);
+  db_.queueSetting(officialPreferenceKey_,officialPreferenceTarget_,officialPreferenceRequest_);
 }
 void App::officialKeyboardPreferenceSaved(const Event &event) {
-  if(officialPreferenceRequest_.empty()||event.data.value("request",std::string())!=officialPreferenceRequest_)return;
-  if(event.type=="setting_saved")preferOfficialKeyboard_=officialPreferenceTarget_;
+  if(officialPreferenceRequest_.empty()||event.data.value("request",std::string())!=officialPreferenceRequest_||
+      event.data.value("key",std::string())!=officialPreferenceKey_)return;
+  const bool shortcut=officialPreferenceKey_=="quick_official_keyboard";
+  if(event.type=="setting_saved")(shortcut?officialShortcut_:preferOfficialKeyboard_)=officialPreferenceTarget_;
   else if(event.type!="setting_error")return;
-  officialPreferenceError_=event.type=="setting_error";officialPreferenceRequest_.clear();
+  (shortcut?officialShortcutError_:officialPreferenceError_)=event.type=="setting_error";
+  officialPreferenceRequest_.clear();officialPreferenceKey_.clear();
   if(view_=="keyboard_settings")build();
 }
 void App::keyboardSettingsPage() {
@@ -1950,10 +1955,13 @@ void App::keyboardSettingsPage() {
   settingsRow("pinyin_correction","拼音纠错","为26键拼音补充错键候选",uiMetrics_.dp(10),uiMetrics_.dp(92),column,[this,correction]{db_.setting("pinyin_correction",!correction);build();},correction);
   const bool swapSides=wideKeyboardSwap_;
   settingsRow("wide_keyboard_swap","横屏键盘左右互换","左右分区时：键盘在右，编辑区在左",uiMetrics_.dp(26)+column,uiMetrics_.dp(92),column,[this,swapSides]{wideKeyboardSwap_=!swapSides;db_.queueSetting("wide_keyboard_swap",wideKeyboardSwap_);build();},swapSides);
-  const std::string officialDetail=!officialPreferenceRequest_.empty()?"正在保存…":officialPreferenceError_?"官方键盘偏好未能保存，请点按重试":preferOfficialKeyboard_?"新输入默认打开有道输入法":"新输入默认打开内置键盘";
+  const std::string officialDetail=!officialPreferenceRequest_.empty()&&officialPreferenceKey_=="prefer_official_keyboard"?"正在保存…":officialPreferenceError_?"官方键盘偏好未能保存，请点按重试":preferOfficialKeyboard_?"新输入默认打开有道输入法":"新输入默认打开内置键盘";
   settingsRow("prefer_official_keyboard","默认使用官方键盘",officialDetail,uiMetrics_.dp(10),uiMetrics_.dp(156),width-uiMetrics_.dp(20),[this]{requestOfficialKeyboardPreference();},preferOfficialKeyboard_);
   if(!officialPreferenceRequest_.empty())lv_obj_add_state(settingsControls_.at("prefer_official_keyboard").row,LV_STATE_DISABLED);
+  const std::string shortcutDetail=!officialPreferenceRequest_.empty()&&officialPreferenceKey_=="quick_official_keyboard"?"正在保存…":officialShortcutError_?"快捷切换未能保存，请点按重试":officialShortcut_?"在键盘功能区直接切换，不放入地球菜单":"长按地球，在菜单中选择有道输入法";
+  settingsRow("quick_official_keyboard","快捷切换官方键盘",shortcutDetail,uiMetrics_.dp(10),uiMetrics_.dp(220),width-uiMetrics_.dp(20),[this]{requestOfficialKeyboardPreference(true);},officialShortcut_);
+  if(!officialPreferenceRequest_.empty())lv_obj_add_state(settingsControls_.at("quick_official_keyboard").row,LV_STATE_DISABLED);
   const auto preferred=editor_.preferredChinese==2?std::string("zh9"):std::string("zh26");
-  label(pageContent_,std::string("常用中文布局：")+(preferred=="zh9"?"9键拼音":"26键拼音")+"\n实际输入后自动记住；长按地球可直接选择布局。",uiMetrics_.dp(10),uiMetrics_.dp(232),width-uiMetrics_.dp(20),uiMetrics_.fontSize(UiFont::FormNote),theme::palette().muted);
+  label(pageContent_,std::string("常用中文布局：")+(preferred=="zh9"?"9键拼音":"26键拼音")+"\n实际输入后自动记住；长按地球可直接选择布局。",uiMetrics_.dp(10),uiMetrics_.dp(296),width-uiMetrics_.dp(20),uiMetrics_.fontSize(UiFont::FormNote),theme::palette().muted);
 }
 } // namespace penchat

@@ -774,15 +774,16 @@ class App {
   const EditorLayout &editorLayout() const;
   const KeyboardDesign &editorDesign() const { editorLayout();return editorDesignCache_; }
   const UiMetrics &editorMetrics() const { editorLayout();return editorMetricsCache_; }
-  mutable std::array<int,12> editorLayoutKey_{};
+  mutable std::array<int,13> editorLayoutKey_{};
   mutable std::unique_ptr<EditorLayout> editorLayoutCache_;
   mutable KeyboardDesign editorDesignCache_;
   mutable UiMetrics editorMetricsCache_;
   mutable uint64_t editorLayoutResolves_=0,editorLayoutCacheHits_=0;
   bool wideKeyboardSwap_=false, editorSwapSides_=false;
-  bool preferOfficialKeyboard_=false, officialPreferenceTarget_=false, officialPreferenceError_=false;
-  std::string officialPreferenceRequest_, editorDefaultOfficial_;
-  void requestOfficialKeyboardPreference();
+  bool preferOfficialKeyboard_=false, officialShortcut_=false, officialPreferenceTarget_=false;
+  bool officialPreferenceError_=false, officialShortcutError_=false;
+  std::string officialPreferenceRequest_, officialPreferenceKey_, editorDefaultOfficial_;
+  void requestOfficialKeyboardPreference(bool shortcut=false);
   void officialKeyboardPreferenceSaved(const Event &event);
   EditorState editor_;
   TextGesture editorTextGesture_;

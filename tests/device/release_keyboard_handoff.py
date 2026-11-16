@@ -4,6 +4,11 @@ from release_official_surface import controller_command
 
 def run(d):
  assert d.s6 and (d.w,d.h)==(640,260),'This observed fixture is the S6 full-screen system editor'
+ d.settings();d.tap(d.reveal(lambda s:s['settings']['rows']['keyboard']['bounds']))
+ d.wait(lambda:d.state()['view']=='keyboard_settings')
+ if not d.state()['editor']['official_shortcut']['saved']:
+  d.tap(d.reveal(lambda s:s['settings']['rows']['quick_official_keyboard']['bounds']))
+  d.wait(lambda:d.state()['editor']['official_shortcut']['saved'])
  s=d.chat();pid=d.pid();d.tap(s['composer_text_bounds']);d.wait(lambda:d.state()['editor']['active'])
  if d.state()['editor']['chinese']:d.editor_key('language')
  for key in 'qa':d.editor_key(key)

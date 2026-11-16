@@ -8,7 +8,9 @@ for w,h in [(960,266),(640,260),(568,1210)]:
  with tempfile.TemporaryDirectory(prefix='penchat-keyboard-handoff-') as tmp:
   a=ui.Native(ui.ROOT/'build/host/penchat-lvgl',tmp,official_adapter=False,screen={'width':w,'height':h})
   try:
-   open_editor(a)
+   a.open_settings();a.setting('keyboard');a.setting('quick_official_keyboard')
+   ui.wait_for(lambda:a.diag()['editor']['official_shortcut']['saved'])
+   a.to_chat();open_editor(a)
    assert 'official' in a.diag()['editor']['actions']
    # Tap the actual action, without opening the globe menu.
    b=a.diag()['editor']['actions']['official'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)

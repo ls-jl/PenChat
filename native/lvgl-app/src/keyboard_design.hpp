@@ -74,7 +74,7 @@ struct KeyboardDesign {
   } composition;
   KeyboardCandidateMetrics candidates;
   struct Controls {
-    int height=44, gap=4, doneWidth=104, clipboardWidth=44, ocrWidth=48;
+    int height=44, gap=4, doneWidth=104, clipboardWidth=44, ocrWidth=48, officialWidth=64;
     int portraitCancelWidth=84, portraitOcrWidth=112, portraitClipboardWidth=48;
     int portraitDoneWidth=64;
     int captionInset=4, popupCaptionInset=24, inputPadding=6, caretOffset=8;
@@ -194,6 +194,7 @@ inline KeyboardDesign resolveKeyboardDesign(const KeyboardDesign &base,const UiM
   result.controls.doneWidth=metrics.dp(base.controls.doneWidth);
   result.controls.clipboardWidth=metrics.dp(base.controls.clipboardWidth);
   result.controls.ocrWidth=metrics.dp(base.controls.ocrWidth);
+  result.controls.officialWidth=metrics.dp(base.controls.officialWidth);
   result.controls.portraitCancelWidth=metrics.dp(base.controls.portraitCancelWidth);
   result.controls.portraitOcrWidth=metrics.dp(base.controls.portraitOcrWidth);
   result.controls.portraitClipboardWidth=metrics.dp(base.controls.portraitClipboardWidth);
@@ -211,7 +212,7 @@ inline KeyboardDesign resolveKeyboardDesign(const KeyboardDesign &base,const UiM
   result.wide.bottomInset=metrics.dp(base.wide.bottomInset);
   result.compact.headerHeight=std::max(result.controls.height,metrics.dp(base.compact.headerHeight));
   result.compact.headerGap=metrics.dp(base.compact.headerGap);
-  result.compact.textLeading=std::max(metrics.dp(base.compact.textLeading),3*result.controls.height+4*result.controls.gap);
+  result.compact.textLeading=std::max(metrics.dp(base.compact.textLeading),2*result.controls.height+3*result.controls.gap);
   result.compact.textTrailing=std::max(metrics.dp(base.compact.textTrailing),result.controls.height+2*result.controls.gap);
   result.compact.doneWidth=metrics.dp(base.compact.doneWidth);
   result.compact.bottomInset=metrics.dp(base.compact.bottomInset);

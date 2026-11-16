@@ -25,7 +25,7 @@ struct EditorLayout {
   int width, height, split, textX, textWidth, textY = 56, textHeight;
   int actionsY, bottomY, rowHeight, keyTop=6, bottomHeight=44, candidateY=6, compositionY=6;
   bool portrait=false, docked=false, compact=false, compactFull=false;
-  bool rounded=false;
+  bool rounded=false, officialShortcut=false;
   ScreenSafety safety() const { return {width,height,rounded}; }
   int panelTop=0, textAreaWidth=0, keyboardLift=0;
   int keyInset=0, keySpan=0;
@@ -33,12 +33,12 @@ struct EditorLayout {
   double keyWidth;
   EditorLayout(int w, int h, bool selectionOnly = false, bool chatComposer = false,
                bool swapWideSides = false, bool compactExpanded = false,
-               bool inlineReveal = false, const KeyboardDesign &design = keyboardDesign(), bool roundedScreen = false, const UiMetrics &ui = UiMetrics()) :
+               bool inlineReveal = false, const KeyboardDesign &design = keyboardDesign(), bool roundedScreen = false, const UiMetrics &ui = UiMetrics(), bool quickOfficial = false) :
       metrics(ui),
       keyMetrics(design.keys),compositionMetrics(design.composition),candidateMetrics(design.candidates),
       controlMetrics(design.controls),compactMetrics(design.compact),popupMetrics(design.popups),
       nativeWidth(w),nativeHeight(h),width(w),height(h) {
-    rounded=roundedScreen;
+    rounded=roundedScreen;officialShortcut=quickOfficial;
     keyGap=design.keys.gap;rowGap=design.keys.rowGap;keyMargin=design.keys.margin;
     keyTop=design.wide.keyTop;bottomHeight=design.controls.height;
     candidateY=compositionY=design.wide.keyTop;
@@ -67,7 +67,7 @@ struct EditorLayout {
     if(swapped) {keyInset=w-split;textX=design.wide.inset;}
     if(compactFull) {
       split=keySpan=w;keyInset=0;
-      textX=design.compact.textLeading;textWidth=std::max(1,w-textX-design.compact.textTrailing);
+      textX=officialShortcut?std::max(design.compact.textLeading,3*controlMetrics.height+4*controlMetrics.gap):design.compact.textLeading;textWidth=std::max(1,w-textX-design.compact.textTrailing);
       textY=candidateY=compositionY=actionsY=0;textHeight=design.compact.headerHeight;
       keyTop=design.compact.headerHeight+design.compact.headerGap;
       bottomHeight=design.controls.height;bottomY=h-bottomHeight-design.compact.bottomInset;
@@ -264,14 +264,17 @@ struct EditorLayout {
   struct Action { const char *name; int x, width, y; };
   std::vector<Action> actions(bool chat=false, bool singleLineOcr=false) const {
     const auto &c=controlMetrics;const int gap=c.gap;
-    if(compactFull)return {{"cancel",gap,c.height,0},{singleLineOcr?"clipboard":"tools",2*gap+c.height,c.height,0},
-      {"official",3*gap+2*c.height,c.height,0},
-      {"done",width-compactMetrics.doneWidth-compactMetrics.bottomInset,compactMetrics.doneWidth,bottomY}};
+    if(compactFull) {
+      std::vector<Action> a{{"cancel",gap,c.height,0},{singleLineOcr?"clipboard":"tools",2*gap+c.height,c.height,0}};
+      if(officialShortcut)a.push_back({"official",3*gap+2*c.height,c.height,0});
+      a.push_back({"done",width-compactMetrics.doneWidth-compactMetrics.bottomInset,compactMetrics.doneWidth,bottomY});
+      return a;
+    }
     if(portrait) {
       std::vector<Action> a;
       if(!chat)a.push_back({"cancel",0,c.portraitCancelWidth,actionsY});
       if(!singleLineOcr)a.push_back({"ocr-mode",0,c.portraitOcrWidth,actionsY});
-      a.push_back({"official",0,c.height,actionsY});
+      if(officialShortcut)a.push_back({"official",0,c.officialWidth,actionsY});
       a.push_back({"clipboard",0,c.portraitClipboardWidth,actionsY});
       int total=0;for(const auto &v:a)total+=v.width;
       const int spacing=a.size()>1?(textWidth-total)/int(a.size()-1):0;int x=textX;
@@ -284,9 +287,10 @@ struct EditorLayout {
     const int clip=compact?compactTouchWidth():c.clipboardWidth;
     const int ocr=compact?compactTouchWidth():c.ocrWidth;
     const int doneX=textRight()-clip-gap-c.doneWidth;
-    std::vector<Action> a{{"cancel",textX,textWidth-clip-c.doneWidth-c.height-3*gap-(singleLineOcr?0:ocr+gap),actionsY}};
+    const int official=officialShortcut?c.officialWidth+gap:0;
+    std::vector<Action> a{{"cancel",textX,textWidth-clip-c.doneWidth-official-2*gap-(singleLineOcr?0:ocr+gap),actionsY}};
     if(!singleLineOcr)a.push_back({"ocr-mode",doneX-gap-ocr,ocr,actionsY});
-    a.push_back({"official",doneX-(singleLineOcr?0:ocr+gap)-gap-c.height,c.height,actionsY});
+    if(officialShortcut)a.push_back({"official",doneX-(singleLineOcr?0:ocr+gap)-gap-c.officialWidth,c.officialWidth,actionsY});
     a.push_back({"done",doneX,c.doneWidth,actionsY});
     a.push_back({"clipboard",textRight()-clip,clip,actionsY});
     return a;
