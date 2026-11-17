@@ -516,7 +516,7 @@ class ReleaseDevice(ScopedDevice):
     # tool row leaves its middle available to focus the native editor.
     b = d['composer_bounds']
     self.touch((b[0]+b[2])/2, (b[1]+b[3])/2)
-    self.wait(lambda: self.state()['editor']['active'])
+    self.wait(lambda: self.state()['editor']['active'] and self.state()['editor']['keys'] and not self.state()['surface_motion'])
     self.capture('keyboard-review-light-open')
     if self.state()['editor']['chinese']:
       self.editor_key('language')
@@ -541,6 +541,9 @@ class ReleaseDevice(ScopedDevice):
     self.wait(lambda: not self.state()['editor']['active'])
     self.capture('keyboard-review-light-hidden')
     d = self.state()
+    if self.w>self.h:
+      assert not d['composer_hidden']
+      b=d['composer_text_bounds'];assert b[3]-b[1]+1<=3*d['composer_line_height']
     snapshots.append({'name': 'hidden', 'composer': d['composer_bounds'], 'time': d['diagnostic_time']})
     # Retain draft while opening/closing the drawer, and verify it survives.
     before = d['draft_length']
