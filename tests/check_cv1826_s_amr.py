@@ -7,6 +7,7 @@ import struct
 import sys
 import zipfile
 from runtime_policy import check_native_payload
+from rescue_payload import check_rescue
 
 ROOT = Path(__file__).resolve().parents[1]
 ui_only = '--ui-only' in sys.argv[2:]
@@ -23,7 +24,8 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
     manifest = json.loads(archive.read('manifest.json'))
     assert (manifest['appName'], manifest['appid'], manifest['version']) == (app['name'], app['appid'], app['version'])
     assert all(not Path(n).is_absolute() and '..' not in Path(n).parts for n in names)
-    assert not any(n.endswith('.rknn') or 'arm64' in n or 'arm32-cv1826-s' not in n and n.startswith('libs/arm') for n in names)
+    runtime = check_rescue(archive,'cv1826-s')
+    assert not any(n.endswith('.rknn') for n in names)
     assert {n for n in names if n.startswith('assets/bin/') and not n.endswith('/')} == {
         'assets/bin/penchat-lvgl', 'assets/bin/penchat-sensor-guard', 'assets/bin/penchat-web-search'} | (set() if ui_only else {'assets/bin/penchat-scanner'})
     forbidden = set(json.loads((ROOT / 'native/scanner/cvi-media.lock.json').read_text())['libraries'])
@@ -35,11 +37,14 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
         assert Path(n).name not in forbidden, 'Device-only SDK redistributed: ' + n
         data = archive.read(n)
         if data.startswith(b'\x7fELF'):
+            if n.startswith('libs/arm64/libjsapi_penchat_rescue_'):
+                count += 1
+                continue
             assert data[4:6] == b'\x01\x01' and struct.unpack_from('<H', data, 18)[0] == 40, n
             assert struct.unpack_from('<I', data, 36)[0] & 0x400, 'Not hard-float: ' + n
             check_native_payload(data,n)
             count += 1
-    assert count == (6 if ui_only else 10), ('Unexpected native payload count', count)
+    assert count == (7 if ui_only else 11), ('Unexpected native payload count', count)
     if not ui_only:
         model = archive.read('assets/scanner/pintu_rgb32_int8.cvimodel')
         lock = json.loads((ROOT / 'native/scanner/cvi-dependencies.lock.json').read_text())
@@ -48,7 +53,7 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
     assert b'PENCHAT_TEST_CA' not in binary and b'scanner.test' not in binary
     assert b'S6 compositor is unavailable' in binary
     assert b'/sys/module/cvifb/parameters/start_' not in binary, 'Old CVI display linked'
-    launcher = archive.read('libs/arm32-cv1826-s/libjsapi_penchat_launcher.so')
+    launcher = runtime
     assert b'11e46687d3c7301d3049d02d84144ee37e5a9994ca5ec1e9f5eaf278db92519b' in launcher
     assert b'--compositor-fd' in launcher
     assert 'assets/scanner/demo_gain.json' not in names

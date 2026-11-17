@@ -441,13 +441,16 @@ public:
     if(!lease_.owns(o["runtimeId"].int_value(),o["ownerGeneration"].int_value())) {
       info.post(Bson::object{{"ok",false},{"stale",true}});return;
     }
+    if(o["preservePublic"].bool_value()&&pid_>0)
+      penchat::atomicText(ownData_+"/.rescue-preserve-public",penchat::Json{{"pid",int(pid_)},{"time_ms",penchat::nowMs()}}.dump());
     if(exitReason_.empty())exitReason_="requested_stop";stopLocked();screenPower_.stop();
     info.post(Bson::object{{"ok", true}});
   }
 };
-std::vector<std::string> exports = {"launcher"};
-int init(JSContext *ctx, JSModuleDef *module) {
-  auto env = JQModuleEnv::CreateModule(ctx, module, "penchatLauncher");
+JSValue createRuntime(JSContext *ctx) {
+  auto env = JQGlobalObjectEnv::Create(ctx,"__penchat_runtime_v1");
+  env->setAppid(JQuick::getAppid(ctx));env->setDataDir(JQuick::getDataDir(ctx));
+  env->setAppDir(JQuick::getWorkspace(ctx));
   auto tpl = JQFunctionTemplate::New(env.get(), "launcher");
   tpl->InstanceTemplate()->setObjectCreator([]() { return new Launcher; });
   tpl->SetProtoMethodPromise("start", &Launcher::start);
@@ -463,7 +466,12 @@ int init(JSContext *ctx, JSModuleDef *module) {
   tpl->SetProtoMethod("officialKeyboard", &Launcher::officialKeyboard);
   tpl->SetProtoMethod("closeOfficialKeyboard", &Launcher::closeOfficialKeyboard);
   tpl->SetProtoMethodPromise("stop", &Launcher::stop);
-  env->setModuleExport("launcher", tpl->CallConstructor());
+  return tpl->CallConstructor();
+}
+std::vector<std::string> exports = {"launcher"};
+int init(JSContext *ctx, JSModuleDef *module) {
+  auto env=JQModuleEnv::CreateModule(ctx,module,"penchatLauncher");
+  env->setModuleExport("launcher",createRuntime(ctx));
   env->setModuleExportDone(JS_UNDEFINED, exports);
   return 0;
 }
@@ -473,3 +481,4 @@ extern "C" JQUICK_EXPORT void custom_init_jsapis() {
   registerCModuleLoader("penchatLauncher", &penchatLauncher_module_load);
 }
 extern "C" JQUICK_EXPORT int jsapi_check_unload() { return 0; }
+extern "C" JQUICK_EXPORT JSValue penchat_create_runtime_v1(JSContext *ctx) { return createRuntime(ctx); }

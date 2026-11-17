@@ -3220,7 +3220,13 @@ void App::shutdown() {
   diagnosticRecord("lifecycle", "stop"); flushDiagnostics();
   shutdownHttp();
   db_.flush();
-  if (transfer_ && !transfer_->finish(db_.settings().value("persistent_export_directory", false)))
+  const auto rescueMarker=join(dataDir_,".rescue-preserve-public");
+  const auto rescueRecord=Json::parse(fileText(rescueMarker,1024),nullptr,false);
+  const bool ownRescue=rescueRecord.is_object()&&rescueRecord.value("pid",-1)==int(getpid());
+  const auto rescueAt=ownRescue?rescueRecord.value("time_ms",int64_t(0)):int64_t(0);
+  const bool rescueExit=ownRescue&&nowMs()>=rescueAt&&nowMs()-rescueAt<300000;
+  if(ownRescue)unlink(rescueMarker.c_str());
+  if (transfer_ && !transfer_->finish(std::uncaught_exception()||rescueExit||db_.settings().value("persistent_export_directory", false)))
     db_.setting("export_cleanup_failed", true);
 }
 void App::routeTouch(const Json &m) {

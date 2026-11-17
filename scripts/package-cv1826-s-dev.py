@@ -34,7 +34,7 @@ def main():
     for name in ['package.json', app['icon']]:
         shutil.copy2(ROOT / name, stage / name)
     shutil.copytree(ROOT / 'src', stage / 'src')
-    shutil.copytree(ROOT / 'assets', stage / 'assets', ignore=shutil.ignore_patterns('bin', 'scanner'))
+    shutil.copytree(ROOT / 'assets', stage / 'assets', ignore=shutil.ignore_patterns('bin', 'scanner', 'runtime', 'rescue'))
     bin_dir = stage / 'assets/bin'
     bin_dir.mkdir()
     for name, build in [('penchat-lvgl', 'cv1826-s'), ('penchat-sensor-guard', 'cv1826-s'), ('penchat-scanner', 'scanner-cv1826-s')]:
@@ -72,6 +72,7 @@ def main():
             subprocess.run([strip, '--strip-unneeded', str(path)], check=True)
     loader_id = int(hashlib.sha256(launcher.read_bytes()).hexdigest()[:12], 16)
     shutil.copy2(launcher, stage / 'libs' / ('libjsapi_penchat_launcher_' + str(loader_id) + '.so'))
+    subprocess.run(['python3',str(ROOT/'scripts/stage-rescue.py'),'cv1826-s',str(stage)],check=True)
     subprocess.run(['aiot-cli', '-c', '-q', '-p'], cwd=stage, check=True)
     package = stage / amr_name(app, 'cv1826-s')
     (stage / amr_name(app)).replace(package)

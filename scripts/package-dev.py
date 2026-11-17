@@ -14,11 +14,8 @@ shutil.copytree(ROOT/'src',stage/'src');shutil.copytree(ROOT/'assets',stage/'ass
 # Package current target builds, never a stale globally staged executable.
 for name,build in [('penchat-lvgl','rk3562'),('penchat-sensor-guard','rk3562'),('penchat-scanner','scanner-rk3562')]:
     shutil.copy2(ROOT/'build'/build/name,stage/'assets/bin'/name)
-launcher=stage/'libs/arm64-rk3562/libjsapi_penchat_launcher.so';launcher.parent.mkdir(parents=True)
-shutil.copy2(ROOT/'build/rk3562/libjsapi_penchat_launcher.so',launcher)
-subprocess.run(['bash',str(ROOT/'scripts/strip-production.sh'),str(stage/'assets/bin'),str(stage/'assets/scanner/lib'),str(launcher)],check=True)
-loader=int(hashlib.sha256(launcher.read_bytes()).hexdigest()[:12],16)
-shutil.copy2(launcher,stage/'libs'/('libjsapi_penchat_launcher_'+str(loader)+'.so'))
+subprocess.run(['bash',str(ROOT/'scripts/strip-production.sh'),str(stage/'assets/bin'),str(stage/'assets/scanner/lib')],check=True)
+subprocess.run(['python3',str(ROOT/'scripts/stage-rescue.py'),args.target,str(stage)],check=True)
 subprocess.run(['aiot-cli','-c','-q','-p'],cwd=stage,check=True)
 package=stage/amr_name(app,args.target)
 (stage/amr_name(app)).replace(package)

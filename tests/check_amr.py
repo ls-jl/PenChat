@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 """Check the production AMR against staged, locked native resources."""
-import hashlib, json, pathlib, re, struct, zipfile, subprocess, sys, runpy
+import hashlib, json, pathlib, re, struct, zipfile, subprocess, sys, runpy, tempfile
 from runtime_policy import check_native_payload
+from rescue_payload import check_rescue
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+def current_payload(name,build='rk3562'):
+    # Compare with a freshly stripped current build, never a global stale stage.
+    strip=subprocess.check_output(['bash','-c','source scripts/native-target.sh rk3562; printf "%s" "$PENCHAT_BUILD_STRIP"'],cwd=ROOT,text=True)
+    with tempfile.TemporaryDirectory(prefix='penchat-package-check-') as folder:
+        file=pathlib.Path(folder)/name;file.write_bytes((ROOT/'build'/build/name).read_bytes())
+        subprocess.run([strip,'--strip-unneeded',str(file)],check=True)
+        return file.read_bytes()
 APP=json.loads((ROOT/'package.json').read_text())
 path = pathlib.Path(sys.argv[1]) if len(sys.argv)>1 else ROOT / ('dist/'+APP['appid']+'.'+APP['version'].replace('.', '_')+'-rk3562.amr')
 subprocess.run([sys.executable,str(ROOT/'tests/check_licenses.py'),'--amr',str(path)],check=True)
@@ -34,7 +42,7 @@ with zipfile.ZipFile(path) as archive:
     assert b'PENCHAT_TEST_CA' not in binary, 'Test-only CA override leaked into production'
     assert b'8.17.0' in binary, 'Source-built libcurl version missing'
     assert binary[:5] == b'\x7fELF\x02' and struct.unpack_from('<H', binary, 18)[0] == 183
-    assert binary == (ROOT / 'assets/bin/penchat-lvgl').read_bytes()
+    assert binary == current_payload('penchat-lvgl')
     catalog = (ROOT/'build/rk3562/generated/model_catalog_data.bin').read_bytes()
     assert catalog[:4] == b'PCMC' and len(catalog) < 128*1024
     assert binary.count(catalog) == 1, 'Production executable must embed the freshly built capability catalog'
@@ -50,7 +58,7 @@ with zipfile.ZipFile(path) as archive:
     assert sorted(n for n in names if n.startswith('assets/web-search/lib/') and not n.endswith('/')) == ['assets/web-search/lib/libedge-curl-impersonate.so.4']
     scanner = archive.read('assets/bin/penchat-scanner')
     assert scanner[:5] == b'\x7fELF\x02' and struct.unpack_from('<H',scanner,18)[0] == 183
-    assert scanner == (ROOT/'assets/bin/penchat-scanner').read_bytes()
+    assert scanner == current_payload('penchat-scanner','scanner-rk3562')
     assert b'test.press' not in scanner and b'scanner.test' not in binary
     assert b'PENCHAT_TEST_SCAN_FAIL_PREPARE' not in scanner
     assert b'PENCHAT_TEST_SCAN_BAD_TAIL' not in scanner
@@ -67,10 +75,7 @@ with zipfile.ZipFile(path) as archive:
     guard = archive.read('assets/bin/penchat-sensor-guard')
     assert guard[:5] == b'\x7fELF\x02' and struct.unpack_from('<H',guard,18)[0] == 183
     assert b'--test-report' not in guard
-    bridges = [n for n in names if n.endswith('.so') and not n.startswith(('assets/scanner/','assets/web-search/'))]
-    assert len(bridges) == 2 and all('libjsapi_penchat_launcher' in n for n in bridges)
-    bridge = (ROOT / 'native/prebuilt/arm64-rk3562/libjsapi_penchat_launcher.so').read_bytes()
-    assert all(archive.read(n) == bridge for n in bridges)
+    bridge = check_rescue(archive,'rk3562')
     for name, payload in [('penchat-lvgl', binary), ('penchat-scanner', scanner),
                           ('penchat-sensor-guard', guard), ('launcher', bridge)]:
         check_native_payload(payload, name)
@@ -106,12 +111,13 @@ with zipfile.ZipFile(path) as archive:
         if not data.startswith(b'\x7fELF'):continue
         elf_count+=1
         check_native_payload(data, member)
-        assert data[4:6]==b'\x02\x01',member
-        offset=struct.unpack_from('<Q',data,40)[0]
-        entry_size,count,names_index=struct.unpack_from('<HHH',data,58)
-        assert entry_size==64 and 0<names_index<count and offset+count*entry_size<=len(data),member
+        assert data[4:6]==(b'\x01\x01' if member.startswith('libs/arm/libjsapi_penchat_rescue_') else b'\x02\x01'),member
+        is64=data[4]==2
+        offset=struct.unpack_from('<Q' if is64 else '<I',data,40 if is64 else 32)[0]
+        entry_size,count,names_index=struct.unpack_from('<HHH',data,58 if is64 else 46)
+        assert entry_size==(64 if is64 else 40) and 0<names_index<count and offset+count*entry_size<=len(data),member
         names_header=offset+names_index*entry_size
-        names_offset,names_size=struct.unpack_from('<QQ',data,names_header+24)
+        names_offset,names_size=struct.unpack_from('<QQ' if is64 else '<II',data,names_header+(24 if is64 else 16))
         names=data[names_offset:names_offset+names_size]
         for i in range(count):
             name_offset=struct.unpack_from('<I',data,offset+i*entry_size)[0]

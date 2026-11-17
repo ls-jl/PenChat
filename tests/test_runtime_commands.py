@@ -7,7 +7,7 @@ from runtime_policy import FORBIDDEN, check_native_payload
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 pattern = re.compile(r'\b(' + '|'.join(sorted(FORBIDDEN)) + r')\s*\(')
 roots = ['native/lvgl-app/src', 'native/camera/src', 'native/scanner/src',
-         'native/launcher/src', 'native/compositor', 'native/web-search', 'tests/native']
+         'native/launcher/src', 'native/rescue', 'native/compositor', 'native/web-search', 'tests/native']
 launches = {}
 for root in roots:
     for path in (ROOT/root).rglob('*'):
