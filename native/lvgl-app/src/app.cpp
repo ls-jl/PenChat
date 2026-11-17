@@ -1275,11 +1275,21 @@ void App::chatScrolled() {
   if (chatLayout_ || view_ != "chat" || !body_)
     return;
   closeAttachments();
+  const bool readerScroll = readerVertical_ &&
+      (readerPointer_ || readerSettle_ || lv_obj_is_scrolling(body_));
+  // Layout can adjust scroll extent after its immediate layout guard ended.
+  // A follower stays at the new bottom; only an actual reader gesture detaches it.
+  if (chatFollowing_ && !readerScroll && !pulling_ && messageOffset_ == 0 && !atLatestBottom()) {
+    const bool previous = chatLayout_;
+    chatLayout_ = true;
+    lv_obj_update_layout(body_);
+    lv_obj_scroll_to_y(body_, LV_COORD_MAX, LV_ANIM_OFF);
+    chatLayout_ = previous;
+  }
   const int nextScroll = std::max(0, int(lv_obj_get_scroll_y(body_)));
   // Only a recognized reader gesture and its inertia count. Layout reflows,
   // programmatic navigation and horizontal rich-text scrolling do not.
-  if (readerVertical_ && composerShortcutAvailable() &&
-      (readerPointer_ || readerSettle_ || lv_obj_is_scrolling(body_)))
+  if (readerScroll && composerShortcutAvailable())
     composerShortcut_.scroll(nextScroll - chatScroll_);
   chatScroll_ = nextScroll;
   if (atLatestBottom()) composerShortcut_.reset();

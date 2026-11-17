@@ -33,8 +33,8 @@ for content in [False,True]:
   finally:app.close()
 print('Composer pull: empty guard, new baseline boundary, retreat/cancel, creation and tap passed')
 
-# With conversation content, a long draft scrolls locally before a fresh pull
-# may create a new chat. A single gesture cannot switch owners at its bottom.
+# An overflowing draft owns its entire field, including a fresh gesture at its
+# local bottom. Only nonoverflowing text entries share pull-to-create.
 for w,h in [(960,266),(936,280)]:
  with tempfile.TemporaryDirectory() as directory:
   seed(directory,'已有会话')
@@ -57,12 +57,12 @@ for w,h in [(960,266),(936,280)]:
     app.send('touch',x=x,y=y-42,pressed=False);time.sleep(.15)
     d=app.diag();assert d['composer_scroll']>before and d['draft_length']==len(text)
     count+=1;assert count<100
-   # Start a separate deliberate pull only after the local text reached bottom.
+   # A new edge drag still belongs to this overflowing text entry.
    r=app.diag()['composer_text_bounds'];x=(r[0]+r[2])//2;y=r[3]-6
    full=app.diag()['pull_full_distance']
    for i in range(11):app.send('touch',x=x,y=y-int((full+20)*i/10),pressed=True);time.sleep(.06)
-   d=app.diag();assert d['pull_active'] and d['pull_progress']==100
+   d=app.diag();assert not d['pull_active'] and d['session']==first
    app.send('touch',x=x,y=y-full-20,pressed=False,cancelled=True)
    time.sleep(.2);assert app.diag()['session']==first and app.diag()['draft_length']==len(text)
   finally:app.close()
-print('Landscape long drafts: local scrolling, no mid-touch pull takeover and fresh pull/cancel at text bottom passed')
+print('Landscape long drafts: local scrolling and no pull takeover at either text boundary passed')

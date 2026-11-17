@@ -544,6 +544,7 @@ class ReleaseDevice(ScopedDevice):
     if self.w>self.h:
       assert not d['composer_hidden']
       b=d['composer_text_bounds'];assert b[3]-b[1]+1<=3*d['composer_line_height']
+      assert d['at_latest_bottom'] and d['following_latest'], 'Completion lost bottom following'
     snapshots.append({'name': 'hidden', 'composer': d['composer_bounds'], 'time': d['diagnostic_time']})
     # Retain draft while opening/closing the drawer, and verify it survives.
     before = d['draft_length']

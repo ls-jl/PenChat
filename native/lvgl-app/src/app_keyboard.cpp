@@ -988,7 +988,7 @@ void App::editorFinish(bool confirmed) {
     editorChoosing_=editorSelectPending_=false;editorDeferred_.clear();++editorRevision_;
   } else editorInterrupt();
   editorDefaultOfficial_.clear();
-  if(confirmed&&editorChat_&&!transfer)composerShortcut_.reveal(screen_.height);
+  if(confirmed&&editorChat_&&!transfer&&composerShortcut_.enabled())composerShortcut_.reveal(screen_.height);
   editorDetachTarget();editor_.active=false; keyboard_=false;editorReaderTouch_=false;
   touchDown_=composerTapAllowed_=pullTrackActivity_=false;
   editorComposerOpenHeight_=0;
