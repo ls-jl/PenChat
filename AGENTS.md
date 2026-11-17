@@ -378,7 +378,9 @@ the original field. The empty portrait composer with keyboard hidden is one 94px
 an open keyboard, give text its own full-width region above attachment/gauge/send;
 grow upward to 3x the original height, then scroll. Expanded portrait composers use a
 12px inner inset and bottom-aligned tool row; landscape keeps text between its
-controls, one row for short drafts and at most 2x height with local text scrolling.
+controls, one row for short drafts and at most three complete text lines measured
+from the final font metrics, with local text scrolling for overflow. Overflowing
+composer text gestures never become a chat pull-to-create gesture.
 Its corner radius stays at the single-row radius when growing. Landscape reader
 direction never automatically reveals the composer away from the latest bottom.
 Use the explicit composer shortcut according to its saved automatic/manual/off
