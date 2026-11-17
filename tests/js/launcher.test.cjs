@@ -6,20 +6,23 @@ function fixture() {
   const calls = [], timers = new Map()
   let clock = 0, editCallback
   const native = { alive: true, focused: true, panelVisible: false, focusQueries: 0, systemOverlay: () => ({supported:true,visible:native.panelVisible}), status: () => ({ alive: native.alive }), start: async value => { native.alive = true; calls.push(['start', value]) }, send: value => { calls.push(['send', value]); return true }, poll: () => [], stop: async () => calls.push(['stop']) }
+  const emergency = { bootstrap: () => ({compatible:true,platform:'rk3562',failure:''}), loadRuntime:()=>native, report:()=>true, state:()=>({status:'idle',releases:[],report:{status:'sent'}}), cancel:()=>true, request:()=>({job:'rescue-test'}), verifyInstalled:async()=>({verified:false}), reopen:()=>calls.push(['rescueReopen']) }
   const keyboard = { textEditFinished: { on: fn => { editCallback = fn }, off: () => calls.push(['off']) }, startTextEdit: config => { calls.push(['startTextEdit', JSON.parse(config)]); return 'edit-1' }, closeTextEdit: () => calls.push(['closeEdit']) }
   const context = vm.createContext({
-    console, appConfig: JSON.parse(fs.readFileSync('package.json', 'utf8')), launcher: native, am: { getTopApp: () => 'other-app', hasWindowFocus: () => { ++native.focusQueries; return native.focused } }, globalModule: { Global: function () { return keyboard } }, module: {},
+    console, pm: {getPackageInfo:()=>({})}, rescue: emergency, appConfig: JSON.parse(fs.readFileSync('package.json', 'utf8')), launcher: native, am: { getTopApp: () => 'other-app', hasWindowFocus: () => { ++native.focusQueries; return native.focused } }, globalModule: { Global: function () { return keyboard } }, module: {},
     $workspace: '/package', $dataDir: '/data', $falcon: { jsapi: { storage: { getStorage: async () => { throw new Error('Storage must not be read') } } } },
     setInterval: fn => { timers.set(++clock, fn); return clock }, clearInterval: id => timers.delete(id),
     setTimeout: fn => { timers.set(++clock, fn); return clock }, clearTimeout: id => timers.delete(id),
   })
   vm.runInContext(fs.readFileSync('src/launcher/ocr.js', 'utf8').replace('export class OcrSession', 'globalThis.OcrSession = class OcrSession'), context)
+  vm.runInContext(fs.readFileSync('src/launcher/rescue.js','utf8').replace('export class RescueController','globalThis.RescueController = class RescueController'),context)
   const script = fs.readFileSync('src/launcher/LauncherPage.vue', 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1]
     .replace(/^import .*$/gm, '').replace('export default', 'module.exports =')
   vm.runInContext(script, context)
   const options = context.module.exports
   const page = Object.assign(options.data(), options.methods, { $page: { finish: () => calls.push(['finish']), $npage: {setSupportTopPanel: value => calls.push(['topPanel',value]), setSupportBack: value => calls.push(['systemBack',value]), on: (name,cb)=>calls.push(['listen',name,cb]), off: name=>calls.push(['unlisten',name])} } })
-  return { page, options, calls, native, keyboard, context, timers, edit: (...args) => editCallback(...args) }
+  for(const [key,get] of Object.entries(options.computed||{}))Object.defineProperty(page,key,{get:()=>get.call(page)})
+  return { page, options, calls, native, emergency, keyboard, context, timers, edit: (...args) => editCallback(...args) }
 }
 function powerFixture(awake=true) {
   const f=fixture()
@@ -687,7 +690,7 @@ test('official viewport keeps full Falcon geometry while validating native keybo
  f.page.openKeyboard({requestId:'reclip',text:'again',field});assert.equal(f.page.pageStyle.height,'1210px')
  poll(550);assert.equal(f.page.pageStyle.height,'1210px')
  const template=fs.readFileSync('src/launcher/LauncherPage.vue','utf8').split('<script>')[0]
- assert(template.includes('<hole class="native-hole" :style="officialInline ? officialHoleStyle : nativeAreaStyle">'))
+ assert(template.includes('<hole v-if="!errorText && !rescueOpen" class="native-hole" :style="officialInline ? officialHoleStyle : nativeAreaStyle">'))
  f.page.dispose()
 })
 
@@ -1127,4 +1130,21 @@ test('cancelled startup timeout queued across foreground reentry cannot stop the
  assert.equal(f.page._readyTimer,currentTimer)
  assert.equal(f.calls.filter(c=>c[0]==='stop').length,0)
  f.page.dispose()
+})
+
+for(const kind of ['architecture_mismatch','native_elf','screen_configuration','payload_metadata'])test('rescue remains available when bootstrap rejects '+kind,async()=>{
+ const f=fixture();let loaded=false,reports=[]
+ f.emergency.bootstrap=()=>({compatible:false,platform:'cv1826-s',failure:kind,screen:{width:640,height:260,direction:270}})
+ f.emergency.loadRuntime=()=>{loaded=true;return f.native};f.emergency.report=value=>reports.push(value)
+ await f.page.boot();assert(!loaded);assert(!f.calls.some(c=>c[0]==='start'));assert(f.page.errorText)
+ assert.equal(reports[0].code,kind);f.page.openRescue();assert(f.page.rescueOpen);f.page.dispose()
+})
+test('runtime dependency loading failure stays on Falcon failure page with automatic report',async()=>{
+ const f=fixture();let reports=[];f.emergency.loadRuntime=()=>{throw new Error('dependency missing')};f.emergency.report=value=>reports.push(value)
+ await f.page.boot();assert.equal(f.page.errorText,'dependency missing');assert.equal(reports.length,1);assert.equal(reports[0].code,'module');assert(!f.calls.some(c=>c[0]==='start'));f.page.dispose()
+})
+test('downgrade reopen foreground excludes the system panel and screen-off even with window focus',()=>{
+ const f=fixture();f.emergency.bootstrap=()=>({panel_visible:true,screen_interactive:true});f.page.pollRescue();assert.equal(f.page.rescueForeground,false)
+ f.emergency.bootstrap=()=>({panel_visible:false,screen_interactive:false});f.page.pollRescue();assert.equal(f.page.rescueForeground,false)
+ f.emergency.bootstrap=()=>({panel_visible:false,screen_interactive:true});f.page.pollRescue();assert.equal(f.page.rescueForeground,true);f.page.dispose()
 })

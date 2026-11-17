@@ -1,6 +1,6 @@
 <template>
   <div class="native-page" :style="pageStyle">
-    <hole class="native-hole" :style="officialInline ? officialHoleStyle : nativeAreaStyle"></hole>
+    <hole v-if="!errorText && !rescueOpen" class="native-hole" :style="officialInline ? officialHoleStyle : nativeAreaStyle"></hole>
     <div v-if="officialInline" class="official-backing" :style="officialBackingStyle"></div>
     <div v-if="officialInline" class="official-editor" :style="appearanceStyles.officialPanel">
       <input v-if="officialSingleLine" :key="officialControlKey" ref="officialInput" class="official-input" :style="officialInputStyle" :type="officialSensitive ? 'password' : 'text'" :value="officialInitialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="false" cursorColor="transparent" @input="officialInputHandlers.input" @confirm="officialInputHandlers.confirm" />
@@ -10,16 +10,49 @@
       <text class="startup-title" :style="appearanceStyles.title">{{ appName }}</text>
       <text class="startup-text" :style="appearanceStyles.hint">{{ startupText }}</text>
     </div>
-    <div v-if="errorText" class="failure-panel" :style="appearanceStyles.failure">
-      <text class="failure-title" :style="appearanceStyles.title">{{ appName }}</text>
-      <text class="failure-text" :style="appearanceStyles.hint">{{ errorText }}</text>
-      <div class="retry" :style="appearanceStyles.retry" @click="retry"><text class="retry-label" :style="appearanceStyles.primaryText">重新启动</text></div>
-      <div class="leave" :style="appearanceStyles.leave" @click="finish"><text class="retry-text" :style="appearanceStyles.text">返回</text></div>
+    <div v-if="errorText" class="failure-panel" :style="appearanceStyles.panel">
+      <scroller class="rescue-reader">
+        <div class="rescue-content" :style="rescueContentStyle">
+          <text :style="appearanceStyles.title">{{ rescueOpen ? '降级' : appName }}</text>
+          <text :style="rescueTextStyle">{{ errorText }}</text>
+          <text :style="rescueHintStyle">如果上一个版本可用，可以进行降级</text>
+          <text :style="rescueHintStyle">{{ rescueReportText }}</text>
+          <div v-if="!rescueOpen" key="startup-actions" class="rescue-actions">
+            <div class="rescue-control" :style="rescueButtonStyle" @click="retry"><text :style="rescueButtonTextStyle">重新启动</text></div>
+            <div class="rescue-control" :style="rescueButtonStyle" @click="openRescue"><text :style="rescueButtonTextStyle">降级</text></div>
+            <div class="rescue-control" :style="rescueButtonStyle" @click="finish"><text :style="rescueButtonTextStyle">返回</text></div>
+          </div>
+          <div v-if="rescueOpen" key="downgrade-content">
+            <text :style="rescueHintStyle">{{ rescuePlatformText }}</text>
+            <text :style="rescueTextStyle">{{ rescueMessage || rescueState.message }}</text>
+            <text v-if="rescueState.status === 'downloading'" :style="rescueTextStyle">{{ rescueProgressText }}</text>
+            <div class="rescue-actions">
+              <div v-if="!rescueBusy" class="rescue-control" :style="rescueButtonStyle" @click="refreshRescue"><text :style="rescueButtonTextStyle">刷新版本</text></div>
+              <div v-if="rescueBusy && rescueState.status !== 'installing'" class="rescue-control" :style="rescueButtonStyle" @click="cancelRescue"><text :style="rescueButtonTextStyle">取消</text></div>
+              <div v-if="rescueState.ticket" class="rescue-control" :style="rescueButtonStyle" @click="checkRescueInstall"><text :style="rescueButtonTextStyle">核对结果</text></div>
+              <div v-if="!rescueBusy" class="rescue-control" :style="rescueButtonStyle" @click="closeRescue"><text :style="rescueButtonTextStyle">返回启动页</text></div>
+            </div>
+            <div v-for="item in rescueState.releases" :key="item.id" class="rescue-release" :style="rescueReleaseStyle" @click="selectRescue(item)">
+              <text :style="rescueTextStyle">{{ item.version }} · {{ item.channel === 'release' ? '正式版' : '历史交付候选' }}</text>
+              <text :style="rescueHintStyle">{{ item.compatible ? '数据格式兼容' : '数据格式不兼容或未知' }}{{ item.known_issues ? ' · ' + item.known_issues : '' }}</text>
+            </div>
+            <div v-if="rescueSelected && !rescueBusy" :key="'selected-'+rescueSelected.id" class="rescue-release" :style="rescueReleaseStyle">
+              <text :style="rescueTextStyle">{{ '已选择 ' + rescueSelected.version }}</text>
+              <text :style="rescueHintStyle">安装前会完整备份数据。旧版可能没有降级入口，降级后的入口以旧版自身能力为准。</text>
+              <text v-if="!rescueSelected.compatible" :style="rescueWarningStyle">此版本的数据兼容性不受保证。强制降级可能导致数据损坏或仍无法启动；备份不会自动转换数据。备份失败不会安装。</text>
+              <div class="rescue-control" :style="rescueWideButtonStyle" @click="installRescue"><text :style="rescueButtonTextStyle">{{ rescueSelected.compatible ? '备份并安装' : '备份并强制降级' }}</text></div>
+            </div>
+            <text v-if="rescueState.ticket && rescueState.ticket.backup" :style="rescueHintStyle">{{ '备份位置：' + rescueState.ticket.backup.path }}</text>
+          </div>
+          <div v-if="rescueState.report && rescueState.report.status === 'failed'" class="rescue-control" :style="rescueWideButtonStyle" @click="retryRescueReport"><text :style="rescueButtonTextStyle">重试精简诊断</text></div>
+        </div>
+      </scroller>
     </div>
   </div>
 </template>
 <script>
-import { launcher } from 'penchatLauncher'
+import { rescue } from 'penchatRescue'
+import { RescueController } from './rescue'
 import appConfig from '../../package.json'
 import globalModule from 'global'
 import { OcrSession } from './ocr'
@@ -28,6 +61,7 @@ import pm from 'pm'
 import am from '$am'
 
 let generationSeed = 0
+let launcher = null
 function parse(value) {
   if (typeof value !== 'string') return value
   try { return JSON.parse(value) } catch (err) { return null }
@@ -55,7 +89,21 @@ function resolvedAppearance(c, m) {
   }
 }
 export default {
-  data() { return { appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialHoleStyle: {}, officialBackingStyle: {}, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
+  data() { return { rescueOpen: false, rescueForeground: true, rescueEnv: {}, rescueState: { status: 'idle', releases: [], report: {} }, rescueSelected: null, rescueMessage: '', appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialHoleStyle: {}, officialBackingStyle: {}, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
+  computed: {
+    rescueBusy() { return ['queued','listing','downloading','validating','backing_up','ready_to_install','installing'].includes(this.rescueState.status) },
+    rescueContentStyle() { return {padding:(this.rescueEnv.rescue_inset||16)+'px',paddingBottom:Math.max(24,this.rescueEnv.rescue_inset||0)+'px'} },
+    rescueTextStyle() { return {fontSize:'20px',color:this.appearanceColors.text,marginTop:'10px'} },
+    rescueHintStyle() { return {fontSize:'16px',color:this.appearanceColors.muted,marginTop:'8px'} },
+    rescueWarningStyle() { return {fontSize:'18px',color:this.appearanceColors.background==='#ffffff'?'#8d310d':'#ffb78a',marginTop:'12px'} },
+    rescueButtonStyle() { const w=this._screen&&this._screen.width,inset=this.rescueEnv.rescue_inset||16;return {width:w?Math.max(92,Math.min(170,(w-inset*2-24)/3))+'px':'auto',height:'48px',marginRight:'8px',marginTop:'12px',borderRadius:'10px',backgroundColor:this.appearanceColors.text} },
+    rescueWideButtonStyle() { return {height:'48px',marginTop:'12px',paddingLeft:'12px',paddingRight:'12px',borderRadius:'10px',backgroundColor:this.appearanceColors.text} },
+    rescueButtonTextStyle() { return {fontSize:'18px',color:this.appearanceColors.primaryText} },
+    rescueReleaseStyle() { return {padding:'12px',marginTop:'10px',borderRadius:'10px',backgroundColor:this.appearanceColors.surface} },
+    rescueReportText() { const r=this.rescueState.report||{};return ({idle:'精简诊断待发送',pending:'精简诊断待发送',sending:'正在自动上报精简诊断…',sent:'精简诊断已上报',failed:'精简诊断暂未发送，可重试',disabled:'此构建未配置日志上报'})[r.status]||'' },
+    rescuePlatformText() { return this.rescueEnv.platform==='cv1826-s'?'当前设备：CVI / S6，使用 ARM32 降级包':this.rescueEnv.platform==='rk3562'?'当前设备：RK3562，使用 ARM64 降级包':'当前硬件未识别，暂不能选择安装包' },
+    rescueProgressText() { const n=this.rescueState.downloaded||0,total=this.rescueState.total||0;return '已下载 '+Math.floor(n/1024)+' KiB'+(total?' / '+Math.floor(total/1024)+' KiB':'') },
+  },
   mounted() { this.boot() },
   onNewOptions() { this.resume() },
   onShow() { this.resume() },
@@ -63,6 +111,25 @@ export default {
   onUnload() { this.detachPage() },
   beforeDestroy() { this.detachPage() },
   methods: {
+    ensureRescueController() {
+      if(this._rescueController&&!this._rescueController.disposed)return this._rescueController
+      this._rescueController=new RescueController({bridge:rescue,pm,appid:appConfig.appid,isForeground:()=>this.rescueForeground,
+        stop:async()=>{await this.stopRuntime(true);this.running=false;clearInterval(this._poll);this._poll=null},
+        error:text=>{this.rescueMessage=text;this.rescueState=Object.assign({},this.rescueState,{status:'error'})},status:text=>{this.rescueMessage=text},setTimeout,clearTimeout})
+      return this._rescueController
+    },
+    pollRescue() {
+      try {const environment=rescue.bootstrap();this.rescueForeground=am.hasWindowFocus()===true&&!environment.panel_visible&&environment.screen_interactive!==false;this.rescueState=rescue.state();if(this._rescueController)this._rescueController.tick(this.rescueState);if(!this.rescueOpen&&this.rescueState.report&&['sent','failed','disabled'].includes(this.rescueState.report.status)){clearInterval(this._rescuePoll);this._rescuePoll=null}}catch(_){this.rescueMessage='降级服务暂不可用，请重试'}
+    },
+    watchRescue() { if(!this._rescuePoll)this._rescuePoll=setInterval(()=>this.pollRescue(),200);this.pollRescue() },
+    openRescue() { this.rescueOpen=true;this.rescueMessage='';this.ensureRescueController();this.watchRescue();this.refreshRescue() },
+    refreshRescue() { if(this.rescueBusy)return;this.rescueSelected=null;this.rescueMessage='';try{rescue.request('list',{});this.pollRescue()}catch(e){this.rescueMessage=e.message||'版本列表读取失败'} },
+    selectRescue(item) { if(!this.rescueBusy)this.rescueSelected=item },
+    installRescue() { if(this.rescueBusy||!this.rescueSelected)return;this.rescueMessage='正在停止原生程序…';this.rescueState=Object.assign({},this.rescueState,{status:'queued'});this.ensureRescueController().prepare(this.rescueSelected) },
+    cancelRescue() { this.ensureRescueController().cancel();this.rescueMessage='操作已取消' },
+    closeRescue() { if(this.rescueBusy)return;this.ensureRescueController().cancel();this.rescueOpen=false;this.rescueSelected=null },
+    checkRescueInstall() { this.ensureRescueController().check() },
+    retryRescueReport() { rescue.report({code:this._rescueFailureCode||'startup',retry:true});this.watchRescue() },
     hidePage() {
       if (!this.visible) return
       if (this.keyboardOpen && !this.officialInline) this._legacyOfficialHidden = true
@@ -117,7 +184,7 @@ export default {
       return launcher.send(Object.assign({ v: 1, type, generation: this._generation, requestId: ++this._requestSequence }, payload || {}))
     },
     runtimeToken() { return { runtimeId: this._runtimeId || 0, ownerGeneration: this._generation || 0 } },
-    stopRuntime() { return launcher.stop(this.runtimeToken()) },
+    stopRuntime(preservePublic = false) { return launcher ? launcher.stop(Object.assign(this.runtimeToken(),{preservePublic})) : Promise.resolve({ok:true}) },
     armReadyTimer() {
       const readyEpoch=(this._readyEpoch||0)+1;this._readyEpoch=readyEpoch
       clearTimeout(this._readyTimer);this._readyTimer=null
@@ -133,6 +200,7 @@ export default {
     async boot() {
       if (this._starting || this.running || this._disposed) return
       this._starting = true
+      clearInterval(this._rescuePoll);this._rescuePoll=null;this.rescueOpen=false
       if (this.stopOcr() === false) {
         this._starting = false; this.fail('系统扫描资源尚未释放，请重试'); return
       }
@@ -156,6 +224,12 @@ export default {
       this._requestSequence = 0
       this.errorText = ''
       try {
+        this.rescueEnv=rescue.bootstrap()
+        if(this.rescueEnv.screen)this.applyNativeScreen(this.rescueEnv.screen)
+        if(!this.rescueEnv.compatible)throw new Error('当前包与设备不匹配，或主程序不可用。')
+        this._startupPhase='module'
+        launcher=rescue.loadRuntime()
+        this._startupPhase='startup'
         if (this._disposed) return
         let workspace = String(globalThis.$workspace || '')
         try { let info = pm.getPackageInfo(appConfig.appid); if (typeof info === 'string') info = JSON.parse(info); if (info && info.installPath) workspace = String(info.installPath) } catch (err) {}
@@ -775,6 +849,8 @@ export default {
       } catch (_) { this.cancelOfficialKeyboard('未能打开官方键盘，输入已保留') }
     },
     fail(message) {
+      const failureCode=this.rescueEnv.failure||(this.nativeReady?'runtime':String(message).includes('超时')?'timeout':this._startupPhase==='module'?'module':'startup')
+      this._rescueFailureCode=failureCode
       this._nativeImage = false
       this.setBackPolicy(true)
       this.setNativeEditorPolicy(false)
@@ -785,9 +861,10 @@ export default {
       this.running = false
       clearInterval(this._poll); clearTimeout(this._readyTimer)
       this._poll = null; this._readyTimer = null
-      this.stopRuntime().catch(() => {})
+      this.stopRuntime(true).catch(() => {})
+      try{rescue.report({code:failureCode});this.watchRescue()}catch(_){}
     },
-    async retry() { if (this._updateInstalled) { launcher.reopen(); return }; if (this._starting) return; await this.stopRuntime(); this.running = false; this.boot() },
+    async retry() { if (this._updateInstalled) { rescue.reopen(); return }; if (this._starting) return; await this.stopRuntime(true); this.running = false; this.boot() },
     finish() {
       if(this._generation!==generationSeed){this.detachPage();return}
       this.dispose()
@@ -795,6 +872,8 @@ export default {
       else this.$page.finish()
     },
     detachPage() {
+      clearInterval(this._rescuePoll);this._rescuePoll=null
+      if(this._rescueController)this._rescueController.dispose()
       if(this._disposed)return
       // Page destruction is not application exit. Native/module ownership lasts
       // until explicit finish or destruction of the application's JS context.
@@ -811,6 +890,8 @@ export default {
       this._focusListener=null;this._disposed=true;this._detached=true;this.running=false
     },
     dispose() {
+      clearInterval(this._rescuePoll);this._rescuePoll=null
+      if(this._rescueController)this._rescueController.dispose()
       if (this._disposed && !this._detached) return
       if(this._detached){this.running=true;this._detached=false;}
       this._nativeImage = false
@@ -850,6 +931,11 @@ export default {
 .startup-title { }
 .startup-text { }
 .failure-panel { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
+.rescue-reader { width: 100%; height: 100%; }
+.rescue-content { width: 100%; }
+.rescue-actions { flex-direction: row; flex-wrap: wrap; }
+.rescue-control { justify-content: center; align-items: center; }
+.rescue-release { }
 .failure-title { }
 .failure-text { }
 .retry { position: absolute; justify-content: center; align-items: center; }
