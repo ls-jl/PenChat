@@ -3053,8 +3053,9 @@ void App::updateInputFocus() {
   const bool partialOfficial=keyboard_&&officialDocked_&&officialForeground_&&
       now>=officialLayoutAt_&&now-officialLayoutAt_<750&&display_.topHeight()>0&&
       display_.supportsTopRegion()&&!powerPaused&&!systemOverlayStatus_.value("panel_visible",false);
-  const auto permission=inputFocus_.permissions(now,pageVisible_,windowFocused_&&!powerPaused&&!systemOverlayStatus_.value("panel_visible",false),keyboard_,
-      partialOfficial,display_.systemOverlaySafe(),!display_.presented());
+  const bool foregroundKnown=display_.systemOverlaySafe()||systemOverlayStatus_.value("window_valid",false);
+  const auto permission=inputFocus_.permissions(now,pageVisible_,windowFocused_&&foregroundKnown&&!powerPaused&&!systemOverlayStatus_.value("panel_visible",false),keyboard_,
+      partialOfficial,display_.systemOverlaySafe());
   const bool retainCovered=systemOverlayStatus_.value("panel_visible",false)&&display_.systemOverlaySafe();
   const bool media=permission.media&&pageAttached_,shown=(permission.display||(pageVisible_&&retainCovered))&&pageAttached_&&!powerPaused;
   if (display_.visible() != shown) display_.visible(shown);
@@ -3516,13 +3517,15 @@ void App::handle(const Json &m) {
     if(officialDocked_&&m.value("retained",false)&&m.contains("text")) {
       const auto text=m.value("text",std::string());if(editLength(text)<=editor_.limit)editor_.text=text;
     }
+    const bool restoreFullScreen=!officialDocked_&&officialBackup_.active;
+    if(restoreFullScreen&&!m.value("confirmed",false))editor_=officialBackup_;
     officialBackup_=EditorState{};officialDocked_=false;officialHeight_=0;officialForeground_=false;officialLayoutAt_=0;
     // Withdraw the partial plane before restoring full geometry, so the old
     // frame cannot flash over a system IME that is still finishing teardown.
     display_.visible(false);keyboard_ = false;display_.topHeight(0);
     if (editor_.active) {
       const bool closedNormally=m.value("error",std::string()).empty();
-      if (m.value("confirmed", false)||closedNormally) {
+      if (m.value("confirmed", false)||(closedNormally&&!restoreFullScreen)) {
         closeAttachments();
         auto text = m.value("text", editor_.text);
         // A normal dismissal may omit text. Preserve the exact seed including
@@ -4338,7 +4341,7 @@ Json App::diagnostics() const {
         {"default_hz",refresh::defaultRate(screen_.width,screen_.height)},
         {"configured",refreshSaved_},{"pending",!refreshRequest_.empty()},
         {"ready",refreshReady_},{"changes",refreshChanges_},{"error",refreshError_}}},
-      {"render_timing",displayTimingInfo()},{"display_stack",display_.stacking()},{"pen_observer",{{"ready",penObserverReady_},{"code",systemOverlayStatus_.value("pen_observer_code",0)},{"supported",penObserverRequest_!="unsupported"},{"pending",!penObserverRequest_.empty()&&penObserverRequest_!="unsupported"}}},
+      {"render_timing",displayTimingInfo()},{"display_stack",display_.stacking()},{"display_info",display_.information()},{"pen_observer",{{"ready",penObserverReady_},{"code",systemOverlayStatus_.value("pen_observer_code",0)},{"supported",penObserverRequest_!="unsupported"},{"pending",!penObserverRequest_.empty()&&penObserverRequest_!="unsupported"}}},
       {"surface_snapshot_timing",{{"count",surfaceSnapshotTiming().count},{"total_us",surfaceSnapshotTiming().totalUs},{"max_us",surfaceSnapshotTiming().maxUs}}},
       {"font_cache",fontCacheInfo()},
       {"reading_font", {{"percent", readingFontPercent_}, {"size", readingFontSize()},

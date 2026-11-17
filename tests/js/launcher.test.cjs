@@ -1148,3 +1148,11 @@ test('downgrade reopen foreground excludes the system panel and screen-off even 
  f.emergency.bootstrap=()=>({panel_visible:false,screen_interactive:false});f.page.pollRescue();assert.equal(f.page.rescueForeground,false)
  f.emergency.bootstrap=()=>({panel_visible:false,screen_interactive:true});f.page.pollRescue();assert.equal(f.page.rescueForeground,true);f.page.dispose()
 })
+
+test('display probe survives startup and first fatal is retained across later failures',async()=>{
+ const f=fixture();await f.page.boot()
+ const display={mode:'upper_overlay',query_errno:25,stage:'ready'}
+ f.native.poll=()=>[{type:'startup',stage:'data',display},{type:'fatal',error:'first display probe failure',display},{type:'fatal',error:'secondary cleanup failure',display:{mode:'unselected',stage:'cleanup'}},{type:'exit',status:0}]
+ f.page.poll();assert.deepEqual(f.page._displayInfo,display);assert.equal(f.page.errorText,'first display probe failure')
+ f.page.fail('another exit');assert.equal(f.page.errorText,'first display probe failure');f.page.dispose()
+})

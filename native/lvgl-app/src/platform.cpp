@@ -6,6 +6,7 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <fcntl.h>
+#include <cerrno>
 #include <map>
 #include <array>
 #include <chrono>
@@ -39,11 +40,21 @@ Json displayTimingInfo() {
     {"present_total_us",renderTiming.presentTotalUs},{"present_max_us",renderTiming.presentMaxUs},
     {"sample_time_us",monotonicUs()}};
 }
+Json displayInformationJson(const camera::DisplayInfo &info) {
+  return {{"mode",camera::compositionName(info.mode)},{"stage",info.stage},{"reason",info.reason},
+    {"primary",info.primary},{"crtc",info.crtc},{"framebuffer",info.framebuffer},{"format",info.format},
+    {"plane",info.plane},{"native_format",info.nativeFormat},{"query_rc",info.queryResult},{"query_errno",info.queryError},
+    {"attempts",info.attempts},{"atomic",info.atomic},{"completion",info.completion},
+    {"native_z",info.nativeRange},{"host_z",info.hostRange}};
+}
 Display::Display(const Screen &s, bool headless)
     : screen_(s), headless_(headless) {
   buffer_.resize(size_t(s.width) * s.height * 4);
   if (!headless_) {
     surface_=camera::makeDisplaySurface({s.width,s.height,s.rotation,s.xoffset,s.yoffset,s.panelWidth,s.panelHeight});
+    // An upper overlay may cover system UI. Wait for the foreground display
+    // lease before first upload; touch still waits for nativeReady separately.
+    if(!surface_->systemOverlaySafe()){shown_=false;available_=false;}
   }
   display_ = lv_display_create(s.width, s.height);
   renderTiming={};
@@ -124,6 +135,7 @@ void Display::flush(lv_display_t *d, const lv_area_t *, uint8_t *) {
 void Display::check() {
   if(!error_.empty())throw std::runtime_error(error_);
   if(surface_)surface_->check();
+  if(pending_&&shown_&&!surface_&&!mediaPaused_&&!headless_&&monotonicUs()>=retryPresentAt_)mediaHandoff(false);
   // The full LVGL CPU buffer already contains the newest frame. Retry that
   // buffer directly; no extra redraw, queue, copied snapshot or UI wait.
   if(pending_&&shown_&&surface_) {
@@ -140,7 +152,7 @@ void Display::visible(bool value) {
   shown_ = value;
   if(!value)pending_=false;
   if (!value && !headless_ && surface_) {
-    if(surface_->releaseOnHide())surface_.reset();
+    if(surface_->releaseOnHide()){surface_.reset();available_=false;}
     else surface_->hide();
   }
   if (value) {
@@ -163,8 +175,14 @@ void Display::mediaHandoff(bool release) {
   mediaPaused_=release;
   if(release){pending_=false;surface_.reset();}
   else if(!surface_&&shown_) {
-    surface_=camera::makeDisplaySurface({screen_.width,screen_.height,screen_.rotation,
-      screen_.xoffset,screen_.yoffset,screen_.panelWidth,screen_.panelHeight});
+    try {
+      surface_=camera::makeDisplaySurface({screen_.width,screen_.height,screen_.rotation,
+        screen_.xoffset,screen_.yoffset,screen_.panelWidth,screen_.panelHeight});
+    }catch(const camera::DisplayInitializationError &failure) {
+      if(failure.info.stage!="primary_not_ready"&&failure.info.stage!="primary_changed"&&
+         failure.info.queryError!=EACCES&&failure.info.queryError!=EPERM)throw;
+      available_=false;pending_=true;retryPresentAt_=monotonicUs()+100000;return;
+    }
     surface_->setRefreshRate(refreshRate_);
     surface_->topRegion(topHeight_);
     if(shown_)lv_obj_invalidate(lv_screen_active());

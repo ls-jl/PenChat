@@ -142,10 +142,10 @@ int main(int argc, char **argv) {
     bridgeOwner.reset(new Bridge(fd)); fd=-1;
     auto &bridge=*bridgeOwner;
     const auto startupAt=ticks();
-    auto startup=[&](const char *stage) {
+    auto startup=[&](const char *stage,Json details=Json::object()) {
       const auto elapsed=ticks()-startupAt;
       std::fprintf(stderr,"NATIVE_STARTUP stage=%s elapsed_ms=%lld\n",stage,static_cast<long long>(elapsed));
-      bridge.send("startup",{{"stage",stage},{"elapsed_ms",elapsed}});
+      details["stage"]=stage;details["elapsed_ms"]=elapsed;bridge.send("startup",details);
     };
     // Give Falcon its real viewport before loading fonts, media or the DB. Its
     // startup cover stays visible until the first native frame is submitted.
@@ -161,7 +161,9 @@ int main(int argc, char **argv) {
 #endif
     Display display(screen, headless);
     Input input;
-    startup("data");
+    const auto displayInfo=display.information();
+    std::fprintf(stderr,"DISPLAY_PROBE %s\n",displayInfo.dump().c_str());
+    startup("data",{{"display",displayInfo}});
     Database db(join(data, "penchat.db"));
 #ifndef PENCHAT_NATIVE_DEVICE
     if (!uiScaleSpecified)
@@ -223,10 +225,15 @@ int main(int argc, char **argv) {
   } catch (const std::exception &e) {
     diagnosticRecord("lifecycle", enteredLoop?"runtime_error":"startup_error"); flushDiagnostics();
     std::cerr << "penchat-lvgl: " << e.what() << std::endl;
-    if(bridgeOwner) bridgeOwner->send("fatal", {{"error", e.what()}});
+    Json failure={{"error",e.what()}};
+    if(const auto display=dynamic_cast<const camera::DisplayInitializationError *>(&e)) {
+      failure["display"]=displayInformationJson(display->info);
+      std::fprintf(stderr,"DISPLAY_PROBE %s\n",failure["display"].dump().c_str());
+    }
+    if(bridgeOwner) bridgeOwner->send("fatal", failure);
     else if (fd >= 0) {
       Bridge bridge(fd);
-      bridge.send("fatal", {{"error", e.what()}});
+      bridge.send("fatal", failure);
     }
     return 1;
   }

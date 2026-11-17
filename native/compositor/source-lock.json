@@ -18,6 +18,6 @@
     "native/compositor/surface.cpp": "b4f93e0c48bdd706f2212a678578fac9b2f1dcce3da0640c709fc6564e7ce14e",
     "native/compositor/surface.hpp": "3a36551a2bf0df07762f3d08f7635dd754a55fa836f36d16e3b23db141a0151c",
     "native/camera/src/refresh_policy.hpp": "058f582f60e72db09edd198ef7f9ca8cf660e06ad41fbe00433be210305cae87",
-    "native/camera/src/display_surface.h": "a592e21d3074b2b22f24328fad797b90f7905d7bc34a2a5863eee9393bb631c1"
+    "native/camera/src/display_surface.h": "d5bf822d57d351297b17f6187bb20220defec0f947f300386b65771cf4e79aae"
   }
 }

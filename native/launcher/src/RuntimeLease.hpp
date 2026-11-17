@@ -1,5 +1,13 @@
 #pragma once
+#include <sys/wait.h>
 namespace penchat {
+inline int runtimeExitCode(int status,bool unknown) {
+  if(unknown)return -1;
+  if(WIFEXITED(status))return WEXITSTATUS(status);
+  if(WIFSIGNALED(status))return 128+WTERMSIG(status);
+  return -1;
+}
+
 // App-context lifetime identity. Old page callbacks cannot reclaim a newer mount.
 class RuntimeLease {
   int runtime_ = 0, generation_ = 0;

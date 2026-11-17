@@ -13,4 +13,14 @@ inline bool underlayOrder(const PlaneZRange &native,const PlaneZRange &host,Unde
   }
   return out.native<out.host&&out.host<=host.high;
 }
+inline bool upperOverlayOrder(const PlaneZRange &native,const PlaneZRange &host,UnderlayOrder &out) {
+  if(native.low>native.high||host.low>host.high||host.current<host.low||host.current>host.high||
+     native.current<native.low||native.current>native.high)return false;
+  out.host=host.current;out.native=native.current;
+  if(out.native<=out.host) {
+    if(!native.writable||out.host==UINT64_MAX)return false;
+    out.native=std::max(native.low,out.host+1);
+  }
+  return out.native>out.host&&out.native<=native.high;
+}
 }

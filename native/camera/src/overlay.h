@@ -1,7 +1,9 @@
 #pragma once
 
+#include "display_surface.h"
 #include <cstdint>
 #include <array>
+#include <chrono>
 #include <pthread.h>
 #include <string>
 #include <vector>
@@ -36,6 +38,8 @@ public:
     uint32_t planeId() const { return planeId_; }
     uint32_t zpos() const { return zpos_; }
     std::array<uint64_t,4> stacking();
+    DisplayInfo information() const { return info_; }
+    bool upperOverlay() const { return info_.mode==CompositionMode::UpperOverlay; }
     int crtcWidth() const { return crtcW_; }
     int crtcHeight() const { return crtcH_; }
     std::string lastError() const { return error_; }
@@ -63,15 +67,21 @@ private:
         void* map;
     };
 
+    DisplayInfo info_;
+    bool allowUpper_=false;
+    uint32_t nativeFormat_=0,crtcIndex_=0;
+    uint64_t nativeOriginalZ_=0;
+    std::chrono::steady_clock::time_point probeDeadline_;
+    bool queueVblank();
     bool loadDrm();
     bool pickResources();
     bool allocBuf(DrmBuf* buf, int width, int height);
     void freeBuf(DrmBuf* buf);
-    bool commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int srcH);
+    bool commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int srcH, bool testOnly = false);
     uint32_t findProp(uint32_t objId, uint32_t objType, const char* name, uint64_t* value = 0);
     bool addProp(void* req, uint32_t objId, uint32_t propId, uint64_t value);
     bool ownsCurrentPlane() const;
-    bool finishPendingFlip(bool wait = false);
+    bool finishPendingFlip(bool wait = false, int waitMs = 100);
     static void flipComplete(int, unsigned, unsigned, unsigned, void* context);
 
     int fd_;

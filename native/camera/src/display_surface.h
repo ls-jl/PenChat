@@ -9,6 +9,24 @@ class DisplayUnavailable : public std::runtime_error {
 public:
   explicit DisplayUnavailable(const std::string &message):std::runtime_error(message) {}
 };
+enum class CompositionMode { Unselected, Underlay, UpperOverlay, Shared };
+inline const char *compositionName(CompositionMode mode) {
+  return mode==CompositionMode::Underlay?"underlay":mode==CompositionMode::UpperOverlay?"upper_overlay":
+         mode==CompositionMode::Shared?"shared":"unselected";
+}
+struct DisplayInfo {
+  CompositionMode mode=CompositionMode::Shared;
+  uint32_t primary=0,crtc=0,framebuffer=0,format=0,plane=0,nativeFormat=0;
+  int queryResult=-1,queryError=0,attempts=0;
+  bool atomic=false;
+  std::array<uint64_t,3> nativeRange{{0,0,0}},hostRange{{0,0,0}};
+  std::string stage,reason,completion;
+};
+class DisplayInitializationError : public std::runtime_error {
+public:
+  DisplayInfo info;
+  DisplayInitializationError(const std::string &text,const DisplayInfo &value):std::runtime_error(text),info(value){}
+};
 struct DisplayGeometry {
   int width=0,height=0,rotation=0,xoffset=0,yoffset=0;
   int panelWidth=0,panelHeight=0;
@@ -26,6 +44,7 @@ public:
   virtual void topRegion(int) {}
   // Poll asynchronous transport failures even when the UI has no dirty pixels.
   virtual void check() {}
+  virtual DisplayInfo information() const { return {}; }
   // UI scheduling target, independent of physical panel mode. Direct planes
   // present immediately; asynchronous compositors use it to pace latest frames.
   virtual void setRefreshRate(int) {}

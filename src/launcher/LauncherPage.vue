@@ -206,7 +206,7 @@ export default {
       }
       this.cancelOfficialKeyboard()
       this._generation = ++generationSeed
-      this._nativeImage = false; this._navigationSequence = 0
+      this._nativeImage = false; this._navigationSequence = 0; this._displayInfo = null
       this.setBackPolicy(false)
       const generation = this._generation
       this.setNativeEditorPolicy(false)
@@ -271,7 +271,7 @@ export default {
             this.send('display.area', { x: 0, y: 0, width: screen.width, height: screen.height })
           }
           else if (event.type === 'appearance') this.applyAppearance(event)
-          else if (event.type === 'startup') { this.startupText = ({ display: '正在准备显示…', data: '正在读取数据…', interface: '正在准备页面…', frame: '正在显示页面…' })[event.stage] || '正在打开…' }
+          else if (event.type === 'startup') { if(event.display)this._displayInfo=event.display; this.startupText = ({ display: '正在准备显示…', data: '正在读取数据…', interface: '正在准备页面…', frame: '正在显示页面…' })[event.stage] || '正在打开…' }
           else if (event.type === 'ready') { this.nativeReady = true; this.syncWindowFocus(true); this.syncInputFocus(true); clearTimeout(this._readyTimer); this._readyTimer = null; if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
           else if (event.type === 'editor.state') this.editorState(event)
           else if (event.type === 'navigation.state') this.navigationState(event)
@@ -300,7 +300,7 @@ export default {
           else if (event.type === 'ocr.cancel') this.stopOcr(event.requestId, true)
           else if (event.type === 'update.install') this.installUpdate(event)
           else if (event.type === 'finish') this.finish()
-          else if (event.type === 'fatal') this.fail(event.error || '原生页面启动失败')
+          else if (event.type === 'fatal') { if(!this.errorText&&event.display)this._displayInfo=event.display; this.fail(event.error || '原生页面启动失败') }
           else if (event.type === 'exit' && !this._updating && this.running) this.fail(event.status < 0 ? '原生程序意外退出，请重试' : `原生程序已退出（${event.status}）`)
         }
       } catch (err) { this.fail('原生页面通信失败') }
@@ -849,6 +849,7 @@ export default {
       } catch (_) { this.cancelOfficialKeyboard('未能打开官方键盘，输入已保留') }
     },
     fail(message) {
+      if(this.errorText)return // Retain the first failure until an explicit retry.
       const failureCode=this.rescueEnv.failure||(this.nativeReady?'runtime':String(message).includes('超时')?'timeout':this._startupPhase==='module'?'module':'startup')
       this._rescueFailureCode=failureCode
       this._nativeImage = false
