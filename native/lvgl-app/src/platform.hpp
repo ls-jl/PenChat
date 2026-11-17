@@ -3,6 +3,7 @@
 #include "display_surface.h"
 #include <lvgl/lvgl.h>
 namespace penchat {
+Json displayInformationJson(const camera::DisplayInfo &info);
 class Display {
   std::unique_ptr<camera::DisplaySurface> surface_;
   lv_display_t *display_ = nullptr;
@@ -32,6 +33,7 @@ public:
   uint32_t refreshPeriod() const;
   uint32_t animationPeriod() const;
   uint32_t inputPeriod() const;
+  Json information() const { return headless_?Json{{"mode","headless"}}:surface_?displayInformationJson(surface_->information()):Json::object(); }
   bool presented() const {return presented_;}
   bool pending() const {return pending_;}
   bool visible() const { return shown_; }

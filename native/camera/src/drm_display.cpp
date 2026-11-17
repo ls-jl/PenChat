@@ -10,7 +10,7 @@ class DrmDisplay final : public DisplaySurface {
 public:
   explicit DrmDisplay(const DisplayGeometry &g) : geometry_(g) {
     overlay_.setHole({0,0,g.width,g.height,g.width,g.height,g.rotation,0,0,g.xoffset,g.yoffset});
-    if(!overlay_.open())throw std::runtime_error(overlay_.lastError());
+    if(!overlay_.open())throw DisplayInitializationError(overlay_.lastError(),overlay_.information());
   }
   bool present(const std::uint8_t *pixels,int w,int h) override {
     if(overlay_.presentBgra(pixels,w,topHeight_?topHeight_:h)) return true;
@@ -19,8 +19,10 @@ public:
     throw std::runtime_error(overlay_.lastError());
   }
   void hide() override {overlay_.disable();}
-  bool supportsTopRegion() const override { return true; }
-  bool systemOverlaySafe() const override { return true; }
+  bool supportsTopRegion() const override { return !overlay_.upperOverlay(); }
+  bool systemOverlaySafe() const override { return !overlay_.upperOverlay(); }
+  bool releaseOnHide() const override { return overlay_.upperOverlay(); }
+  DisplayInfo information() const override { return overlay_.information(); }
   std::array<uint64_t,4> stacking() override {return overlay_.stacking();}
   void topRegion(int height) override {
     topHeight_=height;

@@ -73,7 +73,7 @@ class Launcher : public JQBaseObject {
   void reaped(int status,bool unknown=false) {
     if(pid_<=0)return;
     const int child=int(pid_);pid_=-1;ready_=false;headRoute_.stop();
-    const int code=unknown?-1:WIFEXITED(status)?WEXITSTATUS(status):128+WTERMSIG(status);
+    const int code=penchat::runtimeExitCode(status,unknown);
     lastExit_=Bson::object{{"v",1},{"type","exit"},{"status",code},{"pid",child},
       {"runtimeId",lease_.runtime()},{"ownerGeneration",lease_.generation()},
       {"time_ms",double(penchat::nowMs())},{"window_focused",lastFocused_},{"panel_visible",lastPanel_},{"page_attached",pageAttached_},

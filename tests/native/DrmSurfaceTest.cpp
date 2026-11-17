@@ -4,11 +4,11 @@
 #include <cerrno>
 #include <iostream>
 #include <stdexcept>
-namespace { int failure=EBUSY, lastWidth=0,lastHeight=0;camera::HoleRect region; }
+namespace { int failure=EBUSY, lastWidth=0,lastHeight=0;camera::HoleRect region;bool upper=false,failOpen=false; }
 namespace camera {
 Overlay::Overlay()=default;
 Overlay::~Overlay()=default;
-bool Overlay::open(){return true;}
+bool Overlay::open(){info_.mode=upper?CompositionMode::UpperOverlay:CompositionMode::Underlay;info_.stage="fixture";error_="fixture initialization failure";return !failOpen;}
 void Overlay::setHole(const HoleRect &hole){region=hole;}
 void Overlay::disable(){}
 std::array<uint64_t,4> Overlay::stacking(){return {{75,54,0,3}};}
@@ -36,6 +36,13 @@ int main(){
     try{surface->present(pixels,568,1210);}catch(const camera::DisplayUnavailable &){temporary=true;}
     assert(temporary);failure=0;assert(surface->present(pixels,568,1210));
   }
+  upper=true;auto legacy=camera::makeDisplaySurface({960,266,0,0,0,960,266});
+  assert(!legacy->supportsTopRegion()&&!legacy->systemOverlaySafe()&&legacy->releaseOnHide());
+  assert(legacy->information().mode==camera::CompositionMode::UpperOverlay);
+  failOpen=true;bool initCaught=false;
+  try{camera::makeDisplaySurface({960,266,0,0,0,960,266});}
+  catch(const camera::DisplayInitializationError &error){initCaught=error.info.stage=="fixture";}
+  assert(initCaught);failOpen=false;
   failure=EIO;bool caught=false;try{surface->present(pixels,568,1210);}catch(const std::runtime_error &e){caught=std::string(e.what()).find("permanent")!=std::string::npos;}
   assert(caught);std::cout<<"DRM_BUSY_RETRY_PARTIAL_REGION_AND_FATAL_ERROR_OK\n";
 }

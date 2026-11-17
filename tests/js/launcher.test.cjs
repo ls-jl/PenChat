@@ -1086,3 +1086,12 @@ test('cancelled startup timeout queued across foreground reentry cannot stop the
  assert.equal(f.calls.filter(c=>c[0]==='stop').length,0)
  f.page.dispose()
 })
+
+
+test('display probe survives startup and first fatal is retained across later failures',async()=>{
+ const f=fixture();await f.page.boot()
+ const display={mode:'upper_overlay',query_errno:25,stage:'ready'}
+ f.native.poll=()=>[{type:'startup',stage:'data',display},{type:'fatal',error:'first display probe failure',display},{type:'fatal',error:'secondary cleanup failure'},{type:'exit',status:0}]
+ f.page.poll();assert.deepEqual(f.page._displayInfo,display);assert.equal(f.page.errorText,'first display probe failure')
+ f.page.fail('another exit');assert.equal(f.page.errorText,'first display probe failure');f.page.dispose()
+})

@@ -1058,7 +1058,7 @@ void App::editorOfficial() {
   if (editLength(text)>editor_.limit) { editor_.notice="已达到长度上限"; editorBuild(); return; }
   const auto officialField=editorOfficialField();
   editorInterrupt();officialDocked_=editorLayout().docked&&display_.supportsTopRegion();officialHeight_=0;officialForeground_=false;officialLayoutAt_=0;
-  if(officialDocked_)officialBackup_=editor_;
+  if(officialDocked_||!display_.systemOverlaySafe())officialBackup_=editor_;
   keyboard_=true;keyboardId_=uid("official");officialKeyEventAt_=officialTextEventAt_=0;officialContactIds_.clear();
   officialTextContact_=false;officialEditPending_=0;
   if(officialDocked_&&editorRoot_) {

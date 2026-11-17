@@ -401,6 +401,12 @@ if(NOT CMAKE_CROSSCOMPILING)
 endif()
 
 if(NOT CMAKE_CROSSCOMPILING)
+  add_executable(penchat-drm-probe-tests "${ROOT}/tests/native/DrmProbeTest.cpp" "${CAMERA}/src/overlay.cpp" "${CAMERA}/src/camera_logic.cpp")
+  target_include_directories(penchat-drm-probe-tests PRIVATE "${CAMERA}/src" "${LIBDRM_DIR}" "${LIBDRM_DIR}/include/drm")
+  target_link_libraries(penchat-drm-probe-tests PRIVATE dl pthread)
+  target_link_options(penchat-drm-probe-tests PRIVATE -rdynamic)
+  target_compile_options(penchat-drm-probe-tests PRIVATE -UNDEBUG)
+  add_test(NAME penchat-drm-probe COMMAND penchat-drm-probe-tests)
   add_executable(penchat-drm-flip-tests "${ROOT}/tests/native/DrmFlipTest.cpp"
     "${CAMERA}/src/overlay.cpp" "${CAMERA}/src/camera_logic.cpp")
   target_include_directories(penchat-drm-flip-tests PRIVATE "${CAMERA}/src" "${LIBDRM_DIR}" "${LIBDRM_DIR}/include/drm")

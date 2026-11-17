@@ -25,16 +25,19 @@ public:
   }
   struct Permissions { bool input,media,display; };
   Permissions permissions(std::int64_t now,bool page,bool window,bool official,
-                          bool partialOfficial,bool retainUnderOverlay,bool firstFrame) const {
+                          bool partialOfficial,bool retainUnderOverlay) const {
+    // A fresh foreground heartbeat may display before nativeReady grants input.
+    // Keep that display lease across the ready/active round-trip to avoid flicker.
     // partialOfficial is an independently validated, expiring display-only IME lease.
     const bool media=page&&window&&!official&&mediaAllowed(now);
     return {media&&allowed(now),media,
-      page&&((!official&&(media||retainUnderOverlay||firstFrame)) || (partialOfficial))};
+      page&&((!official&&(media||retainUnderOverlay||(window&&fresh(now)))) || (partialOfficial))};
   }
   // Do not tear down/rearm media for a single slow native draw. Input still
   // expires at 300ms; explicit focus loss revokes both immediately.
   bool mediaAllowed(std::int64_t now) const {return valid(now,1500);}
 private:
+  bool fresh(std::int64_t now) const { return !required_||(sequence_&&now>=renewed_&&now-renewed_<300); }
   bool valid(std::int64_t now,std::int64_t duration) const {
     return !required_ || (active_ && now >= renewed_ && now - renewed_ < duration);
   }

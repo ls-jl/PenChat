@@ -14,6 +14,21 @@ forward paper scans only; reverse motion and dark-screen scans are not validated
 Canvas preview reads run outside the capture loop; keep only bounded latest
 previews and join/cancel readers before releasing scan results.
 
+## RK display compatibility
+
+Prefer the verified ARGB native-under-Falcon mode. Older firmware may use an
+explicit capability-selected upper RGB overlay when primary format/query or
+underlay submission is incompatible; never select this by model or resolution.
+Only idle planes with verifiable stacking and completion may be used. Legacy
+SetPlane requires vblank retirement before buffer reuse; never silently switch
+submission paths after a failed frame or overwrite another owner's framebuffer.
+Upper overlays require a fresh foreground bootstrap lease and valid window
+focus reporting. They release their display client while system UI covers them,
+retaining the CPU frame and business/model state. Their official IME is full-screen;
+partial official editing remains available on the underlay and existing CVI path.
+Expose the selected mode and probe stage/format/errno in diagnostics. Do not infer
+that an unknown primary is ARGB or replace a concrete failure with exit status 0.
+
 ## Device naming
 
 Use **Y01** for the device previously called **ORANGE**; its authorized serial
