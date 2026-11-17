@@ -39,6 +39,7 @@ public:
     int crtcWidth() const { return crtcW_; }
     int crtcHeight() const { return crtcH_; }
     std::string lastError() const { return error_; }
+    bool temporarilyUnavailable() const { return temporarilyUnavailable_; }
 
     void setHole(const HoleRect& hole);
     HoleRect hole() const { return hole_; }
@@ -87,6 +88,7 @@ private:
     bool presented_ = false;
     bool flipPending_ = false;
     bool completionFailed_ = false;
+    bool temporarilyUnavailable_ = false;
     HoleRect hole_;
     DrmBuf bufs_[2];
     int cur_;

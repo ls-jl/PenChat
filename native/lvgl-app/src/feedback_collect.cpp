@@ -26,12 +26,12 @@ std::string logRoot;
 bool logDirty = false;
 size_t logBytes = 0;
 const std::set<std::string> events = {
-  "lifecycle.start", "lifecycle.background", "lifecycle.foreground", "lifecycle.stop", "lifecycle.startup_error",
+  "lifecycle.runtime_error", "lifecycle.exit", "lifecycle.start", "lifecycle.background", "lifecycle.foreground", "lifecycle.stop", "lifecycle.startup_error",
   "ui.error", "camera.started", "camera.error", "camera.photo", "camera.orientation",
   "storage.save_error", "storage.save_complete", "scanner.started", "scanner.finished",
   "scanner.released", "scanner.error", "scanner.review_error", "scanner.stopped", "network.request_end", "feedback.request_end", "feedback.upload_result"};
 const std::set<std::string> numbers = {
-  "status", "curl_code", "elapsed_ms", "dns_ms", "tcp_ms", "tls_ms", "first_byte_ms", "queue_ms",
+  "signal", "status", "curl_code", "elapsed_ms", "dns_ms", "tcp_ms", "tls_ms", "first_byte_ms", "queue_ms",
   "new_connections", "connection_reused", "attempts", "count", "width", "height", "angle",
   "received", "filtered", "selected", "committed", "dropped_raw", "unlocated", "queue_peak", "queue_capacity",
   "raw_queued", "selected_queued", "raw_peak", "selected_peak", "frame_bytes", "canvas_bytes",

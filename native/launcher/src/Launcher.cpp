@@ -11,6 +11,7 @@
 #include "update.hpp"
 #include "HeadKeyRoute.hpp"
 #include "SystemOverlay.hpp"
+#include "RuntimeLease.hpp"
 #ifdef PENCHAT_CVI_PLATFORM
 #include "composite.hpp"
 #endif
@@ -53,6 +54,38 @@ class Launcher : public JQBaseObject {
   pid_t pid_ = -1;
   std::string ownId_, ownData_, runtimeWorkspace_, runtimeData_;
   std::set<std::string> installations_;
+  penchat::RuntimeLease lease_;
+  Bson lastExit_;
+  bool exitPending_=false;
+  std::string exitReason_;
+  bool lastFocused_=false,lastPanel_=false,pageAttached_=false;
+  void persistExit() {
+    try {if(!runtimeData_.empty())penchat::atomicText(runtimeData_+"/last-exit.json",lastExit_.dump());}catch(...){}
+  }
+  void noteExitReason(const std::string &reason) {
+    static const std::set<std::string> allowed{"normal","explicit_exit","signal","ipc_eof","update","runtime_error"};
+    if(!allowed.count(reason))return;
+    exitReason_=reason;
+    if(pid_<=0&&!lastExit_.is_null()) {
+      auto record=lastExit_.object_items();record["reason"]=reason;lastExit_=Bson(record);persistExit();
+    }
+  }
+  void reaped(int status,bool unknown=false) {
+    if(pid_<=0)return;
+    const int child=int(pid_);pid_=-1;ready_=false;headRoute_.stop();
+    const int code=unknown?-1:WIFEXITED(status)?WEXITSTATUS(status):128+WTERMSIG(status);
+    lastExit_=Bson::object{{"v",1},{"type","exit"},{"status",code},{"pid",child},
+      {"runtimeId",lease_.runtime()},{"ownerGeneration",lease_.generation()},
+      {"time_ms",double(penchat::nowMs())},{"window_focused",lastFocused_},{"panel_visible",lastPanel_},{"page_attached",pageAttached_},
+      {"reason",exitReason_.empty()?(unknown?"unknown":WIFSIGNALED(status)?"signal":"process_exit"):exitReason_}};
+    exitPending_=true;
+    persistExit();
+  }
+  void reap() {
+    if(pid_<=0)return;
+    int status=0;const auto result=waitpid(pid_,&status,WNOHANG);
+    if(result==pid_||(result<0&&errno==ECHILD))reaped(status,result<0);
+  }
 #ifdef PENCHAT_CVI_PLATFORM
   std::uint64_t focusSequence_ = 0;
   int generation_ = 0;
@@ -64,29 +97,24 @@ class Launcher : public JQBaseObject {
       close(fd_);
       fd_ = -1;
     }
-    if (pid_ > 0) {
-      int status = 0;
-      auto result = waitpid(pid_, &status, WNOHANG);
-      if (result == pid_ || (result < 0 && errno == ECHILD))
-        pid_ = -1;
-    }
+    reap();
     if (pid_ > 0) {
       kill(pid_, SIGTERM);
       // Permit bounded HTTP cancellation, scanner lease restoration and DB
       // final-save acknowledgement before falling back to SIGKILL.
       for (int i = 0; i < 500; ++i) {
-        int status;
+        int status=0;
         auto result = waitpid(pid_, &status, WNOHANG);
         if (result == pid_ || result < 0) {
-          pid_ = -1;
+          reaped(status,result<0);
           break;
         }
         usleep(10000);
       }
       if (pid_ > 0) {
         kill(pid_, SIGKILL);
-        waitpid(pid_, nullptr, 0);
-        pid_ = -1;
+        int status=0;const auto result=waitpid(pid_,&status,0);
+        reaped(status,result<0);
       }
     }
 #ifdef PENCHAT_CVI_PLATFORM
@@ -145,11 +173,16 @@ public:
       info.postError("Missing application paths");
       return;
     }
-    if(pid_>0&&fd_>=0&&waitpid(pid_,nullptr,WNOHANG)==0) {
+    if(!lease_.claim(o["ownerGeneration"].int_value())) {info.postError("Stale runtime owner");return;}
+    reap();
+    if(pid_>0&&fd_>=0) {
       if(workspace!=runtimeWorkspace_||data!=runtimeData_){info.postError("A different runtime is already active");return;}
-      info.post(Bson::object{{"ok",true},{"pid",int(pid_)},{"reused",true},{"ready",ready_},{"screen",screenDescriptor_}});return;
+      info.post(Bson::object{{"ok",true},{"pid",int(pid_)},{"runtimeId",lease_.runtime()},{"reused",true},{"ready",ready_},{"screen",screenDescriptor_}});return;
     }
     stopLocked();runtimeWorkspace_=workspace;runtimeData_=data;
+    lease_.created();exitReason_.clear();exitPending_=false;
+    // Preserve the preceding stderr trace before either architecture truncates it.
+    rename((data+"/lvgl-runtime.log").c_str(),(data+"/lvgl-runtime.previous.log").c_str());
     auto binary = workspace + "/assets/bin/penchat-lvgl";
     chmod(binary.c_str(), 0755);
     int pair[2];
@@ -211,7 +244,7 @@ public:
     fd_ = pair[0];
 #endif
     fcntl(fd_, F_SETFL, fcntl(fd_, F_GETFL) | O_NONBLOCK);
-    info.post(Bson::object{{"ok", true}, {"pid", int(pid_)}});
+    info.post(Bson::object{{"ok", true}, {"pid", int(pid_)},{"runtimeId",lease_.runtime()}});
   }
   void reopen(JQFunctionInfo &info) {
     const auto id=JQuick::getAppid(info.GetContext());
@@ -224,6 +257,12 @@ public:
     auto input = info.toParamsHolder();
     auto payload = input[0].dump();
     const auto messageType=input[0]["type"].string_value();
+    if(input[0]["generation"].int_value()!=lease_.generation()) {info.GetReturnValue().Set(false);return;}
+    if(messageType=="exit")exitReason_="explicit_exit";
+    if(messageType=="init")pageAttached_=true;
+    if(messageType=="page.detach")pageAttached_=false;
+    if(messageType=="window.focus")lastFocused_=input[0]["focused"].bool_value();
+    if(messageType=="system.overlay.status")lastPanel_=input[0]["panel_visible"].bool_value();
     if(messageType=="page.detach"||(messageType=="visibility"&&!input[0]["visible"].bool_value())) {
       observingPen_=false;if(!ocrRouting_)headRoute_.stop();
     }
@@ -254,19 +293,8 @@ public:
   }
   void status(JQFunctionInfo &info) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (pid_ > 0) {
-      int code = 0;
-      auto result = waitpid(pid_, &code, WNOHANG);
-      if (result == pid_ || (result < 0 && errno == ECHILD)) {
-        headRoute_.stop();
-        pid_ = -1;
-        if (fd_ >= 0) {
-          close(fd_);
-          fd_ = -1;
-        }
-      }
-    }
-    Bson::object state{{"alive", pid_ > 0 && fd_ >= 0}, {"pid", int(pid_)},{"ready",ready_},{"screen",screenDescriptor_},{"head_route_error",headRoute_.failure()},{"head_route_clients",int(headRoute_.clients())},{"observer_active",observingPen_}};
+    reap();
+    Bson::object state{{"runtimeId",lease_.runtime()},{"ownerGeneration",lease_.generation()},{"lastExit",lastExit_},{"alive", pid_ > 0 && fd_ >= 0}, {"pid", int(pid_)},{"ready",ready_},{"screen",screenDescriptor_},{"head_route_error",headRoute_.failure()},{"head_route_clients",int(headRoute_.clients())},{"observer_active",observingPen_}};
 #ifdef PENCHAT_CVI_PLATFORM
     const auto compositor=penchat_compositor::Composite::instance().stats();
     state["display_frames"]=int(compositor.outputFrames);state["system_frames"]=int(compositor.systemFrames);
@@ -345,6 +373,11 @@ public:
   void poll(JQFunctionInfo &info) {
     std::lock_guard<std::mutex> lock(mutex_);
     Bson::array messages;
+    auto parameters=info.toParamsHolder();
+    auto token=parameters[0];
+    if(!lease_.owns(token["runtimeId"].int_value(),token["ownerGeneration"].int_value())) {
+      info.GetReturnValue().Set(Bson(messages));return;
+    }
     for (int i = 0; i < 64 && fd_ >= 0; ++i) {
       char b[65537];
       ssize_t n = recv(fd_, b, 65536, MSG_DONTWAIT);
@@ -353,6 +386,8 @@ public:
         auto j = Bson::parse(std::string(b, n), error);
         if (error.empty()) {
           if(j["type"].string_value()=="ready")ready_=true;
+          if(j["type"].string_value()=="native.exit")noteExitReason(j["reason"].string_value());
+          if(j["type"].string_value()=="fatal")noteExitReason("runtime_error");
           if(j["type"].string_value()=="booted")screenDescriptor_=j["screen"];
           messages.push_back(j);
         }
@@ -364,24 +399,17 @@ public:
       } else
         break;
     }
-    if (pid_ > 0) {
-      int status = 0;
-      auto result = waitpid(pid_, &status, WNOHANG);
-      if (result == pid_ || (result < 0 && errno == ECHILD)) {
-        headRoute_.stop();
-        pid_ = -1;
-        messages.push_back(Bson::object{
-            {"v", 1},
-            {"type", "exit"},
-            {"status", WIFEXITED(status) ? WEXITSTATUS(status)
-                                         : 128 + WTERMSIG(status)}});
-      }
-    }
+    reap();
+    if(exitPending_) {messages.push_back(lastExit_);exitPending_=false;}
     info.GetReturnValue().Set(Bson(messages));
   }
   void stop(JQAsyncInfo &info) {
     std::lock_guard<std::mutex> lock(mutex_);
-    stopLocked();
+    auto o=info[0];
+    if(!lease_.owns(o["runtimeId"].int_value(),o["ownerGeneration"].int_value())) {
+      info.post(Bson::object{{"ok",false},{"stale",true}});return;
+    }
+    if(exitReason_.empty())exitReason_="requested_stop";stopLocked();
     info.post(Bson::object{{"ok", true}});
   }
 };

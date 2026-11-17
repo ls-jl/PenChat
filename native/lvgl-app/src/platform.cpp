@@ -110,7 +110,8 @@ void Display::flush(lv_display_t *d, const lv_area_t *, uint8_t *) {
   // the complete framebuffer, so submit once after its last rectangle is drawn.
   if (!lv_display_flush_is_last(d)) { lv_display_flush_ready(d); return; }
   if (shown_ && !headless_ && surface_) {
-    try {pending_=!presentTimed(*surface_,buffer_.data(), screen_.width, screen_.height);presented_|=!pending_;}
+    try {retryPresent();}
+    catch(const camera::DisplayUnavailable &) {available_=false;pending_=true;retryPresentAt_=monotonicUs()+100000;}
     catch(const std::exception &e) {
       error_=e.what();shown_=false;pending_=false;
       try{surface_->hide();}catch(...){}
@@ -126,9 +127,14 @@ void Display::check() {
   // The full LVGL CPU buffer already contains the newest frame. Retry that
   // buffer directly; no extra redraw, queue, copied snapshot or UI wait.
   if(pending_&&shown_&&surface_) {
-    pending_=!presentTimed(*surface_,buffer_.data(),screen_.width,screen_.height);
-    presented_|=!pending_;
+    try {retryPresent();}
+    catch(const camera::DisplayUnavailable &) {available_=false;retryPresentAt_=monotonicUs()+100000;}
   }
+}
+void Display::retryPresent() {
+  if(monotonicUs()<retryPresentAt_)return;
+  pending_=!presentTimed(*surface_,buffer_.data(),screen_.width,screen_.height);
+  if(!pending_) {presented_=true;available_=true;retryPresentAt_=0;}
 }
 void Display::visible(bool value) {
   shown_ = value;
@@ -138,6 +144,7 @@ void Display::visible(bool value) {
     else surface_->hide();
   }
   if (value) {
+    retryPresentAt_=0;
     if(!surface_&&!mediaPaused_&&!headless_)mediaHandoff(false);
     lv_obj_invalidate(lv_screen_active());
     lv_refr_now(display_);

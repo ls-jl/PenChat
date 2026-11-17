@@ -100,6 +100,7 @@ export default {
       clearInterval(this._poll)
       this._poll = setInterval(() => this.poll(), 20)
       this.syncWindowFocus(true)
+      this.armReadyTimer()
       if (!wasVisible) this.send('visibility', { visible: true })
       this.syncInputFocus(true)
     },
@@ -113,6 +114,18 @@ export default {
     send(type, payload) {
       if (!this.running) return false
       return launcher.send(Object.assign({ v: 1, type, generation: this._generation, requestId: ++this._requestSequence }, payload || {}))
+    },
+    runtimeToken() { return { runtimeId: this._runtimeId || 0, ownerGeneration: this._generation || 0 } },
+    stopRuntime() { return launcher.stop(this.runtimeToken()) },
+    armReadyTimer() {
+      clearTimeout(this._readyTimer);this._readyTimer=null
+      if(this.nativeReady||!this.running||this._disposed||!this.visible||this._pageHidden||this._windowFocused===false)return
+      const generation=this._generation
+      this._readyTimer=setTimeout(()=>{
+        this._readyTimer=null
+        if(generation!==generationSeed||this._disposed||!this.visible||this._pageHidden||this._windowFocused===false)return
+        if(this.running&&!this.nativeReady&&this._generation===generation)this.fail('原生页面启动超时，请重试')
+      },15000)
     },
     async boot() {
       if (this._starting || this.running || this._disposed) return
@@ -142,13 +155,14 @@ export default {
         if (this._disposed) return
         let workspace = String(globalThis.$workspace || '')
         try { let info = pm.getPackageInfo(appConfig.appid); if (typeof info === 'string') info = JSON.parse(info); if (info && info.installPath) workspace = String(info.installPath) } catch (err) {}
-        const started = await launcher.start({ workspace, dataDir: String(globalThis.$dataDir || '') })
+        const started = await launcher.start({ workspace, dataDir: String(globalThis.$dataDir || ''), ownerGeneration: generation })
+        if(started&&started.runtimeId)this._runtimeId=started.runtimeId
         if (this._disposed) {
           if(this._detached) {
             // A late start belongs to the application, not this destroyed Page.
             // Do not detach a newer Page that already mounted the same runtime.
-            if(generation===generationSeed)launcher.send({v:1,type:'page.detach'})
-          } else await launcher.stop()
+            if(generation===generationSeed)launcher.send({v:1,type:'page.detach',generation})
+          } else await this.stopRuntime()
           return
         }
         this.running = true
@@ -157,19 +171,18 @@ export default {
         this.syncInputFocus(true)
         // Arm before polling: Falcon may deliver an already queued ready event
         // during interval registration. A stale timeout cannot close a ready page.
-        this._readyTimer = setTimeout(() => {
-          if (this.running && !this.nativeReady && this._generation === generation) this.fail('原生页面启动超时，请重试')
-        }, 15000)
+        this.armReadyTimer()
         this._poll = setInterval(() => this.poll(), 20)
       } catch (err) { if(!this._disposed)this.fail(err && err.message ? err.message : String(err)) }
       finally { this._starting = false }
     },
     poll() {
+      if(this._disposed||this._generation!==generationSeed)return
       try {
         this.syncWindowFocus()
         this.syncInputFocus()
         this.checkOfficialKeyboard()
-        for (const event of launcher.poll() || []) {
+        for (const event of launcher.poll(this.runtimeToken()) || []) {
           if (event.generation !== undefined && event.generation !== this._generation && event.type !== 'booted' && event.type !== 'startup' && event.type !== 'fatal' && event.type !== 'exit') continue
           if (event.type === 'booted') {
             const screen = event.screen
@@ -239,7 +252,7 @@ export default {
       this.stopOcr(); this.setNativeEditorPolicy(false)
       try {
         this._updateBridge = new UpdateInstall({
-          appid: appConfig.appid, dataDir: String(globalThis.$dataDir || ''), pm, launcher,
+          appid: appConfig.appid, dataDir: String(globalThis.$dataDir || ''), pm, launcher: { stop: () => this.stopRuntime(), install: ticket => launcher.install(ticket) },
           setTimeout, clearTimeout,
           accept: value => this.send('update.install.accepted', { operation: value.operation }),
           status: text => { this.running = false; this.errorText = text },
@@ -301,6 +314,8 @@ export default {
       this._windowFocused = focused
       this.setBackPolicy(!focused)
       this.setNativeEditorPolicy(!!this._nativeEditor && !this.keyboardOpen)
+      if(!focused){clearTimeout(this._readyTimer);this._readyTimer=null}
+      else if(!this.nativeReady)this.armReadyTimer()
       if (!focused) {
         if(this._penAvailable&&(this._panelVisible||this._pageHidden))try { if(typeof launcher.observePen==='function')launcher.observePen(true) } catch (_) {}
         this.stopOcr()
@@ -367,8 +382,8 @@ export default {
       if (!this._ocr) this._ocr = new OcrSession(this._global, appConfig.appid, (type, data) => {
         if (this._disposed || generation !== this._generation || data.requestId !== this._ocrRequest) return
         this.send(type, data)
-      }, (down, sequence) => typeof launcher.ocrStroke === 'function' && launcher.ocrStroke(down, sequence),
-      active => typeof launcher.ocrRoute === 'function' && launcher.ocrRoute(active))
+      }, (down, sequence) => generation===generationSeed && typeof launcher.ocrStroke === 'function' && launcher.ocrStroke(down, sequence),
+      active => generation===generationSeed && typeof launcher.ocrRoute === 'function' && launcher.ocrRoute(active))
       this._ocr.start(event.requestId, { session: event.session, mode: event.mode, continuous: event.continuous, nativePen: event.nativePen === true, prepareOnly })
       } catch (err) {
         this.stopOcr()
@@ -378,7 +393,7 @@ export default {
     stopOcr(requestId, acknowledge = false) {
       let ok = true
       if (!requestId || requestId === this._ocrRequest || (this._ocr && this._ocr.pendingCleanup && this._ocr.pendingCleanup.requestId === requestId)) {
-        if (this._ocr) ok = this._ocr.stop() !== false
+        if (this._ocr) ok = this._ocr.stop(this._generation!==generationSeed) !== false
         if (ok) { this._ocr = null; this._ocrRequest = null }
       }
       // Already-stopped old IDs are acknowledged without touching a newer lease.
@@ -394,7 +409,7 @@ export default {
       this.updatePageStyle()
       this._keyboardUuid = ''; this._keyboardRequest = ''; this._keyboardWatchAt = 0; this._keyboardCompleting = false; this._officialOpenConfig = null
       this._legacyOfficialHidden = false; this._legacyOfficialHideAt = 0
-      try { if (closePanel && typeof launcher.closeOfficialKeyboard === 'function') launcher.closeOfficialKeyboard() } catch (_) {}
+      try { if (closePanel && this._generation===generationSeed && typeof launcher.closeOfficialKeyboard === 'function') launcher.closeOfficialKeyboard() } catch (_) {}
     },
     cancelOfficialKeyboard(error = '') {
       if (!this.keyboardOpen) return
@@ -752,10 +767,11 @@ export default {
       this.running = false
       clearInterval(this._poll); clearTimeout(this._readyTimer)
       this._poll = null; this._readyTimer = null
-      launcher.stop().catch(() => {})
+      this.stopRuntime().catch(() => {})
     },
-    async retry() { if (this._updateInstalled) { launcher.reopen(); return }; if (this._starting) return; await launcher.stop(); this.running = false; this.boot() },
+    async retry() { if (this._updateInstalled) { launcher.reopen(); return }; if (this._starting) return; await this.stopRuntime(); this.running = false; this.boot() },
     finish() {
+      if(this._generation!==generationSeed){this.detachPage();return}
       this.dispose()
       if(am&&typeof am.closeApp==='function')am.closeApp(appConfig.appid,false)
       else this.$page.finish()
@@ -801,7 +817,7 @@ export default {
       this._editFinished = null
       this._keyboardUuid = ''
       this.keyboardOpen = false
-      launcher.stop().catch(() => {})
+      this.stopRuntime().catch(() => {})
     },
   },
 }

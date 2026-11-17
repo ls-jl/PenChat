@@ -14,6 +14,7 @@ public:
   }
   bool present(const std::uint8_t *pixels,int w,int h) override {
     if(overlay_.presentBgra(pixels,w,topHeight_?topHeight_:h)) return true;
+    if(overlay_.temporarilyUnavailable())throw DisplayUnavailable("DRM display temporarily unavailable");
     if(overlay_.lastError().empty()) return false;
     throw std::runtime_error(overlay_.lastError());
   }

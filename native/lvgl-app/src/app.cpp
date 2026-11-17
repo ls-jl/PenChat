@@ -3051,7 +3051,7 @@ void App::updateInputFocus() {
     }
     syncScanner();
   }
-  const bool touch=permission.input;
+  const bool touch=permission.input&&display_.available();
   if(touchLeaseActive_==touch)return;
   touchLeaseActive_=touch;
   recordInputFocus(InputFocusTrace::TouchApplied,touch);

@@ -563,7 +563,7 @@ bool Overlay::finishPendingFlip(bool wait)
         timeout = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count());
         // Round down so repeated signals can never extend the 100ms budget.
     }
-    if (result < 0 || (event.revents & (POLLERR | POLLHUP | POLLNVAL)) || (wait && result == 0)) {
+    if (result < 0 || (event.revents & (POLLERR | POLLHUP | POLLNVAL)) ) {
         error_ = result == 0 ? "DRM flip completion timed out" : "DRM completion poll failed";
         completionFailed_ = true;
         return false;
@@ -583,6 +583,11 @@ bool Overlay::finishPendingFlip(bool wait)
 
 bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int srcH)
 {
+    temporarilyUnavailable_ = false;
+    uint64_t active=1;
+    if(fbId&&findProp(crtcId_,DRM_MODE_OBJECT_CRTC,"ACTIVE",&active)&&!active) {
+        temporarilyUnavailable_=true;return false;
+    }
     if(fbId) {
         drm_mode_get_plane owner{};owner.plane_id=planeId_;
         uint64_t hostZ=0;
@@ -641,6 +646,7 @@ bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int sr
             return true;
         }
         if (commitError == EBUSY || commitError == EAGAIN) return false;
+        if(commitError==EACCES||commitError==EPERM) {temporarilyUnavailable_=true;return false;}
         // Retrying without zpos would silently place us above Falcon again.
         const int retryError=commitError;
         // Atomic submission failures must not switch to a legacy path whose

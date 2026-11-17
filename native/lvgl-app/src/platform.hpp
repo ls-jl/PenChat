@@ -11,6 +11,9 @@ class Display {
   int refreshRate_ = 30;
   int topHeight_ = 0;
   std::string error_;
+  uint64_t retryPresentAt_ = 0;
+  bool available_ = true;
+  void retryPresent();
   bool shown_ = true, headless_ = false, mediaPaused_ = false, pending_ = false, presented_ = false;
 
 public:
@@ -32,6 +35,7 @@ public:
   bool presented() const {return presented_;}
   bool pending() const {return pending_;}
   bool visible() const { return shown_; }
+  bool available() const { return available_; }
   std::array<uint64_t,4> stacking() {return surface_?surface_->stacking():std::array<uint64_t,4>{{0,0,0,0}};}
   bool systemOverlaySafe() const { return headless_ || (surface_ && surface_->systemOverlaySafe()); }
   void screenshot(const std::string &path);

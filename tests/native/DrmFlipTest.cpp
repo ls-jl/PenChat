@@ -34,7 +34,7 @@ bool zposIncluded = false;
 const uint32_t zposProperty = 44;
 const uint32_t hostZposProperty = 45, hostPlane = 2;
 uint32_t attachedFb=0,pendingFb=0;
-uint64_t hostZpos=3;
+uint64_t hostZpos=3, crtcActive=1;
 bool foreignPlane=false,hostZposIncluded=false;
 bool interruptPoll = false;
 bool interruptUntilTimeout = false;
@@ -49,12 +49,12 @@ extern "C" int ioctl(int fd,unsigned long request,...) noexcept {
 }
 extern "C" drmModeObjectPropertiesPtr drmModeObjectGetProperties(int,uint32_t object,uint32_t) {
   static uint32_t property;static uint64_t value;static drmModeObjectProperties props;
-  property=object==hostPlane?hostZposProperty:zposProperty;value=object==hostPlane?hostZpos:0;
+  property=object==crtcObject?46:object==hostPlane?hostZposProperty:zposProperty;value=object==crtcObject?crtcActive:object==hostPlane?hostZpos:0;
   props.count_props=1;props.props=&property;props.prop_values=&value;return &props;
 }
 extern "C" void drmModeFreeObjectProperties(drmModeObjectPropertiesPtr) {}
 extern "C" drmModePropertyPtr drmModeGetProperty(int,uint32_t id) {
-  static drmModePropertyRes p;p.prop_id=id;std::strcpy(p.name,"zpos");return &p;
+  static drmModePropertyRes p;p.prop_id=id;std::strcpy(p.name,id==46?"ACTIVE":"zpos");return &p;
 }
 extern "C" void drmModeFreeProperty(drmModePropertyPtr) {}
 extern "C" int poll(struct pollfd* fds, nfds_t count, int timeout) {
@@ -217,13 +217,21 @@ int main() {
   assert(interruptedTimeouts.back() < interruptedTimeouts.front());
   assert(waited >= std::chrono::milliseconds(90));
   assert(waited < std::chrono::milliseconds(500));
-  assert(overlay.completionFailed_ && overlay.flipPending_);
-  assert(overlay.lastError() == "DRM flip completion timed out");
+  assert(!overlay.completionFailed_ && overlay.flipPending_);
+  assert(overlay.lastError().empty());
   assert(submissions == heldSubmissions);
   frame.assign(16, 0x66);
   assert(!overlay.presentBgra(frame.data(), 2, 2));
   assert(first == heldFirst && second == heldSecond);
-  assert(overlay.lastError() == "DRM flip completion timed out");
+  assert(overlay.lastError().empty());
+  // A delayed completion after wake retires the same buffers, never an early reuse.
+  complete();assert(overlay.presentBgra(frame.data(),2,2));
+  complete();assert(overlay.finishPendingFlip());
+  crtcActive=0;assert(!overlay.presentBgra(frame.data(),2,2));
+  assert(overlay.temporarilyUnavailable()&&overlay.lastError().empty());
+  crtcActive=1;assert(overlay.presentBgra(frame.data(),2,2));
+  const auto disconnectedFirst=first,disconnectedSecond=second;
+  const auto disconnectedSubmissions=submissions;
   // Independently inject a disconnected event fd. A fatal poll result also
   // quarantines both buffers and is retained across subsequent presents.
   overlay.completionFailed_ = false;
@@ -231,7 +239,7 @@ int main() {
   close(events[1]);
   assert(!overlay.presentBgra(frame.data(), 2, 2));
   assert(overlay.completionFailed_ && overlay.lastError() == "DRM completion poll failed");
-  assert(first == heldFirst && second == heldSecond && submissions == heldSubmissions);
+  assert(first == disconnectedFirst && second == disconnectedSecond && submissions == disconnectedSubmissions);
   // The test owns these CPU mappings and pipe; suppress DRM teardown only.
   memset(overlay.bufs_, 0, sizeof(overlay.bufs_));
   overlay.fd_ = -1;

@@ -5,13 +5,16 @@
 #include <fcntl.h>
 #include <iostream>
 #include <unistd.h>
+#if defined(__aarch64__)
+#include <ucontext.h>
+#endif
 #ifdef PENCHAT_CVI_PLATFORM
 #include <ucontext.h>
 #include "surface.hpp"
 #endif
 namespace {
-volatile sig_atomic_t running = 1, snapshotRequested = 0;
-void stop(int) { running = 0; }
+volatile sig_atomic_t running = 1, snapshotRequested = 0, terminationSignal = 0;
+void stop(int signal) { terminationSignal=signal;running = 0; }
 #ifdef PENCHAT_CVI_PLATFORM
 void mediaFault(int signal,siginfo_t *,void *context) {
   // Address-only diagnostic, no heap allocation or application content.
@@ -22,6 +25,19 @@ void mediaFault(int signal,siginfo_t *,void *context) {
     line[(n?31:19)+i]="0123456789abcdef"[(values[n]>>(28-4*i))&15];
   ::write(STDERR_FILENO,line,sizeof(line)-1);
   _exit(128+signal);
+}
+#elif defined(__aarch64__)
+void mediaFault(int signal,siginfo_t *,void *context) {
+  auto *cpu=static_cast<ucontext_t *>(context);
+  char line[]="RK_NATIVE_FAULT pc=0000000000000000 lr=0000000000000000\n";
+  const unsigned long values[2]={cpu->uc_mcontext.pc,cpu->uc_mcontext.regs[30]};
+  char *digits=line;
+  for(int n=0;n<2;++n) {
+    while(*digits&&*digits!='=')++digits;++digits;
+    for(int i=0;i<16;++i)digits[i]="0123456789abcdef"[(values[n]>>(60-4*i))&15];
+    digits+=16;
+  }
+  ::write(STDERR_FILENO,line,sizeof(line)-1);_exit(128+signal);
 }
 #endif
 void snapshot(int) { snapshotRequested = 2; }
@@ -42,7 +58,7 @@ int main(int argc, char **argv) {
 #ifdef PENCHAT_CVI_PLATFORM
   int compositorFd = -1, compositorMemory = -1;
 #endif
-  bool headless = false;
+  bool headless = false,enteredLoop=false;
   std::unique_ptr<Bridge> bridgeOwner;
   try {
   for (int i = 1; i < argc; ++i) {
@@ -104,7 +120,7 @@ int main(int argc, char **argv) {
       fontPath = "/etc/miniapp/resources/fonts/HarmonyOS_Sans_SC_Regular.ttf";
     if (resources.empty())
       resources = join(workspace, "assets/microtex");
-#ifdef PENCHAT_CVI_PLATFORM
+#if defined(PENCHAT_CVI_PLATFORM) || defined(__aarch64__)
     struct sigaction fault{};fault.sa_sigaction=mediaFault;fault.sa_flags=SA_SIGINFO;
     sigemptyset(&fault.sa_mask);sigaction(SIGSEGV,&fault,nullptr);sigaction(SIGBUS,&fault,nullptr);
 #endif
@@ -161,11 +177,14 @@ int main(int argc, char **argv) {
       app.demo(fileText(demo));
     startup("frame");
     int frame = 0;
+    std::string exitReason="normal";
     bool firstFrameReported=false;
+    enteredLoop=true;
     while (running && (standalone || bridge.connected())) {
       for (const auto &m : bridge.receive()) {
-        if (m.value("type", std::string()) == "exit")
-          running = 0;
+        if (m.value("type", std::string()) == "exit") {
+          exitReason="explicit_exit";running = 0;
+        }
         app.handle(m);
       }
       // A closed launcher must not dispatch one last batch of physical touches.
@@ -193,11 +212,16 @@ int main(int argc, char **argv) {
     }
     if (!screenshot.empty())
       display.screenshot(screenshot);
+    if(terminationSignal)exitReason="signal";
+    else if(!standalone&&!bridge.connected())exitReason="ipc_eof";
+    else if(app.updateExit())exitReason="update";
+    bridge.send("native.exit",{{"reason",exitReason},{"signal",int(terminationSignal)}});
+    diagnosticRecord("lifecycle","exit",{{"signal",int(terminationSignal)}});flushDiagnostics();
     app.shutdown();
     display.visible(false);
     return 0;
   } catch (const std::exception &e) {
-    diagnosticRecord("lifecycle", "startup_error"); flushDiagnostics();
+    diagnosticRecord("lifecycle", enteredLoop?"runtime_error":"startup_error"); flushDiagnostics();
     std::cerr << "penchat-lvgl: " << e.what() << std::endl;
     if(bridgeOwner) bridgeOwner->send("fatal", {{"error", e.what()}});
     else if (fd >= 0) {

@@ -318,7 +318,7 @@ test('global window focus yields native overlay/input without a fake page hide',
   f.native.focused=false;f.page.syncWindowFocus(true)
   let packets=f.calls.filter(c=>c[0]==='send'&&c[1].type==='window.focus').map(c=>c[1])
   assert.equal(packets.length,1);assert.equal(packets[0].focused,false)
-  assert.equal(f.page.visible,true);assert.equal(f.timers.size,2)
+  assert.equal(f.page.visible,true);assert.equal(f.timers.size,1)
   assert.equal(f.calls.filter(c=>c[0]==='systemBack').at(-1)[1],true)
   f.page.editorState({session:'editor',sequence:1,active:true})
   f.page.navigationState({sequence:1,imageWorkspace:true})
@@ -1038,4 +1038,28 @@ test('legacy startup still reports a genuinely missing panel after its opening d
  f.context.legacyClock=3001;f.page._keyboardWatchAt=1;f.page.checkOfficialKeyboard()
  assert(!f.page.keyboardOpen);assert(f.calls.filter(c=>c[0]==='send'&&c[1].type==='keyboard.result').at(-1)[1].error)
  f.page.dispose()
+})
+
+
+test('covered startup timeout cannot stop a live runtime and rearms on foreground',async()=>{
+ const f=fixture();await f.page.boot();const old=f.timers.get(f.page._readyTimer)
+ f.native.focused=false;f.page.syncWindowFocus(true);old()
+ assert.equal(f.page.running,true);assert.equal(f.calls.filter(c=>c[0]==='stop').length,0)
+ f.native.focused=true;f.page.syncWindowFocus(true)
+ assert(f.page._readyTimer);f.page.dispose()
+})
+test('old mounted page cannot drain a newer page events or finish its application',async()=>{
+ const f=fixture();f.native.start=async()=>({runtimeId:41,reused:true})
+ await f.page.boot();const previous=f.page
+ const next=Object.assign(f.options.data(),f.options.methods,{$page:previous.$page})
+ await next.boot();let reads=0;f.native.poll=()=>{++reads;return [{type:'ready'}]}
+ previous.poll();previous.finish()
+ assert.equal(reads,0);assert.equal(f.calls.filter(c=>c[0]==='finish').length,0)
+ next.poll();assert.equal(reads,1);assert(next.nativeReady);next.dispose()
+})
+test('runtime stop carries the identity returned by start and current owner generation',async()=>{
+ const f=fixture();f.native.start=async()=>({runtimeId:73});let token
+ f.native.stop=async value=>{token=value}
+ await f.page.boot();f.page.dispose()
+ assert.equal(token.runtimeId,73);assert.equal(token.ownerGeneration,f.page._generation)
 })

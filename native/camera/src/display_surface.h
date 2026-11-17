@@ -2,7 +2,13 @@
 #include <cstdint>
 #include <array>
 #include <memory>
+#include <stdexcept>
+#include <string>
 namespace camera {
+class DisplayUnavailable : public std::runtime_error {
+public:
+  explicit DisplayUnavailable(const std::string &message):std::runtime_error(message) {}
+};
 struct DisplayGeometry {
   int width=0,height=0,rotation=0,xoffset=0,yoffset=0;
   int panelWidth=0,panelHeight=0;
