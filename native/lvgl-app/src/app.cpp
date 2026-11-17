@@ -101,6 +101,8 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   wideKeyboardSwap_=config.value("wide_keyboard_swap",false);
   const auto officialKeyboard=config.value("prefer_official_keyboard",Json());
   preferOfficialKeyboard_=officialKeyboard.is_boolean()&&officialKeyboard.get<bool>();
+  const auto scanMode=config.value("ocr_multiline",Json());
+  ocrMultilinePreferred_=scanMode.is_boolean()&&scanMode.get<bool>();
   const auto quickOfficial=config.value("quick_official_keyboard",Json());
   officialShortcut_=quickOfficial.is_boolean()&&quickOfficial.get<bool>();
   const auto idleSeconds = config.value("http_idle_seconds", Json());
@@ -3570,6 +3572,7 @@ void App::tick() {
   }
   imageReturnTick();
   for (const auto &saved : db_.saveEvents()) {
+    if(saved.data.value("key",std::string())=="ocr_multiline"){ocrModeSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="prefer_official_keyboard"||saved.data.value("key",std::string())=="quick_official_keyboard"){officialKeyboardPreferenceSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="ui_refresh_hz"){refreshRateSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="theme_mode"){themeSaved(saved);continue;}

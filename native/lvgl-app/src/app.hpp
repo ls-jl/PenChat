@@ -825,6 +825,10 @@ class App {
   void editorOcrCapabilities(const Json &);
   bool editorMultiLineAllowed_=true, editorMultiLineSupported_=false;
   bool editorChat_=false;
+  bool ocrMultilinePreferred_=false,ocrModeSaving_=false,ocrModeDirty_=false,ocrModeSaveError_=false;
+  std::string ocrModeRequest_;
+  void saveOcrMode();
+  void ocrModeSaved(const Event &event);
   bool editorOcrMulti_=false, editorOcrActive_=false, editorOcrBusy_=false, editorOcrShown_=false;
   bool editorTopBlocked_=false;
   std::string editorOcrId_, editorOcrStopId_;

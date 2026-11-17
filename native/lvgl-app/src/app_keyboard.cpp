@@ -199,7 +199,7 @@ void App::edit(const std::string &text, const std::string &placeholder,
   editorLearning_=editorExact_=Json::array();editorPinyinPending_=Json();
   editorLayoutMenu_=editorPunctuation_=false;
   editorClipboardOpen_=editorClipboardConfirm_=false;
-  if(!reuse||!editorMultiLineSupported_)editorOcrMulti_=false;
+  editorOcrMulti_=ocrMultilinePreferred_&&editorMultiLineSupported_;
   editorOcrActive_=editorOcrBusy_=editorOcrShown_=false; editorOcrCapture_=editorOcrInserted_=0;
   editorTextTouch_=editorCursorDrag_=false; editorHandle_=-1; editorLastTap_=0;editorTextScroll_=0;editorFollowCursor_=true;
   editorPolicy(!editorSelectionOnly_);
@@ -1166,7 +1166,12 @@ void App::editorAction(const std::string &a) {
   const auto beforeText=editor_.text,beforePreedit=editor_.preedit;
   if(a=="ocr-mode") {
     if(!editorMultiLineSupported_)return;
-    if(editorOcrActive_){editorOcrMulti_=!editorOcrMulti_;editorOcrInserted_=0;}
+    if(editorOcrActive_){
+      ocrMultilinePreferred_=!editorOcrMulti_;editorOcrMulti_=ocrMultilinePreferred_;
+      editorOcrInserted_=0;ocrModeDirty_=true;ocrModeSaveError_=false;
+      if(editor_.notice=="扫描模式未保存，本次有效")editor_.notice.clear();
+      saveOcrMode();
+    }
     // Replace a continuous registration without an unregister/re-register gap.
     if(layout().portrait()) {editorOcrActive_=false;editorOcrCapture_=0;editorOcrPending_.clear();}
     else editorOcrStop();
@@ -1506,12 +1511,12 @@ void App::editorOcrCapabilities(const Json &capabilities) {
     capabilities.value("single",Json())==true&&capabilities.value("multi",Json())==true;
   if(editorMultiLineSupported_==supported)return;
   editorMultiLineSupported_=supported;
-  if(!supported) {
-    editorToolsOpen_=false;
-    if(editorOcrMulti_) {
-      editorOcrMulti_=false;editorOcrInserted_=0;
-      editorOcrStop(); // Rearm single-line only after the matching cleanup ACK.
-    }
+  if(!supported)editorToolsOpen_=false;
+  const bool mode=ocrMultilinePreferred_&&supported;
+  if(mode!=editorOcrMulti_) {
+    editorOcrMulti_=mode;editorOcrInserted_=0;
+    editorOcrStop(); // Rearm only after the matching cleanup ACK.
+    editorOcrStart();
   }
   // Initial portrait construction still waits for the OCR handoff. Existing
   // keyboards use their touch guard to defer structural changes until release.
@@ -1528,7 +1533,7 @@ void App::editorOcrFlushStop() {
   editorOcrStopRetry_=ticks()+250; // Idempotent cleanup; remain blocked until acknowledged.
 }
 void App::editorOcrStart() {
-  if(!editorMultiLineSupported_)editorOcrMulti_=false;
+  editorOcrMulti_=ocrMultilinePreferred_&&editorMultiLineSupported_;
   if(!editorDefaultOfficial_.empty()||editorSelectionOnly_||!editor_.active||keyboard_||!visible_||!inputFocused_||editorOcrActive_||!editorOcrStopId_.empty())return;
   const auto session=editor_.id;
   if(scanner_.nativeOcrKeys()) {
@@ -1958,7 +1963,7 @@ Json App::editorDiagnostic() const {
     {"composition_visible",editorRoot_&&editorPreeditViewport_&&!lv_obj_is_hidden(editorPreeditViewport_)},
     {"composition_scroll",editorRoot_&&editorPreeditViewport_?lv_obj_get_scroll_x(editorPreeditViewport_):0},
     {"compact_preedit_bounds",preeditBounds},{"compact_candidate_bounds",candidateBounds},
-    {"notice_present",!editor_.notice.empty()},{"ocr_multiline_supported",editorMultiLineSupported_},{"ocr_request",editorOcrId_},{"ocr_preparing",editorOcrPreparing_},{"ocr_active",editorOcrActive_},{"ocr_multi",editorOcrMulti_},{"ocr_busy",editorOcrBusy_},{"top_panel_blocked",editorTopBlocked_},
+    {"notice_present",!editor_.notice.empty()},{"ocr_multiline_supported",editorMultiLineSupported_},{"ocr_request",editorOcrId_},{"ocr_preparing",editorOcrPreparing_},{"ocr_active",editorOcrActive_},{"ocr_multi",editorOcrMulti_},{"ocr_multiline_preferred",ocrMultilinePreferred_},{"ocr_mode_save_pending",ocrModeSaving_},{"ocr_mode_save_error",ocrModeSaveError_},{"ocr_busy",editorOcrBusy_},{"top_panel_blocked",editorTopBlocked_},
     {"requested_scale",uiMetrics_.factor()*100},{"effective_scale",editorMetrics().scalePercent()},
     {"layout_resolves",editorLayoutResolves_},{"layout_cache_hits",editorLayoutCacheHits_},
     {"coordinate_space",{{"width",layout.width},{"height",layout.height},{"native_width",layout.nativeWidth},{"native_height",layout.nativeHeight},{"scaled",layout.scaled}}},{"keyboard_split",layout.split},{"keyboard_swapped",layout.swapped},{"keyboard_origin",layout.keyInset},{"query_ms",editorLatency_},{"candidate_count",editorCandidates_.size()},{"corrected_count",std::count_if(editorCandidateDetails_.begin(),editorCandidateDetails_.end(),[](const Json &v){return v.value("corrected",false);})},{"revision",editorRevision_},{"keys",keys}};
@@ -2012,5 +2017,21 @@ void App::keyboardSettingsPage() {
   if(!officialPreferenceRequest_.empty())lv_obj_add_state(settingsControls_.at("quick_official_keyboard").row,LV_STATE_DISABLED);
   const auto preferred=editor_.preferredChinese==2?std::string("zh9"):std::string("zh26");
   label(pageContent_,std::string("常用中文布局：")+(preferred=="zh9"?"9键拼音":"26键拼音")+"\n实际输入后自动记住；长按地球可直接选择布局。",uiMetrics_.dp(10),uiMetrics_.dp(296),width-uiMetrics_.dp(20),uiMetrics_.fontSize(UiFont::FormNote),theme::palette().muted);
+}
+} // namespace penchat
+
+namespace penchat {
+void App::saveOcrMode() {
+  if(ocrModeSaving_||!ocrModeDirty_)return;
+  ocrModeDirty_=false;ocrModeSaving_=true;ocrModeRequest_=uid("ocr-mode");
+  db_.queueSetting("ocr_multiline",ocrMultilinePreferred_,ocrModeRequest_);
+}
+void App::ocrModeSaved(const Event &event) {
+  if(!ocrModeSaving_||event.data.value("request",std::string())!=ocrModeRequest_)return;
+  if(event.type!="setting_saved"&&event.type!="setting_error")return;
+  ocrModeSaving_=false;ocrModeRequest_.clear();ocrModeSaveError_=event.type=="setting_error";
+  if(!ocrModeSaveError_&&editor_.notice=="扫描模式未保存，本次有效")editor_.notice.clear();
+  if(ocrModeSaveError_&&editor_.active) {editor_.notice="扫描模式未保存，本次有效";editorBuild();}
+  saveOcrMode();
 }
 } // namespace penchat
