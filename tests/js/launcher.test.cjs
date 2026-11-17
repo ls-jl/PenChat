@@ -1063,3 +1063,13 @@ test('runtime stop carries the identity returned by start and current owner gene
  await f.page.boot();f.page.dispose()
  assert.equal(token.runtimeId,73);assert.equal(token.ownerGeneration,f.page._generation)
 })
+
+test('queued finish from a previous attachment cannot close the current mounted runtime',async()=>{
+ const f=fixture();await f.page.boot()
+ f.native.poll=()=>[{type:'finish',generation:f.page._generation-1}]
+ f.page.poll()
+ assert.equal(f.page.running,true)
+ assert.equal(f.calls.filter(c=>c[0]==='finish'||c[0]==='stop').length,0)
+ f.native.poll=()=>[{type:'finish',generation:f.page._generation}]
+ f.page.poll();assert.equal(f.calls.filter(c=>c[0]==='finish').length,1)
+})
