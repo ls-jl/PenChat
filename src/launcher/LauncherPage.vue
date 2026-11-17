@@ -69,6 +69,7 @@ export default {
       // Some Falcon versions hide our Page before reporting the panel. Yield
       // input immediately; retain the page only with read-only owner evidence.
       this._pageHidden = true
+      this._hidePowerSequence = this._powerSequence || 0
       if(!this.running||this._disposed)return
       this._overlayHidden = false;this._hidePending=true
       this.syncWindowFocus(true);this._hidePending=false
@@ -143,6 +144,7 @@ export default {
       this.setNativeEditorPolicy(false)
       this._nativeEditor = null; this._editorPolicySequence = 0;this._penAvailable=false
       this._pageHidden = this._overlayHidden = this._panelVisible = false
+      this._powerAvailable = this._screenPowerBlocked = false; this._powerSequence = 0
       this._windowFocused = true; this._windowSequence = 0; this._focusNextCheck = 0; this._focusPending = false; this._overlayStatus = ''
       let retained=null
       try { if(typeof launcher.status==='function')retained=launcher.status() } catch (_) {}
@@ -168,7 +170,10 @@ export default {
           return
         }
         this.running = true
-        this.send('init', { ocrCapabilities: this.ocrCapabilities(), reattach: !!(started && started.reused) })
+        let screenPower
+        try { screenPower = launcher.systemOverlay().power } catch (_) {}
+        this.applyScreenPower(screenPower)
+        this.send('init', { ocrCapabilities: this.ocrCapabilities(), reattach: !!(started && started.reused), screenPower })
         this.send('visibility', { visible: this.visible })
         this.syncInputFocus(true)
         // Arm before polling: Falcon may deliver an already queued ready event
@@ -235,10 +240,10 @@ export default {
     syncInputFocus(force = false) {
       if (!this.running) return
       let active = false
-      try { active = this.nativeReady && this.visible && !this._disposed && !this.keyboardOpen && !this._pageHidden && this._windowFocused !== false && am.hasWindowFocus() === true } catch (_) {}
+      try { active = this.nativeReady && this.visible && !this._disposed && !this.keyboardOpen && !this._pageHidden && !this._screenPowerBlocked && this._windowFocused !== false && am.hasWindowFocus() === true } catch (_) {}
       // A system overlay owns input, but its transparent pixels still reveal
       // the compositor's lower LVGL layer. Background/official input withdraw it.
-      const displayActive = this.nativeReady && this.visible && !this._disposed && !this.keyboardOpen
+      const displayActive = this.nativeReady && this.visible && !this._disposed && !this.keyboardOpen && !this._screenPowerBlocked
       const now = Date.now()
       const elapsed = now - this._focusAt
       if (!force && active === this._focusSent && displayActive === this._displayFocusSent && elapsed >= 0 && elapsed < 100) return
@@ -278,6 +283,13 @@ export default {
         return true
       } catch (_) { return false }
     },
+    applyScreenPower(power) {
+      if (!power || typeof power.available !== 'boolean' || !Number.isSafeInteger(power.sequence) ||
+        power.sequence <= (this._powerSequence || 0)) return
+      this._powerAvailable = power.available
+      this._screenPowerBlocked = power.available && (power.known !== true || power.awake !== true)
+      this._powerSequence = power.sequence
+    },
     syncWindowFocus(force = false) {
       if (!this.running || !this.visible || this._disposed) return
       const now = Date.now()
@@ -293,17 +305,20 @@ export default {
         status.panel_available = !!(panel && panel.available === true)
         status.panel_supported = !!(panel && panel.supported === true)
         status.panel_visible = !!(panel && panel.visible === true)
+        this.applyScreenPower(panel && panel.power)
         if (panel && panel.supported === true && typeof panel.visible === 'boolean') focused = focused !== false && !panel.visible
       } catch (_) {}
+      if (this._screenPowerBlocked) focused = false
       if (this._pageHidden) {
         let top
         try { top = am.getTopApp() } catch (_) {}
         const owned = top === appConfig.appid
-        if (status.panel_visible) {
+        if (status.panel_visible || this._screenPowerBlocked) {
           this._overlayHidden = true
         } else if (owned && focused === true && !this._hidePending) {
           this._pageHidden = this._overlayHidden = false
-        } else if (typeof top === 'string' && top && !owned) {
+        } else if (typeof top === 'string' && top && !owned &&
+          (!this._powerAvailable || (!this._hidePending && this._powerSequence > (this._hidePowerSequence || 0)))) {
           this.backgroundPage(); return
         }
         // Ambiguous focus/ownership is a paused cover, never a teardown timeout.
@@ -319,7 +334,7 @@ export default {
       if(!focused){clearTimeout(this._readyTimer);this._readyTimer=null}
       else if(!this.nativeReady)this.armReadyTimer()
       if (!focused) {
-        if(this._penAvailable&&(this._panelVisible||this._pageHidden))try { if(typeof launcher.observePen==='function')launcher.observePen(true) } catch (_) {}
+        if(this._penAvailable&&(this._panelVisible||this._pageHidden||this._screenPowerBlocked))try { if(typeof launcher.observePen==='function')launcher.observePen(true) } catch (_) {}
         this.stopOcr()
       }
       this._focusPending = !this.send('window.focus', { focused, sequence: ++this._windowSequence })
@@ -425,9 +440,10 @@ export default {
       this.send('keyboard.result', result)
     },
     inlineOfficialForeground(state) {
-      if (!this.visible || this._disposed) return false
+      if (!this.visible || this._disposed || this._screenPowerBlocked) return false
       try {
         const overlay = typeof launcher.systemOverlay === 'function' ? launcher.systemOverlay() : null
+        if (overlay && overlay.power && overlay.power.available && (overlay.power.known !== true || overlay.power.awake !== true)) return false
         if (overlay && overlay.supported && overlay.visible) return false
         if (!overlay || !overlay.supported || !am || typeof am.getTopApp !== 'function')
           return state.foreground === true && this._windowFocused !== false
@@ -441,7 +457,7 @@ export default {
       } catch (_) { return false }
     },
     checkOfficialKeyboard() {
-      if (!this.keyboardOpen || this._keyboardCompleting || this._pageHidden || this._panelVisible || (!this.officialInline && !this.visible) || !this._keyboardWatchAt || Date.now() < this._keyboardWatchAt) return
+      if (!this.keyboardOpen || this._keyboardCompleting || this._pageHidden || this._panelVisible || this._screenPowerBlocked || (!this.officialInline && !this.visible) || !this._keyboardWatchAt || Date.now() < this._keyboardWatchAt) return
       this._keyboardWatchAt = Date.now() + 200
       try {
         const state = launcher.officialKeyboard()

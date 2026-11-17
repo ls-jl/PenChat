@@ -12,6 +12,7 @@
 #include "HeadKeyRoute.hpp"
 #include "SystemOverlay.hpp"
 #include "RuntimeLease.hpp"
+#include "ScreenPower.hpp"
 #ifdef PENCHAT_CVI_PLATFORM
 #include "composite.hpp"
 #endif
@@ -55,6 +56,28 @@ class Launcher : public JQBaseObject {
   std::string ownId_, ownData_, runtimeWorkspace_, runtimeData_;
   std::set<std::string> installations_;
   penchat::RuntimeLease lease_;
+  penchat::ScreenPower screenPower_;
+  penchat::ScreenPower::State sentPower_;
+  int powerRuntime_=0,powerGeneration_=0;
+  std::int64_t powerSentAt_=0;
+  static Bson powerState(const penchat::ScreenPower::State &state) {
+    return Bson::object{{"available",state.available},{"known",state.known},{"awake",state.awake},{"sequence",double(state.sequence)}};
+  }
+  void publishPower(const penchat::ScreenPower::State &state) {
+    std::unique_lock<std::mutex> lock(mutex_,std::try_to_lock);
+    if(!lock.owns_lock())return; // Keep sampling even during start/stop/slow SDK calls.
+    if(fd_<0||pid_<=0)return;
+    const auto now=penchat::ticks();
+    const bool changed=state.available!=sentPower_.available||state.known!=sentPower_.known||state.awake!=sentPower_.awake;
+    if(!changed&&powerRuntime_==lease_.runtime()&&powerGeneration_==lease_.generation()&&now-powerSentAt_<500)return;
+    const auto packet=penchat::Json{{"v",1},{"type","screen.power"},{"generation",lease_.generation()},
+      {"sequence",state.sequence},{"available",state.available},{"known",state.known},{"awake",state.awake}}.dump();
+    if(::send(fd_,packet.data(),packet.size(),MSG_NOSIGNAL|MSG_DONTWAIT)!=ssize_t(packet.size()))return;
+    sentPower_=state;powerSentAt_=now;powerRuntime_=lease_.runtime();powerGeneration_=lease_.generation();
+#ifdef PENCHAT_CVI_PLATFORM
+    if(state.available&&(!state.known||!state.awake))penchat_compositor::Composite::instance().focus(false);
+#endif
+  }
   Bson lastExit_;
   bool exitPending_=false;
   std::string exitReason_;
@@ -77,6 +100,7 @@ class Launcher : public JQBaseObject {
     lastExit_=Bson::object{{"v",1},{"type","exit"},{"status",code},{"pid",child},
       {"runtimeId",lease_.runtime()},{"ownerGeneration",lease_.generation()},
       {"time_ms",double(penchat::nowMs())},{"window_focused",lastFocused_},{"panel_visible",lastPanel_},{"page_attached",pageAttached_},
+      {"screen_power",powerState(screenPower_.state())},
       {"reason",exitReason_.empty()?(unknown?"unknown":WIFSIGNALED(status)?"signal":"process_exit"):exitReason_}};
     exitPending_=true;
     persistExit();
@@ -125,6 +149,7 @@ class Launcher : public JQBaseObject {
 public:
   void OnCtor(JQFunctionInfo &info) override {
     ownId_=JQuick::getAppid(info.GetContext());ownData_=JQuick::getDataDir(info.GetContext());
+    screenPower_.start([this](const penchat::ScreenPower::State &state){publishPower(state);});
   }
   void install(JQAsyncInfo &info) {
     try {
@@ -161,11 +186,13 @@ public:
     }catch(const std::exception &error){info.postError(error.what());}
   }
   ~Launcher() override {
+    screenPower_.stop();
     std::lock_guard<std::mutex> lock(mutex_);
     stopLocked();
   }
   void start(JQAsyncInfo &info) {
     std::lock_guard<std::mutex> lock(mutex_);
+    if(!screenPower_.running())screenPower_.start([this](const penchat::ScreenPower::State &state){publishPower(state);});
     auto o = info[0];
     auto workspace = o["workspace"].string_value(),
          data = o["dataDir"].string_value();
@@ -282,7 +309,9 @@ public:
             // Display lease is separate from native input focus. Falcon's
             // windows are already blended above LVGL, including partial covers.
             const bool inputActive=message.value("active",false);
-            penchat_compositor::Composite::instance().focus(message.value("displayActive",inputActive));
+            const auto power=screenPower_.state();
+            penchat_compositor::Composite::instance().focus(message.value("displayActive",inputActive)&&
+              (!power.available||(power.known&&power.awake)));
           }
         }
       } else if(type=="exit" || type=="page.detach" || (type=="visibility"&&!input[0]["visible"].bool_value()))
@@ -330,13 +359,16 @@ public:
   }
   void systemOverlay(JQFunctionInfo &info) {
     const auto state=systemOverlay_.state();
-    info.GetReturnValue().Set(Bson::object{{"available",systemOverlay_.available()},{"supported",state.supported},{"visible",state.visible}});
+    info.GetReturnValue().Set(Bson::object{{"available",systemOverlay_.available()},{"supported",state.supported},{"visible",state.visible},
+      {"power",powerState(screenPower_.state())}});
   }
   void updateHeadRoute(JQFunctionInfo &info,bool observing) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto p=info.toParamsHolder();
     if(!p[0].is_bool()){info.GetReturnValue().Set(false);return;}
-    if(observing&&p[0].bool_value()&&!systemOverlay_.state().visible&&JQuick::getTopApp()!=ownId_) {
+    const auto power=screenPower_.state();
+    const bool dark=power.available&&(!power.known||!power.awake);
+    if(observing&&p[0].bool_value()&&!dark&&!systemOverlay_.state().visible&&JQuick::getTopApp()!=ownId_) {
       info.GetReturnValue().Set(false);return;
     }
     bool &flag=observing?observingPen_:ocrRouting_;
@@ -409,7 +441,7 @@ public:
     if(!lease_.owns(o["runtimeId"].int_value(),o["ownerGeneration"].int_value())) {
       info.post(Bson::object{{"ok",false},{"stale",true}});return;
     }
-    if(exitReason_.empty())exitReason_="requested_stop";stopLocked();
+    if(exitReason_.empty())exitReason_="requested_stop";stopLocked();screenPower_.stop();
     info.post(Bson::object{{"ok", true}});
   }
 };

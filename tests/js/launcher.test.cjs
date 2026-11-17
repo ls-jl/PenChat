@@ -21,6 +21,48 @@ function fixture() {
   const page = Object.assign(options.data(), options.methods, { $page: { finish: () => calls.push(['finish']), $npage: {setSupportTopPanel: value => calls.push(['topPanel',value]), setSupportBack: value => calls.push(['systemBack',value]), on: (name,cb)=>calls.push(['listen',name,cb]), off: name=>calls.push(['unlisten',name])} } })
   return { page, options, calls, native, keyboard, context, timers, edit: (...args) => editCallback(...args) }
 }
+function powerFixture(awake=true) {
+  const f=fixture()
+  f.native.power={available:true,known:true,awake,sequence:1}
+  f.native.systemOverlay=()=>({supported:true,visible:f.native.panelVisible,power:{...f.native.power}})
+  return f
+}
+test('screen-off retains page/runtime and blocks input without panel or focus notifications', async()=>{
+  const f=powerFixture(false);await f.page.boot()
+  f.native.poll=()=>[{type:'ready',generation:f.page._generation}];f.page.poll()
+  assert(f.page.visible&&f.page.running&&f.page.nativeReady&&f.page._screenPowerBlocked)
+  assert.equal(f.page._windowFocused,false)
+  assert(!f.calls.some(c=>c[0]==='send'&&c[1].type==='input.focus'&&c[1].active))
+  f.options.onHide.call(f.page)
+  assert(f.page.visible&&f.page._pageHidden)
+  assert(!f.calls.some(c=>c[0]==='send'&&c[1].type==='visibility'&&!c[1].visible))
+  f.context.am.getTopApp=()=>f.context.appConfig.appid
+  f.native.power={available:true,known:true,awake:true,sequence:2};f.page.syncWindowFocus(true)
+  assert(f.page.visible&&!f.page._pageHidden&&!f.page._screenPowerBlocked)
+  assert.equal(f.calls.filter(c=>c[0]==='start').length,1)
+  assert(!f.calls.some(c=>c[0]==='stop'))
+  f.page.dispose()
+})
+test('screen-off arriving after onHide beats a premature other-app classification', async()=>{
+  const f=powerFixture();await f.page.boot();f.page.syncWindowFocus(true)
+  f.options.onHide.call(f.page)
+  assert(f.page.visible)
+  f.page.syncWindowFocus(true);assert(f.page.visible,'same pre-hide power sample is not new evidence')
+  f.native.power={available:true,known:true,awake:false,sequence:2};f.page.syncWindowFocus(true)
+  assert(f.page.visible&&f.page._pageHidden)
+  f.native.power={available:true,known:true,awake:true,sequence:3};f.page.syncWindowFocus(true)
+  assert.equal(f.page.visible,false,'a real other app after wake still backgrounds PenChat')
+  f.page.dispose()
+})
+test('unknown power and stale wake reports cannot release input or background protection', async()=>{
+  const f=powerFixture();await f.page.boot()
+  f.native.power={available:true,known:false,awake:false,sequence:2};f.page.syncWindowFocus(true)
+  assert(f.page._screenPowerBlocked)
+  f.options.onHide.call(f.page)
+  f.native.power={available:true,known:true,awake:true,sequence:1};f.page.syncWindowFocus(true)
+  assert(f.page._screenPowerBlocked&&f.page.visible)
+  f.page.dispose()
+})
 test('startup is deduplicated, sends clean initialization, and disposal closes exactly once', async () => {
   const f = fixture(); await Promise.all([f.page.boot(), f.page.boot()])
   assert.equal(f.calls.filter(c => c[0] === 'start').length, 1)

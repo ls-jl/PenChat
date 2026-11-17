@@ -440,6 +440,9 @@ class App {
   Json systemOverlayStatus_=Json::object();
   bool systemEdgeDown_=false, systemEdgeGesture_=false;
   InputFocus inputFocus_;
+  ScreenPowerGate screenPower_;
+  bool screenPowerPaused_=false;
+  void applyScreenPower(const Json &state);
   InputFocusTrace inputFocusTrace_;
   void recordInputFocus(InputFocusTrace::Reason reason, bool value, uint64_t sequence=0);
   Json inputFocusDiagnostics() const;

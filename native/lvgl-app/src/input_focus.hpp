@@ -3,6 +3,23 @@
 #include <array>
 #include <cstddef>
 namespace penchat {
+// Independent of Falcon/JS focus heartbeats. A known power source that becomes
+// unreadable or stops reporting must not permit fresh input or capture.
+class ScreenPowerGate {
+  bool available_=false,known_=false,awake_=false;
+  std::uint64_t sequence_=0;
+  std::int64_t at_=0;
+public:
+  bool update(std::uint64_t sequence,bool available,bool known,bool awake,std::int64_t now) {
+    if(!sequence||sequence<=sequence_)return false;
+    sequence_=sequence;available_=available;known_=known;awake_=awake;at_=now;return true;
+  }
+  bool blocked(std::int64_t now) const {
+    return available_&&(!known_||!awake_||now<at_||now-at_>=1500);
+  }
+  struct Snapshot {bool available,known,awake,blocked;std::uint64_t sequence;std::int64_t age;};
+  Snapshot snapshot(std::int64_t now) const {return {available_,known_,awake_,blocked(now),sequence_,sequence_?now-at_:-1};}
+};
 // Window visibility alone does not exclude system overlays. The launcher renews
 // this short lease only after checking the actual Falcon window focus. Expiry
 // fails closed if its JS/UI thread is blocked or the bridge stops reporting.

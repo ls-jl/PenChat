@@ -2527,6 +2527,7 @@ lv_point_t App::photoPoint(lv_point_t point) const {
   return point;
 }
 void App::startCamera() {
+  if(!visible_||!inputFocused_||screenPower_.blocked(ticks())||keyboard_)return;
   cameraCapturing_=false;pendingCameraAngle_=-1;cameraError_.clear();
   camera_.orientation(cameraAutomatic_,cameraAngle_);
   camera_.start();
@@ -2595,7 +2596,7 @@ void App::cameraPage() {
   lv_obj_set_style_bg_opa(shutterMark,LV_OPA_TRANSP,0);lv_obj_set_scrollable(shutterMark,false);lv_obj_set_clickable(shutterMark,false);lv_obj_center(shutterMark);
   attachIcon(shutterMark,"camera",theme::palette().primaryText, 1.f, uiMetrics_);
   if(layout().portrait())cameraRotatingControls_.push_back(shutterMark);
-  onClick(shutter,[this]{if(!cameraCapturing_){cameraCapturing_=true;camera_.capture(cameraAngle_);}});
+  onClick(shutter,[this]{if(inputFocused_&&!screenPower_.blocked(ticks())&&!cameraCapturing_){cameraCapturing_=true;camera_.capture(cameraAngle_);}});
   auxiliary(workspace.turn,"rotate90","转向90°",
     [this]{events_.push("camera_mode",{{"auto",false},{"angle",(cameraAngle_+90)%360}});});
   lv_obj_update_layout(body_);cameraControlsOrientation();
@@ -2908,7 +2909,7 @@ bool App::officialReaderInput() const {
   const auto now=ticks();
   return visible_&&pageVisible_&&(view_=="chat"||editorInPlace())&&body_&&!modal_&&!navigationOpen_&&
     keyboard_&&officialDocked_&&officialForeground_&&now>=officialLayoutAt_&&now-officialLayoutAt_<750&&
-    display_.visible()&&display_.topHeight()>0&&!systemOverlayStatus_.value("panel_visible",false);
+    display_.visible()&&display_.topHeight()>0&&!screenPower_.blocked(now)&&!systemOverlayStatus_.value("panel_visible",false);
 }
 std::string App::officialComposerActionAt(int x,int y) const {
   if(!chatControls_||lv_obj_is_hidden(chatControls_)||y>=display_.topHeight())return {};
@@ -3031,15 +3032,31 @@ void App::officialReaderTouch(const Json &message) {
   officialReaderPending_+=y-officialReaderLastY_;
   officialReaderLastY_=y;
 }
+void App::applyScreenPower(const Json &state) {
+  if(!state.is_object()||!state.contains("sequence")||!state["sequence"].is_number())return;
+  const double sequence=state["sequence"].get<double>();
+  if(!std::isfinite(sequence)||sequence<=0||sequence>9007199254740991.||std::floor(sequence)!=sequence)return;
+  for(const char *key:{"available","known","awake"})if(!state.contains(key)||!state[key].is_boolean())return;
+  screenPower_.update(uint64_t(sequence),state["available"].get<bool>(),
+    state["known"].get<bool>(),state["awake"].get<bool>(),ticks());
+  updateInputFocus();
+}
 void App::updateInputFocus() {
   const auto now=ticks();
+  const bool powerPaused=screenPower_.blocked(now);
+  if(powerPaused!=screenPowerPaused_) {
+    screenPowerPaused_=powerPaused;
+    // Neither the old release nor a held wake contact can activate a control.
+    inputFocus_.block();motion::finishAll();cancelNativeInteraction();
+    diagnosticRecord("lifecycle",powerPaused?"screen_power_paused":"screen_power_resumed");
+  }
   const bool partialOfficial=keyboard_&&officialDocked_&&officialForeground_&&
       now>=officialLayoutAt_&&now-officialLayoutAt_<750&&display_.topHeight()>0&&
-      display_.supportsTopRegion()&&!systemOverlayStatus_.value("panel_visible",false);
-  const auto permission=inputFocus_.permissions(now,pageVisible_,windowFocused_&&!systemOverlayStatus_.value("panel_visible",false),keyboard_,
+      display_.supportsTopRegion()&&!powerPaused&&!systemOverlayStatus_.value("panel_visible",false);
+  const auto permission=inputFocus_.permissions(now,pageVisible_,windowFocused_&&!powerPaused&&!systemOverlayStatus_.value("panel_visible",false),keyboard_,
       partialOfficial,display_.systemOverlaySafe(),!display_.presented());
   const bool retainCovered=systemOverlayStatus_.value("panel_visible",false)&&display_.systemOverlaySafe();
-  const bool media=permission.media&&pageAttached_,shown=(permission.display||(pageVisible_&&retainCovered))&&pageAttached_;
+  const bool media=permission.media&&pageAttached_,shown=(permission.display||(pageVisible_&&retainCovered))&&pageAttached_&&!powerPaused;
   if (display_.visible() != shown) display_.visible(shown);
   if(inputFocused_!=media) {
     inputFocused_=media;
@@ -3061,7 +3078,7 @@ void App::updateInputFocus() {
     }
     syncScanner();
   }
-  const bool touch=permission.input&&display_.available();
+  const bool touch=permission.input&&display_.available()&&!powerPaused;
   if(touchLeaseActive_==touch)return;
   touchLeaseActive_=touch;
   recordInputFocus(InputFocusTrace::TouchApplied,touch);
@@ -3344,7 +3361,9 @@ void App::handle(const Json &m) {
       bridge_.send("booted",{{"screen",screen_.descriptor()},{"version",PENCHAT_VERSION},{"appid",PENCHAT_APP_ID}});
       if(editor_.active)editorPolicy(!editorSelectionOnly_);
     }
-    bridge_.generation(m.value("generation", 0));sendAppearance();
+    bridge_.generation(m.value("generation", 0));
+    if(m.contains("screenPower"))applyScreenPower(m["screenPower"]);
+    sendAppearance();
     bridge_.send("pen.capabilities",{{"observer",scanner_.available()}});
     editorOcrCapabilities(m.value("ocrCapabilities",Json::object()));
     startupReadyPending_ = true;
@@ -3354,6 +3373,7 @@ void App::handle(const Json &m) {
   }
   if (m.value("generation", bridge_.generation()) != bridge_.generation())
     return;
+  if(type=="screen.power") {applyScreenPower(m);return;}
   if(type=="pen.observe.result") {
     if(m.value("requestId",std::string())!=penObserverRequest_)return;
     const bool enabled=m.value("enabled",false),ok=m.value("ok",false);
@@ -3508,7 +3528,7 @@ void App::handle(const Json &m) {
         else { editor_.notice = "官方输入超过长度上限，请调整";editorPolicy(true);editorBuild();editorOcrStart(); }
       } else {editorPolicy(true);editorChanged();editor_.notice=m.value("error",std::string());editorFollowCursor_=false;editorBuild();editorOcrStart();}
     }
-    display_.visible(visible_ && (inputFocused_ || display_.systemOverlaySafe()));
+    display_.visible(visible_ && !screenPower_.blocked(ticks()) && (inputFocused_ || display_.systemOverlaySafe()));
     if(!action.empty()&&!editor_.active&&session_==actionSession)
       events_.push("official_composer_action",{{"session",actionSession},{"action",action}});
 
@@ -3989,6 +4009,7 @@ void App::tick() {
   }
 }
 Json App::diagnostics() const {
+  const auto powerState=screenPower_.snapshot(ticks());
   Json transferDiagnostic = Json::object();
   if (view_ == "transfer") {
     for (auto key : {"path", "added", "skipped", "count", "format_spec", "format_version", "topic"})
@@ -4231,6 +4252,7 @@ Json App::diagnostics() const {
       {"reasoning_expanded_count", expandedReasoning_.size()},{"web_controls_count",webControls_.size()},
       {"camera_ready",
        cameraImage_ && textures_.count(cameraImage_) && cameraError_.empty()},
+      {"camera_generation",camera_.generation()},
       {"camera_angle", cameraAngle_},
       {"camera_control_rotations", [this] {
         Json rotations=Json::array();
@@ -4359,6 +4381,9 @@ Json App::diagnostics() const {
       {"visible", visible_},
       {"page_visible",pageVisible_},{"window_focused",windowFocused_},
       {"system_overlay",systemOverlayStatus_},
+      {"screen_power",{{"available",powerState.available},{"known",powerState.known},
+        {"awake",powerState.awake},{"blocked",powerState.blocked},
+        {"sequence",powerState.sequence},{"age_ms",powerState.age}}},
       {"display_present_pending",display_.pending()},{"ocr_release_pending",!editorOcrStopId_.empty()},{"input_focused",touchLeaseActive_},
       {"width", screen_.width},
       {"height", screen_.height},
