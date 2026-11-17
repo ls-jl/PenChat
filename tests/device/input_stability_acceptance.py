@@ -58,7 +58,7 @@ def run(d,cycles,seconds):
   if s['composer_hidden']:
    b=s['composer_shortcut']['bounds'];d.touch((b[0]+b[2])/2,(b[1]+b[3])/2);d.touch((b[0]+b[2])/2,(b[1]+b[3])/2)
    d.wait(lambda:not state()['composer_hidden']);s=state()
-  d.tap(s['composer_text_bounds']);d.wait(lambda:state()['editor']['active'])
+  d.tap(s['composer_text_bounds']);d.wait(lambda:state()['editor']['active'] and state()['editor']['keys'] and not state()['surface_motion'])
   e=state()['editor']
   if e['chinese']:d.editor_key('language')
   length=state()['editor']['length'];d.editor_key('a');d.wait(lambda:state()['editor']['length']==length+1)
