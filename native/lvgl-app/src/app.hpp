@@ -824,6 +824,7 @@ class App {
   void editorOcrPrepared(const Json &);
   void editorOcrCapabilities(const Json &);
   bool editorMultiLineAllowed_=true, editorMultiLineSupported_=false;
+  bool editorChat_=false;
   bool editorOcrMulti_=false, editorOcrActive_=false, editorOcrBusy_=false, editorOcrShown_=false;
   bool editorTopBlocked_=false;
   std::string editorOcrId_, editorOcrStopId_;

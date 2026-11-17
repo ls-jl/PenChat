@@ -4,6 +4,7 @@ import argparse
 import json
 import pathlib
 import tempfile
+import time
 import test_lvgl_app as t
 from image_gestures import capture
 
@@ -13,7 +14,7 @@ FIELDS = ('keys', 'text_bounds', 'candidate_y', 'function_y', 'panel_top',
           'composition_bounds', 'candidate_bounds', 'keyboard_swapped')
 
 
-def scenario(binary, output, width, height, split=False, swap=False, scale=100):
+def scenario(binary, output, width, height, split=False, swap=False, scale=100, blink=False):
     name = f'{width}x{height}-' + ('split' if split else 'default') + ('-swap' if swap else '')
     result = {}
     with tempfile.TemporaryDirectory(prefix='penchat-keyboard-design-') as folder:
@@ -44,6 +45,8 @@ def scenario(binary, output, width, height, split=False, swap=False, scale=100):
                 t.wait_for(lambda: state()['layout_menu'])
                 app.editor_action('layout:'+str(value))
             def record(label):
+                t.wait_for(lambda:not app.diag().get('surface_motion',False))
+                time.sleep(.25) # Compare resting layouts, not two different entry-animation frames.
                 current = state()
                 if scale!=100:
                     assert current['requested_scale']==scale
@@ -55,6 +58,9 @@ def scenario(binary, output, width, height, split=False, swap=False, scale=100):
                     x1,y1,x2,y2 = item['hit_bounds']
                     assert x1 <= item['x'] < x2 and y1 <= item['y'] < y2
                 capture(app, output/(name+'-'+label+'.png'))
+                if blink:
+                    time.sleep(.52)
+                    capture(app, output/(name+'-'+label+'-blink.png'))
             record('empty')
             for letter in 'nihao': key(letter)
             t.wait_for(lambda: state()['candidate_count'] and not state()['pending'])
@@ -95,8 +101,8 @@ if __name__ == '__main__':
         before = None
         if args.baseline:
             directory = args.output/'baseline'; directory.mkdir(exist_ok=True)
-            before = scenario(args.baseline.resolve(), directory, *fixture)
-        after = scenario(args.binary.resolve(), args.output, *fixture)
+            before = scenario(args.baseline.resolve(), directory, *fixture, blink=True)
+        after = scenario(args.binary.resolve(), args.output, *fixture, blink=bool(args.baseline))
         if before is not None:
             for state, snapshot in before.items():
                 for field, value in snapshot.items():
@@ -105,5 +111,7 @@ if __name__ == '__main__':
             prefix=f'{width}x{height}-'+('split' if split else 'default')+('-swap' if swap else '')
             for state in before:
                 name=prefix+'-'+state+'.png'
-                assert (directory/name).read_bytes()==(args.output/name).read_bytes(), name
+                old={(directory/name).read_bytes(),(directory/name.replace('.png','-blink.png')).read_bytes()}
+                new={(args.output/name).read_bytes(),(args.output/name.replace('.png','-blink.png')).read_bytes()}
+                assert old & new, name # Require an exact frame match across actual cursor blink phases.
         print('Keyboard template geometry, modes and session preserved:', fixture, flush=True)

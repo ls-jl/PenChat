@@ -161,7 +161,7 @@ void App::edit(const std::string &text, const std::string &placeholder,
   const bool sameKeys=reuse&&englishOnly==editorEnglishOnly_&&secret==editor_.secret;
   const int oldLayout=editor_.layout,oldMode=editor_.mode,oldShift=editor_.shift;
   closeNavigation(false); closeAttachments(); resetPull();
-  editorSelectionOnly_=selectionOnly;editorInlineChat_=inlineChat&&this->layout().portrait();editorReaderTouch_=false;
+  editorChat_=inlineChat;editorSelectionOnly_=selectionOnly;editorInlineChat_=inlineChat&&this->layout().portrait();editorReaderTouch_=false;
   editorComposerOpenHeight_=0;
   if(this->layout().portrait()&&!selectionOnly) {
     editorTarget_=inputSource_?inputSource_:(view_=="chat"?composer_:nullptr);
@@ -363,6 +363,10 @@ void App::editorBuild() {
   lv_textarea_set_password_mode(editorText_,editor_.secret&&!editor_.reveal);
   lv_textarea_set_password_show_time(editorText_,0);
   lv_textarea_set_placeholder_text(editorText_,editor_.placeholder.c_str());
+  if(theme::mode()==theme::Mode::Light) {
+    lv_obj_set_style_text_color(editorText_,lv_color_hex(theme::palette().muted),LV_PART_TEXTAREA_PLACEHOLDER);
+    lv_obj_set_style_text_opa(editorText_,LV_OPA_COVER,LV_PART_TEXTAREA_PLACEHOLDER);
+  }
   lv_textarea_set_text(editorText_,editor_.text.c_str());
   lv_textarea_set_cursor_pos(editorText_,editor_.cursor);
   lv_obj_add_state(editorText_,LV_STATE_FOCUSED);
@@ -984,7 +988,7 @@ void App::editorFinish(bool confirmed) {
     editorChoosing_=editorSelectPending_=false;editorDeferred_.clear();++editorRevision_;
   } else editorInterrupt();
   editorDefaultOfficial_.clear();
-  if(confirmed&&editorInlineChat_&&!transfer)composerShortcut_.reveal(screen_.height);
+  if(confirmed&&editorChat_&&!transfer)composerShortcut_.reveal(screen_.height);
   editorDetachTarget();editor_.active=false; keyboard_=false;editorReaderTouch_=false;
   touchDown_=composerTapAllowed_=pullTrackActivity_=false;
   editorComposerOpenHeight_=0;

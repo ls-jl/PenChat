@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Landscape grows in-place to 2x; portrait keeps full-width text above tools."""
+"""Landscape grows in-place to three font lines; portrait keeps full-width text above tools."""
 import os,pathlib,tempfile,time
 import test_lvgl_app as t
 from image_gestures import capture
@@ -72,7 +72,7 @@ for width,height in [(960,266),(936,280),(568,1210)]:
                 open_input();a.editor_action('official');req=a.receive('keyboard.open')
                 a.send('keyboard.result',requestId=req['requestId'],confirmed=True,text='Long draft with words and 中文分段。'*35)
                 t.wait_for(lambda:not e()['active']);d=a.diag();b=d['composer_bounds'];r=d['composer_text_bounds']
-                assert b[3]-b[1]+1==base*2 and r[0]>b[0]+44 and r[2]<b[2]-44
+                assert r[3]-r[1]+1==3*d["composer_line_height"] and r[0]>b[0]+44 and r[2]<b[2]-44
                 assert d['composer_radius']==base//2
                 # The text has a bounded local scroller, independent of chat.
                 x=(r[0]+r[2])//2;y=r[3]-4

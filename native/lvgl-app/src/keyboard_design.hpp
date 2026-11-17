@@ -120,7 +120,8 @@ struct KeyboardDesign {
     auto &auxiliary=roles[size_t(KeyboardRole::Auxiliary)];
     auxiliary.radius=10;auxiliary.opacity=51;auxiliary.pressedOpacity=204;
     auto &input=roles[size_t(KeyboardRole::Input)];
-    input.radius=8;input.opacity=51;
+    input.radius=8;input.opacity=theme::mode()==theme::Mode::Light?255:51;
+    if(theme::mode()==theme::Mode::Light)input.background=theme::palette().background;
     auto &composition=roles[size_t(KeyboardRole::Composition)];
     composition.background=theme::palette().keyboardCanvas;composition.radius=8;composition.opacity=51;
     auto &candidates=roles[size_t(KeyboardRole::Candidates)];

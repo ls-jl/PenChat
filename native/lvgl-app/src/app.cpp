@@ -567,9 +567,9 @@ bool App::chatTouch(int x, int y, bool pressed) {
                      lv_obj_get_scroll_bottom(body_) <= 10 && inPullArea;
     // A bounded landscape draft owns its scroll until the gesture ends.
     // Reaching its last line cannot turn that same touch into chat creation.
-    // A fresh upward pull at the local bottom still uses the normal guard.
-    if(pullCandidate_ && inComposer && lv_obj_is_scrollable(composer_) &&
-       lv_obj_get_scroll_bottom(composer_)>0)
+    // An overflowing draft keeps edge drags local, including at its local bottom.
+    if(inComposer && lv_obj_is_scrollable(composer_) &&
+       (lv_obj_get_scroll_y(composer_)>0 || lv_obj_get_scroll_bottom(composer_)>0))
       pullCandidate_=false;
     if (pullCandidate_ && inReader) {
       for (const auto &r : rasters_) {
@@ -1125,7 +1125,7 @@ void App::rebuildChatControls() {
         },
         8192, "ZhCNPreferred", {}, true, false, false, true);
   };
-  const auto preview = geometry.compact()?chatDraftPreview(draft_):draft_;
+  const auto &preview = draft_;
   composer_ = button(
       chatControls_, preview.empty() ? "询问 " PENCHAT_NAME : preview, entryLeft, c.initialTop,
       composerWidth - entryLeft - geometry.composerEntryRight(gauge), c.control,
@@ -4327,6 +4327,7 @@ Json App::diagnostics() const {
                      layout().composerShortcut().x + layout().composerShortcut().width - 1,
                      layout().composerShortcut().y + layout().composerShortcut().height - 1}}}},
       {"composer_radius",chatControls_?lv_obj_get_style_radius(chatControls_,LV_PART_MAIN):0},
+      {"composer_line_height",font(uiMetrics_.fontSize(UiFont::Composer))->line_height},
       {"composer_scroll", composer_ ? lv_obj_get_scroll_y(composer_) : 0},
       {"composer_scroll_bottom", composer_ ? lv_obj_get_scroll_bottom(composer_) : 0},
       {"reader_height",body_?lv_obj_get_height(body_):0},

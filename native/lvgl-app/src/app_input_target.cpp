@@ -80,7 +80,11 @@ int App::chatComposerHeight() const {
     const int width=std::max(1,geometry.composerWidth()-geometry.composerEntryLeft()-geometry.composerEntryRight(gauge)-c.textPadding());
     lv_point_t size{};lv_text_get_size(&size,text.c_str(),textFont,0,0,width,LV_TEXT_FLAG_NONE);
     const int inset=std::max(0,(c.control-int(textFont->line_height))/2);
-    return std::min(base*2,std::max(base,int(size.y)+2*inset+2*c.landscapeInset));
+    const int line=std::max(1,int(textFont->line_height));
+    const int padding=2*inset+2*c.landscapeInset;
+    const int available=screen_.height-geometry.safeBottom()-geometry.chatReaderTop()-uiMetrics_.dp(16);
+    const int lines=std::max(1,std::min(3,(available-padding)/line));
+    return std::max(base,std::min(lines*line,std::max(line,int(size.y)))+padding);
   }
   // Text has its own inset; the tool row keeps the resting pill's arc center.
   const int leftPad=c.expandedPad+c.textInset,rightPad=c.expandedPad,topPad=c.textTop;
@@ -142,10 +146,11 @@ void App::layoutChatComposer() {
   if(toBottom_)lv_obj_set_y(toBottom_,chatComposerY(height)-c.returnOffset());
   const bool gauge=sessionPreferences_.value("gauge",!effortMemory_.empty());
   const int x=expanded?pad+c.textInset:geometry.composerEntryLeft();
-  const int y=expanded?c.textTop:pad;
+  const int textInset=!geometry.portrait()?std::max(0,(c.control-int(textFont->line_height))/2):0;
+  const int y=expanded?c.textTop:pad+textInset;
   const int w=expanded?width-x-pad:width-x-geometry.composerEntryRight(gauge);
   const int toolsTop=geometry.composerHeight()/2+geometry.composerSendDiameter()/2;
-  const int h=expanded?height-y-c.textToolsGap-toolsTop:height-2*pad;
+  const int h=expanded?height-y-c.textToolsGap-toolsTop:height-2*pad-2*textInset;
   lv_obj_set_pos(composer_,x,y);lv_obj_set_size(composer_,w,h);
   for(uint32_t i=0;i<lv_obj_get_child_count(chatControls_);++i) {
     auto child=lv_obj_get_child(chatControls_,i);if(child==composer_||!lv_obj_is_clickable(child))continue;
@@ -161,9 +166,9 @@ void App::layoutChatComposer() {
     lv_obj_set_style_text_font(value,textFont,0);
     lv_label_set_long_mode(value,wrapping?LV_LABEL_LONG_MODE_WRAP:LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_align(value,LV_ALIGN_TOP_LEFT);
-    lv_obj_set_pos(value,expanded?0:c.textInset,expanded?0:std::max(0,(std::min(c.control,h)-textFont->line_height)/2));
+    lv_obj_set_pos(value,expanded?0:c.textInset,(expanded||!geometry.portrait())?0:std::max(0,(std::min(c.control,h)-textFont->line_height)/2));
     lv_obj_set_size(value,expanded?w:std::max(0,w-c.textPadding()),expanded?h:wrapping?LV_SIZE_CONTENT:textFont->line_height);
-    lv_obj_set_scrollable(composer_,!geometry.portrait()&&height==geometry.composerHeight()*2);
+    lv_obj_set_scrollable(composer_,!geometry.portrait());
     lv_obj_set_scroll_dir(composer_,LV_DIR_VER);
     lv_obj_set_scroll_elastic(composer_,false);lv_obj_set_scroll_chain_ver(composer_,false);
   }
