@@ -67,8 +67,10 @@ public:
   }
   void cancel(JQFunctionInfo &info){service_->cancel();info.GetReturnValue().Set(true);}
   void report(JQFunctionInfo &info) {
-    const auto p=info.toParamsHolder();auto args=penchat::Json::parse(p[0].dump(),nullptr,false);if(!args.is_object())args=penchat::Json::object();
-    service_->report(args,args.value("retry",false));info.GetReturnValue().Set(true);
+    try {
+      const auto p=info.toParamsHolder();auto args=penchat::Json::parse(p[0].dump(),nullptr,false);if(!args.is_object())args=penchat::Json::object();
+      service_->report(args,args.value("retry",false));info.GetReturnValue().Set(true);
+    }catch(const std::exception &e){info.GetReturnValue().ThrowTypeError(e.what());}
   }
   void verifyInstalled(JQAsyncInfo &info) {
     try{info.post(bson(service_->verifyInstalled(penchat::Json::parse(info[0].dump()))));}

@@ -32,6 +32,9 @@ void privateDir(const std::string &path) {
   const int fd=open(parent.c_str(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
   if(fd<0)fail("降级目录无法同步");const bool ok=fsync(fd)==0;close(fd);if(!ok)fail("降级目录同步失败");
 }
+bool privateDirectory(const std::string &path) {
+  struct stat st{};return !lstat(path.c_str(),&st)&&S_ISDIR(st.st_mode);
+}
 void durable(const std::string &path,const Json &value) {
   const auto temporary=path+".part";const auto text=value.dump();
   int fd=open(temporary.c_str(),O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW|O_CLOEXEC,0600);
@@ -203,7 +206,7 @@ Json environment(const std::string &workspace,const std::string &modelPath,const
   }catch(...){env["screen"]=nullptr;env["failure"]="screen_configuration";}
   auto payload=readJson(join(workspace,"assets/rescue/payload.json"));env["payload"]=payload;
   if(platform.empty())return env;
-  if(!payload.is_object()){env["failure"]="payload_metadata";return env;}
+  if(!payload.is_object()||!payload.value("platform",Json()).is_string()){env["failure"]="payload_metadata";return env;}
   if(payload.value("platform",std::string())!=platform||(platform=="rk3562"?64:32)!=int(sizeof(void*)*8)){env["failure"]="architecture_mismatch";return env;}
   try {verifyElf(join(workspace,"assets/bin/penchat-lvgl"),platform);env["compatible"]=!env["screen"].is_null();if(env["compatible"])env["failure"]="";}
   catch(...){env["failure"]="native_elf";}
@@ -283,14 +286,18 @@ struct Service::Impl {
 #endif
     try {privateDir(root);privateDir(join(root,"backups"));privateDir(join(root,"reports"));}
     catch(...){published["storage_error"]="降级存储不可写，请检查可用空间和权限";}
-    auto old=readJson(join(root,"install.json"));if(old.is_object())published["ticket"]=old;
-    std::unique_ptr<DIR,decltype(&closedir)> spool(opendir(join(root,"reports").c_str()),closedir);
+    auto old=privateDirectory(root)?readJson(join(root,"install.json")):Json();
+    if(old.is_object()&&old.value("operation",Json()).is_string()&&old.value("state",Json()).is_string())published["ticket"]=old;
+    const bool spoolSafe=privateDirectory(root)&&privateDirectory(join(root,"reports"));
+    std::unique_ptr<DIR,decltype(&closedir)> spool(spoolSafe?opendir(join(root,"reports").c_str()):nullptr,closedir);
     if(spool)while(auto item=readdir(spool.get())) {
       const std::string name=item->d_name;
       if(name.size()!=69||name.substr(64)!=".json"||!hash(name.substr(0,64))||reportQueue.size()>=32)continue;
       const auto record=readJson(join(join(root,"reports"),name));
-      if(record.is_object()&&record.value("state",std::string())=="pending"&&record.value("attempts",0)<4&&record.value("payload",Json()).is_object())
-        reportQueue.push_back({{"code",record["payload"].value("rescue",Json::object()).value("code",std::string("unknown"))},{"fingerprint",name.substr(0,64)}});
+      try {
+        if(record.is_object()&&record.value("state",std::string())=="pending"&&record.value("attempts",0)<4&&record.value("payload",Json()).is_object())
+          reportQueue.push_back({{"code",record["payload"].value("rescue",Json::object()).value("code",std::string("unknown"))},{"fingerprint",name.substr(0,64)}});
+      }catch(...){} // A malformed receipt must not prevent loading the rescue module.
     }
     worker=std::thread([this]{run();});
     try{reporter=std::thread([this]{reports();});}catch(...){closing=true;cv.notify_all();worker.join();throw;}
@@ -298,7 +305,7 @@ struct Service::Impl {
   ~Impl(){closing=true;cancelled=true;cv.notify_all();if(worker.joinable())worker.join();if(reporter.joinable())reporter.join();}
   void status(const std::string &state,const std::string &message="") {
     Json snapshot;{std::lock_guard<std::mutex> lock(mutex);published["status"]=state;published["message"]=message;snapshot=published;}
-    try{durable(join(root,"state.json"),snapshot);}catch(...){} // Best-effort diagnostic; tickets/backup manifests are mandatory.
+    try{privateDir(root);durable(join(root,"state.json"),snapshot);}catch(...){} // Best-effort diagnostic; tickets/backup manifests are mandatory.
   }
   std::vector<std::string> routes()const{auto n=config.nodes;n.push_back("");return n;}
   HttpResult get(const std::string &url) {
@@ -389,7 +396,7 @@ struct Service::Impl {
     }catch(...){unlink(temporary.c_str());throw;}
   }
   void run() {
-    try{durable(join(root,"environment.json"),env);}catch(...){}
+    try{privateDir(root);durable(join(root,"environment.json"),env);}catch(...){}
     for(;;) {
       Json job;{std::unique_lock<std::mutex> lock(mutex);cv.wait(lock,[this]{return closing||!command.is_null();});if(closing)return;job=command;command=nullptr;}
       try{if(job["op"]=="list")list();else prepare(job["args"]);}catch(const std::exception &e){status(cancelled?"cancelled":"error",cancelled?"操作已取消":e.what());}
@@ -400,6 +407,7 @@ struct Service::Impl {
     for(;;) {
       Json failure;{std::unique_lock<std::mutex> lock(mutex);cv.wait(lock,[this]{return closing||!reportQueue.empty();});if(closing)return;failure=reportQueue.front();reportQueue.pop_front();reportBusy=true;}
       try {
+        privateDir(root);privateDir(join(root,"reports"));
         const std::set<std::string> codes={"startup","runtime","architecture_mismatch","module","native_elf","payload_metadata","screen_configuration","timeout","unknown"};
         auto code=failure.value("code",std::string("unknown"));if(!codes.count(code))code="unknown";
         const auto last=readJson(join(data,"last-exit.json"));Json signature=Json::object();
@@ -470,7 +478,8 @@ Service::Service(std::string w,std::string d,std::string p,Config c):p_(new Impl
 Service::~Service()=default;
 Json Service::bootstrap()const{return p_->env;}
 Json Service::state()const {
-  const auto disk=readJson(join(p_->root,"install.json"));
+  auto disk=privateDirectory(p_->root)?readJson(join(p_->root,"install.json")):Json();
+  if(disk.is_object()&&(!disk.value("operation",Json()).is_string()||!disk.value("state",Json()).is_string()))disk=nullptr;
   std::lock_guard<std::mutex> lock(p_->mutex);
   auto ticket=p_->published.value("ticket",Json());
   if(disk.is_object()&&ticket.is_object()&&disk.value("operation",std::string())==ticket.value("operation",std::string())&&disk!=ticket&&
@@ -487,7 +496,12 @@ Json Service::request(const std::string &op,const Json &args) {
   if(op=="prepare"&&ticket.is_object()&&(ticket.value("state",std::string())=="requested"||ticket.value("state",std::string())=="unknown"))fail("上次安装结果尚未确认，请先核对结果");
   p_->cancelled=false;p_->busy=true;const auto id=uuid();p_->published["job"]=id;p_->published["status"]="queued";p_->command={{"op",op},{"args",args}};p_->cv.notify_all();return {{"job",id}};
 }
-void Service::cancel(){std::lock_guard<std::mutex> lock(p_->mutex);if(p_->published.value("status",std::string())=="installing")return;p_->cancelled=true;p_->published["status"]="cancelled";}
+void Service::cancel(){
+  std::lock_guard<std::mutex> lock(p_->mutex);const auto ticket=p_->published.value("ticket",Json());
+  if(p_->published.value("status",std::string())=="installing"||(ticket.is_object()&&
+     (ticket.value("state",std::string())=="requested"||ticket.value("state",std::string())=="unknown")))return;
+  p_->cancelled=true;p_->published["status"]="cancelled";
+}
 void Service::report(const Json &failure,bool retry) {
   std::lock_guard<std::mutex> lock(p_->mutex);if(p_->reportQueue.size()>=32)return;
   Json report={{"code",failure.value("code",std::string("unknown"))},{"retry",retry}};p_->reportQueue.push_back(report);p_->cv.notify_all();
@@ -499,6 +513,7 @@ Json Service::authorize(const Json &ticket) {
     if(!own.is_object()||own!=ticket||own.value("state",std::string())!="prepared")fail("安装票据无效或已提交");
     p_->published["ticket"]["state"]="validating_install";}
   try {
+    privateDir(p_->root);
     if(nativeAlive(p_->data))fail("原生程序仍运行，安装未提交");
     validate(own.at("path"),own,p_->env.at("platform"),p_->cancelled);
     own["state"]="requested";durable(join(p_->root,"install.json"),own);
@@ -507,6 +522,7 @@ Json Service::authorize(const Json &ticket) {
   }catch(...){installResult(own.at("operation"),"failed",-1);throw;}
 }
 Json Service::verifyInstalled(const Json &info) {
+  if(!privateDirectory(p_->root))fail("降级存储目录不可用");
   auto ticket=readJson(join(p_->root,"install.json"));if(!ticket.is_object())return {{"verified",false}};
   const auto state=ticket.value("state",std::string());
   if(state!="requested"&&state!="unknown"&&state!="installed")return {{"verified",false}};
@@ -519,13 +535,17 @@ Json Service::verifyInstalled(const Json &info) {
   installResult(ticket.at("operation"),"installed",0);return {{"verified",true},{"version",ticket.at("version")}};
 }
 void Service::installResult(const std::string &operation,const std::string &state,int code) {
+  privateDir(p_->root);
   auto ticket=readJson(join(p_->root,"install.json"));if(!ticket.is_object()||ticket.value("operation",std::string())!=operation)return;
+  if(ticket.value("state",std::string())=="installed"&&state!="installed")return;
   ticket["state"]=state;ticket["code"]=code;durable(join(p_->root,"install.json"),ticket);
   std::lock_guard<std::mutex> lock(p_->mutex);p_->published["ticket"]=ticket;p_->published["status"]=state;
 }
 void recordInstallResult(const std::string &data,const std::string &operation,const std::string &state,int code) {
+  privateDir(join(data,".rescue"));
   const auto path=join(join(data,".rescue"),"install.json");auto ticket=readJson(path);
   if(!ticket.is_object()||ticket.value("operation",std::string())!=operation)return;
+  if(ticket.value("state",std::string())=="installed"&&state!="installed")return;
   ticket["state"]=state;ticket["code"]=code;durable(path,ticket);
 }
 } }

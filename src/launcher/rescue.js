@@ -47,5 +47,5 @@ export class RescueController {
     }catch(err){if(!this.disposed)this.a.error(err&&err.message||'安装未完成，请核对结果')}
   }
   cancel(){this.cancelGeneration++;this.job='';this.a.bridge.cancel()}
-  dispose(){this.disposed=true;this.cancelGeneration++;this.job='';if(this.timer!==null)this.a.clearTimeout(this.timer);if(this.releaseWait)this.releaseWait({unknown:true});if(!this.submitted.size)this.a.bridge.cancel()}
+  dispose(){this.disposed=true;this.cancelGeneration++;this.job='';if(this.timer!==null)this.a.clearTimeout(this.timer);if(this.releaseWait)this.releaseWait({unknown:true});this.a.bridge.cancel()}
 }

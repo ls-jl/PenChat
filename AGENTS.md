@@ -151,6 +151,17 @@ HaaS UI shell/IME reference: /persistent/home/ls-jl/dictpen/haasui-docs.
 
 PenChat is an independent application. Never read external application databases or Storage. The album may read the shared system photo directory /userdisk/Pictures; never modify its originals. Identity comes from package.json. New installs start without providers or messages.
 
+## Downgrade bootstrap
+
+Read [docs/DOWNGRADE.md](docs/DOWNGRADE.md) for the independent Falcon failure page.
+Every AMR carries exactly one rescue SO in each standard `libs/arm/` and `libs/arm64/`
+directory. This is the sole dual-ABI exception; normal binaries and hardware payloads
+remain target-isolated. Never restore a root or SKU auto-loaded main launcher.
+The main runtime is a verified lazy-loaded asset with a versioned factory. Rescue
+backup/install/report work stays off the JS/UI thread and must not depend on LVGL,
+media, NPU or a working DB. Server mutations only affect the authorized downgrade
+catalog; historical candidates retain their provenance and candidate labels.
+
 ## Development and release workflow
 
 For server-side application files, update/downgrade packages, synchronization checks

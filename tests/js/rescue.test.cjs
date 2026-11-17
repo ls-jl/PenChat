@@ -48,3 +48,8 @@ test('concurrent result checks reuse one verification and reopen once',async()=>
  const check=f.controller.check();await f.controller.check();assert.equal(count,1)
  complete({verified:true});await check;await f.controller.check();assert.equal(count,1);assert.equal(f.calls.filter(c=>c[0]==='reopen').length,1)
 })
+
+test('leaving a retry cancels its pending job after an earlier submission',async()=>{
+ const f=fixture();f.controller.submitted.add('old');await f.controller.prepare({id:'sha',compatible:true});f.controller.dispose()
+ assert(f.calls.some(c=>c[0]==='cancel'))
+})

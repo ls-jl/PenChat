@@ -76,11 +76,13 @@ class Tests(unittest.TestCase):
   self.assertTrue((backup/'manifest.json').exists())
   result=self.probe.cmd('authorize',ticket=ticket);self.assertEqual(result['state'],'requested')
   self.assertIn('error',self.probe.cmd('authorize',ticket=ticket))
+  self.probe.cmd('cancel');self.assertEqual(self.probe.cmd('state')['status'],'installing')
   binary=self.probe.workspace/'assets/bin/penchat-lvgl';binary.parent.mkdir(parents=True);binary.write_bytes(b'old')
   info=dict(appid=APP['appid'],version='0.3.3',installPath=str(self.probe.workspace))
   self.assertIn('error',self.probe.cmd('verify',info=info))
   with zipfile.ZipFile(self.root/'package.amr') as z:binary.write_bytes(z.read('assets/bin/penchat-lvgl'))
   self.assertTrue(self.probe.cmd('verify',info=info)['verified'])
+  self.probe.cmd('callback',operation=ticket['operation'],state='unknown');self.assertEqual(self.probe.cmd('state')['ticket']['state'],'installed')
  def test_force_only_bypasses_schema(self):
   _,sha,_=self.release(compatible=False);self.assertFalse(self.listed()['releases'][0]['compatible'])
   self.assertEqual(self.prepared(sha)['status'],'error');self.assertEqual(self.prepared(sha,force=True)['status'],'ready_to_install')
@@ -159,4 +161,17 @@ class Tests(unittest.TestCase):
   try:
    state=self.prepared(sha);self.assertEqual(state['status'],'error');self.assertNotIn('ticket',state)
   finally:p.terminate();p.wait()
+ def test_rescue_root_symlink_never_reads_or_writes_outside(self):
+  self.probe.close();shutil.rmtree(self.probe.data/'.rescue')
+  external=self.root/'external';external.mkdir();(external/'sentinel').write_text('untouched')
+  (self.probe.data/'.rescue').symlink_to(external,target_is_directory=True)
+  self.probe=Probe(self.root,self.url);_,sha,_=self.release();self.assertEqual(len(self.listed()['releases']),1)
+  self.probe.cmd('report',code='startup');self.probe.wait(lambda s:s['report']['status']=='failed')
+  self.assertEqual(self.prepared(sha)['status'],'error');self.assertEqual(list(external.iterdir()),[external/'sentinel']);self.assertEqual(Server.posts,[])
+ def test_corrupt_receipt_and_ticket_do_not_break_bootstrap(self):
+  self.probe.close();rescue=self.probe.data/'.rescue';(rescue/'reports').mkdir(exist_ok=True)
+  (rescue/'reports'/('a'*64+'.json')).write_text(json.dumps(dict(state=7,payload=dict(rescue=[]))))
+  (rescue/'install.json').write_text(json.dumps(dict(operation=3,state=[])))
+  self.probe=Probe(self.root,self.url);self.assertNotIn('ticket',self.probe.cmd('state'))
+  self.release();self.assertEqual(len(self.listed()['releases']),1)
 if __name__=='__main__':unittest.main()

@@ -1,4 +1,5 @@
 #include "jquick_config.h"
+#include "RuntimeIdentity.hpp"
 #include "JQuickContext.h"
 #include "jqutil_v2/jqutil.h"
 #include "jsmodules/JSCModuleExtension.h"
@@ -211,6 +212,14 @@ public:
     // Preserve the preceding stderr trace before either architecture truncates it.
     rename((data+"/lvgl-runtime.log").c_str(),(data+"/lvgl-runtime.previous.log").c_str());
     auto binary = workspace + "/assets/bin/penchat-lvgl";
+#ifdef PENCHAT_NATIVE_DEVICE
+#ifdef PENCHAT_CVI_PLATFORM
+    const bool executableMatches=penchat::runtimeExecutableMatches(binary.c_str(),32,40);
+#else
+    const bool executableMatches=penchat::runtimeExecutableMatches(binary.c_str(),64,183);
+#endif
+    if(!executableMatches){info.postError("原生程序不存在或架构不匹配，请使用降级");return;}
+#endif
     chmod(binary.c_str(), 0755);
     int pair[2];
     if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, pair)) {

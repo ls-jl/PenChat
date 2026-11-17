@@ -140,3 +140,5 @@ PenChat 自有代码采用 [Apache-2.0](LICENSE)，第三方材料保留原许�
 作者：**ls-jl** · AI 协作：**Codex（OpenAI）**
 
 项目地址：[github.com/ls-jl/PenChat](https://github.com/ls-jl/PenChat)。软件内的版本、署名与项目地址也可在 **设置 → 关于 PenChat** 查看。
+
+启动失败页的“降级”、双架构 bootstrap、历史版本目录与数据备份约定见 [docs/DOWNGRADE.md](docs/DOWNGRADE.md)。

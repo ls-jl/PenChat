@@ -20,6 +20,7 @@ int main(int argc,char **argv){
         else if(op=="report"){service.report(a,a.value("retry",false));result=true;}
         else if(op=="authorize")result=service.authorize(a.at("ticket"));
         else if(op=="verify")result=service.verifyInstalled(a.at("info"));
+        else if(op=="callback"){penchat::rescue::recordInstallResult(input.at("data"),a.at("operation"),a.at("state"),a.value("code",0));result=true;}
         else result=service.request(op,a);
       }catch(const std::exception &e){result={{"error",e.what()}};}
       std::cout<<result.dump()<<std::endl;

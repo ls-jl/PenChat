@@ -1,4 +1,5 @@
 #include "Rescue.hpp"
+#include "../../native/launcher/src/RuntimeIdentity.hpp"
 #include <cassert>
 #include <fstream>
 #include <iostream>
@@ -14,6 +15,28 @@ int main(){
   write(root+"/model","unknown");e=penchat::rescue::environment(root,root+"/model",root+"/screen");assert(e["platform"]==""&&!e["compatible"].get<bool>());
   std::string elf(64,'\0');elf.replace(0,4,"\177ELF");elf[4]=2;elf[5]=1;elf[18]=char(183);write(root+"/elf",elf);
   penchat::rescue::verifyElf(root+"/elf","rk3562");bool rejected=false;try{penchat::rescue::verifyElf(root+"/elf","cv1826-s");}catch(...){rejected=true;}assert(rejected);
+  mkdir((root+"/assets").c_str(),0700);mkdir((root+"/assets/bin").c_str(),0700);mkdir((root+"/assets/rescue").c_str(),0700);
+  write(root+"/model","RK3562 Y07 board");write(root+"/screen",R"({"screen":{"width":568,"height":1210,"direction":180}})");
+  write(root+"/assets/rescue/payload.json",R"({"platform":"rk3562","abi_bits":64})");
+  e=penchat::rescue::environment(root,root+"/model",root+"/screen");assert(e["failure"]=="native_elf");
+  write(root+"/assets/bin/penchat-lvgl",elf);
+  e=penchat::rescue::environment(root,root+"/model",root+"/screen");assert(e["compatible"].get<bool>()==(sizeof(void*)==8));
+  elf[4]=1;elf[18]=40;write(root+"/assets/bin/penchat-lvgl",elf);
+  e=penchat::rescue::environment(root,root+"/model",root+"/screen");assert(!e["compatible"].get<bool>());
+  write(root+"/assets/rescue/payload.json",R"({"platform":7})");
+  e=penchat::rescue::environment(root,root+"/model",root+"/screen");assert(e["failure"]=="payload_metadata");
+  write(root+"/assets/rescue/payload.json",R"({"platform":"cv1826-s","abi_bits":32})");
+  e=penchat::rescue::environment(root,root+"/model",root+"/screen");assert(e["failure"]=="architecture_mismatch");
+  unlink((root+"/assets/bin/penchat-lvgl").c_str());unlink((root+"/assets/rescue/payload.json").c_str());
+  rmdir((root+"/assets/bin").c_str());rmdir((root+"/assets/rescue").c_str());rmdir((root+"/assets").c_str());
+  auto executable=elf;executable[4]=2;executable[18]=char(183);executable[6]=1;executable[16]=2;
+  write(root+"/runtime",executable);assert(penchat::runtimeExecutableMatches((root+"/runtime").c_str(),64,183));
+  assert(!penchat::runtimeExecutableMatches((root+"/runtime").c_str(),32,40));
+  executable[4]=1;executable[18]=40;executable[37]=4;write(root+"/runtime",executable);
+  assert(penchat::runtimeExecutableMatches((root+"/runtime").c_str(),32,40));
+  assert(!penchat::runtimeExecutableMatches((root+"/runtime").c_str(),64,183));
+  unlink((root+"/runtime").c_str());symlink((root+"/elf").c_str(),(root+"/runtime").c_str());
+  assert(!penchat::runtimeExecutableMatches((root+"/runtime").c_str(),64,183));unlink((root+"/runtime").c_str());
   assert(penchat::rescue::schema(root)==-1&&!penchat::rescue::nativeAlive(root));
   assert(penchat::rescue::installationFlags(PENCHAT_VERSION,"")==0);
   assert(penchat::rescue::installationFlags("9.0.0","")==0);
