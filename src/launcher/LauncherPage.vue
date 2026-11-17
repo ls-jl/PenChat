@@ -118,10 +118,12 @@ export default {
     runtimeToken() { return { runtimeId: this._runtimeId || 0, ownerGeneration: this._generation || 0 } },
     stopRuntime() { return launcher.stop(this.runtimeToken()) },
     armReadyTimer() {
+      const readyEpoch=(this._readyEpoch||0)+1;this._readyEpoch=readyEpoch
       clearTimeout(this._readyTimer);this._readyTimer=null
       if(this.nativeReady||!this.running||this._disposed||!this.visible||this._pageHidden||this._windowFocused===false)return
       const generation=this._generation
       this._readyTimer=setTimeout(()=>{
+        if(this._readyEpoch!==readyEpoch)return
         this._readyTimer=null
         if(generation!==generationSeed||this._disposed||!this.visible||this._pageHidden||this._windowFocused===false)return
         if(this.running&&!this.nativeReady&&this._generation===generation)this.fail('原生页面启动超时，请重试')

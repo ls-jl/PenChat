@@ -1073,3 +1073,16 @@ test('queued finish from a previous attachment cannot close the current mounted 
  f.native.poll=()=>[{type:'finish',generation:f.page._generation}]
  f.page.poll();assert.equal(f.calls.filter(c=>c[0]==='finish').length,1)
 })
+
+test('cancelled startup timeout queued across foreground reentry cannot stop the restored page',async()=>{
+ const f=fixture();await f.page.boot()
+ const oldTimer=f.page._readyTimer,oldCallback=f.timers.get(oldTimer)
+ f.native.focused=false;f.page.syncWindowFocus(true)
+ f.native.focused=true;f.page.syncWindowFocus(true)
+ const currentTimer=f.page._readyTimer;assert.notEqual(currentTimer,oldTimer)
+ oldCallback()
+ assert.equal(f.page.running,true)
+ assert.equal(f.page._readyTimer,currentTimer)
+ assert.equal(f.calls.filter(c=>c[0]==='stop').length,0)
+ f.page.dispose()
+})
