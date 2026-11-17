@@ -153,6 +153,16 @@ PenChat is an independent application. Never read external application databases
 
 ## Development and release workflow
 
+For server-side application files, update/downgrade packages, synchronization checks
+and feedback logs, read [docs/LOCAL-RELAY.md](docs/LOCAL-RELAY.md) and prefer the local
+relay at `http://localhost:17865/`. Local calls require no SSH password, shared key
+or `Authorization`; the relay owns upstream credentials. `/app/` is authoritative
+on the primary server and asynchronously syncs to the read-only `/standby/app/`.
+Primary and Hong Kong logs are separate at `/logs/primary/` and `/logs/hk/`.
+Perform remote mutations only within the current task's authorization; relay access
+does not grant standing release or deletion permission. Keep fetched logs, backups
+and packages in ignored directories.
+
 - Keep ongoing and temporary changes on the local `dev` branch. `main` contains
   released work; do not merge development into it for each user request.
 - Ordinary development device acceptance is performed by the user. Do not automatically
