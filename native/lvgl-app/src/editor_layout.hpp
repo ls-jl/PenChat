@@ -99,7 +99,15 @@ struct EditorLayout {
       panelTop=compositionY-design.portrait.panelInset-metrics.sp(32)-2*compositionMetrics.gap;
       textHeight=design.controls.height;textY=panelTop-textHeight-design.portrait.editorGap;
     }
-    if (selectionOnly) { split=metrics.dp(86);textX=metrics.dp(96);textWidth=w-metrics.dp(106);textY=metrics.dp(56);textHeight=h-metrics.dp(66);if(portrait){const AppLayout safe{w,h,false,metrics};split=w;textX=safe.safeSide();textWidth=w-2*textX;textY=metrics.dp(56)+safe.safeTop();textHeight=h-textY-safe.safeBottom();} }
+    if (selectionOnly) {
+      split=metrics.dp(86);textX=metrics.dp(96);textWidth=w-metrics.dp(106);
+      textY=selectionBodyTop();textHeight=h-textY-metrics.dp(10);
+      if(portrait) {
+        const AppLayout safe{w,h,rounded,metrics};
+        split=w;textX=safe.safeSide();textWidth=w-2*textX;
+        textY=selectionBodyTop();textHeight=h-textY-safe.safeBottom();
+      }
+    }
     if(!selectionOnly&&!portrait&&!compactFull) {
       const int top=std::max(textY,candidateY+candidateMetrics.height+metrics.sp(32)+2*compositionMetrics.gap);
       textHeight-=top-textY;textY=top;
@@ -107,6 +115,12 @@ struct EditorLayout {
     textAreaWidth=textWidth;
     if(compactFull&&inlineReveal)textAreaWidth=std::max(1,textWidth-design.controls.height-design.controls.gap);
     (void)chatComposer;
+  }
+  int selectionHeaderTop() const { return portrait?AppLayout{width,height,rounded,metrics}.safeTop():0; }
+  int selectionBodyTop() const {
+    // Leave the flipped first-line handle clear of rounded portrait actions.
+    const int gap=metrics.dp(portrait&&rounded?24:4);
+    return selectionHeaderTop()+std::max(metrics.dp(56),metrics.dp(8)+controlHeight()+gap);
   }
   KeyboardView view() const {return portrait?KeyboardView::Portrait:compact?
       (compactFull?KeyboardView::Compact:KeyboardView::CompactExpanded):KeyboardView::Wide;}

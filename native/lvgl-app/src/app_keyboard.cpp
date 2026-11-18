@@ -320,9 +320,11 @@ void App::editorBuild() {
   }
   } else {
     const int inset=layout.portrait?layout.keyInset:0;
-    const int top=layout.portrait?this->layout().safeTop():0;
+    const int top=layout.selectionHeaderTop();
     auto back=control("",layout.portrait?inset:editorMetrics().dp(16),editorMetrics().dp(8)+top,editorMetrics().dp(48),"cancel");attachIcon(back,"back",theme::palette().text, 1.f, editorMetrics());
-    label(editorRoot_,editor_.notice.empty()?"选择文本 · 双击选择，拖动手柄调整":editor_.notice,editorMetrics().dp(96),editorMetrics().dp(14)+top,editorLayout().width-editorMetrics().dp(338)-inset,editorFontSize(KeyboardFont::Heading),theme::palette().muted);
+    auto heading=label(editorRoot_,editor_.notice.empty()?"选择文本 · 双击选择，拖动手柄调整":editor_.notice,editorMetrics().dp(96),editorMetrics().dp(14)+top,editorLayout().width-editorMetrics().dp(338)-inset,editorFontSize(KeyboardFont::Heading),theme::palette().muted);
+    lv_label_set_long_mode(heading,LV_LABEL_LONG_DOT);
+    lv_obj_set_height(heading,font(editorFontSize(KeyboardFont::Heading))->line_height);
     control("全选",editorLayout().width-editorMetrics().dp(220)-inset,editorMetrics().dp(6)+top,editorMetrics().dp(96),"all");primary(control("复制",editorLayout().width-editorMetrics().dp(116)-inset,editorMetrics().dp(6)+top,editorMetrics().dp(104),"copy"));
   }
   if(editorInPlace()) {editorViewport();editorAttachTarget();}

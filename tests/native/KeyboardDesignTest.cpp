@@ -56,6 +56,21 @@ int main(int argc,char **argv) {
           assert(action.x==cancel.x+cancel.width+layout.controlMetrics.gap);
       }
     }
+  // Read-only message selection uses the same rounded-screen safe top for
+  // its controls and body; ordinary keyboard geometry is independent.
+  for(bool rounded:{false,true})for(int scale:{75,100,125,150}) {
+    const UiMetrics metrics(100,scale);
+    const auto design=resolveKeyboardDesign(defaults,metrics);
+    const EditorLayout selection(568,1210,true,false,false,false,false,design,rounded,metrics);
+    const AppLayout safe(568,1210,rounded,metrics);
+    assert(selection.selectionHeaderTop()==safe.safeTop());
+    assert(selection.textY==selection.selectionBodyTop());
+    assert(selection.textY>=selection.selectionHeaderTop()+metrics.dp(8)+selection.controlHeight());
+    assert(selection.textY+selection.textHeight==1210-safe.safeBottom());
+    const EditorLayout wideSelection(960,266,true,false,false,false,false,design,rounded,metrics);
+    assert(wideSelection.selectionHeaderTop()==0&&wideSelection.textY==wideSelection.selectionBodyTop());
+    assert(wideSelection.textY>=metrics.dp(8)+wideSelection.controlHeight());
+  }
   KeyboardDesign design=defaults;
   design.base.radius=13;
   design.roles[size_t(KeyboardRole::Function)].background=theme::palette().accent;
