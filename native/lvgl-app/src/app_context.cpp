@@ -269,12 +269,24 @@ void App::contextDetails() {
 void App::contextSummaryPage() {
   pageHeader("上下文摘要");
   const auto rows=db_.query("SELECT metadata_json FROM chat_sessions WHERE id=?",{session_});
-  auto checkpoint=rows.empty()?Json::object():objectField(rows[0],"metadata_json")
+  const auto stored=rows.empty()?Json::object():objectField(rows[0],"metadata_json")
       .value("context_compression",Json::object());
+  Json checkpoint=Json::object();
   try {
     const auto snapshot = db_.contextSnapshot(session_);
-    checkpoint = activeContextCheckpoint(snapshot["rows"], checkpoint);
-  } catch (...) {} // Streaming saves may still be in flight; retain the last committed detail.
+    checkpoint = activeContextCheckpoint(snapshot["rows"], stored);
+  } catch (...) {}
+  // Disabled/stale checkpoints remain readable history. They must not be
+  // replayed into requests, but dropping them here hides the summary/archive.
+  if(checkpoint.empty()&&stored.is_object())try {
+    checkpoint=publicContext(stored);
+    if(!checkpoint.contains("summary")||checkpoint["summary"].get<std::string>().empty())checkpoint=Json::object();
+    else {
+      checkpoint["enabled"]=false;
+      const auto archive=stored.value("archive_id",Json());
+      if(archive.is_string()&&archive.get<std::string>().size()<=512)checkpoint["archive_id"]=archive;
+    }
+  }catch(...){checkpoint=Json::object();}
   const int left=uiMetrics_.dp(layout().portrait()?16:10);
   const int width=layout().contentWidth();
   int y=uiMetrics_.dp(12);
@@ -289,7 +301,7 @@ void App::contextSummaryPage() {
   const auto archive=checkpoint.value("archive_id",std::string());
   if(!archive.empty())pageAction("对应归档",uiMetrics_.dp(12),uiMetrics_.dp(120),[this,archive] {
     const auto found=db_.sessionInfo(archive);
-    if(found.empty()){modal("归档已删除","摘要仍有效，当前完整历史仍保留。");return;}
+    if(found.empty()){modal("归档已删除","摘要内容仍保留，当前完整历史没有删除。");return;}
     archiveOffset_=0;archiveHighlight_=archive;
     const auto order=db_.query("SELECT count(*) n FROM chat_sessions s WHERE status='archived' "
         "AND EXISTS(SELECT 1 FROM chat_messages m WHERE m.session_id=s.id) "

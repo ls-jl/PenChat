@@ -115,6 +115,8 @@ Json sessionMetrics(Json snapshot, const Json &model, const Json &pending) {
   if (!editing && draft.find_first_not_of(" \r\n\t") == std::string::npos &&
       !rows.empty() && rows.back().value("role", std::string()) == "assistant" && failed(rows.back()))
     rows.erase(rows.end() - 1); // The send action would retry, excluding this partial reply.
+  const bool hadCheckpoint = !checkpoint.empty() &&
+      (!checkpoint.is_object() || checkpoint.value("enabled", true));
   checkpoint = activeContextCheckpoint(rows, checkpoint);
   const bool compressed = validContext(checkpoint, rows);
   auto input = effectiveContext(rows, compressed ? checkpoint : Json::object(), model);
@@ -139,7 +141,7 @@ Json sessionMetrics(Json snapshot, const Json &model, const Json &pending) {
                  {"messages", messages}, {"images", images}, {"replies", replies},
                  {"reported_replies", known}, {"totals", totals}, {"reported", reported},
                  {"latest", latest}, {"latest_status", latestStatus}, {"latest_model", latestModel}, {"editing", editing},
-                 {"compressed", compressed}, {"compression_invalid", !checkpoint.empty() && checkpoint.value("enabled", true) && !compressed},
+                 {"compressed", compressed}, {"compression_invalid", hadCheckpoint && !compressed},
                  {"cache_samples", cacheSamples}, {"cache_input_tokens", cacheInput}, {"cache_read_tokens", cacheRead}};
   return result;
 }

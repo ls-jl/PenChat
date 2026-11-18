@@ -25,7 +25,11 @@ for w,h in [(568,1210),(960,266),(640,260)]:
         with tempfile.TemporaryDirectory(prefix='penchat-context-reader-') as folder:
             p=pathlib.Path(folder);seed(p,1)
             summary='事实、约束与尚未解决的问题。\n\n'+('这是可滚动、可选择的完整上下文摘要。\n'*70)
-            cp={'summary':summary,'through':1,'created_at':1794547200000,'enabled':True,'archive_id':'archive'}
+            source='保留阅读位置。\n\n'*90
+            raw=json.dumps([1,'assistant','complete',source,[]],ensure_ascii=False,separators=(',',':')).encode()
+            checksum=14695981039346656037
+            for byte in raw+b'\xff':checksum=((checksum^byte)*1099511628211)&((1<<64)-1)
+            cp={'version':1,'checksum':f'{checksum:016x}','summary':summary,'through':1,'created_at':1794547200000,'enabled':True,'archive_id':'archive'}
             with sqlite3.connect(p/'penchat.db') as db:
                 db.execute("insert into chat_sessions(id,title,status,metadata_json,created_at,updated_at,last_message_at) values('s','Summary fixture','active',?,1,1,1)",(json.dumps({'context_compression':cp} if compressed else {}),))
                 db.execute("insert into chat_messages(id,session_id,seq,role,status,message_type,output_text,created_at,updated_at) values('a','s',1,'assistant','complete','text',?,1,1)",('保留阅读位置。\n\n'*90,))
