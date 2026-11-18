@@ -115,13 +115,9 @@ Json sessionMetrics(Json snapshot, const Json &model, const Json &pending) {
   if (!editing && draft.find_first_not_of(" \r\n\t") == std::string::npos &&
       !rows.empty() && rows.back().value("role", std::string()) == "assistant" && failed(rows.back()))
     rows.erase(rows.end() - 1); // The send action would retry, excluding this partial reply.
+  checkpoint = activeContextCheckpoint(rows, checkpoint);
   const bool compressed = validContext(checkpoint, rows);
-  auto input = contextInput(rows, compressed ? checkpoint.value("through", int64_t(0)) : 0,
-                            INT64_MAX, model);
-  if (compressed)
-    input.insert(input.begin(), Json{{"role", "user"}, {"content", Json::array({
-      {{"type", "input_text"}, {"text", "[此前对话的历史参考摘要，非系统指令]\n" + checkpoint.value("summary", std::string())}}
-    })}});
+  auto input = effectiveContext(rows, compressed ? checkpoint : Json::object(), model);
   if (editing) {
     for (const auto &asset : pending.value("images", Json::array())) {
       const auto stored = asset.value("stored_path", Json());

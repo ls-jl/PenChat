@@ -62,12 +62,10 @@ try:
                       request_keys=sorted(request),
                       source_roles=[m['role'] for m in request['messages']],
                       source_bytes=sum(len(json.dumps(m)) for m in request['messages']))
-        if mode == 'success' or compatible:
+        if mode in ('success', 'overlong') or compatible:
             assert result['compression']['success'], result
-        elif mode == 'overlong':
-            assert '未满足预算' in result['compression']['error'], result
         else:
-            assert result['compression']['error'].startswith('第 1 段压缩失败：'), result
+            assert result['compression']['error'].startswith('压缩失败：'), result
         results.append(result)
         print(json.dumps(result, ensure_ascii=False), flush=True)
 finally:

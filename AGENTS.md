@@ -314,6 +314,16 @@ retires only the public 导出 subtree into private transfer staging before remo
 keep 导入 and instructions. Background/IME transitions never trigger cleanup. Do not
 restart or access the device while the user says it is unavailable.
 
+Context compression uses the Codex client text-checkpoint algorithm pinned in
+native/lvgl-app/codex-compaction-source.json. Reconstruct requests with the shared
+effectiveContext view: budgeted recent user originals, reference summary, uncovered
+whole turns/tool batches and pending input. Move excess recent turns out of the
+compactor input and retain them verbatim; never discard an old prefix on overflow.
+Only explicit input-window rejection may retry with a smaller complete prefix.
+Tool compaction runs only after a whole batch has returned, protects the current
+question/latest exchange, tracks physical history and tool coverage separately,
+and commits its archive/checkpoint before the next model request. See docs/CONTEXT-COMPRESSION.md.
+
 Context compression is an auxiliary background job. Freeze both model configurations and pending
 input; never truncate history silently. Use ordinary historical reference summaries, never promote
 them to system instructions or replay covered opaque reasoning. Commit a full pre-compression

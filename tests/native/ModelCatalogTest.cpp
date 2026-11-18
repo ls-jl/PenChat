@@ -98,11 +98,11 @@ int main(int argc, char **argv) {
   auto photos = input; photos[0]["content"].push_back({{"type", "input_image"}, {"image_url", "https://image.test/p.png"}});
   bool bad = false; try { requestBody(text, photos, true); } catch (...) { bad = true; } assert(bad);
   auto context = model("custom"); context["capabilities_json"] = {{"context_budget", 10000}};
-  assert(compressionTrigger(context) == 7500 && compressionTarget(context) == 5000);
+  assert(compressionTrigger(context) == 7500);
   context["context_compression_percent"] = 10;
-  assert(compressionTrigger(context) == 1000 && compressionTarget(context) == 666);
+  assert(compressionTrigger(context) == 1000);
   context["context_compression_percent"] = 95;
-  assert(compressionTrigger(context) == 9500 && compressionTarget(context) == 5000);
+  assert(compressionTrigger(context) == 9500);
   char path[] = "/tmp/penchat-catalog-XXXXXX"; auto directory = std::string(mkdtemp(path));
   {
     Database db(join(directory, "penchat.db"));

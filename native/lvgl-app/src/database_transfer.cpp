@@ -206,6 +206,16 @@ Json Database::importTransfer(const Json &bundle) {
                         {id, a->second});
             }
           }
+          for (const auto &row : query("SELECT id,metadata_json FROM chat_messages WHERE session_id=?", {sid})) {
+            auto metadata = objectField(row, "metadata_json");
+            if (!metadata.contains("tool_compaction")) continue;
+            auto &tool = metadata["tool_compaction"];
+            const auto restored = contextSnapshot(sid);
+            tool["checksum"] = contextChecksum(restored["rows"], tool.value("through", int64_t(0)));
+            tool["source_checksum"] = contextChecksum(restored["rows"], tool.value("source_through", int64_t(0)));
+            tool.erase("archive_id");
+            execute("UPDATE chat_messages SET metadata_json=? WHERE id=?", {metadata.dump(), row["id"]});
+          }
           if (meta.contains("context_compression")) {
             auto &cp = meta["context_compression"];
             bool accepted = cp.value("import_validated", false);

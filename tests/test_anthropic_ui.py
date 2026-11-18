@@ -108,7 +108,7 @@ def chat(w,h):
     assert checkpoint['archive_id'] and checkpoint['summary']
    assert a.diag()['view']=='context_summary' and not a.diag()['modal'];a.to_chat()
    compressed=Handler.requests[-1][2]
-   assert 'PenChat_CONTEXT_COMPRESSION_V1' in compressed.get('system','') and 'CHAT_SYSTEM_ONCE' not in compressed['system']
+   assert 'PenChat_CONTEXT_CHECKPOINT_V2' in json.dumps(compressed) and 'CHAT_SYSTEM_ONCE' not in compressed['system']
    assert 'thinking' not in compressed and 'output_config' not in compressed
    a.attachment_action('summary');assert a.diag()['view']=='context_summary' and not a.diag()['modal'];shot(a,f'{w}-summary');a.to_chat()
    a.edit('压缩后继续');a.tap(w-52,h-34);settled(a)

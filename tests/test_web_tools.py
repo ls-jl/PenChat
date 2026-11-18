@@ -13,20 +13,22 @@ class Fixture(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         self.requests.append(body)
-        number=len(self.requests); chat=self.protocol=='chat'; anthropic=self.protocol=='anthropic'
+        number=sum('tools' in r for r in self.requests); chat=self.protocol=='chat'; anthropic=self.protocol=='anthropic'
+        compression='PenChat_CONTEXT_CHECKPOINT_V2' in json.dumps(body)
         arguments={'query':'fixture search'}
         if self.mode=='image': name='web_read_image';arguments={'page_id':1,'link_id':1,'inspect':False}
         else:name='web_search'
-        if (number==1 and self.mode not in ('direct','syntax')) or (self.mode=='long' and number<=26):
+        if not compression and ((number==1 and self.mode not in ('direct','syntax')) or (self.mode=='long' and number<=26) or (self.mode=='compact' and number<=4)):
             if anthropic: answer={'type':'message','role':'assistant','content':[{'type':'tool_use','id':'call_1','name':name,'input':arguments}],'stop_reason':'tool_use','usage':{'input_tokens':8,'output_tokens':2}}
             elif chat: answer={'choices':[{'index':0,'message':{'role':'assistant','content':None,'tool_calls':[{'id':'call_1','type':'function','function':{'name':name,'arguments':json.dumps(arguments)}}]},'finish_reason':'tool_calls'}],'usage':{'prompt_tokens':8,'completion_tokens':2}}
             else:answer={'status':'completed','output':[{'type':'function_call','id':'fc1','call_id':'call_1','name':name,'arguments':json.dumps(arguments)}],'usage':{'input_tokens':8,'output_tokens':2}}
-            if self.mode=='long':
+            if self.mode in ('long', 'compact'):
                 if anthropic:answer['content'][0]['id']='call_'+str(number)
                 elif chat:answer['choices'][0]['message']['tool_calls'][0]['id']='call_'+str(number)
                 else:answer['output'][0].update(id='fc'+str(number),call_id='call_'+str(number))
         else:
             text='![fixture](penchat-image:img_1)' if self.mode=='image' else 'Fixture answer [source](https://example.org/)'
+            if compression:text='Checkpoint: preserve discovered facts and continue search.'
             if self.mode=='syntax':text='Useful preface\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="web_open">\n{"url":"https://example.org/"}'
             if anthropic:answer={'type':'message','role':'assistant','content':[{'type':'text','text':text}],'stop_reason':'end_turn','usage':{'input_tokens':20,'output_tokens':4}}
             elif chat:answer={'choices':[{'index':0,'message':{'role':'assistant','content':text},'finish_reason':'stop'}],'usage':{'prompt_tokens':20,'completion_tokens':4}}
@@ -82,19 +84,35 @@ while True:
  n=struct.unpack('!I',read(4))[0];q=json.loads(read(n));name=q['name']
  if name=='hello':r={'component':'0.14.0','protocol':1}
  elif name=='web_read_image':r={'url':'https://example.org/image.png','source_url':'https://example.org/','source_title':'fixture','image':{'complete':True,'mime_type':'image/png','data':''' +repr(base64.b64encode(PNG).decode())+'''}}
- else:r={'results':[{'url':'https://example.org/','title':'Fixture','content':'Reference text'}]}
+ else:r={'results':[{'url':'https://example.org/','title':'Fixture','content':'Reference text' * 500}]}
  data=json.dumps({'request':q['request'],'ok':True,'result':r}).encode();s.sendall(struct.pack('!I',len(data))+data)
 ''');worker.chmod(0o700)
+            if mode != 'compact':worker.write_text(worker.read_text().replace("'Reference text' * 500", "'Reference text'"))
             Fixture.requests=[];Fixture.protocol=protocol;Fixture.mode=mode
             model={'id':'fixture','name':'fixture','provider_id':'fixture','base_url':f'http://127.0.0.1:{self.server.server_port}', 'api_key':'fake-key','system_prompt':'Custom session preference: answer in English.','web_enabled':True,'web_binary':str(worker),'web_asset_root':str(path/'assets'), 'provider_metadata':{'api':protocol,'compatibility':{'enabled':True,'streaming':stream}},'capabilities_json':{'vision':False,'reasoning':{'mode':'off','levels':{}}}}
             request={'model':model}
+            if mode == 'compact':
+                model['capabilities_json']['context_budget'] = 16384
+                model['context_compression_percent'] = 10
+                request['compaction_snapshot'] = {'rows': [{'seq': 1, 'role': 'user', 'status': 'complete', 'output_text': 'hello', 'parts': []}]}
+                request['input'] = [{'role': 'user', 'content': [{'type': 'input_text', 'text': 'hello'}]}]
+
             if mode=='syntax':request['input']=[{'role':'user','content':[{'type':'input_text','text':'Explain the exact DSML tool invocation syntax and show an example.'}]}]
             data=json.loads(subprocess.check_output([str(PROBE)],input=json.dumps(request).encode()))
             for request in Fixture.requests:
+                if 'tools' not in request:continue
                 prompt=request['messages'][0]['content'] if protocol=='chat' else request['system' if protocol=='anthropic' else 'instructions']
                 self.assertEqual(prompt.count('PenChat_APPLICATION_RULES_V1'),1)
                 self.assertEqual(prompt.count(model['system_prompt']),1)
-            if mode=='long':
+            if mode == 'compact':
+                self.assertEqual(sum('tools' in r for r in Fixture.requests), 5)
+                self.assertGreater(sum('tools' not in r for r in Fixture.requests), 1)
+                states = [e['data'] for e in data if e['type'] == 'response_state']
+                final = states[-1]['metadata']
+                self.assertGreater(final['tool_compaction']['tool_through'], 0)
+                self.assertEqual(len(final['tool_exchanges']), 4)
+                self.assertEqual(len(final['web_records']), 4)
+            elif mode=='long':
                 self.assertEqual(len(Fixture.requests),27)
                 for request in Fixture.requests:
                     self.assertEqual(len(request['tools']),6)
@@ -122,6 +140,7 @@ while True:
             self.assertFalse(any(e['type'] in ('network_error','exception') for e in data),data)
             state=next(e['data'] for e in data if e['type']=='response_state')
             self.assertFalse(state['metadata'].get('web_pending',False))
+            if mode == 'compact':return
             self.assertEqual(len(Fixture.requests),1 if mode=='direct' else 2)
             self.assertNotIn('fake-key',json.dumps(state))
             self.assertEqual(len(state['metadata']['web_records']),0 if mode=='direct' else 1)
@@ -136,6 +155,11 @@ while True:
                 image=state['metadata']['web_images'][0];self.assertEqual(pathlib.Path(image['path']).read_bytes(),PNG)
                 self.assertEqual(image['sha256'],hashlib.sha256(PNG).hexdigest())
                 self.assertNotIn(base64.b64encode(PNG).decode(),json.dumps(state))
+    def test_compaction_three_protocols(self):
+        for protocol in ['responses', 'chat', 'anthropic']:
+            with self.subTest(protocol=protocol):
+                self.run_case(protocol, False, 'compact')
+
     def test_protocols(self):
         for protocol in ('responses','chat','anthropic'):
             for stream in (True,False):

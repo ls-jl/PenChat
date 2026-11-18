@@ -146,7 +146,12 @@ Json Database::createBranch(const Json &snapshot,const std::string &message,
       }while(!query("SELECT id FROM chat_sessions WHERE title=? LIMIT 1",{title}).empty());
       Json rows=Json::array();int64_t lastTime=0;
       for(const auto &m:current["rows"])if(m["seq"].get<int64_t>()<=through) {
-        rows.push_back(m);auto time=objectField(m,"metadata_json").value("timeline",Json::object());
+        auto copy = m;
+        auto messageMetadata = objectField(copy, "metadata_json");
+        messageMetadata.erase("tool_compaction");
+        copy["metadata_json"] = messageMetadata.dump();
+        rows.push_back(std::move(copy));
+        auto time=objectField(m,"metadata_json").value("timeline",Json::object());
         lastTime=std::max(lastTime,std::max(chatTimestamp(time,"sent_at"),chatTimestamp(time,"completed_at")));
       }
       auto pending=pendingPhotos(current["rows"]);auto seq=through+1;

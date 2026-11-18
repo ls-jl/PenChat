@@ -1,4 +1,5 @@
 #include "network.hpp"
+#include "context.hpp"
 #include <iostream>
 #include <thread>
 using namespace penchat;
@@ -22,6 +23,9 @@ int main() {
       ApiOptions options;options.timeout=1;
       const auto result=http(apiRoot(model)+"/timeout","GET",apiHeaders(model),"",cancel,{},options);
       events.push("http",{{"status",result.status},{"error",result.error}});
+    } else if (request.contains("compaction_snapshot")) {
+      auto compact = toolContextCompactor(request["compaction_snapshot"], model, model, cancel);
+      streamChat(model, request.at("input"), cancel, events, 1, compact);
     } else streamChat(model,request.value("input",Json::array({{{"role","user"},{"content",Json::array({{{"type","input_text"},{"text","hello"}}})}}})),cancel,events,1);
   } catch(const std::exception &e) {events.push("exception",{{"error",e.what()}});}
   if(stopper.joinable())stopper.join();

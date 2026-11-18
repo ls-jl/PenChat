@@ -47,7 +47,7 @@ def run(w,h):
             assert a.diag()['draft_length']==4;shot(a,f'context-ring-{w}-compressed')
             a.attachment_action('session_info');t.wait_for(lambda:not a.diag()['session_info_busy'] and a.diag()['session_info'])
             info=a.diag()['session_info'];assert info['estimated_tokens']==after['estimated_tokens'] and info['budget']==after['budget']
-            assert len(Server.requests)>=1 and all('PenChat_CONTEXT_COMPRESSION_V1' in json.dumps(r[1]) for r in Server.requests)
+            assert len(Server.requests)>=1 and all('PenChat_CONTEXT_CHECKPOINT_V2' in json.dumps(r[1]) for r in Server.requests)
             a.tap(40,32)
             a.tap(40,168);assert not a.diag()['modal'] and a.diag()['view']=='chat'
             a.attachment_action('summary');assert a.diag()['view']=='context_summary' and not a.diag()['modal'];shot(a,f'context-summary-{w}-menu-only')

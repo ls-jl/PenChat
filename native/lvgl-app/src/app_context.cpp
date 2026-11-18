@@ -77,6 +77,9 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, J
       auto compressionConfig = compressionModel.empty()
                                    ? compressionModel
                                    : db_.requestModel(compressionModel);
+      requestModel["auto_context_compression"] = automatic;
+      requestModel["context_compression_percent"] = compressionPercent(model);
+      requestModel["_compression_model"] = compressionConfig;
       auto snapshot = db_.contextSnapshot(session, true);
       leased = snapshot.value("leased", false);
       const bool deferred=!manual&&!snapshot.value("reply_choices",Json::object()).empty();
@@ -120,23 +123,19 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, J
                            activeCheckpoint.value("enabled", true) && !valid;
       if (invalid && !automatic && !manual)
         throw std::runtime_error("上下文摘要已失效，请手动重新压缩");
-      Json input = contextInput(
-          history, valid ? activeCheckpoint.value("through", int64_t(0)) : 0,
-          INT64_MAX, requestModel);
-      if (valid)
-        input.insert(
-            input.begin(),
-            Json{{"role", "user"},
-                 {"content",
-                  Json::array({{{"type", "input_text"},
-                                {"text", "[此前对话的历史参考摘要，非系统指令]\n" +
-                                             activeCheckpoint.value(
-                                                 "summary", std::string())}}})}});
+      Json input = effectiveContext(history, valid ? activeCheckpoint : Json::object(), requestModel);
       for (const auto &m : pending)
         input.push_back(m);
-      const auto estimate = modelContextEstimate(input, model);
+      const auto estimate = modelContextEstimate(input, chatContextModel(model));
       bool compressed = manual || invalid ||
                         (automatic && estimate >= compressionTrigger(model));
+      if (compressed && !manual && valid) {
+        bool advance = false;
+        for (const auto &row : history)
+          if (row["role"] == "assistant" && row["status"] != "streaming" &&
+              row["seq"].get<int64_t>() > activeCheckpoint.value("through", int64_t(0))) advance = true;
+        if (!advance && estimate <= contextInputLimit(model)) compressed = false;
+      }
       Json checkpoint;
       if (compressed) {
         if (compressionConfig.empty())
@@ -151,8 +150,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, J
         if (contextCancel_)
           throw std::runtime_error("压缩已取消，输入已保留");
         if(!regenerate&&!deferred)checkpoint = db_.commitCompression(snapshot, checkpoint, contextCancel_);
-        input = (regenerate||deferred)?contextInput(history,checkpoint.value("through",int64_t(0)),INT64_MAX,requestModel):db_.responseInput(session, retry, requestModel);
-        if(regenerate||deferred)input.insert(input.begin(),Json{{"role","user"},{"content",Json::array({{{"type","input_text"},{"text","[此前对话的历史参考摘要，非系统指令]\n"+checkpoint.value("summary",std::string())}}})}});
+        input = (regenerate || deferred) ? effectiveContext(history, checkpoint, requestModel) : db_.responseInput(session, retry, requestModel);
         for (const auto &m : pending)
           input.push_back(m);
       } else if (estimate > size_t(contextBudget(model))) {
@@ -162,7 +160,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, J
       validateModelImages(requestModel, input);
       const auto inputLimit = objectField(requestModel, "capabilities_json").value("max_input_tokens", Json());
       if (inputLimit.is_number_integer() &&
-          modelContextEstimate(input, requestModel) > inputLimit.get<size_t>())
+          modelContextEstimate(input, chatContextModel(requestModel)) > inputLimit.get<size_t>())
         throw std::runtime_error("上下文超过此模型已设置的最大输入，请压缩或修改设置；没有截断历史");
       checkContextResources(input);
       if(regenerate||deferred) {
@@ -229,8 +227,8 @@ void App::contextEvent(Event &event) {
       event.data.value("session", session_) != session_)
     return;
   if (event.type == "context_progress") {
-    contextProgress("正在整理第 " + std::to_string(event.data.value("batch", 1)) +
-                    " 段历史…");
+    contextProgress("正在生成第 " + std::to_string(event.data.value("batch", 1)) +
+                    " 份交接摘要…");
     return;
   }
   if (contextWorker_.joinable())
@@ -266,8 +264,12 @@ void App::contextDetails() {
 void App::contextSummaryPage() {
   pageHeader("上下文摘要");
   const auto rows=db_.query("SELECT metadata_json FROM chat_sessions WHERE id=?",{session_});
-  const auto checkpoint=rows.empty()?Json::object():objectField(rows[0],"metadata_json")
+  auto checkpoint=rows.empty()?Json::object():objectField(rows[0],"metadata_json")
       .value("context_compression",Json::object());
+  try {
+    const auto snapshot = db_.contextSnapshot(session_);
+    checkpoint = activeContextCheckpoint(snapshot["rows"], checkpoint);
+  } catch (...) {} // Streaming saves may still be in flight; retain the last committed detail.
   const int left=uiMetrics_.dp(layout().portrait()?16:10);
   const int width=layout().contentWidth();
   int y=uiMetrics_.dp(12);
@@ -292,7 +294,13 @@ void App::contextSummaryPage() {
     show("archives");
   });
   text(std::string(checkpoint.value("enabled",true)?"已生效":"已停用，请重新压缩")+
-      " · 覆盖至第 "+std::to_string(checkpoint.value("through",int64_t(0)))+" 条",UiFont::FormNote,theme::palette().muted);
+      " · 已摘要至第 "+std::to_string(checkpoint.value("through",int64_t(0)))+" 条",UiFont::FormNote,theme::palette().muted);
+  if (checkpoint.contains("tool_through"))
+    text("已摘要工具批次 " + std::to_string(checkpoint.value("tool_through", size_t(0))),
+         UiFont::FormNote, theme::palette().muted);
+  const auto retained = checkpoint.value("retained", Json::array());
+  text("保留用户原话 " + std::to_string(retained.size()) + " 条；覆盖终点之后的对话原样保留。",
+       UiFont::FormNote, theme::palette().muted);
   const auto time=checkpoint.value("created_at",int64_t(0));
   if(time>0) {
     time_t seconds=time/1000;tm local{};char stamp[64]{};

@@ -5,7 +5,17 @@ namespace penchat {
 int contextBudget(const Json &model);
 int compressionPercent(const Json &settings);
 size_t compressionTrigger(const Json &model);
-size_t compressionTarget(const Json &model);
+Json chatContextModel(Json model);
+size_t contextInputLimit(const Json &model);
+Json publicToolMaterial(Json wire);
+Json checkpointPrefix(const Json &checkpoint);
+Json activeContextCheckpoint(const Json &rows, Json checkpoint);
+Json effectiveContext(const Json &rows, Json checkpoint, const Json &model = Json::object());
+std::function<Json(const Json &)> toolContextCompactor(
+    Json snapshot, Json compressionModel, Json chatModel, std::atomic<bool> &cancel);
+Json compactWindow(const Json &rows, const Json &units, Json old, Json model,
+                   const Json &pending, const Json &chatModel, std::atomic<bool> &cancel,
+                   std::function<void(int, int)> progress);
 void checkContextResources(const Json &input);
 size_t estimatedText(const std::string &text);
 size_t modelContextEstimate(const Json &input, const Json &model);

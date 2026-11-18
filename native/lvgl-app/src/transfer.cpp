@@ -948,6 +948,17 @@ Json Transfer::exportData(const Json &a) {
           cp["enabled"] = false;
         c["metadata"]["context_compression"] = cp;
       }
+      for (auto &message : c["messages"]) {
+        auto &metadata = message["metadata"];
+        if (!metadata.contains("tool_compaction")) continue;
+        auto &cp = metadata["tool_compaction"];
+        const auto portable = portableContextRows(c);
+        if (validContext(cp, rows) && cp.value("source_checksum", std::string()) ==
+            contextChecksum(rows, cp.value("source_through", int64_t(0)))) {
+          cp["checksum"] = contextChecksum(portable, cp.value("through", int64_t(0)));
+          cp["source_checksum"] = contextChecksum(portable, cp.value("source_through", int64_t(0)));
+        } else cp["enabled"] = false;
+      }
       c["origin"] = {{"source", id}, {"checksum", digestText(c.dump())}};
       auto cid = "conversations/" + digestText(id) + "-" +
                  std::to_string(bundle["items"].size()) + ".json";
@@ -1368,6 +1379,25 @@ Json Transfer::previewFile(const Json &a) {
     if (kind == "chats") {
       auto cp = item.value("metadata", Json::object())
                     .value("context_compression", Json::object());
+      for (auto &message : item["messages"]) {
+        auto &metadata = message["metadata"];
+        if (!metadata.contains("tool_compaction")) continue;
+        auto &tool = metadata["tool_compaction"];
+        const auto portable = portableContextRows(item);
+        bool accepted = false;
+        try {
+          const auto exchanges = metadata.value("public_tool_exchanges", Json::array());
+          accepted = validContext(tool, portable) && exchanges.is_array() &&
+              tool.value("tool_through", size_t(0)) <= exchanges.size() &&
+              tool.value("source_through", int64_t(0)) < message.at("seq").get<int64_t>() &&
+              tool.value("source_checksum", std::string()) ==
+                  contextChecksum(portable, tool.value("source_through", int64_t(0)));
+        } catch (...) {}
+        if (!accepted || !missing.empty()) {
+          metadata.erase("tool_compaction");
+          warning += "工具摘要覆盖范围不匹配，已保留完整历史资料；";
+        }
+      }
       if (!cp.empty()) {
         bool valid = false;
         try {

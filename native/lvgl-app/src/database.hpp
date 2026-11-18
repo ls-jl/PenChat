@@ -131,7 +131,9 @@ public:
   void transferSnapshot(const std::string &path);
   void releaseTransferSnapshot();
   Json importTransfer(const Json &bundle);
-  Json contextSnapshot(const std::string &session, bool lease = false);
+  Json contextSnapshot(const std::string &session, bool lease = false, bool allowPending = false);
+  Json commitToolCompression(const std::string &session, const std::string &message,
+                             Json checkpoint, const Json &state, std::atomic<bool> &cancel);
   Json commitCompression(const Json &snapshot, Json checkpoint,
                          std::atomic<bool> &cancel);
   Json messageEditSnapshot(const std::string &session, const std::string &message);

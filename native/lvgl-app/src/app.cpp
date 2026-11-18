@@ -2801,13 +2801,30 @@ void App::sendPrepared(Json model, Json input, const std::string &retryId,
   persistDirty_ = false;
   saveInFlight_ = false;
   saveVersion_ = 0;
-  network_ = std::thread([this, model = std::move(model), input = std::move(input), generation] {
+  network_ = std::thread([this, model = std::move(model), input = std::move(input),
+                          session = session_, message = assistant_, generation] {
     try {
-      streamChat(model.contains("api_key") ? model : db_.requestModel(model), input,
-                 cancel_, events_, generation);
-    } catch (...) {
-      events_.push("network_error",
-                   {{"generation", generation}, {"error", "无法读取请求配置，请重试"}});
+      auto requestModel = model.contains("api_key") ? model : db_.requestModel(model);
+      std::function<Json(const Json &)> compact;
+      if (requestModel.value("web_enabled", false)) {
+        auto toolSnapshot = db_.contextSnapshot(session, false, true);
+        auto &toolRows = toolSnapshot["rows"];
+        toolRows.erase(std::remove_if(toolRows.begin(), toolRows.end(), [&](const Json &row) {
+          return row["id"] == message;
+        }), toolRows.end());
+        compact = toolContextCompactor(std::move(toolSnapshot),
+            requestModel.value("_compression_model", Json::object()), requestModel, cancel_);
+      }
+      requestModel.erase("_compression_model");
+      auto saveCompaction = [&, compact](const Json &state) mutable {
+        auto result = compact(state);
+        if (result.contains("checkpoint"))
+          result["checkpoint"] = db_.commitToolCompression(session, message, result["checkpoint"], state, cancel_);
+        return result;
+      };
+      streamChat(requestModel, input, cancel_, events_, generation, std::move(saveCompaction));
+    } catch (const std::exception &error) {
+      events_.push("network_error", {{"generation", generation}, {"error", error.what()}});
     }
   });
   build();

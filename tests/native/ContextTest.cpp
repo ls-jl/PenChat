@@ -1,5 +1,7 @@
 #include "context.hpp"
 #include "presets.hpp"
+#include "api_config.hpp"
+#include "transfer.hpp"
 #include <cassert>
 #include <fstream>
 #include <iostream>
@@ -30,6 +32,21 @@ static Json referenceRows(Database &db, const std::string &session) {
     rows.push_back(std::move(row));
   }
   return rows;
+}
+static Json transferJob(Transfer &transfer, Events &events, const std::string &op, Json args = Json::object()) {
+  assert(transfer.start(op, args));
+  const auto deadline = ticks() + 10000;
+  while (ticks() < deadline) {
+    for (const auto &event : events.drain()) {
+      if (event.type == "transfer_progress") continue;
+      if (event.type != "transfer_result") std::cerr << event.data.dump() << std::endl;
+      assert(event.type == "transfer_result");
+      return event.data.at("data");
+    }
+    usleep(1000);
+  }
+  assert(false);
+  return Json();
 }
 int main() {
   assert(contextBudget(Json::object()) == 16384);
@@ -232,6 +249,78 @@ int main() {
   db.commitDraftSend(imageDraft,imageSession,"restart",Json::object(),model,1,Json::object(),Json::object());
   assert(db.query("SELECT id FROM chat_messages WHERE session_id=? AND message_type='image'",{imageSession}).size()==1);
   assert(db.draft("new")["images"].empty());
+  }
+  {
+    const auto sid = uid("session");
+    db.append(sid, "user", "original tool question");
+    const auto assistant = db.append(sid, "assistant", "");
+    auto snapshot = db.contextSnapshot(sid);
+    auto source = snapshot["rows"]; source.erase(source.end() - 1);
+    Json cp = {{"version", 2}, {"enabled", true}, {"summary", "tool checkpoint"},
+               {"through", 0}, {"tool_through", 1}, {"retained", Json::array()},
+               {"source_through", 1}, {"source_checksum", contextChecksum(source, 1)},
+               {"checksum", contextChecksum(source, 0)}, {"revision", 1}};
+    Json wire = Json::array();
+    for (auto name : {"covered", "remaining"})
+      wire.push_back(Json::array({{{"type", "function_call"}, {"call_id", name},
+                                   {"name", "web_search"}, {"arguments", "{}"}},
+                                  {{"type", "function_call_output"}, {"call_id", name}, {"output", name}}}));
+    auto replayModel = model; replayModel["web_enabled"] = true;
+    Json publicBatches = Json::array();
+    for (const auto &batch : wire) publicBatches.push_back(publicToolMaterial(batch));
+    Json metadata = {{"tool_exchanges", wire}, {"public_tool_exchanges", publicBatches},
+                     {"replay_identity", replayIdentity(replayModel)}};
+    Json state = {{"metadata", metadata}, {"output", "partial body"}};
+    const auto archives = db.summary()["sessions"].get<int>();
+    cp = db.commitToolCompression(sid, assistant, cp, state, cancel);
+    assert(db.summary()["sessions"].get<int>() == archives + 1);
+    const auto again = db.commitToolCompression(sid, assistant, cp, state, cancel);
+    assert(again["archive_id"] == cp["archive_id"]);
+    assert(db.summary()["sessions"].get<int>() == archives + 1);
+    auto future = cp; future["revision"] = 2; future["summary"] = "must roll back";
+    db.execute("CREATE TRIGGER tool_fail BEFORE UPDATE ON chat_messages BEGIN SELECT RAISE(ABORT,'fixture');END");
+    try { db.commitToolCompression(sid, assistant, future, state, cancel); assert(false); }
+    catch (const std::exception &) {}
+    db.execute("DROP TRIGGER tool_fail");
+    assert(db.summary()["sessions"].get<int>() == archives + 1);
+    metadata["tool_compaction"] = cp;
+    db.updateMessage(assistant, "final body", "", "complete", Json(), metadata);
+    const auto input = db.responseInput(sid, "", replayModel).dump();
+    assert(input.find("covered") == std::string::npos);
+    assert(input.find("remaining") != std::string::npos);
+    assert(input.find("tool checkpoint") != std::string::npos);
+    auto offline = replayModel; offline["web_enabled"] = false;
+    const auto offlineInput = db.responseInput(sid, "", offline).dump();
+    assert(offlineInput.find("remaining") != std::string::npos);
+    assert(offlineInput.find("covered") == std::string::npos);
+    auto different = replayModel; different["name"] = "different";
+    const auto portable = db.responseInput(sid, "", different).dump();
+    assert(portable.find("covered") == std::string::npos);
+    assert(portable.find("remaining") != std::string::npos);
+    assert(portable.find("\"type\":\"function_call\"") == std::string::npos);
+    { Database reopened(join(root, "penchat.db"));
+      assert(reopened.responseInput(sid, "", replayModel).dump() == input); }
+    db.renameSession(sid, "Tool checkpoint transfer fixture");
+    const auto transferRoot = join(root, "transfer-tools");
+    setenv("PENCHAT_TRANSFER_ROOT", transferRoot.c_str(), 1);
+    Events transferEvents;
+    Transfer transfer(db, transferEvents, root);
+    transferJob(transfer, transferEvents, "init");
+    const auto package = transferJob(transfer, transferEvents, "export", {{"kind", "chats"}, {"ids", Json::array({sid})}}).at("path").get<std::string>();
+    const auto filename = package.substr(package.find_last_of('/') + 1);
+    { std::ifstream source(package, std::ios::binary);
+      std::ofstream target(join(join(transferRoot, "导入/聊天"), filename), std::ios::binary);
+      target << source.rdbuf(); }
+    const auto preview = transferJob(transfer, transferEvents, "preview", {{"kind", "chats"}, {"name", filename}});
+    assert(preview["items"][0]["warning"] == "");
+    assert(transferJob(transfer, transferEvents, "import", {{"indices", Json::array({0})}, {"copy", true}})["added"] == 1);
+    const auto copied = db.query("SELECT id FROM chat_sessions WHERE title=? AND id<>? AND status='active'",
+                                  {"Tool checkpoint transfer fixture", sid});
+    assert(copied.size() == 1);
+    const auto imported = db.responseInput(copied[0]["id"], "", different).dump();
+    assert(imported.find("covered") == std::string::npos);
+    assert(imported.find("remaining") != std::string::npos);
+    assert(imported.find("tool checkpoint") != std::string::npos);
   }
   std::cout << "context snapshots, 106 messages, atomic rollback, shared assets and "
                "preset reset passed\n";
