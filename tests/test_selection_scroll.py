@@ -27,7 +27,7 @@ def run(width,height):
             region=next(r for r in ro(app)['regions'] if r['key']=='a')
             parts=[p for p in region['parts'] if p[1]>25 and p[3]<app.diag()['reader_height']-25 and p[3]>p[1]]
             p=parts[len(parts)//2];x=p[0]+14;y=(p[1]+p[3])//2
-            app.long_press(x,y,.52);assert ro(app)['selected']
+            app.long_press(x,y,.66);assert ro(app)['selected']
             saved=(ro(app)['active'],ro(app)['start'],ro(app)['end'])
             before=app.diag()['scroll_y']
             swipe(app,min(width-30,x+230),y,45)

@@ -18,7 +18,7 @@ def run(width,height,code=False):
         try:
             r=next(r for r in ro(app)['regions'] if r['key']=='a');b=r['parts'][0]
             x=b[0]+14;y=b[1]+14
-            app.long_press(x,y,.52);assert ro(app)['selected']
+            app.long_press(x,y,.66);assert ro(app)['selected']
             if code:
                 m=ro(app)['menu_bounds'];app.tap(m[0]+45,m[1]+25)
                 assert len(ro(app)['handles'])==2,ro(app)
@@ -44,7 +44,7 @@ def run(width,height,code=False):
                     if not space['scaled']:return x,y
                     return round(x*space['native_width']/space['width']),round(y*space['native_height']/space['height'])
                 tx,ty=native(b[0]+20,b[1]+17)
-                app.long_press(tx,ty,.52);assert editor(app)['selected']
+                app.long_press(tx,ty,.66);assert editor(app)['selected']
                 h=editor(app)['selection_handles'][-1]
                 hx,hy=native(*h['grip']);px,py=native(b[0]+6,b[1]+17)
                 press(app,hx,hy);press(app,px,py);time.sleep(.08)

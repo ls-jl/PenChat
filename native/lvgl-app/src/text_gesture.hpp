@@ -12,6 +12,7 @@ struct TextGesture {
   int64_t began = 0, tapped = -1000;
   bool writable = false;
   int slop = 12;
+  int holdDelay = 450, doubleTapDelay = 350;
   void begin(int px, int py, int64_t now, bool edit, bool handle = false, int tolerance = 12) {
     slop=std::max(1,tolerance);
     x = lastX = px;
@@ -22,7 +23,7 @@ struct TextGesture {
     mode = handle ? Handle : Pending;
   }
   bool hold(int64_t now) {
-    if (mode != Pending || now - began < 450)
+    if (mode != Pending || now - began < holdDelay)
       return false;
     mode = Held;
     return true;
@@ -43,7 +44,7 @@ struct TextGesture {
   }
   bool doubleTap(int px, int py, int64_t now, int tolerance = 0) {
     const int tapSlop=tolerance>0?tolerance:slop;
-    const bool twice = now - tapped < 350 && std::abs(px - tapX) <= tapSlop && std::abs(py - tapY) <= tapSlop;
+    const bool twice = now - tapped < doubleTapDelay && std::abs(px - tapX) <= tapSlop && std::abs(py - tapY) <= tapSlop;
     tapped = twice ? -1000 : now;
     tapX = px;
     tapY = py;

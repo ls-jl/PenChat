@@ -55,7 +55,7 @@ def run(width,height):
         try:
             r=next(r for r in ro(app)['regions'] if r['key']=='a')
             b=r['parts'][0];x=b[0]+14;y=b[1]+14
-            press(app,x,y);time.sleep(.5)
+            press(app,x,y);time.sleep(.66)
             assert ro(app)['selected'] and not ro(app)['menu'],ro(app)
             press(app,x,y,False);ui.wait_for(lambda:ro(app)['menu'])
             assert ro(app)['start']==0 and ro(app)['end']==5,ro(app)
@@ -72,7 +72,7 @@ def run(width,height):
             assert ro(app)['start']==0 and ro(app)['end']==5
             # Existing handles can cross; the fixed endpoint remains anchored.
             clear_selection(app)
-            app.long_press(x+78,y,.52)
+            app.long_press(x+78,y,.66)
             assert ro(app)['start']==6 and ro(app)['end']==11,ro(app)
             hx,hy=ro(app)['handle_grips'][-1]
             press(app,hx,hy);press(app,x-6,y);press(app,x-6,y,False,cancelled=True);time.sleep(.08)
@@ -82,11 +82,11 @@ def run(width,height):
             assert ro(app)['start']==0 and ro(app)['end']==6,ro(app)
             # Movement before the long hold remains a scroll even after pausing.
             clear_selection(app)
-            press(app,x,y);press(app,x,y+20);time.sleep(.52)
+            press(app,x,y);press(app,x,y+20);time.sleep(.66)
             assert not ro(app)['selected'] and not ro(app)['menu'],ro(app)
             press(app,x,y+20,False)
             clear_selection(app)
-            press(app,x,y);time.sleep(.5);press(app,x+90,y);time.sleep(.08)
+            press(app,x,y);time.sleep(.66);press(app,x+90,y);time.sleep(.08)
             assert ro(app)['gesture']==5 and ro(app)['end']>5,ro(app)
             before=ro(app)['end'];press(app,x+90,y,False)
             assert ro(app)['menu'] and not editor(app)['active']
@@ -97,7 +97,7 @@ def run(width,height):
             time.sleep(.1)
             assert ro(app)['clipboard_bytes']==len('Alpha **bravo** 中文 👩‍💻.'.encode())
             clear_selection(app)
-            press(app,x,y);time.sleep(.5);press(app,x+80,y);time.sleep(.08)
+            press(app,x,y);time.sleep(.66);press(app,x+80,y);time.sleep(.08)
             press(app,x+80,y,False,cancelled=True);time.sleep(.08)
             assert not ro(app)['selected'] and not ro(app)['menu']
             assert ro(app)['cached_hits']==0
@@ -112,7 +112,7 @@ def run(width,height):
             tx=b[0]+20;ty=b[1]+17
             if space['scaled']:
                 tx=round(tx*space['native_width']/space['width']);ty=round(ty*space['native_height']/space['height'])
-            app.long_press(tx,ty,.52)
+            app.long_press(tx,ty,.66)
             assert editor(app)['selected'] and editor(app)['menu'] and not editor(app)['keys'],editor(app)
             screenshot(app,str(width)+'-selection-page')
             before=(editor(app)['selection_start'],editor(app)['selection_end'])
@@ -128,7 +128,7 @@ def run(width,height):
             e=editor(app);b=e['text_bounds'];space=e['coordinate_space'];tx=b[0]+22;ty=b[1]+17
             if space['scaled']:
                 tx=round(tx*space['native_width']/space['width']);ty=round(ty*space['native_height']/space['height'])
-            app.long_press(tx,ty,.52)
+            app.long_press(tx,ty,.66)
             assert editor(app)['selected'] and editor(app)['menu'] and not editor(app)['undo_menu'],editor(app)
             assert all(k in editor(app)['actions'] for k in ['all','copy','paste','cut','undo'])
             screenshot(app,str(width)+'-editable-menu')
@@ -136,7 +136,7 @@ def run(width,height):
             press(app,tx+150,ty);press(app,tx+150,ty+25);press(app,tx+150,ty+25,False)
             assert (editor(app)['selection_start'],editor(app)['selection_end'])==before,editor(app)
             # Start away from the selection handles, which intentionally win hit tests.
-            app.tap(tx+120,ty);press(app,tx+120,ty);time.sleep(.5);press(app,tx+165,ty);time.sleep(.08)
+            app.tap(tx+120,ty);press(app,tx+120,ty);time.sleep(.66);press(app,tx+165,ty);time.sleep(.08)
             assert editor(app)['cursor_drag'] and editor(app)['magnifier'],editor(app)
             press(app,tx+165,ty,False);assert not editor(app)['selected']
             with sqlite3.connect(folder/'penchat.db') as db:
@@ -172,7 +172,7 @@ def rich_and_lifecycle():
             screenshot(app,'rich-link-selection');clear_selection(app)
             app.tap(x,y);ui.wait_for(lambda:app.diag()['modal'])
             screenshot(app,'link-single-open');app.tap(889,222);ui.wait_for(lambda:not app.diag()['modal'])
-            b=reveal(app,'a:reasoning');app.long_press(b[0]+14,b[1]+14,.52)
+            b=reveal(app,'a:reasoning');app.long_press(b[0]+14,b[1]+14,.66)
             m=ro(app)['menu_bounds'];app.tap(m[0]+45,m[1]+25);m=ro(app)['menu_bounds'];app.tap(m[0]+140,m[1]+25)
             assert ro(app)['clipboard_bytes']==len('Reason first.'.encode())
             screenshot(app,'reasoning-selection')
@@ -183,7 +183,7 @@ def rich_and_lifecycle():
             assert not app.diag()['modal'] and not ro(app)['link_pending']
             app.open_settings();app.setting('archives');bounds_tap(app,app.diag()['archive_views']['archive'])
             ui.wait_for(lambda:app.diag()['view']=='archive_chat')
-            b=reveal(app,'arc2');app.long_press(b[0]+14,b[1]+14,.52)
+            b=reveal(app,'arc2');app.long_press(b[0]+14,b[1]+14,.66)
             assert ro(app)['selected'] and not editor(app)['active']
             screenshot(app,'archive-selection')
             assert not app.diag()['message_interactions']['actions']
@@ -203,7 +203,7 @@ def streaming_selection():
             Stream.commands.put(('text','Alpha bravo'));ui.wait_for(lambda:app.diag()['output_length']==11)
             ui.wait_for(lambda:any(r['length']==11 for r in ro(app)['regions']))
             region=next(r for r in ro(app)['regions'] if r['length']==11);b=region['parts'][0]
-            app.long_press(b[0]+14,b[1]+14,.52);ui.wait_for(lambda:ro(app)['selected'])
+            app.long_press(b[0]+14,b[1]+14,.66);ui.wait_for(lambda:ro(app)['selected'])
             snapshot=ro(app)['active'];Stream.commands.put(('text','\n\n'+'\n\n'.join('More streamed paragraph '+str(n) for n in range(8))))
             ui.wait_for(lambda:app.diag()['output_length']>11);time.sleep(.2)
             assert ro(app)['active']==snapshot and next(r for r in ro(app)['regions'] if r['id']==snapshot)['length']==11

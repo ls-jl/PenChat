@@ -66,7 +66,7 @@ lv_obj_t *App::contextMenu(const std::string &kind,int rows,int width) {
   contextMenuKind_=kind;popupTracking_=false;
   contextMenuOpening_=lastTouch_.value("pressed",false);
   input_.cancel();
-  auto layer=box(screenObj_,0,0,screen_.width,screen_.height,theme::palette().scrim);
+  auto layer=box(kind=="image-delete"?lv_screen_active():screenObj_,0,0,screen_.width,screen_.height,theme::palette().scrim);
   modal_=layer;modalScroll_=nullptr;modalButtons_.clear();
   lv_obj_set_style_bg_opa(layer,LV_OPA_TRANSP,0);
   lv_obj_set_scrollable(layer,false);lv_obj_set_clickable(layer,true);
@@ -96,7 +96,7 @@ lv_obj_t *App::contextMenu(const std::string &kind,int rows,int width) {
   contextMenuPanel_=panel;stylePopupPanel(panel,portrait,uiMetrics_);lv_obj_set_scrollable(panel,false);
   auto list=box(panel,padding,padding,area.width-2*padding,
                 std::max(uiMetrics_.dp(44),area.height-2*padding),theme::palette().popup);
-  contextMenuList_=list;lv_obj_set_scroll_dir(list,LV_DIR_VER);
+  contextMenuList_=list;readGroup(list,"popup:"+kind);lv_obj_set_scroll_dir(list,LV_DIR_VER);
   lv_obj_set_style_width(list,uiMetrics_.dp(3),LV_PART_SCROLLBAR);
   lv_obj_set_style_bg_color(list,lv_color_hex(theme::palette().border),LV_PART_SCROLLBAR);
   lv_obj_set_scroll_elastic(list,false);lv_obj_set_scroll_chain_ver(list,false);
@@ -108,6 +108,7 @@ lv_obj_t *App::contextMenu(const std::string &kind,int rows,int width) {
 }
 bool App::popupTouch(const Json &message) {
   const bool down=message.value("pressed",false)&&!message.value("cancelled",false);
+  if(imageDeleteScrolling_){if(!down)imageDeleteScrolling_=false;return false;}
   if(popupConsumeTouch_||contextMenuOpening_) {
     popupTracking_=false;
     if(!down){popupConsumeTouch_=contextMenuOpening_=false;input_.cancel();}
@@ -135,6 +136,15 @@ bool App::popupTouch(const Json &message) {
     popupTracking_=true;popupOutside_=!inside;popupMoved_=false;
     popupBack_=!inside&&x>=0&&x<=backGeometry(screen_.width,uiMetrics_).edge&&!keyboard_;
     popupStartX_=x;popupStartY_=y;
+  }
+  if(contextMenuKind_=="image-delete"&&popupTracking_&&down&&
+     (std::abs(x-popupStartX_)>uiMetrics_.dp(6)||std::abs(y-popupStartY_)>uiMetrics_.dp(6))) {
+    const int originX=popupStartX_,originY=popupStartY_;
+    auto layer=modal_;input_.cancel();closeHistoryContext();
+    motion::cancel(layer);lv_obj_delete(layer);
+    imageDeleteScrolling_=true;readGesture_.cancel();readDown_=true;
+    readerTouch(originX,originY,true,false);input_.touch(originX,originY,true);
+    return false;
   }
   if(popupBack_) {
     const bool consumed=backTouch(message);

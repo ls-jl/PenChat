@@ -23,7 +23,7 @@ def run(width,height):
         app=ui.Native(BINARY,folder,official_adapter=False,screen={'width':width,'height':height,'direction':0})
         try:
             r=next(r for r in ro(app)['regions'] if r['key']=='a');p=r['parts'][0]
-            app.long_press(p[0]+14,p[1]+12,.52);s=ro(app)
+            app.long_press(p[0]+14,p[1]+12,.66);s=ro(app)
             sizes=[(g[2]-g[0],g[3]-g[1]) for g in s['handle_shapes']]
             assert sizes[0]==sizes[1] and sizes[0][0]>=18,s
             if height>width:assert s['handle_shapes'][0][0]<0,s
@@ -51,7 +51,7 @@ def run(width,height):
             sx=round(256*space['native_width']/space['width'])/256 if space['scaled'] else 1
             sy=round(256*space['native_height']/space['height'])/256 if space['scaled'] else 1
             def native(x,y):return round(x*sx),round(y*sy)
-            app.long_press(*native(b[0]+14,b[1]+10),.52)
+            app.long_press(*native(b[0]+14,b[1]+10),.66)
             e=editor(app);assert e['selected'],e
             g=next(g for g in e['selection_handles'] if g['endpoint']==1)
             gx,gy=native(*g['grip'])

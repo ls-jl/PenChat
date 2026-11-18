@@ -12,21 +12,22 @@ inline LayoutRect selectionMenuSafeArea(int width, int height, bool rounded=fals
           std::max(1, height - top - std::max(metrics.dp(4), layout.safeBottom()))};
 }
 inline SelectionMenu placeSelectionMenu(LayoutRect selected, LayoutRect safe, int width,
-                                        int height, int belowClearance=0,ScreenSafety shape={},const UiMetrics &metrics=UiMetrics()) {
+                                        int height, int belowClearance=0,ScreenSafety shape={},const UiMetrics &metrics=UiMetrics(),int aboveClearance=0) {
   width = std::min(width, safe.width);
   height = std::min(height, safe.height);
   const int x = std::max(
       safe.x, std::min(safe.x + safe.width - width, selected.x + (selected.width - width) / 2));
-  if (selected.y - metrics.dp(8) - height >= safe.y)
-    return {SelectionMenu::Above, shape.fit({x, selected.y - metrics.dp(8) - height, width, height})};
+  if (selected.y - aboveClearance - metrics.dp(8) - height >= safe.y)
+    return {SelectionMenu::Above, shape.fit({x, selected.y - aboveClearance - metrics.dp(8) - height, width, height})};
   if (selected.y + selected.height + belowClearance + metrics.dp(8) + height <= safe.y + safe.height)
     return {SelectionMenu::Below, shape.fit({x, selected.y + selected.height + belowClearance + metrics.dp(8), width, height})};
   return {SelectionMenu::LowerLeft, shape.fit({safe.x, safe.y + safe.height - height, width, height})};
 }
 inline int selectionMenuClearance(LayoutRect selected,const SelectionMenu &menu,LayoutRect grip) {
-  if(menu.position!=SelectionMenu::Below||grip.width<=0||grip.x>=menu.bounds.x+menu.bounds.width||
-    grip.x+grip.width<=menu.bounds.x)return 0;
-  return std::max(0,grip.y+grip.height-selected.y-selected.height);
+  if(grip.width<=0||grip.x>=menu.bounds.x+menu.bounds.width||grip.x+grip.width<=menu.bounds.x)return 0;
+  if(menu.position==SelectionMenu::Above)return std::max(0,selected.y-grip.y);
+  if(menu.position==SelectionMenu::Below)return std::max(0,grip.y+grip.height-selected.y-selected.height);
+  return 0;
 }
 inline void includeSelectionRect(LayoutRect &bounds, LayoutRect rect) {
   if (rect.width <= 0 || rect.height <= 0)

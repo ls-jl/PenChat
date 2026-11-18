@@ -251,6 +251,7 @@ void App::closeHistoryContext() {
   modal_=modalScroll_=contextMenuPanel_=contextMenuList_=nullptr;
   balanceRefresh_=nullptr;balanceDetailActions_.clear();
   contextMenuKind_.clear();contextMenuOpening_=false;choiceActions_.clear();
+  imageDeleteId_.clear();imageDeleteRequest_.clear();
   historyActions_.clear();historyContextId_.clear();refreshHistoryHighlight();
   messageActions_.clear();messageContextId_.clear();messageContextText_.clear();
   navigationPointerDown_=navigationBackdrop_=false;

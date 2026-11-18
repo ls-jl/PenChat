@@ -350,7 +350,8 @@ class App {
   void branchReply(const std::string &);
   bool replyEvent(const Event &);
   Json replyDiagnostic() const;
-  std::string imageDeleteId_;
+  std::string imageDeleteId_,imageDeleteRequest_;
+  bool imageDeleteScrolling_=false;
   Json messageEdit_ = Json::object(), messageEditImages_ = Json::array();
   Json messageEditPreferences_ = Json::object();
   std::string messageEditToken_, messageContextId_, messageContextText_, messageEditMemory_;
@@ -680,7 +681,7 @@ class App {
   void paintVisible();
   struct ReadPart {
     lv_obj_t *object=nullptr;
-    std::string text, deferred, target;
+    std::string text, deferred, target, separator="\n";
     size_t begin=0, length=0;
     int width=0, size=21;
     bool rich=false, slice=false, hasDeferred=false;
@@ -694,12 +695,14 @@ class App {
     std::string key, text;
     size_t length=0;
     std::vector<ReadPart> parts;
+    bool grouped=false;
   };
   std::map<lv_obj_t *,ReadRegion> readRegions_;
   uint64_t readSerial_=0, readActive_=0, readLinkRegion_=0,readScrollRegion_=0,readSavedRegion_=0;
   EditorState readSelection_;
   TextGesture readGesture_;
   size_t readSavedCursor_=0,readSavedAnchor_=0,readWordStart_=0,readWordEnd_=0;
+  bool readRebuildPending_=false;
   bool readSavedAll_=false,readPreview_=false,readHadSelection_=false,readMenuPointer_=false;
   bool readDown_=false,readSuppressed_=false,readMenuWanted_=false,readScrollPassthrough_=false;
   int readHandle_=-1,readHandleOffsetY_=0;
@@ -710,6 +713,8 @@ class App {
   std::string readLink_;
   uint64_t readBegin(lv_obj_t *,const std::string &key);
   void readRich(lv_obj_t *,lv_obj_t *,const Block &,int,int,const RichLayout &);
+  void readGroup(lv_obj_t *,const std::string &);
+  void readRefresh(ReadRegion &);
   void readLabel(lv_obj_t *,const std::string &);
   void readLinkText(lv_obj_t *,const std::string &,const std::string &);
   void readSlice(lv_obj_t *,const std::string &,size_t);
@@ -724,7 +729,7 @@ class App {
   void readReset();
   bool readTouch(int,int,bool,bool);
   void readTick();
-  bool readBusy() const {return readActive_&&(readSelection_.selected()||readGesture_.active()||readLinkDue_||ticks()-readGesture_.tapped<350);}
+  bool readBusy() const {return readActive_&&(readSelection_.selected()||readGesture_.active()||readLinkDue_||ticks()-readGesture_.tapped<280);}
   void openTextLink(const std::string &);
   Json readDiagnostic() const;
   void richScrolled(lv_obj_t *object);

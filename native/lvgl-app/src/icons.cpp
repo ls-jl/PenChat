@@ -193,7 +193,7 @@ void paint(lv_event_t *event) {
         int covered=0;
         for(int sy=0;sy<samples;++sy)for(int sx=0;sx<samples;++sx) {
           const double u=(x+(sx+.5)/samples)/width,v=(y+(sy+.5)/samples)/height;
-          const bool corner=(side<0?u>=.5:u<=.5)&&v<=.5;
+          const bool corner=(side<0?u>=.5:u<=.5)&&(side<0?v>=.5:v<=.5);
           covered+=corner||(2*u-1)*(2*u-1)+(2*v-1)*(2*v-1)<=1.;
         }
         icon->gripAlpha[y*width+x]=uint8_t((covered*255+samples*samples/2)/(samples*samples));
@@ -205,8 +205,8 @@ void paint(lv_event_t *event) {
     }
     lv_draw_image_dsc_t disk;lv_draw_image_dsc_init(&disk);
     disk.src=&icon->gripImage;disk.recolor=ink;disk.recolor_opa=LV_OPA_COVER;disk.opa=opacity;
-    const lv_area_t area{int32_t(std::lround(cx+(side<0?-dx:0))),int32_t(std::lround(cy)),
-      int32_t(std::lround(cx+(side>0?dx:0))),int32_t(std::lround(cy+dy))};
+    const lv_area_t area{int32_t(std::lround(cx+(side<0?-dx:0))),int32_t(std::lround(side<0?cy-dy:cy)),
+      int32_t(std::lround(cx+(side>0?dx:0))),int32_t(std::lround(side<0?cy:cy+dy))};
     lv_draw_image(layer,&disk,&area);
   } else if(k=="selection-handle") {line(0,-10,0,0);circle(0,4,4);}
   else if(k=="eye"||k=="eye-off") {rect(-10,-6,20,12,LV_RADIUS_CIRCLE);circle(0,0,3);if(k=="eye-off")line(-10,10,10,-10);}
@@ -390,7 +390,9 @@ void attachIcon(lv_obj_t *object, const std::string &name, uint32_t ink, float s
       auto size=static_cast<int32_t *>(lv_event_get_param(event));
       if(icon->customStem) {
         auto object=lv_event_get_target_obj(event);
-        *size=std::max(*size,std::max({0,2-icon->stemTop,icon->diameterX+2-icon->cornerX,
+        *size=std::max(*size,std::max({0,2-icon->stemTop,
+          2-icon->cornerY+(icon->name=="selection-start"?icon->diameterY:0),
+          icon->stemTop+2-lv_obj_get_height(object),icon->diameterX+2-icon->cornerX,
           icon->cornerX+icon->diameterX+2-lv_obj_get_width(object),
           icon->cornerY+icon->diameterY+2-lv_obj_get_height(object)}));
       }
@@ -451,6 +453,7 @@ void setSelectionHandleTop(lv_obj_t *object, int top, int corner, int x, int dia
     // Keep the reference silhouette at the edge. The screen clips the drawing;
     // the independent in-screen hit box remains available for dragging.
     const int side=icon->name=="selection-start"?-1:1;
+    if(side<0)std::swap(top,corner);
     if(icon->customStem && icon->stemTop==top && icon->cornerY==corner && icon->cornerX==x && icon->diameterX==diameterX && icon->diameterY==diameterY && icon->side==side) return;
     lv_obj_invalidate(object);
     icon->stemTop=top;icon->cornerY=corner;icon->cornerX=x;icon->diameterX=diameterX;icon->diameterY=diameterY;icon->side=side;icon->customStem=true;
@@ -468,7 +471,8 @@ lv_area_t selectionHandleShape(lv_obj_t *object) {
     const int side=icon->side?icon->side:(icon->name=="selection-start"?-1:1);
     const int x=icon->customStem?bounds.x1+icon->cornerX:(bounds.x1+bounds.x2)/2;
     const int y=icon->customStem?bounds.y1+icon->cornerY:(bounds.y1+bounds.y2)/2;
-    return {x+(side<0?-icon->diameterX:0),y,x+(side>0?icon->diameterX:0),y+icon->diameterY};
+    return {x+(side<0?-icon->diameterX:0),y-(side<0?icon->diameterY:0),
+      x+(side>0?icon->diameterX:0),y+(side>0?icon->diameterY:0)};
   }
   return bounds;
 }
@@ -479,6 +483,11 @@ lv_point_t selectionHandleGrip(lv_obj_t *object) {
 bool selectionHandleContains(lv_obj_t *object,int x,int y) {
   lv_area_t area;lv_obj_get_coords(object,&area);
   const auto shape=selectionHandleShape(object);
+  const auto icon=iconData(object);
+  const int width=std::max(int(lv_obj_get_width(object)),icon?icon->metrics.touchTarget():UiMetrics::minimumTouchTarget());
+  const int height=std::max(int(lv_obj_get_height(object)),icon?icon->metrics.touchTarget():UiMetrics::minimumTouchTarget());
+  const auto grip=selectionHandleGrip(object);
+  if(std::abs(x-grip.x)<=width/2&&std::abs(y-grip.y)<=height/2)return true;
   return (x>=area.x1&&x<=area.x2&&y>=area.y1&&y<=area.y2)||
     (x>=shape.x1-4&&x<=shape.x2+4&&y>=shape.y1-4&&y<=shape.y2+4);
 }

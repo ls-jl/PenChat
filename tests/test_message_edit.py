@@ -87,7 +87,7 @@ def run(w,h):
             time.sleep(.3)
             photo=next(v for v in a.diag()['chat_images'] if 20<=v['y']+v['height']//2<h-58)
             a.long_press(photo['x']+photo['width']//2,photo['y']+photo['height']//2);t.wait_for(lambda:a.diag()['modal'])
-            a.tap(w-190,h-44);t.wait_for(lambda:a.diag()['message_interactions']['images']==1)
+            button(a,a.diag()['context_menu']['choices']['delete']['bounds']);t.wait_for(lambda:a.diag()['message_interactions']['images']==1)
             assert rows(p)==original
             a.tap(40,30)
             assert not list((p/'.message-edit').glob('image_*'))

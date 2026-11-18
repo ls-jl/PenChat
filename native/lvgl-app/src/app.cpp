@@ -4,6 +4,7 @@
 #include "surface_motion.hpp"
 #include "refresh_settings.hpp"
 #include "empty_state.hpp"
+#include "selection_menu.hpp"
 #include "ui_motion.hpp"
 #include "ui_scale_settings.hpp"
 #include "ui_motion.hpp"
@@ -378,7 +379,11 @@ void App::image(lv_obj_t *parent, const std::string &path, int x, int y, int w,
       if (code == LV_EVENT_LONG_PRESSED) {
         p->held = true;
         if (p->distance <= p->app->uiMetrics_.gestures().tapSquared()) {
-          if(!p->message.empty())p->app->events_.push("image_delete_request",{{"session",p->session},{"message",p->message}});
+          if(!p->message.empty()) {
+            const auto area=p->app->readClip(lv_event_get_current_target_obj(event));
+            p->app->events_.push("image_delete_request",{{"session",p->session},{"message",p->message},
+              {"anchor",Json::array({area.x1,area.y1,area.x2,area.y2})}});
+          }
 
         }
       }
@@ -773,6 +778,11 @@ void App::clear() {
       nullptr;
 }
 void App::build() {
+  const auto reading=readRegion(readActive_);
+  if(reading&&reading->grouped&&reading->key=="page:"+view_&&readBusy()) {
+    readRebuildPending_=true;return;
+  }
+  readRebuildPending_=false;
   if(editorFocusSwitch_){editorPendingBuild_=true;return;}
   editorPendingBuild_=false;
   feedbackActions_.clear();
@@ -1050,6 +1060,7 @@ void App::modal(const std::string &title, const std::string &text) {
   label(layer, title, left, top, layerWidth-2*left, uiMetrics_.fontSize(UiFont::EmptyTitle));
   auto scroll = box(layer, uiMetrics_.dp(10), rounded?top+uiMetrics_.dp(40):uiMetrics_.dp(42), layerWidth-uiMetrics_.dp(20), mh-uiMetrics_.dp(115), theme::palette().popup);
   modalScroll_=scroll;
+  readGroup(scroll,"dialog");
   readableLabel(scroll, text, uiMetrics_.dp(5), 0, layerWidth-uiMetrics_.dp(30), uiMetrics_.fontSize(UiFont::SettingsTitle));
   button(layer, "关闭", layerWidth-uiMetrics_.dp(110), mh-uiMetrics_.dp(66), uiMetrics_.dp(100), uiMetrics_.dp(44),
          [layer] { lv_obj_delete(layer); });
@@ -1909,9 +1920,7 @@ void App::renderMessages(bool bottom, bool cached) {
       renderMessages(true);
     });
   if (messages.empty()&&draftState_.value("images",Json::array()).empty()) {
-    const auto detail=db_.models().empty()
-        ? "先到设置添加服务商，获取或填写模型并保存，即可开始提问。发送第一条消息后会生成历史记录。"
-        : "输入问题，或从加号添加图片，再点击发送。发送第一条消息后会生成历史记录，未发送的草稿会保留在这里。";
+    const auto detail=db_.models().empty()?"先添加服务商和模型":"";
     const int available=std::max(0,int(lv_obj_get_height(body_))-chatComposerHeight()-layout().safeBottom()-uiMetrics_.dp(16));
     statusState(messageContent_,{StatusKind::Empty,PENCHAT_NAME,detail,""},uiMetrics_,
                 font(uiMetrics_.fontSize(UiFont::Hero)),font(uiMetrics_.fontSize(UiFont::FormNote)),0,0,width,available);
@@ -2127,6 +2136,7 @@ std::string App::pageKey() const {
   return view_;
 }
 void App::pageHeader(const std::string &title, int top) {
+  readGroup(body_,"page:"+view_);
   // Header and business content share one full-height reader. No overlay may
   // cover the space released when the title scrolls out.
   const auto metrics = uiMetrics_.page();
@@ -2877,6 +2887,7 @@ void App::cancelNativeInteraction() {
   // Its release is rejected after focus loss, so do not carry release absorption
   // into the next independently focused contact.
   popupConsumeTouch_ = contextMenuOpening_ = popupTracking_ = popupBack_ = false;
+  imageDeleteScrolling_=false;
   officialComposerHit_.clear();officialContactIds_.clear();officialActionId_.clear();officialActionKind_.clear();officialMenuAction_={};officialPopupContact_=false;officialTextContact_=false;officialEditPending_=0;
   stopOfficialReaderGlide();officialReaderDown_=officialReaderCaptured_=officialReaderDragging_=false;officialReaderPending_=0;
   resetBack(); resetPull(); touchDown_ = pullTrackActivity_ = false;
@@ -3683,13 +3694,14 @@ void App::tick() {
   fontSizeTick();
   editorTick();
   readTick();
+  if(readRebuildPending_&&!readBusy()&&visible_&&!keyboard_&&!editor_.active)build();
   if (afterScanRelease_ && scanner_.released()) {
     auto callback = std::move(afterScanRelease_);
     afterScanRelease_ = {};
     callback();
   }
   syncScanner();
-  if (feedbackDirty_ && view_ == "feedback" && !editor_.active && !touchDown_ && !modal_ && visible_) {
+  if (feedbackDirty_ && view_ == "feedback" && !editor_.active && !touchDown_ && !readBusy() && !modal_ && visible_) {
     feedbackDirty_ = false; build();
   }
   for (auto &e : events_.drain()) {
@@ -3805,31 +3817,50 @@ void App::tick() {
           e.data.value("session", std::string()) == session_ &&
           ((!messageEdit_.empty()&&std::any_of(messageEditImages_.begin(),messageEditImages_.end(),[&](const Json &a){return a["edit_id"]==id;}))||draftImage(id)||db_.pendingImage(session_, id))) {
         input_.cancel();
-        modal("删除图片", "删除这张待发送图片？系统相册原图不会删除。");
-        imageDeleteId_ = id;
-        lv_obj_add_event_cb(
-            modal_,
-            [](lv_event_t *event) {
-              static_cast<App *>(lv_event_get_user_data(event))
-                  ->imageDeleteId_.clear();
-            },
-            LV_EVENT_DELETE, this);
-        auto close = lv_obj_get_child(modal_, -1);
-        lv_obj_set_height(close, uiMetrics_.touchTarget());
-        lv_label_set_text(lv_obj_get_child(close, 0), "取消");
-        const auto session = session_;
-        auto remove = button(
-            modal_, "删除", screen_.width - uiMetrics_.dp(325), screen_.height - uiMetrics_.dp(66), uiMetrics_.dp(100), uiMetrics_.touchTarget(),
-            [this, session, id] {
-              events_.push("image_delete_confirm",
-                           {{"session", session}, {"message", id}});
-            },
-            theme::palette().danger);
-        lv_obj_set_style_text_color(lv_obj_get_child(remove, 0), lv_color_hex(theme::palette().primaryText), 0);
+        // The popup owns the opening release; retire the page's original contact now.
+        touchDown_=composerTapAllowed_=readDown_=editorReaderTouch_=false;resetBack();
+        readerDown_=readerPointer_=readerVertical_=false;
+        const auto anchor=e.data.value("anchor",Json::array());
+        if(anchor.size()!=4)continue;
+        lv_point_t measured{};
+        lv_text_get_size(&measured,"删除",font(uiMetrics_.fontSize(UiFont::Button)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+        const int padding=uiMetrics_.dp(4),height=std::max(uiMetrics_.touchTarget(),int(measured.y)+uiMetrics_.dp(12));
+        const int width=std::max(uiMetrics_.dp(80),int(measured.x)+uiMetrics_.dp(24));
+        auto list=contextMenu("image-delete",1,width+2*padding);
+        imageDeleteId_=id;imageDeleteRequest_=uid("image-delete");
+        auto safe=selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_,uiMetrics_);
+        if(body_) {
+          const auto reader=readClip(body_);
+          safe.y=std::max(safe.y,int(reader.y1));
+          safe.height=std::max(1,std::min(safe.y+safe.height,int(reader.y2)+1)-safe.y);
+        }
+        const LayoutRect imageArea{anchor[0],anchor[1],anchor[2].get<int>()-anchor[0].get<int>()+1,anchor[3].get<int>()-anchor[1].get<int>()+1};
+        auto place=placeSelectionMenu(imageArea,safe,width+2*padding,height+2*padding,0,layout().safety(),uiMetrics_);
+        if(place.position==SelectionMenu::LowerLeft) {
+          place.bounds.x=std::max(safe.x,std::min(safe.x+safe.width-place.bounds.width,
+              imageArea.x+(imageArea.width-place.bounds.width)/2));
+          place.bounds.y=std::max(safe.y,std::min(safe.y+safe.height-place.bounds.height,
+              imageArea.y+imageArea.height+uiMetrics_.dp(8)));
+          place.bounds=layout().safety().fit(place.bounds);
+        }
+        lv_obj_set_pos(contextMenuPanel_,place.bounds.x,place.bounds.y);
+        lv_obj_set_size(contextMenuPanel_,place.bounds.width,place.bounds.height);
+        lv_obj_set_pos(list,padding,padding);lv_obj_set_size(list,place.bounds.width-2*padding,height);
+        lv_obj_set_scrollable(list,false);
+        const auto request=imageDeleteRequest_,session=session_,editToken=messageEditToken_;
+        auto remove=button(list,"删除",0,0,place.bounds.width-2*padding,height,
+          [this,session,id,request,editToken]{events_.push("image_delete_confirm",
+            {{"session",session},{"message",id},{"request",request},{"edit_token",editToken}});},
+          theme::palette().popup);
+        stylePopupRow(remove);
+        lv_obj_set_style_text_color(lv_obj_get_child(remove,0),lv_color_hex(theme::palette().danger),0);
+        choiceActions_["delete"]=remove;
       }
     } else if (e.type == "image_delete_confirm") {
-      if (view_ == "chat" && visible_ && modal_ &&
+      if (view_ == "chat" && visible_ && contextMenuKind_=="image-delete" && !contextBusy_ &&
           e.data.value("session", std::string()) == session_ &&
+          e.data.value("request",std::string())==imageDeleteRequest_ &&
+          e.data.value("edit_token",std::string())==messageEditToken_ &&
           e.data.value("message", std::string()) == imageDeleteId_) {
         input_.cancel();
         if(!messageEdit_.empty()) {
@@ -3841,7 +3872,7 @@ void App::tick() {
           messageOffset_ = 0;
           build();
         } else {
-          modal("无法删除", "图片已进入发送请求，不能从待发送区删除。");
+          closeHistoryContext();replyToast("图片已进入发送请求，无法删除");
         }
       }
     } else if (e.type == "retry_request") {
@@ -4019,7 +4050,7 @@ void App::tick() {
     auto title=std::move(deferredModalTitle_),text=std::move(deferredModalText_);
     deferredModalTitle_.clear();deferredModalText_.clear();modal(title,text);
   }
-  if(modal_&&chatControls_)lv_obj_set_hidden(chatControls_,true);
+  if(modal_&&chatControls_&&contextMenuKind_!="image-delete")lv_obj_set_hidden(chatControls_,true);
   if(onboarding_)onboarding_->tick(visible_&&!keyboard_&&!editor_.active);
   updateTick();
   if(updateExit_)return;
@@ -4055,6 +4086,8 @@ void App::tick() {
   }
 }
 Json App::diagnostics() const {
+  lv_obj_update_layout(lv_screen_active());
+  lv_obj_update_layout(lv_layer_top());
   const auto powerState=screenPower_.snapshot(ticks());
   Json transferDiagnostic = Json::object();
   if (view_ == "transfer") {

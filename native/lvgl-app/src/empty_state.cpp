@@ -56,7 +56,9 @@ bool arrangeStatusState(lv_obj_t *object, int width, int availableHeight) {
     lv_obj_update_layout(label);
   }
   const int titleHeight = lv_obj_get_height(data->title);
-  const int detailHeight = lv_obj_get_height(data->detail);
+  const bool hasDetail=lv_label_get_text(data->detail)[0]!=0;
+  lv_obj_set_hidden(data->detail,!hasDetail);
+  const int detailHeight = hasDetail?lv_obj_get_height(data->detail):0;
   const int textHeight = titleHeight + (detailHeight ? gap + detailHeight : 0);
   const int iconSize = m.dp(48);
   const bool iconFits = data->icon && full && width >= iconSize + 2 * pad &&

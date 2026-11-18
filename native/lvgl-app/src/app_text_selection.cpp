@@ -27,6 +27,7 @@ App::ReadRegion *App::readRegion(uint64_t id) {
 uint64_t App::readBegin(lv_obj_t *root, const std::string &key) {
   auto old = readRegions_.find(root);
   const bool fresh = old == readRegions_.end();
+  if(!fresh&&old->second.grouped&&key.empty())return old->second.id;
   if (!fresh && old->second.id == readActive_)
     readReset();
   ReadRegion region;
@@ -70,7 +71,8 @@ void App::readRich(lv_obj_t *root, lv_obj_t *object, const Block &block, int wid
     region.length += separator.size();
   }
   ReadPart part;
-  part.object = object;
+  part.object = object;part.text=text;
+  part.separator=block.kind=="table"?"\n":"\n\n";
   part.begin = region.length;
   part.length = editLength(text);
   region.length += part.length;
@@ -111,30 +113,77 @@ void App::readRich(lv_obj_t *root, lv_obj_t *object, const Block &block, int wid
       },
       LV_EVENT_DELETE, owner);
 }
+void App::readGroup(lv_obj_t *root,const std::string &key) {
+  readBegin(root,key);
+  readRegions_.at(root).grouped=true;
+}
+void App::readRefresh(ReadRegion &region) {
+  region.text.clear();region.length=0;
+  for(auto &part:region.parts) {
+    part.begin=region.length;part.length=0;
+    bool hidden=false;
+    for(auto object=part.object;object;object=lv_obj_get_parent(object))
+      if(lv_obj_is_hidden(object)){hidden=true;break;}
+    if(hidden)continue;
+    if(!region.text.empty()) {region.text+=part.separator;region.length+=editLength(part.separator);}
+    part.begin=region.length;part.length=editLength(part.text);
+    region.text+=part.text;region.length+=part.length;
+  }
+}
 void App::readLabel(lv_obj_t *object, const std::string &text) {
-  readBegin(object, "label:" + std::to_string(readSerial_ + 1));
-  auto &region = readRegions_.at(object);
-  region.text = text;
-  region.length = editLength(text);
-  ReadPart part;
-  part.object = object;
-  part.text = text;
-  region.parts.push_back(std::move(part));
+  lv_obj_t *root=object;
+  for(auto parent=lv_obj_get_parent(object);parent;parent=lv_obj_get_parent(parent)) {
+    const auto existing=readRegions_.find(parent);
+    if(existing!=readRegions_.end()&&existing->second.grouped){root=parent;break;}
+  }
+  if(root==object)readBegin(object,"label:"+std::to_string(readSerial_+1));
+  auto &region=readRegions_.at(root);
+  ReadPart part;part.object=object;part.text=text;part.length=editLength(text);
+  region.parts.push_back(std::move(part));readRefresh(region);
+  if(root!=object) {
+    struct Owner {App *app;lv_obj_t *root;uint64_t id;};
+    auto owner=new Owner{this,root,region.id};
+    lv_obj_add_event_cb(object,[](lv_event_t *event){
+      auto owner=static_cast<Owner *>(lv_event_get_user_data(event));
+      auto found=owner->app->readRegions_.find(owner->root);
+      if(found!=owner->app->readRegions_.end()&&found->second.id==owner->id) {
+        auto &region=found->second;
+        region.parts.erase(std::remove_if(region.parts.begin(),region.parts.end(),
+          [&](const ReadPart &part){return part.object==lv_event_get_target_obj(event);}),region.parts.end());
+        if(owner->app->readActive_==owner->id)owner->app->readReset();
+        owner->app->readRefresh(region);
+      }
+      delete owner;
+    },LV_EVENT_DELETE,owner);
+  }
   lv_obj_set_style_bg_color(object, lv_color_hex(theme::palette().accent), LV_PART_SELECTED);
   lv_obj_set_style_bg_opa(object, LV_OPA_40, LV_PART_SELECTED);
   lv_obj_set_style_text_color(object, lv_color_hex(theme::palette().text), LV_PART_SELECTED);
 }
 void App::readLinkText(lv_obj_t *object, const std::string &text, const std::string &target) {
   readLabel(object, text);
-  readRegions_.at(object).parts[0].target = target;
+  for(auto &entry:readRegions_)for(auto &part:entry.second.parts)
+    if(part.object==object)part.target=target;
 }
 void App::readSlice(lv_obj_t *object, const std::string &text, size_t byteOffset) {
+  // Paged web text keeps its complete source offsets outside the surrounding labels.
+  if(!readRegions_.count(object)) {
+    for(auto &entry:readRegions_) {
+      auto &region=entry.second;
+      region.parts.erase(std::remove_if(region.parts.begin(),region.parts.end(),
+        [object](const ReadPart &part){return part.object==object;}),region.parts.end());
+      if(region.grouped)readRefresh(region);
+    }
+    readBegin(object,"source:"+std::to_string(readSerial_+1));
+    ReadPart part;part.object=object;part.text=lv_label_get_text(object);
+    readRegions_.at(object).parts.push_back(std::move(part));
+  }
   auto &region = readRegions_.at(object);
   region.text = text;
   region.length = editLength(text);
   auto &part = region.parts[0];
   part.begin = editLength(text.substr(0, byteOffset));
-  part.slice = true;
+  part.slice = true;part.length=editLength(part.text);
 }
 lv_obj_t *App::readableLabel(lv_obj_t *parent, const std::string &text, int x, int y, int width,
                              int size, uint32_t color) {
@@ -338,7 +387,7 @@ void App::readDraw(bool menu) {
   bool found[2] = {false, false};
   const ReadPart *endpointParts[2] = {nullptr, nullptr};
   for (const auto &part : region->parts) {
-    const auto length = part.rich ? part.length : editLength(part.text);
+    const auto length = part.length;
     if (!length)
       continue;
     if (!endpointParts[0] && range.first < part.begin + length)
@@ -347,7 +396,7 @@ void App::readDraw(bool menu) {
       endpointParts[1] = &part;
   }
   for (auto &part : region->parts) {
-    const auto length = part.rich ? part.length : editLength(part.text),
+    const auto length = part.length,
                finish = part.begin + length;
     const auto clip = readClip(part.object);
     if (clip.x2 < clip.x1 || clip.y2 < clip.y1) {
@@ -358,7 +407,7 @@ void App::readDraw(bool menu) {
     lv_area_t area;
     lv_obj_get_coords(part.object, &area);
     if (!part.rich) {
-      if (part.text != lv_label_get_text(part.object)) {
+      if (lv_label_get_long_mode(part.object)!=LV_LABEL_LONG_MODE_DOTS && part.text != lv_label_get_text(part.object)) {
         part.deferred = lv_label_get_text(part.object);
         part.hasDeferred = true;
         lv_label_set_text(part.object, part.text.c_str());
@@ -469,7 +518,7 @@ void App::readDraw(bool menu) {
     clearance=std::max(clearance,selectionMenuClearance(selectedBounds,candidate,
       {shape.x1,shape.y1,shape.x2-shape.x1+1,shape.y2-shape.y1+1}));
   }
-  const auto placement=placeSelectionMenu(selectedBounds,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_,uiMetrics_),uiMetrics_.dp(188),uiMetrics_.touchTarget()+uiMetrics_.dp(8),clearance,layout().safety(),uiMetrics_);
+  const auto placement=placeSelectionMenu(selectedBounds,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_,uiMetrics_),uiMetrics_.dp(188),uiMetrics_.touchTarget()+uiMetrics_.dp(8),candidate.position==SelectionMenu::Below?clearance:0,layout().safety(),uiMetrics_,candidate.position==SelectionMenu::Above?clearance:0);
   const auto &popup = placement.bounds;
   lv_obj_set_pos(readMenu_, popup.x, popup.y);
   lv_obj_set_size(readMenu_, popup.width, popup.height);
@@ -477,6 +526,7 @@ void App::readDraw(bool menu) {
   lv_obj_move_foreground(readMenu_);
 }
 bool App::readTouch(int x, int y, bool down, bool cancelled) {
+  readGesture_.holdDelay=600;readGesture_.doubleTapDelay=280;
   const bool began = down && !readDown_;
   readDown_ = down && !cancelled;
   // The floating root navigation button is above the portrait reader. Its
@@ -561,10 +611,14 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
           (attachments_ && !modal_ && !inside(region.root, attachments_)) ||
           (navigationOpen_ && !modal_ && !inside(region.root, navigation_)))
         continue;
+      if(region.grouped&&(region.id!=readActive_||!readSelection_.selected())) {
+        for(auto &part:region.parts)if(!part.rich&&lv_label_get_long_mode(part.object)!=LV_LABEL_LONG_MODE_DOTS)part.text=lv_label_get_text(part.object);
+        readRefresh(region);
+      }
       if (region.id != readActive_ && region.parts.size() == 1 && !region.parts[0].rich &&
-          !region.parts[0].slice) {
+          !region.parts[0].slice && lv_label_get_long_mode(region.parts[0].object)!=LV_LABEL_LONG_MODE_DOTS) {
         region.text = region.parts[0].text = lv_label_get_text(region.parts[0].object);
-        region.length = editLength(region.text);
+        region.length = editLength(region.text);region.parts[0].length=region.length;
       }
       if (region.text.empty())
         continue;
@@ -600,7 +654,7 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
         readSavedCursor_ = readSelection_.cursor;
         readSavedAnchor_ = readSelection_.anchor;
         readSavedAll_ = readSelection_.all;
-        readGesture_.begin(x, y, ticks(), false, false,uiMetrics_.gestures().drag);
+        readGesture_.begin(x, y, ticks(), false, false,uiMetrics_.dp(6));
         readScrollPassthrough_ = true;
         readDraw(false);
       } else if (readActive_)
@@ -618,14 +672,20 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
     readSavedAll_ = readSelection_.all;
     readHadSelection_ = readSelection_.selected();
     readPreview_ = false;
-    readGesture_.begin(x, y, ticks(), false, readHandle_ >= 0,uiMetrics_.gestures().drag);
+    readGesture_.begin(x, y, ticks(), false, readHandle_ >= 0,uiMetrics_.dp(6));
     readLinkDue_ = 0;
     if (readHandle_ >= 0) {
       auto r = readSelection_.range();
       readWordStart_ = readWordEnd_ = readHandle_ ? r.first : r.second;
       const auto shape=selectionHandleShape(readHandles_[readHandle_]);
-      readHandleOffsetY_=y-shape.y1+(shape.y2-shape.y1)/2;
+      readHandleOffsetY_=readHandle_==0?y-shape.y2-(shape.y2-shape.y1)/2:
+          y-shape.y1+(shape.y2-shape.y1)/2;
     }
+    if(readHandle_<0)for(auto parent=hit->root;parent;parent=lv_obj_get_parent(parent))
+      if(lv_obj_is_scrolling(parent)) {
+        readGesture_.mode=TextGesture::Scroll;readPreview_=true;
+        return false;
+      }
     return true;
   }
   if (!readGesture_.active())
@@ -659,6 +719,9 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
     }
     return false;
   }
+  if(readGesture_.mode==TextGesture::Pending&&
+     std::max(std::abs(x-readGesture_.x),std::abs(y-readGesture_.y))>readGesture_.slop)
+    readGesture_.mode=TextGesture::Scroll;
   readGesture_.move(x, y, ticks());
   if (readGesture_.mode == TextGesture::Scroll) {
     if (!readPreview_) {
@@ -696,7 +759,7 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
     const auto mode = readGesture_.mode;
     readGesture_.end();
     if (mode == TextGesture::Pending) {
-      if (readGesture_.doubleTap(x, y, ticks(),uiMetrics_.gestures().tap)) {
+      if (readGesture_.doubleTap(x, y, ticks(),uiMetrics_.dp(8))) {
         readWord(*region, x, y);
         readDraw(true);
       } else if (readHadSelection_)
@@ -706,7 +769,7 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
           if (!part.target.empty() && contains(readClip(lv_obj_get_parent(part.object)), x, y)) {
             readLink_ = part.target;
             readLinkRegion_ = region->id;
-            readLinkDue_ = ticks() + 350;
+            readLinkDue_ = ticks() + 280;
           }
         for (auto &part : region->parts)
           if (part.rich && contains(readClip(part.object), x, y)) {
@@ -718,7 +781,7 @@ bool App::readTouch(int x, int y, bool down, bool cancelled) {
                   y - a.y1 >= link.y && y - a.y1 < link.y + link.h) {
                 readLink_ = link.target;
                 readLinkRegion_ = region->id;
-                readLinkDue_ = ticks() + 350;
+                readLinkDue_ = ticks() + 280;
               }
           }
       }
@@ -760,7 +823,8 @@ void App::readTick() {
         for (auto p = region->root; p; p = lv_obj_get_parent(p))
           if (lv_obj_is_scrollable(p)) {
             auto clip = readClip(p);
-            const int targetY=readGesture_.lastY-(readGesture_.mode==TextGesture::Handle?readHandleOffsetY_:0);
+            // The finger reaches the screen edge before an offset handle's text endpoint.
+            const int targetY=readGesture_.lastY;
             int step = targetY < clip.y1 + uiMetrics_.dp(14)   ? -uiMetrics_.dp(8)
                        : targetY > clip.y2 - uiMetrics_.dp(14) ? uiMetrics_.dp(8)
                                                            : 0;

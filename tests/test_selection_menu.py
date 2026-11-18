@@ -18,8 +18,9 @@ def check(bounds,menu,width,height,scaled=False,shapes=()):
     w=menu[2]-menu[0]+1;h=menu[3]-menu[1]+1
     centered=max(side,min(width-side-w,bounds[0]+int(((bounds[2]-bounds[0]+1)-w)/2)))
     clearance=max([0]+[max(0,g[3]-bounds[3]) for g in shapes if g[0]<centered+w and g[2]+1>centered])
-    if bounds[1]-8-h>=top:
-        kind='above';y=bounds[1]-8-h
+    above_clearance=max([0]+[max(0,bounds[1]-g[1]) for g in shapes if g[0]<centered+w and g[2]+1>centered])
+    if bounds[1]-above_clearance-8-h>=top:
+        kind='above';y=bounds[1]-above_clearance-8-h
         x=max(side,min(width-side-w,bounds[0]+int(((bounds[2]-bounds[0]+1)-w)/2)))
     elif bounds[3]+1+clearance+8+h<=bottom:
         kind='below';y=bounds[3]+clearance+9
@@ -55,7 +56,7 @@ def run(width,height,scene,percent=100):
             r=next(r for r in ro(app)['regions'] if r['key']=='a')
             visible=[p for p in r['parts'] if p[1]>=0 and p[3]>p[1] and p[3]<app.diag()['reader_height']-8]
             b=visible[len(visible)//2] if scene=='full' else visible[0]
-            app.long_press(b[0]+14,b[1]+14,.52);assert ro(app)['menu'],ro(app)
+            app.long_press(b[0]+14,b[1]+14,.66);assert ro(app)['menu'],ro(app)
             if scene=='full':
                 m=ro(app)['menu_bounds'];app.tap(m[0]+45,m[1]+25)
             s=ro(app);kind=check(s['selection_bounds'],s['menu_bounds'],width,height,shapes=s['handle_shapes'])
@@ -86,7 +87,7 @@ def empty_editor(width,height):
                 if not space['scaled']:return x,y
                 return x*round(256*space['native_width']/space['width'])/256,y*round(256*space['native_height']/space['height'])/256
             x,y=native(b[0]+20,b[1]+17)
-            app.long_press(round(x),round(y),.52);e=editor(app)
+            app.long_press(round(x),round(y),.66);e=editor(app)
             assert e['menu'] and all(k in e['actions'] for k in ['all','copy','paste','cut','undo']),e
             assert e['build_count']==before,(before,e['build_count'])
             s=e['selection_bounds'];m=e['selection_popup']

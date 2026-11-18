@@ -7,6 +7,15 @@
 #include <iostream>
 using namespace penchat;
 int main(int argc, char **argv) {
+  TextGesture reading;
+  reading.holdDelay=600;reading.doubleTapDelay=280;
+  reading.begin(0,0,0,false,false,6);
+  assert(!reading.hold(599)&&reading.hold(600));
+  reading.cancel();
+  assert(!reading.doubleTap(0,0,1000,8));
+  assert(reading.doubleTap(8,8,1279,8));
+  assert(!reading.doubleTap(0,0,2000,8));
+  assert(!reading.doubleTap(0,0,2280,8));
   TextGesture g;
   g.begin(10, 10, 0, true);
   g.move(23, 10, 100);

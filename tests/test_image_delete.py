@@ -23,20 +23,26 @@ with tempfile.TemporaryDirectory(prefix='penchat-delete-image-') as directory:
         time.sleep(.3);app.edit('保留文字草稿')
         photos=sorted(app.diag()['chat_images'],key=lambda a:a['x'])
         def hold(photo):app.long_press(photo['x']+photo['width']//2,photo['y']+photo['height']//2)
+        def delete_action():
+            b=app.diag()['context_menu']['choices']['delete']['bounds']
+            app.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
         photo=photos[0];x=photo['x']+photo['width']//2;y=photo['y']+photo['height']//2
         app.send('touch',x=x,y=y,pressed=True);time.sleep(.1)
         app.send('touch',x=x+20,y=y,pressed=True);time.sleep(.1)
         app.send('touch',x=x,y=y,pressed=True);time.sleep(.65)
         app.send('touch',x=x,y=y,pressed=False);time.sleep(.1)
         assert not app.diag()['modal']
-        hold(photos[0]);assert app.diag()['modal'];snapshot(app,'delete-image-confirm')
+        hold(photos[0]);assert app.diag()['modal'];snapshot(app,'delete-image-action')
         app.tap(890,225);assert not app.diag()['modal'] and len(app.read_messages())==2
-        hold(photos[0]);app.tap(770,225);wait_for(lambda:len(app.read_messages())==1)
+        hold(photos[0]);delete_action();wait_for(lambda:len(app.read_messages())==1)
         wait_for(lambda:not copies[0].exists());assert copies[1].exists() and original.exists()
-        hold(app.diag()['chat_images'][0]);app.tap(770,225);wait_for(lambda:len(app.read_messages())==0)
-        wait_for(lambda:not copies[1].exists());assert app.diag()['summary']['sessions']==0 and original.exists()
+        hold(app.diag()['chat_images'][0]);delete_action();wait_for(lambda:len(app.read_messages())==0)
+        wait_for(lambda:not copies[1].exists());assert not app.read_messages() and original.exists()
         app.tap(500,232);request=app.receive('keyboard.open');assert request['text']=='保留文字草稿'
         app.send('keyboard.result',requestId=request['requestId'],confirmed=False,text='')
         wait_for(lambda:not app.diag()['keyboard'])
     finally:app.close()
-print('Pending images: long press, cancel/confirm, single-photo deletion, original preservation, empty-history cleanup and draft retention passed.')
+    app=Native(binary,p)
+    try:assert app.diag()['draft_length']==len('保留文字草稿') and not app.read_messages()
+    finally:app.close()
+print('Pending images: long press, outside dismissal/direct delete, single-photo deletion, original preservation, empty-history cleanup and draft retention passed.')

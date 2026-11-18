@@ -14,7 +14,7 @@ for scale in (75,125,150):
                        screen={'width':w,'height':h},ui_scale_percent=scale)
             try:
                 region=next(r for r in a.diag()['text_selection']['regions'] if r['key']=='a')
-                b=region['parts'][0];a.long_press(b[0]+round(14*scale/100),b[1]+round(12*scale/100),.55)
+                b=region['parts'][0];a.long_press(b[0]+round(14*scale/100),b[1]+round(12*scale/100),.66)
                 t.wait_for(lambda:a.diag()['text_selection']['menu'])
                 menu=a.diag()['text_selection']['menu_bounds']
                 assert 0<=menu[0]<menu[2]<w and 0<=menu[1]<menu[3]<h
@@ -31,7 +31,7 @@ for scale in (75,125,150):
                 sx=round(256*space['native_width']/space['width'])/256 if space['scaled'] else 1
                 sy=round(256*space['native_height']/space['height'])/256 if space['scaled'] else 1
                 x,y=round((b[0]+12)*sx),round((b[1]+12)*sy)
-                a.send('touch',x=x,y=y,pressed=True);time.sleep(.55)
+                a.send('touch',x=x,y=y,pressed=True);time.sleep(.66)
                 a.send('touch',x=x+round(26*scale/100),y=y,pressed=True)
                 t.wait_for(lambda:a.diag()['editor']['magnifier'])
                 for x in (0,w-1):

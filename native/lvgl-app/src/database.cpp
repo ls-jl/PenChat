@@ -519,7 +519,12 @@ bool Database::removePendingImage(const std::string &session,
     auto latest = query("SELECT output_text,message_type,created_at FROM chat_messages "
                         "WHERE session_id=? ORDER BY seq DESC LIMIT 1",
                         {session});
-    if (latest.empty()) {
+    const bool retainedDraft=latest.empty()&&!query("SELECT draft_key FROM chat_drafts WHERE draft_key=? AND "
+        "(length(text)>0 OR EXISTS(SELECT 1 FROM draft_attachments a WHERE a.draft_key=chat_drafts.draft_key))",{session}).empty();
+    if(latest.empty()&&retainedDraft) {
+      // Keep the legacy owner across restart; history already excludes rows without messages.
+      execute("UPDATE chat_sessions SET message_count=0,preview_text='',last_message_at=0 WHERE id=?",{session});
+    } else if (latest.empty()) {
       execute("DELETE FROM chat_sessions WHERE id=?", {session});
       execute("DELETE FROM app_settings WHERE key='active_session_id' AND "
               "value_json=?",

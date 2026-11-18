@@ -1058,7 +1058,7 @@ void App::editorOfficial() {
   if (editLength(text)>editor_.limit) { editor_.notice="已达到长度上限"; editorBuild(); return; }
   const auto officialField=editorOfficialField();
   editorInterrupt();officialDocked_=editorLayout().docked&&display_.supportsTopRegion();officialHeight_=0;officialForeground_=false;officialLayoutAt_=0;
-  if(officialDocked_||!display_.systemOverlaySafe())officialBackup_=editor_;
+  officialBackup_=editor_;
   keyboard_=true;keyboardId_=uid("official");officialKeyEventAt_=officialTextEventAt_=0;officialContactIds_.clear();
   officialTextContact_=false;officialEditPending_=0;
   if(officialDocked_&&editorRoot_) {
@@ -1467,7 +1467,7 @@ void App::editorSyncSelectionMenu() {
     clearance=std::max(clearance,selectionMenuClearance(native,candidate,grip));
   }
   const auto placed=placeSelectionMenu(native,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_,editorMetrics()),
-    int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+editorMetrics().dp(4))+editorMetrics().dp(4))*sx)),int(std::ceil((buttonHeight+editorMetrics().dp(8))*sy)),clearance,this->layout().safety(),editorMetrics());
+    int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+editorMetrics().dp(4))+editorMetrics().dp(4))*sx)),int(std::ceil((buttonHeight+editorMetrics().dp(8))*sy)),candidate.position==SelectionMenu::Below?clearance:0,this->layout().safety(),editorMetrics(),candidate.position==SelectionMenu::Above?clearance:0);
   const auto &p=placed.bounds;
   if(!editorSelectionMenu_) {
     editorSelectionMenu_=box(editorRoot_,0,0,editorMetrics().dp(1),editorMetrics().dp(1),theme::palette().sidebar);
