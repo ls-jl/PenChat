@@ -82,7 +82,7 @@ schema, app identity or network protocol was changed.
 
 以上为该分支最初的独立记录。本次把 `3d73611` 合入 `dev` 的 `b9f255d`，同时保留
 随后加入 dev 的熄屏门控、双 ABI 降级 bootstrap、执行前 ELF 复核和自动精简诊断。
-仍保持 0.3.3，不推送或发布，原分支及其独立 worktree 保留。
+仍保持 0.3.3，不推送或发布。合并时保留原分支及其独立 worktree；后续清理见下文。
 
 冲突处理包括：上层模式的有效前台显示租约仍受熄屏许可约束；首个 fatal 文案、显示
 探测和降级诊断分类一起保留，后续清理错误不覆盖它们；显式重试清除旧显示探测。
@@ -101,3 +101,10 @@ Y02 安装后保留旧 native；Y01、Y07、S6 安装后未检测到 native，�
 X6 仍没有可用的授权实机，真实硬件验收范围不因合并而扩大。
 
 构建、定向检查、包 SHA 和安装记录保存在忽略目录 `.work/x6-merge/`。
+
+## 后续：通用规则及工作区清理
+
+显示路径没有 X6 型号限制，当前通用规则见 [DISPLAY-COMPAT.md](DISPLAY-COMPAT.md)。
+已合并的分支及独立 worktree 已清理。78 份原始记录和两个完整 AMR 已逐项 SHA-256
+校验并归档至主工作区 `.work/archive/fix-x6-display-compat-3d73611/`；原合并产物
+`.work/x6-merge/` 也继续保留，旧提交仍可经 dev 的合并历史访问。

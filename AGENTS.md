@@ -16,9 +16,11 @@ previews and join/cancel readers before releasing scan results.
 
 ## RK display compatibility
 
-Prefer the verified ARGB native-under-Falcon mode. Older firmware may use an
-explicit capability-selected upper RGB overlay when primary format/query or
-underlay submission is incompatible; never select this by model or resolution.
+For every device using the RK DRM backend, prefer the verified ARGB
+native-under-Falcon mode. If its actual capabilities cannot establish that mode,
+try the shared upper RGB path; this is not an X6-only or old-model allowlist.
+Select by primary format/query, order and submission/completion capabilities,
+never by model or resolution. See [docs/DISPLAY-COMPAT.md](docs/DISPLAY-COMPAT.md).
 Only idle planes with verifiable stacking and completion may be used. Legacy
 SetPlane requires vblank retirement before buffer reuse; never silently switch
 submission paths after a failed frame or overwrite another owner's framebuffer.

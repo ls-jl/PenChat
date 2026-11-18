@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <string>
 #include <vector>
+#include <utility>
 #define private public
 #include "overlay.h"
 #undef private
@@ -24,13 +25,16 @@
 #include <chrono>
 namespace {
 struct Fixture {
-  bool inactive=false,rejectAtomic=false,argb=true,atomic=true,query=true,vblank=true,order=true,occupied=false,xrgbOnly=false,deliver=true,foreign=false;
+  bool inactive=false,rejectAtomic=false,argb=true,atomic=true,query=true,vblank=true,order=true,occupied=false,xrgbOnly=false,deliver=true,foreign=false,upperOnly=false;
   int atomicTestError=0,delay=0,races=0,queries=0,properties=0,legacy=0,atomics=0,hostWrites=0;
   uint32_t attached=0,nextFb=100,nextHandle=0,pending=0;uint64_t pendingNative=0,pendingHost=3;uint64_t nativeZ=0,hostZ=3;
   void *context=nullptr;bool isVblank=false;
 } f;
 uint32_t planeIds[]={2,1},crtcIds[]={42},connectorIds[]={9},formats[]={DRM_FORMAT_ARGB8888,DRM_FORMAT_XRGB8888};
 uint32_t propertyIds[]={10,11,20,21,22,23,24,25,26,27,28,29};
+// Different zpos ranges need distinct property IDs, independent of which
+// object's properties were queried most recently.
+uint32_t hostPropertyIds[]={10,12,20,21,22,23,24,25,26,27,28,29};
 const char *names[]={"type","zpos","FB_ID","CRTC_ID","SRC_X","SRC_Y","SRC_W","SRC_H","CRTC_X","CRTC_Y","CRTC_W","CRTC_H"};
 using Open=void *(*)(const char *,int);
 }
@@ -67,14 +71,18 @@ extern "C" void drmModeFreePlane(drmModePlanePtr) {}
 extern "C" drmModeObjectPropertiesPtr drmModeObjectGetProperties(int,uint32_t object,uint32_t) {
   static drmModeObjectProperties p{};static uint64_t values[12]{};static uint32_t crtcProps[]={60,61};
   if(object==42){p.count_props=f.atomic?2:1;p.props=crtcProps;values[0]=f.inactive?0:1;values[1]=0;}
-  else {p.count_props=12;p.props=propertyIds;for(auto &v:values)v=0;values[0]=object==2?DRM_PLANE_TYPE_PRIMARY:DRM_PLANE_TYPE_OVERLAY;values[1]=object==2?f.hostZ:f.nativeZ;}
+  else {p.count_props=12;p.props=object==2?hostPropertyIds:propertyIds;for(auto &v:values)v=0;values[0]=object==2?DRM_PLANE_TYPE_PRIMARY:DRM_PLANE_TYPE_OVERLAY;values[1]=object==2?f.hostZ:f.nativeZ;}
   p.prop_values=values;return &p;
 }
 extern "C" void drmModeFreeObjectProperties(drmModeObjectPropertiesPtr) {}
 extern "C" drmModePropertyPtr drmModeGetProperty(int,uint32_t id) {
   static drmModePropertyRes p{};static uint64_t range[]={0,5};p={};p.prop_id=id;
-  const char *name=id==60?"ACTIVE":id==61?"OUT_FENCE_PTR":id==10?"type":id==11?"zpos":names[id-18];
-  std::strcpy(p.name,name);if(id==11&&f.order){p.flags=DRM_MODE_PROP_RANGE;p.count_values=2;p.values=range;}
+  const char *name=id==60?"ACTIVE":id==61?"OUT_FENCE_PTR":id==10?"type":id==11||id==12?"zpos":names[id-18];
+  std::strcpy(p.name,name);if((id==11||id==12)&&f.order){
+    range[0]=f.upperOnly&&id==11?4:0;
+    range[1]=f.upperOnly&&id==12?3:5;
+    p.flags=DRM_MODE_PROP_RANGE|(f.upperOnly&&id==12?DRM_MODE_PROP_IMMUTABLE:0);p.count_values=2;p.values=range;
+  }
   return &p;
 }
 extern "C" void drmModeFreeProperty(drmModePropertyPtr) {}
@@ -126,6 +134,29 @@ int main() {
     o.disable();assert(f.attached==0&&f.hostWrites==0);
   }
   f={};f.query=false;{camera::Overlay o;assert(o.open()&&mode(o)==camera::CompositionMode::UpperOverlay);assert(o.information().queryError==ENOTTY);}
+  // These are logical geometry fixtures, not device identities. A valid ARGB
+  // primary alone cannot guarantee an underlay on any RK model or firmware.
+  for(const auto &geometry:std::vector<std::pair<int,int>>{
+      {960,266},{936,280},{568,1210},{640,260},{1024,384}}) {
+    f={};f.upperOnly=true;f.nativeZ=4;
+    camera::Overlay o;
+    o.setHole({0,0,geometry.first,geometry.second,geometry.first,geometry.second});
+    assert(o.open()&&mode(o)==camera::CompositionMode::UpperOverlay);
+    assert(o.information().format==DRM_FORMAT_ARGB8888&&o.information().atomic);
+    assert(o.information().nativeRange[0]==4&&o.information().hostRange[1]==3&&f.hostWrites==0);
+    std::vector<uint8_t> image(40*20*4,5);
+    assert(o.presentBgra(image.data(),40,20)&&f.atomics==1&&f.hostWrites==0);
+    o.disable();
+    assert(f.attached==0&&f.hostWrites==0);
+  }
+  // Reopening after a capability change must probe again, even if this same
+  // display previously supported the preferred path.
+  f={};{
+    camera::Overlay o;
+    assert(o.open()&&mode(o)==camera::CompositionMode::Underlay);
+    o.close();f.upperOnly=true;f.nativeZ=4;
+    assert(o.open()&&mode(o)==camera::CompositionMode::UpperOverlay&&f.hostWrites==0);
+  }
   f={};f.occupied=true;{camera::Overlay o;assert(!o.open()&&o.information().stage=="no_free_rgb_plane");}
   f={};f.order=false;{camera::Overlay o;assert(!o.open()&&o.information().stage=="host_order_unknown");}
   f={};f.atomic=false;f.xrgbOnly=true;
