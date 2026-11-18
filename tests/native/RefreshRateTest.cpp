@@ -103,6 +103,10 @@ int main() {
   {
     penchat::Screen screen; screen.width = 80; screen.height = 40;
     penchat::Display display(screen, false);
+    // The release-on-hide fixture represents an upper overlay. Its surface
+    // may be probed at construction, but presenting needs foreground approval.
+    assert(!display.visible()&&!display.presented());
+    display.visible(true);
     assert(display.inputPeriod() == 0);
     penchat::Input input;
     assert(display.refreshRate() == 30 && surfaceRates.back() == 30);

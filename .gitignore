@@ -52,3 +52,6 @@ assets/pinyin/
 
 # Target-specific generated Edge Search worker runtime and notices
 /assets/web-search/
+
+# Generated downgrade bootstrap package descriptor
+/assets/rescue/

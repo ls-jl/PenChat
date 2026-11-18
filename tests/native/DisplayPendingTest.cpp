@@ -20,7 +20,7 @@ public:
   }
   bool releaseOnHide()const override{return state.release;}
   bool sharedCaptureSafe()const override{return state.shared;}
-  bool systemOverlaySafe()const override{return state.shared;}
+  bool systemOverlaySafe()const override{return !state.release;}
   void hide()override{++state.hidden;}
 };
 }
@@ -34,7 +34,7 @@ int main() {
   penchat::Screen screen;screen.width=64;screen.height=48;
   {
     penchat::Display display(screen,false);
-    assert(!display.systemOverlaySafe());
+    assert(display.systemOverlaySafe());
     auto root=lv_screen_active();
     lv_obj_set_style_bg_opa(root,LV_OPA_COVER,0);
     auto paint=[&](unsigned color){lv_obj_set_style_bg_color(root,lv_color_hex(color),0);lv_refr_now(display.handle());};
@@ -65,6 +65,11 @@ int main() {
   state=State{};state.available=state.release=true;
   {
     penchat::Display display(screen,false);
+    // An upper overlay must wait for the foreground bootstrap lease.
+    assert(!display.visible()&&!display.presented());
+    lv_refr_now(display.handle());
+    assert(state.accepted==0);
+    display.visible(true);
     lv_refr_now(display.handle());
     display.visible(false);
     assert(state.destroyed==1&&state.hidden==0&&!display.pending());
