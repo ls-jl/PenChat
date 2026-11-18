@@ -46,7 +46,12 @@ Json Database::addDraftImage(const Json &snapshot,const Json &source) {
   return perform([this,snapshot,source] {
     const auto key=snapshot.at("key").get<std::string>();
     if(draft(key).at("epoch")!=snapshot.at("epoch"))throw std::runtime_error("草稿已变化，请重新加入图片");
-    const auto directory=join(assetDirectory_+"-drafts",uid("image"));
+    const auto root=assetDirectory_+"-drafts";
+    ensureDirectory(root);
+    struct stat rootInfo{};
+    if(lstat(root.c_str(),&rootInfo)||!S_ISDIR(rootInfo.st_mode)||S_ISLNK(rootInfo.st_mode))
+      throw std::runtime_error("草稿图片目录不可用");
+    const auto directory=join(root,uid("image"));
     ensureDirectory(directory);
     Json image=source;
     std::vector<std::string> files;
@@ -77,7 +82,19 @@ bool Database::removeDraftImage(const Json &snapshot,const std::string &id) {
     if(rows.empty())return Json(false);
     execute("DELETE FROM draft_attachments WHERE id=? AND draft_key=?",{id,key});
     const auto image=Json::parse(rows.at(0).at("image_json").get<std::string>());
-    for(const auto &field:{"path","previewPath"})if(image.contains(field))unlink(image.at(field).get<std::string>().c_str());
+    const auto root=assetDirectory_+"-drafts";
+    struct stat info{};
+    const bool ownedRoot=!lstat(root.c_str(),&info)&&S_ISDIR(info.st_mode)&&!S_ISLNK(info.st_mode);
+    for(const auto &field:{"path","previewPath"})if(ownedRoot&&image.contains(field)) {
+      const auto path=image.at(field).get<std::string>();
+      const auto prefix=root+"/";
+      if(path.compare(0,prefix.size(),prefix)!=0||path.find("/../")!=std::string::npos)continue;
+      const auto slash=path.find_last_of('/');
+      if(path.find('/',prefix.size())!=slash)continue;
+      const auto folder=path.substr(0,slash);
+      if(lstat(folder.c_str(),&info)||!S_ISDIR(info.st_mode)||S_ISLNK(info.st_mode))continue;
+      if(!lstat(path.c_str(),&info)&&S_ISREG(info.st_mode)&&!S_ISLNK(info.st_mode))unlink(path.c_str());
+    }
     return Json(true);
   }).get<bool>();
 }
