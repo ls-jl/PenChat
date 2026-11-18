@@ -2749,7 +2749,7 @@ void App::sendMessage(const std::string &retry) {
       retryableStatus(stringValue(latest[0], "status"));
   if (!retry.empty() && (!failed || stringValue(latest[0], "id") != retry)) return;
   const std::string retryId = !retry.empty() ? retry :
-      (!hasText(draft_) && failed ? stringValue(latest[0], "id") : std::string());
+      (!hasText(draft_) && draftState_.value("images",Json::array()).empty() && failed ? stringValue(latest[0], "id") : std::string());
   if(!retryId.empty()){retryWarning(retryId);return;}
   if (retryId.empty() && !canSend()) return;
   sendActionAt_=nowMs();

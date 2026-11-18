@@ -51,7 +51,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, J
   }
   if (contextWorker_.joinable())
     contextWorker_.join();
-  const auto session = session_, draft = (regenerate||edited)?std::string():draft_;
+  const auto session = session_, draft = (regenerate||edited||!retry.empty())?std::string():draft_;
   const auto contextSettings = db_.settings();
   const bool automatic = contextSettings.value("auto_context_compression", true);
   model["context_compression_percent"] = compressionPercent(contextSettings);

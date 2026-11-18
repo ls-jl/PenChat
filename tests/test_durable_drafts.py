@@ -9,9 +9,12 @@ from test_photo_editor import begin
 OUT=t.ROOT/'.work/durable-drafts';OUT.mkdir(parents=True,exist_ok=True)
 class Server(t.Server):
     requests=[]
+    fail=False
     def do_POST(self):
         body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         self.requests.append(body)
+        if self.fail:
+            self.send_response(500);self.send_header('Content-Length','0');self.end_headers();return
         wire=b'data: {"type":"response.output_text.delta","delta":"ok"}\n\ndata: {"type":"response.completed"}\n\n'
         self.send_response(200);self.send_header('Content-Length',str(len(wire)));self.end_headers();self.wfile.write(wire)
 
@@ -82,6 +85,34 @@ def run():
                 t.wait_for(lambda:len(Server.requests)>before)
                 t.wait_for(lambda:not app.diag()['generating'])
                 new(app);assert app.diag()['draft_length']==0
+                Server.fail=True;edit(app,'failed response');app.tap(908,232)
+                t.wait_for(lambda:not app.diag()['generating'])
+                Server.fail=False
+                begin(app,p,w=80,h=60);action(app,'confirm')
+                t.wait_for(lambda:app.diag()['view']=='chat' and not app.diag()['modal'])
+                before=len(Server.requests);app.tap(908,232)
+                t.wait_for(lambda:len(Server.requests)>before)
+                t.wait_for(lambda:not app.diag()['generating'])
+                with sqlite3.connect(p/'penchat.db') as db:
+                    assert db.execute("select count(*) from chat_messages where session_id=? and role='user' and message_type='image'",(app.diag()['session'],)).fetchone()[0]==1
+            finally:Server.fail=False;app.close()
+        # A Provider without a default emits no effort until the sole supported level is chosen.
+        with tempfile.TemporaryDirectory(prefix='penchat-single-effort-') as d:
+            p=pathlib.Path(d);seed(p,server.server_port)
+            with sqlite3.connect(p/'penchat.db') as db:
+                db.execute('update providers set metadata_json=?',(json.dumps({'api':'responses'}),))
+                db.execute('update model_configs set capabilities_json=?',(json.dumps({'tool_support':'supported','reasoning':{'levels':{'low':'low'}}}),))
+                db.execute("insert into app_settings values('auto_title_enabled','false',1)")
+            app=t.Native(t.ROOT/'build/host/penchat-lvgl',p)
+            try:
+                app.attachment_action('effort');edit(app,'default omitted')
+                before=len(Server.requests);app.tap(908,232)
+                t.wait_for(lambda:len(Server.requests)>before and not app.diag()['generating'])
+                assert 'effort' not in Server.requests[-1].get('reasoning',{})
+                gauge(app);select_effort(app,'low')
+                edit(app,'explicit low');before=len(Server.requests);app.tap(908,232)
+                t.wait_for(lambda:len(Server.requests)>before and not app.diag()['generating'])
+                assert Server.requests[-1]['reasoning']['effort']=='low'
             finally:app.close()
         # A large-font unsupported-search notice owns its action area above the composer.
         with tempfile.TemporaryDirectory(prefix='penchat-search-modal-') as d:
