@@ -202,6 +202,13 @@ int main() {
   db.queueDraft(personal,"会话草稿");db.flush();
   const auto photo=join(root,"draft.png");
   {std::ofstream file(photo);file<<"local-image-fixture";}
+  const auto removable=db.addDraftImage(shared,{{"path",photo},{"source","album"}});
+  assert(db.removeDraftImage(shared,removable.at("id")));
+  assert(!fileText(photo,1024).empty());
+  const auto protectedImage=db.addDraftImage(shared,{{"path",photo},{"source","album"}});
+  db.execute("UPDATE draft_attachments SET image_json=? WHERE id=?",{Json{{"path",photo}}.dump(),protectedImage.at("id")});
+  assert(db.removeDraftImage(shared,protectedImage.at("id")));
+  assert(!fileText(photo,1024).empty());
   db.addDraftImage(shared,{{"path",photo},{"source","album"}});
   const auto withImage=db.draft("new");assert(withImage["images"].size()==1);
   const auto other=uid("session");
