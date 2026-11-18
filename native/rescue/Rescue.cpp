@@ -426,6 +426,15 @@ struct Service::Impl {
             {"screen",env.value("screen",Json())},{"rescue",{{"code",code},{"platform",env["platform"]},{"abi_bits",env["abi_bits"]},
               {"package_platform",env.value("payload",Json()).is_object()?env["payload"].value("platform",std::string()):std::string()}}}};
           auto exit=readJson(join(data,"last-exit.json"));for(const char *key:{"status","pid","runtimeId","ownerGeneration","time_ms"})if(exit.is_object()&&exit.contains(key)&&exit[key].is_number())payload["rescue"][key]=exit[key];
+          for(const char *key:{"wait_errno","wait_status","requested_signal","native_signal","native_fault_signal"})
+            if(exit.is_object()&&exit.contains(key)&&exit[key].is_number_integer())payload["rescue"][key]=exit[key];
+          for(const char *key:{"wait_status_available","ipc_eof"})
+            if(exit.is_object()&&exit.contains(key)&&exit[key].is_boolean())payload["rescue"][key]=exit[key];
+          for(const char *key:{"reason","native_reason","native_phase"}) {
+            const auto value=exit.is_object()?exit.value(key,std::string()):std::string();
+            const std::set<std::string> allowed{"normal","explicit_exit","signal","ipc_eof","update","runtime_error","startup_error","unknown","process_exit","shutdown_started","shutdown_complete","exception"};
+            if(allowed.count(value))payload["rescue"][key]=value;
+          }
           payload["diagnostics"]=diagnosticSummary(data);
           const auto buildTest=env.value("payload",Json()).is_object()?env["payload"].value("test_run",std::string()):std::string();
           if(buildTest.size()==36&&buildTest.find_first_not_of("0123456789abcdef-")==std::string::npos)payload["rescue"]["test_run"]=buildTest;

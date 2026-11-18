@@ -14,9 +14,16 @@
 #endif
 namespace {
 volatile sig_atomic_t running = 1, snapshotRequested = 0, terminationSignal = 0;
+int faultRecordFd = -1;
+void recordFault(int signal) {
+  char line[]="signal=00\n";
+  line[7]='0'+(signal/10)%10;line[8]='0'+signal%10;
+  if(faultRecordFd>=0)::write(faultRecordFd,line,sizeof(line)-1);
+}
 void stop(int signal) { terminationSignal=signal;running = 0; }
 #ifdef PENCHAT_CVI_PLATFORM
 void mediaFault(int signal,siginfo_t *,void *context) {
+  recordFault(signal);
   // Address-only diagnostic, no heap allocation or application content.
   auto *cpu=static_cast<ucontext_t *>(context);
   char line[]="S6_NATIVE_FAULT pc=00000000 lr=00000000\n";
@@ -28,6 +35,7 @@ void mediaFault(int signal,siginfo_t *,void *context) {
 }
 #elif defined(__aarch64__)
 void mediaFault(int signal,siginfo_t *,void *context) {
+  recordFault(signal);
   auto *cpu=static_cast<ucontext_t *>(context);
   char line[]="RK_NATIVE_FAULT pc=0000000000000000 lr=0000000000000000\n";
   const unsigned long values[2]={cpu->uc_mcontext.pc,cpu->uc_mcontext.regs[30]};
@@ -39,6 +47,8 @@ void mediaFault(int signal,siginfo_t *,void *context) {
   }
   ::write(STDERR_FILENO,line,sizeof(line)-1);_exit(128+signal);
 }
+#else
+void mediaFault(int signal,siginfo_t *,void *) { recordFault(signal);_exit(128+signal); }
 #endif
 void snapshot(int) { snapshotRequested = 2; }
 void diagnostic(int) {
@@ -120,10 +130,14 @@ int main(int argc, char **argv) {
       fontPath = "/etc/miniapp/resources/fonts/HarmonyOS_Sans_SC_Regular.ttf";
     if (resources.empty())
       resources = join(workspace, "assets/microtex");
-#if defined(PENCHAT_CVI_PLATFORM) || defined(__aarch64__)
+    faultRecordFd=open(join(data,"native-fault.txt").c_str(),O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC|O_NOFOLLOW,0600);
+    if(faultRecordFd>=0) {
+      const auto header="pid="+std::to_string(getpid())+"\n";
+      ::write(faultRecordFd,header.data(),header.size());
+    }
     struct sigaction fault{};fault.sa_sigaction=mediaFault;fault.sa_flags=SA_SIGINFO;
     sigemptyset(&fault.sa_mask);sigaction(SIGSEGV,&fault,nullptr);sigaction(SIGBUS,&fault,nullptr);
-#endif
+    sigaction(SIGABRT,&fault,nullptr);sigaction(SIGILL,&fault,nullptr);sigaction(SIGFPE,&fault,nullptr);
     signal(SIGUSR1, snapshot);
     signal(SIGUSR2, diagnostic);
     signal(SIGTERM, stop);
@@ -218,11 +232,19 @@ int main(int argc, char **argv) {
     else if(!standalone&&!bridge.connected())exitReason="ipc_eof";
     else if(app.updateExit())exitReason="update";
     bridge.send("native.exit",{{"reason",exitReason},{"signal",int(terminationSignal)}});
+    auto persistExit=[&](const char *phase) {
+      try {atomicText(join(data,"native-exit.json"),Json({{"pid",getpid()},{"reason",exitReason},
+        {"signal",int(terminationSignal)},{"phase",phase},{"time_ms",nowMs()}}).dump());}catch(...){}
+    };
+    persistExit("shutdown_started");
     diagnosticRecord("lifecycle","exit",{{"signal",int(terminationSignal)}});flushDiagnostics();
     app.shutdown();
     display.visible(false);
+    persistExit("shutdown_complete");
     return 0;
   } catch (const std::exception &e) {
+    try {if(!data.empty())atomicText(join(data,"native-exit.json"),Json({{"pid",getpid()},
+      {"reason",enteredLoop?"runtime_error":"startup_error"},{"phase","exception"},{"time_ms",nowMs()}}).dump());}catch(...){}
     diagnosticRecord("lifecycle", enteredLoop?"runtime_error":"startup_error"); flushDiagnostics();
     std::cerr << "penchat-lvgl: " << e.what() << std::endl;
     Json failure={{"error",e.what()}};

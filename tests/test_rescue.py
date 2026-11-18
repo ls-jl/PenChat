@@ -100,7 +100,9 @@ class Tests(unittest.TestCase):
  def test_cancel_prepared_ticket_cannot_authorize(self):
   _,sha,_=self.release();self.listed();s=self.prepared(sha);self.probe.cmd('cancel');self.assertIn('error',self.probe.cmd('authorize',ticket=s['ticket']))
  def test_reports_are_minimal_and_deduplicated(self):
+  (self.probe.data/'last-exit.json').write_text(json.dumps(dict(status=-1,pid=123,wait_errno=10,wait_status=-1,wait_status_available=False,ipc_eof=True,requested_signal=0,native_fault_signal=11,native_reason='runtime_error',native_phase='exception',reason='SECRET_CHAT',api_key='SECRET_PROVIDER_KEY')))
   self.probe.cmd('report',code='startup',secret='SECRET_PROVIDER_KEY',description='SECRET_CHAT');self.probe.wait(lambda s:s['report']['status']=='sent')
+  rescue=Server.posts[-1][0]['rescue'];self.assertEqual(rescue['wait_errno'],10);self.assertFalse(rescue['wait_status_available']);self.assertEqual(rescue['native_fault_signal'],11);self.assertEqual(rescue['native_phase'],'exception');self.assertNotIn('reason',rescue)
   self.assertEqual(len(Server.posts),1);body,headers=Server.posts[0];self.assertNotIn('SECRET_',json.dumps(body));self.assertEqual(headers['Authorization'],'Bearer FAKE_RESCUE_TOKEN')
   self.probe.cmd('report',code='startup');time.sleep(.2);self.assertEqual(len(Server.posts),1)
   self.probe.close();self.probe=Probe(self.root,self.url);self.probe.cmd('report',code='startup');time.sleep(.2);self.assertEqual(len(Server.posts),1)

@@ -83,6 +83,8 @@ class Launcher : public JQBaseObject {
   bool exitPending_=false;
   std::string exitReason_;
   bool lastFocused_=false,lastPanel_=false,pageAttached_=false;
+  bool ipcEof_=false;
+  int requestedSignal_=0;
   void persistExit() {
     try {if(!runtimeData_.empty())penchat::atomicText(runtimeData_+"/last-exit.json",lastExit_.dump());}catch(...){}
   }
@@ -94,7 +96,7 @@ class Launcher : public JQBaseObject {
       auto record=lastExit_.object_items();record["reason"]=reason;lastExit_=Bson(record);persistExit();
     }
   }
-  void reaped(int status,bool unknown=false) {
+  void reaped(int status,bool unknown=false,int waitError=0) {
     if(pid_<=0)return;
     const int child=int(pid_);pid_=-1;ready_=false;headRoute_.stop();
     const int code=penchat::runtimeExitCode(status,unknown);
@@ -102,14 +104,38 @@ class Launcher : public JQBaseObject {
       {"runtimeId",lease_.runtime()},{"ownerGeneration",lease_.generation()},
       {"time_ms",double(penchat::nowMs())},{"window_focused",lastFocused_},{"panel_visible",lastPanel_},{"page_attached",pageAttached_},
       {"screen_power",powerState(screenPower_.state())},
+      {"wait_errno",waitError},{"wait_status_available",!unknown},{"wait_status",unknown?-1:status},
+      {"ipc_eof",ipcEof_},{"requested_signal",requestedSignal_},
       {"reason",exitReason_.empty()?(unknown?"unknown":WIFSIGNALED(status)?"signal":"process_exit"):exitReason_}};
+    // Persisted by the child before teardown, independently from IPC and the
+    // host's SIGCHLD handler. A PID match excludes previous-run diagnostics.
+    try {
+      auto record=lastExit_.object_items();
+      auto native=penchat::Json::parse(penchat::fileText(runtimeData_+"/native-exit.json",2048),nullptr,false);
+      if(native.is_object()&&native.value("pid",0)==child) {
+        const auto reason=native.value("reason",std::string());
+        const auto phase=native.value("phase",std::string());
+        const std::set<std::string> reasons{"normal","explicit_exit","signal","ipc_eof","update","runtime_error","startup_error"};
+        const std::set<std::string> phases{"shutdown_started","shutdown_complete","exception"};
+        if(reasons.count(reason)&&phases.count(phase)) {
+          record["native_reason"]=reason;record["native_phase"]=phase;
+          record["native_signal"]=native.value("signal",0);
+        }
+      }
+      const auto fault=penchat::fileText(runtimeData_+"/native-fault.txt",128);
+      int owner=0,signal=0;
+      if(sscanf(fault.c_str(),"pid=%d\nsignal=%d",&owner,&signal)==2&&owner==child&&signal>0&&signal<65)
+        record["native_fault_signal"]=signal;
+      lastExit_=Bson(record);
+    }catch(...){}
     exitPending_=true;
     persistExit();
   }
   void reap() {
     if(pid_<=0)return;
     int status=0;const auto result=waitpid(pid_,&status,WNOHANG);
-    if(result==pid_||(result<0&&errno==ECHILD))reaped(status,result<0);
+    const int error=result<0?errno:0;
+    if(result==pid_||(result<0&&error==ECHILD))reaped(status,result<0,error);
   }
 #ifdef PENCHAT_CVI_PLATFORM
   std::uint64_t focusSequence_ = 0;
@@ -124,6 +150,7 @@ class Launcher : public JQBaseObject {
     }
     reap();
     if (pid_ > 0) {
+      requestedSignal_=SIGTERM;
       kill(pid_, SIGTERM);
       // Permit bounded HTTP cancellation, scanner lease restoration and DB
       // final-save acknowledgement before falling back to SIGKILL.
@@ -131,15 +158,16 @@ class Launcher : public JQBaseObject {
         int status=0;
         auto result = waitpid(pid_, &status, WNOHANG);
         if (result == pid_ || result < 0) {
-          reaped(status,result<0);
+          reaped(status,result<0,result<0?errno:0);
           break;
         }
         usleep(10000);
       }
       if (pid_ > 0) {
+        requestedSignal_=SIGKILL;
         kill(pid_, SIGKILL);
         int status=0;const auto result=waitpid(pid_,&status,0);
-        reaped(status,result<0);
+        reaped(status,result<0,result<0?errno:0);
       }
     }
 #ifdef PENCHAT_CVI_PLATFORM
@@ -208,7 +236,7 @@ public:
       info.post(Bson::object{{"ok",true},{"pid",int(pid_)},{"runtimeId",lease_.runtime()},{"reused",true},{"ready",ready_},{"screen",screenDescriptor_}});return;
     }
     stopLocked();runtimeWorkspace_=workspace;runtimeData_=data;
-    lease_.created();exitReason_.clear();exitPending_=false;
+    lease_.created();exitReason_.clear();exitPending_=false;ipcEof_=false;requestedSignal_=0;
     // Preserve the preceding stderr trace before either architecture truncates it.
     rename((data+"/lvgl-runtime.log").c_str(),(data+"/lvgl-runtime.previous.log").c_str());
     auto binary = workspace + "/assets/bin/penchat-lvgl";
@@ -433,6 +461,7 @@ public:
           messages.push_back(j);
         }
       } else if (n == 0) {
+        ipcEof_=true;
         headRoute_.stop();
         close(fd_);
         fd_ = -1;

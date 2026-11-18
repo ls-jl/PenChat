@@ -317,3 +317,18 @@ upper_overlay 不宣称系统弹层同屏安全或官方键盘局部显示能力
 首次错误保留到用户重试；未知 waitpid 状态为 -1，不能被当作成功退出0。
 验证入口是 DRM 初始化 mock、退役／所有权、焦点启动租约、运行时归属及官方键盘
 相关用例。X6 未有授权序列号，真实首次启动、控制中心和官方键盘等待用户复测。
+
+## 2026-11-19：退出状态独立留证
+
+`last-exit.json` 追加 wait_errno、原始 wait status 及其是否可用、IPC EOF 和 launcher
+主动发送的终止信号。ECHILD 仍保留 unknown/-1，不能猜测为正常退出或崩溃。
+原生进程独立原子写入 `native-exit.json`，区分退出原因、shutdown_started、
+shutdown_complete 和异常阶段；launcher 仅接收 PID 匹配的白名单原因及阶段。
+SIGSEGV/BUS/ABRT/ILL/FPE 用预先打开的私有 `native-fault.txt` 写入 PID 与信号，
+信号处理路径不分配内存、不调用 JSON 或 LVGL。现有 ARM PC/LR stderr 留证继续保留。
+自动降级报告仅传递上述白名单诊断，不读取原始运行日志、聊天或 Provider 配置。
+
+主机覆盖显式退出、IPC EOF、SIGTERM、SIGABRT 及自动回收后 ECHILD 的退出留证。
+这些检查不代表已复现或解决 S6 的偶发退出；原有 0.3.4 S6 现场仍只有 unknown/-1，
+需以新版下一次故障留证继续定位。原始证据及本次记录在忽略目录
+`.work/feedback-reproduce-20261118/` 和 `.work/feedback-fixes-20261119/`。
