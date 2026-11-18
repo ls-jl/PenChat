@@ -2892,9 +2892,12 @@ void App::attach(const Json &image) {
       sendMessage();
   });
 }
-void App::cancelNativeInteraction() {
+void App::cancelNativeInteraction(bool preserveSettledReadSelection) {
   chatBottomState_.pause();
-  readReset();
+  // A short touch-only lease gap is not a page/focus transition. Keep a
+  // completed read selection, but never carry an active drag or menu press.
+  if(!preserveSettledReadSelection || readGesture_.active() || readMenuPointer_ ||
+      !readActive_ || !readSelection_.selected())readReset();
   readDown_=readSuppressed_=false;
   touchInput_.close(); input_.interrupt();
   systemEdgeDown_=systemEdgeGesture_=false;
@@ -3132,7 +3135,7 @@ void App::updateInputFocus() {
   recordInputFocus(InputFocusTrace::TouchApplied,touch);
   if(!touch) {
     editorLeasePaused_=editor_.active&&inputFocused_;
-    cancelNativeInteraction();
+    cancelNativeInteraction(inputFocused_&&visible_&&!keyboard_);
   }
   else if(editor_.active){
     editorPolicy(!editorSelectionOnly_);

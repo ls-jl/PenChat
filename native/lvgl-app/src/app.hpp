@@ -454,7 +454,7 @@ class App {
   Json inputFocusDiagnostics() const;
   bool inputFocused_ = false, startupReadyPending_ = false;
   bool touchLeaseActive_ = false;
-  void cancelNativeInteraction();
+  void cancelNativeInteraction(bool preserveSettledReadSelection=false);
   void updateInputFocus();
   std::atomic<bool> cancel_{false};
   std::thread network_;
