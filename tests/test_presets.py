@@ -25,7 +25,8 @@ with tempfile.TemporaryDirectory(prefix='penchat-presets-') as directory:
         snapshot(app,'preset-menu-scroll')
         assert app.diag()['popup']=='presets',app.diag()['popup']
     def choose(row):
-        picker();app.tap(350,66+row*72)
+        picker();bounds=app.diag()['presets_layout']['labels'][row]['row_bounds']
+        app.tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
     def send(text):
         app.edit(text);app.tap(908,232);wait_for(lambda:not app.diag()['generating'])
     def new_chat():
@@ -47,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-presets-') as directory:
         assert_chat_prompt(body['instructions'],'EXPERT SYSTEM')
         assert body['reasoning']['effort']=='max' and body['model']=='b',body
         # Only-empty preset does not replace a sent conversation's model/effort.
-        picker();drag(app,[175,130,90],x=350);app.tap(350,160)
+        choose(2)
         s=app.diag();assert s['session_preferences']['model_id']=='b',s['session_preferences']
         # Pull inherits the applied snapshot, including system instructions.
         app.to_chat();app.tap(521,174) if not app.diag()['following_latest'] else None

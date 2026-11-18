@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""History actions, independent one-shot naming and explicit API-default effort."""
+"""History actions, independent naming and legacy API-default preferences."""
 import http.server, json, os, pathlib, sqlite3, tempfile, threading, time
 from test_lvgl_app import Native, ROOT, wait_for
 from test_reasoning_ui import seed, screenshot, gauge, select_effort
@@ -100,8 +100,16 @@ def run():
             assert Server.titles[-1]['model']=='b' and Server.requests[-1]['model']=='a'
             count=len(Server.titles);old_title=info(directory,second)[0]
             send(app,'追问不再次命名');time.sleep(.15);assert len(Server.titles)==count and info(directory,second)[0]==old_title
-            gauge(app);assert app.diag()['effort_choices']==['none','api_default','medium','high','xhigh']
-            screenshot(app,'default-effort-slot');select_effort(app,'api_default')
+            gauge(app);assert app.diag()['effort_choices']==['none','medium','high','xhigh']
+            screenshot(app,'explicit-effort-stops')
+            # api_default remains a legacy persisted request override, never a
+            # selectable slider stop. Reload a saved legacy preference to test it.
+            app.close()
+            with sqlite3.connect(pathlib.Path(directory)/'penchat.db') as db:
+                metadata=json.loads(db.execute('select metadata_json from chat_sessions where id=?',(second,)).fetchone()[0])
+                metadata.setdefault('chat_preferences',{})['effort']='api_default'
+                db.execute('update chat_sessions set metadata_json=? where id=?',(json.dumps(metadata),second))
+            app=Native(ROOT/'build/host/penchat-lvgl',directory)
             assert app.diag()['effective_effort']=='api_default';send(app,'使用API默认')
             assert 'effort' not in Server.requests[-1].get('reasoning',{})
             gauge(app);select_effort(app,'none');send(app,'使用即时')
@@ -127,5 +135,5 @@ def run():
             assert not info(directory,incomplete)[2].get('title_state') and len(Server.titles)==before
         finally:app.close()
         server.shutdown()
-    print('History UI: header-free rows, long press, pin/rename/archive/restore/delete, first-answer naming, model override, title limits, late-result guards and API-default slot passed.')
+    print('History UI: header-free rows, long press, pin/rename/archive/restore/delete, first-answer naming, model override, title limits, late-result guards, explicit-only slider and legacy API-default replay passed.')
 if __name__=='__main__':run()

@@ -34,9 +34,23 @@ def run(ctx):
     def open_editor():ctx['open_chat_editor']()
     def choose_layout(value):
         def open_menu():
-            k=next(k for k in state()['keys'] if k['key']=='language');x,y=ctx['raw'](k['x'],k['y'])
-            ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap --hold '+f'{x} {y} 850 2>/dev/null')
-            wait(lambda:state()['layout_menu'] and not state()['layout_hold'])
+            from touch_ack import retry_unseen_tap
+            for attempt in range(2):
+                before=ctx['wait_native_input']()
+                k=next(k for k in before['editor']['keys'] if k['key']=='language');x,y=ctx['raw'](k['x'],k['y'])
+                ctx['shell']('PENCHAT_TOUCH_DEVICE=/dev/input/'+ctx['event']+' /tmp/penchat-display-tap --hold '+f'{x} {y} 850 2>/dev/null')
+                try:
+                    wait(lambda:state()['layout_menu'] and not state()['layout_hold']);return
+                except AssertionError:
+                    after=read()
+                    if attempt or not retry_unseen_tap(before,after,allow_cancelled_down=True):raise
+                    probe='/tmp/penchat-release-input-state'
+                    kernel=json.loads(ctx['shell'](probe+' /dev/input/'+ctx['event']))
+                    if kernel.get('error') or kernel.get('btn_touch') or kernel.get('active_slots'):raise
+                    ctx['shell'](probe+' /dev/input/'+ctx['event']+' --release')
+                    current=ctx['wait_native_input']()
+                    if not retry_unseen_tap(before,current,allow_cancelled_down=True):raise
+                    ctx['result']['unobserved_layout_hold_retry']=ctx['result'].get('unobserved_layout_hold_retry',0)+1
         open_menu();capture('pinyin-layout-menu')
         # A synchronous debug PNG can expire the normal input lease. Resolve
         # live targets after its ordinary renewal, never tap an old menu bound.

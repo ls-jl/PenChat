@@ -21,7 +21,9 @@ def run(d):
     d.input_release();before=d.state()
     values=(*d.raw(*start),*d.raw(*end))
     flag=' --drag-hold ' if long_press else ' --move-hold ' if hold else ' '
-    suffix=(' 600 '+str(hold)) if long_press else (' 150 '+str(hold)) if hold else ''
+    # Read-only selection requires 600ms after native pointer-down processing;
+    # allow frame scheduling before moving, rather than racing that boundary.
+    suffix=(' 700 '+str(hold)) if long_press else (' 150 '+str(hold)) if hold else ''
     receipt=d.sh('PENCHAT_TOUCH_DEVICE='+d.event+' '+d.helper+flag+' '.join(map(str,values))+suffix+' 2>&1')
     time.sleep(.4 if long_press else .7)
     after=d.state() if d.pid() else None

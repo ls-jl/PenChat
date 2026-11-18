@@ -65,19 +65,37 @@ def raw(x,y):
     rx,ry=(y,W-1-x) if rotation==270 else (W-1-x,H-1-y) if rotation==180 else (H-1-y,x) if rotation==90 else (x,y)
     return rx+screen.get('tp_xoffset',0),ry+screen.get('tp_yoffset',0)
 def touch(x,y,hold=None):
-    logical=[round(x),round(y)];before=state() if pid() else None
-    if before:assert before['visible'] and before['page_visible'] and before['window_focused'] and before['input_focused'] and before['touch_input']['active'],'DPI touch stopped after foreground loss'
-    x,y=raw(round(x),round(y));command=HELPER+(' --hold' if hold else '')+' '+str(x)+' '+str(y)
+    from touch_ack import retry_unseen_tap
+    logical=[round(x),round(y)];rx,ry=raw(*logical)
+    command=HELPER+(' --hold' if hold else '')+' '+str(rx)+' '+str(ry)
     if hold:command+=' '+str(hold)
-    receipt=sh('PENCHAT_TOUCH_DEVICE='+event+' '+command+' 2>&1\npenchat_dpi_touch_status=$?\nprintf "\\nstatus=%s\\n" "$penchat_dpi_touch_status"')
-    assert receipt.endswith('status=0'),receipt
-    time.sleep(.15);after=state() if pid() else None
-    result.setdefault('touch_trace',[]).append({'logical':logical,'raw':[x,y],'receipt':receipt,
-        'pid_before':None if before is None else before['pid'],
-        'touch_before':None if before is None else before.get('touch'),
-        'touch_after':None if after is None else after.get('touch'),
-        'input_active_before':None if before is None else before['touch_input']['active']})
-    result['touch_trace']=result['touch_trace'][-64:]
+    for attempt in range(2):
+        before=stable_foreground() if pid() else None
+        receipt=sh('PENCHAT_TOUCH_DEVICE='+event+' '+command+' 2>&1\npenchat_dpi_touch_status=$?\nprintf "\\nstatus=%s\\n" "$penchat_dpi_touch_status"')
+        assert receipt.endswith('status=0'),receipt
+        time.sleep(.15);after=state() if pid() else None
+        result.setdefault('touch_trace',[]).append({'logical':logical,'raw':[rx,ry],'receipt':receipt,
+            'pid_before':None if before is None else before['pid'],
+            'touch_before':None if before is None else before.get('touch'),
+            'touch_after':None if after is None else after.get('touch'),
+            'input_active_before':None if before is None else before['touch_input']['active'],'attempt':attempt})
+        result['touch_trace']=result['touch_trace'][-64:]
+        if before is None or after is None or after['pid']!=before['pid']:return
+        def acknowledged():
+            current=state()
+            return current if current and current.get('touch',{}).get('gesture')!=before.get('touch',{}).get('gesture') and not current.get('touch',{}).get('pressed',False) else None
+        try:wait(acknowledged,seconds=1.2);return
+        except RuntimeError:
+            current=state()
+            if attempt or not retry_unseen_tap(before,current,allow_cancelled_down=True):raise
+            probe='/tmp/penchat-release-input-state'
+            if sh('test -x '+probe+' && echo yes')!='yes':raise
+            kernel=json.loads(sh(probe+' '+event))
+            if kernel.get('error') or kernel.get('btn_touch') or kernel.get('active_slots'):raise
+            sh(probe+' '+event+' --release');current=stable_foreground()
+            if not retry_unseen_tap(before,current,allow_cancelled_down=True):raise
+            result['unobserved_input_retries']=result.get('unobserved_input_retries',0)+1
+
 def action(name):
     e=state()['editor']
     if name=='official' and name not in e['actions']:

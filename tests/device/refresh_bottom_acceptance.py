@@ -169,8 +169,7 @@ class Device:
         values = (*self.raw(x, y), *self.raw(ex, ey))
         # tap.cpp's --drag-hold also holds at the *start*, which activates text
         # selection on a message. Ordinary movement begins after only 150ms.
-        self.sh('PENCHAT_TOUCH_DEVICE='+self.event+' '+self.helper+' '+' '.join(map(str, values))+' 2>/dev/null')
-        time.sleep(.45)
+        self._tap_with_ack(lambda: self.sh('PENCHAT_TOUCH_DEVICE='+self.event+' '+self.helper+' '+' '.join(map(str, values))+' 2>/dev/null'),settle=.45)
 
     def capture(self, name):
         self.sh('rm -f '+self.data+'/lvgl-diagnostic.png')

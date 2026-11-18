@@ -2,6 +2,7 @@
 """Fixed crop frame, original-pixel output and rotation-aware multi-pointer editing."""
 import os,pathlib,sqlite3,struct,tempfile,zlib
 from test_lvgl_app import Native,ROOT,wait_for
+from draft_assets import pending_images
 from test_chat_style import snapshot
 from image_gestures import action,drag,pinch,send,start
 import test_lvgl_app as transport
@@ -56,7 +57,8 @@ def run(w,h,angle):
             s=a.diag();assert s['crop_pan']==before and s['crop_selection'][2]<fw
             snapshot(a,f'photo-pinch-pan-resize-{w}-{angle}')
             expected=s['crop_source_rect'];action(a,'confirm');wait_for(lambda:a.diag()['view']=='chat')
-            with sqlite3.connect(p/'penchat.db') as db:actual=db.execute('select width,height from message_assets').fetchone()
+            saved=pending_images(p)[-1];actual=(saved['width'],saved['height'])
+            assert pathlib.Path(saved['path']).exists() and not a.read_messages()
             assert actual==tuple(expected[2:]),(actual,expected)
             begin(a,p,angle,iw,ih);s=a.diag();x,y,fw,fh=s['crop_selection']
             drag(a,x+2,y+2,35,25,True);pinch(a,x+fw/2,y+fh/2,distance=40,scale=2,crop=True)

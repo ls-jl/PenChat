@@ -84,7 +84,7 @@ def main():
  assert a.cycles>=0 and a.observe_seconds>=0
  assert re.fullmatch('[a-z0-9-]+',a.run_label)
  r.OUT=ROOT/'.work/input-stability'/a.run_label
- d=r.ReleaseDevice(a.serial,a.package,['keyboard-review'],True,True);d.discard_image_input=a.serial in ['MEA2300009007113','JDA0700006552216']
+ d=r.ReleaseDevice(a.serial,a.package,['keyboard-review'],True,True);d.discard_image_input=True
  # One private fixture restore file supplies long input; it never touches originals.
  original=d.launch;first=[True]
  def launch(self):
@@ -96,10 +96,7 @@ def main():
   return original()
  d.launch=types.MethodType(launch,d)
  d.keyboard_review=types.MethodType(lambda self:run(self,a.cycles,a.observe_seconds),d)
- try:d.run()
- except BaseException:
-  for name in ['last-exit.json','lvgl-runtime.log','lvgl-runtime.previous.log']:
-   try:(d.out/('failure-'+name)).write_text(d.sh('cat '+d.data+'/'+name+' 2>/dev/null || true'))
-   except Exception:pass
-  raise
+ # ReleaseDevice captures bounded failure evidence while the fixture remains
+ # isolated; never read logs here after it restores the user's original data.
+ d.run()
 if __name__=='__main__':main()

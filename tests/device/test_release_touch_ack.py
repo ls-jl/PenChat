@@ -32,4 +32,7 @@ class TapAck(unittest.TestCase):
   a,b=self.fixture();b['input_focus_trace']={};self.assertFalse(retry_unseen_tap(a,b))
   a,b=self.fixture();b['input_focus_trace']['entries'][0]['time']=99;self.assertFalse(retry_unseen_tap(a,b))
   a,b=self.fixture();b['input_focus_trace']['entries'].append({'time':500,'reason':'input_focus_applied','event_value':False});self.assertFalse(retry_unseen_tap(a,b))
+ def test_scrolled_or_selected_reader_never_replays(self):
+  for field in ('scroll_y','scroll_bottom','text_selection'):
+   a,b=self.fixture();b[field]={'changed':True};self.assertFalse(retry_unseen_tap(a,b))
 if __name__=='__main__':unittest.main()

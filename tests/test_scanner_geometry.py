@@ -43,7 +43,10 @@ def run():
                     # Only explicit confirmation may attach the clear prefix.
                     app.tap(width-100 if width>height else width//2, 54 if width>height else height-90)
                     t.wait_for(lambda:app.diag()['view']=='chat')
-                    assert len(app.read_messages())==1
+                    from draft_assets import pending_images
+                    images=pending_images(folder)
+                    assert not app.read_messages() and len(images)==1
+                    assert images[0]['source']=='scan' and pathlib.Path(images[0]['path']).is_file()
                 finally: app.close()
     finally:
         for k,v in old.items():

@@ -935,7 +935,7 @@ class ReleaseDevice(ScopedDevice):
           with sqlite3.connect(folder/'penchat.db') as db:
             db.execute('delete from chat_messages');db.execute('delete from chat_sessions')
             db.execute('update app_settings set value_json=? where key=?',('""','active_session_id'))
-          self.result['scanner_format_before_probe']=self.sh('v4l2-ctl -d /dev/video23 --get-fmt-video')
+          self.result['scanner_format_before_probe']=None if self.s6 else self.sh('v4l2-ctl -d /dev/video23 --get-fmt-video')
         if self.features in (['real-background-generation'],['official-editing'],['official-editing-dark']):
           from http_pool_flow import DeviceServer
           import sqlite3
@@ -1119,6 +1119,17 @@ class ReleaseDevice(ScopedDevice):
       self.result['functional_selection_completed'] = True
     except BaseException as error:
       self.result['error'] = str(error)
+      if private:
+        # Preserve the failing fixture's exit evidence before finally removes
+        # it. Reading after restoration would capture the user's previous run.
+        for name in ('native-exit.json','native-fault.txt','last-exit.json','lvgl-runtime.log','lvgl-runtime.previous.log'):
+          try:
+            content=self.sh('tail -c 262144 '+shlex.quote(self.data+'/'+name)+' 2>/dev/null || true')
+            destination=self.out/('failure-'+name)
+            with destination.open('w',encoding='utf-8') as stream:
+              os.chmod(destination,0o600);stream.write(content);stream.flush();os.fsync(stream.fileno())
+          except Exception as capture_error:
+            self.result.setdefault('failure_log_errors',[]).append(name+': '+str(capture_error))
       child = getattr(self, 'active_child', None)
       if private and (child is None or child.poll() is not None) and self.pid():
         try:

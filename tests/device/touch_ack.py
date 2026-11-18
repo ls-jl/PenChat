@@ -5,7 +5,7 @@ def retry_unseen_tap(before,after,allow_cancelled_down=False):
  if after.get('touch',{}).get('pressed',False) and not allow_cancelled_down:return False
  if not all(after.get(k) for k in ('visible','page_visible','window_focused','input_focused')):return False
  if after.get('keyboard') or after.get('system_overlay',{}).get('panel_visible'):return False
- for key in ('view','session','active_model','generating','keyboard','modal','navigation_open','attachments','composer_text_bounds','composer_hidden','draft_length','reply_actions','message_interactions','provider_workspace','transfer_screen','transfer_data'):
+ for key in ('view','session','active_model','generating','keyboard','modal','navigation_open','attachments','composer_text_bounds','composer_hidden','draft_length','reply_actions','message_interactions','provider_workspace','transfer_screen','transfer_data','scroll_y','scroll_bottom','text_selection'):
   if before.get(key)!=after.get(key):return False
  a,b=before.get('editor',{}),after.get('editor',{})
  for key in ('session','active','layout','layout_menu','layout_hold','preedit_length','length','revision','actions','pending','candidate_count','cursor','selection_start','selection_end','text_scroll','clipboard_count'):

@@ -14,8 +14,10 @@ for w,h in [(960,266),(640,260),(568,1210)]:
    assert 'official' in a.diag()['editor']['actions']
    # Tap the actual action, without opening the globe menu.
    b=a.diag()['editor']['actions']['official'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
-   request=a.receive('keyboard.open')['requestId']
-   a.send('keyboard.result',requestId=request,confirmed=False,text='retained voice input')
+   request=a.receive('keyboard.open')
+   # A fullscreen editor writes new text on Confirm; docked editing returns
+   # already committed live text on ordinary hide. Cancel is tested separately.
+   a.send('keyboard.result',requestId=request['requestId'],confirmed=not request['inline'],retained=request['inline'],text='retained voice input')
    ui.wait_for(lambda:not a.diag()['editor']['active'])
    s=a.diag();assert s['draft_length']==20 and not s['composer_hidden'],s
    open_editor(a);a.editor_action('official');request=a.receive('keyboard.open')['requestId']
@@ -48,7 +50,7 @@ for w,h in [(960,266),(640,260)]:
    s=a.diag();b=s['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
    ui.wait_for(lambda:a.diag()['editor']['active'])
    a.editor_action('official');request=a.receive('keyboard.open')['requestId']
-   a.send('keyboard.result',requestId=request,confirmed=False,text='voice draft')
+   a.send('keyboard.result',requestId=request,confirmed=True,text='voice draft')
    ui.wait_for(lambda:not a.diag()['editor']['active']);time.sleep(.5)
    s=a.diag();assert not s['composer_hidden'] and s['draft_length']==11,s
    print('Scrolled conversation keeps completed composer:',w,h,'passed',flush=True)

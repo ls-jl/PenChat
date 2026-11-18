@@ -157,9 +157,10 @@ def run():
             gauge(app);screenshot(app,'four-levels');select_effort(app,'high')
             assert app.diag()['effective_effort']=='high'
             new_chat(app)
-            assert app.diag()['active_model']=='a' and app.diag()['effective_effort']=='high'
-            send(app,'新聊天沿用本次强度')
-            assert Server.requests[-1][1]['reasoning']['effort']=='high'
+            assert app.diag()['active_model']=='a' and app.diag()['effective_effort']=='medium'
+            assert not app.diag()['effort_gauge']
+            send(app,'新聊天跟随服务商默认强度')
+            assert Server.requests[-1][1]['reasoning']['effort']=='medium'
             app.open_settings();app.setting("models");open_model(app,"b")
             assert app.diag()['view']=='model';screenshot(app,'model-capabilities')
             app.page_action('effort:max')  # Disable max using its real visible bounds.
@@ -171,7 +172,7 @@ def run():
         finally:app.close()
         app=Native(binary,pathlib.Path(directory))
         try:
-            assert app.diag()['effective_effort']=='high' and app.diag()['effort_gauge']
+            assert app.diag()['effective_effort']=='medium' and not app.diag()['effort_gauge']
             new_chat(app)
             assert app.diag()['effective_effort']=='medium' and app.diag()['active_model']=='a'
             Server.mode='encrypted';send(app,'仅加密思考')

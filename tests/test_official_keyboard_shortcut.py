@@ -62,7 +62,7 @@ def run(w,h,scale=100):
             assert not (state(a)['layout_popup'][1]<=actions['official'][1]<=state(a)['layout_popup'][3])
             a.editor_action('layout:0');assert state(a)['keys']==keys
             a.editor_action('official');request=a.receive('keyboard.open')
-            a.send('keyboard.result',requestId=request['requestId'],confirmed=False,text='voice draft')
+            a.send('keyboard.result',requestId=request['requestId'],confirmed=not request['inline'],retained=request['inline'],text='voice draft')
             ui.wait_for(lambda:not state(a)['active'])
             assert a.diag()['draft_length']==11 and not a.diag()['composer_hidden']
         finally:a.close()
