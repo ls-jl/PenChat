@@ -129,8 +129,11 @@ def codec(d):
   assert s['image_viewer']['frame']==[12000,32]
   # Two stationary taps form the viewer's existing 2x zoom gesture.
   x,y=d.raw(d.w//2,d.h//2)
-  command='PENCHAT_TOUCH_DEVICE='+d.event+' '+d.helper+' '+str(x)+' '+str(y)
-  d.sh(command+'; '+command);d.wait(lambda:d.state()['image_viewer']['zoom']==2)
+  # Emit both complete contacts in one bounded kernel train. Two separate
+  # 150ms helper invocations plus process scheduling can miss the viewer's
+  # existing 350ms double-tap window on ARMv7; do not change that UI threshold.
+  d.inject(['--double',x,y,90],'scan-original-double-tap')
+  d.wait(lambda:d.state()['image_viewer']['zoom']==2)
   rows.append({'cycle':cycle,'frame':[12000,32],'native_memory':d.sh("grep -E 'VmRSS|VmHWM' /proc/"+pid+'/status')})
   if cycle<2:close_viewer(d)
  # Capture after the reopen workload so synchronous PNG diagnostics cannot

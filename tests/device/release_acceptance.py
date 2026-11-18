@@ -228,6 +228,7 @@ class ReleaseDevice(ScopedDevice):
     self.snapshot = '/tmp/penchat-release-snapshot.db'
     self.snapshot_helper = '/tmp/penchat-release-snapshot'
     self.input_probe = '/tmp/penchat-release-input-state'
+    self.input_state_probe = self.input_probe
     self.input_probe_ready = False
     self.key_helper = '/tmp/penchat-release-key'
     self.key_helper_ready = False
@@ -383,8 +384,7 @@ class ReleaseDevice(ScopedDevice):
   def touch(self, x, y):
     if not self.input_probe_ready:
       return super().touch(x, y)
-    self.inject(self.raw(x, y), 'tap')
-    time.sleep(.15)
+    return self._tap_with_ack(lambda:self.inject(self.raw(x, y), 'tap'), .15)
 
   def drag(self, x, y, ex, ey):
     if not self.input_probe_ready:

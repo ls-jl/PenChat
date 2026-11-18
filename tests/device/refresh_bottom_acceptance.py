@@ -37,6 +37,7 @@ class Device:
         self.remote_package = '/tmp/penchat-refresh-bottom.amr'
         self.snapshot = '/tmp/penchat-refresh-bottom-snapshot.db'
         self.snapshot_helper = '/tmp/penchat-refresh-bottom-snapshot'
+        self.input_state_probe = '/tmp/penchat-refresh-bottom-input-state'
         self.out = ROOT/'.work/refresh-bottom-device'/serial
         self.out.mkdir(parents=True, exist_ok=True)
         self.result = {'serial': serial, 'version': APP['version'], 'checks': []}
@@ -123,8 +124,43 @@ class Device:
 
     def touch(self, x, y):
         point = self.raw(x, y)
-        self.sh('PENCHAT_TOUCH_DEVICE='+self.event+' '+self.helper+' '+' '.join(map(str, point))+' 2>/dev/null')
-        time.sleep(.12)
+        self._tap_with_ack(lambda: self.sh('PENCHAT_TOUCH_DEVICE='+self.event+' '+self.helper+' '+' '.join(map(str, point))+' 2>/dev/null'))
+
+    def _tap_with_ack(self, emit, settle=.12):
+        from touch_ack import retry_unseen_tap
+        def ready():
+            d = self.state()
+            assert d['visible'] and d.get('page_visible', True) and d['window_focused'] and not d.get('keyboard') and not d.get('system_overlay', {}).get('panel_visible'), 'Refresh tap stopped after foreground loss'
+            return d if d['input_focused'] and d['touch_input']['active'] and not d.get('surface_motion') else None
+        for attempt in range(2):
+            before = self.wait(ready, 3) if self.pid() else None
+            emit()
+            time.sleep(settle)
+            if before is None or self.pid() != str(before['pid']):
+                return
+            observed = []
+            def acknowledged():
+                if self.pid() != str(before['pid']):
+                    return True
+                current = self.state();observed.append(current)
+                return current.get('touch', {}).get('gesture') != before.get('touch', {}).get('gesture') and not current.get('touch', {}).get('pressed', False)
+            try:
+                self.wait(acknowledged, 1.2)
+                return
+            except AssertionError:
+                if attempt or not observed or not retry_unseen_tap(before, observed[-1], allow_cancelled_down=True):
+                    raise
+                if self.sh('test -x '+self.input_state_probe+' && echo yes') != 'yes':
+                    raise
+                kernel = json.loads(self.sh(self.input_state_probe+' '+self.event))
+                assert not kernel.get('error') and not kernel.get('btn_touch') and not kernel.get('active_slots'), 'Do not repress an active kernel contact'
+                self.wait(ready, 3)
+                self.sh(self.input_state_probe+' '+self.event+' --release');time.sleep(.2)
+                current = self.state()
+                if current.get('touch', {}).get('gesture') != before.get('touch', {}).get('gesture') and not current.get('touch', {}).get('pressed', False):
+                    return
+                assert retry_unseen_tap(before, current, allow_cancelled_down=True), 'UI changed while resynchronizing the cancelled contact'
+                self.result['cancelled_input_tap_retries'] = self.result.get('cancelled_input_tap_retries', 0)+1
 
     def tap(self, bounds):
         self.touch((bounds[0]+bounds[2])/2, (bounds[1]+bounds[3])/2)
@@ -347,7 +383,11 @@ class Device:
                 helper = folder/'tap'
                 subprocess.run([compiler, '-std=c++11', '-Os', '-Wl,--as-needed', str(ROOT/'tests/device/tap.cpp'), '-o', str(helper)], check=True)
                 self.push(helper, self.helper)
+                probe = folder/'input-state'
+                subprocess.run([compiler, '-std=c++11', '-Os', str(ROOT/'tests/device/release_input_state.cpp'), '-o', str(probe)], check=True)
+                self.push(probe, self.input_state_probe)
             self.sh('chmod 755 '+self.helper)
+            self.sh('chmod 700 '+self.input_state_probe)
             self.event = self.sh(self.helper+' --discover')
             assert self.event.startswith('/dev/input/event') and self.event.rsplit('event', 1)[1].isdigit()
             self.push(self.package, self.remote_package)
@@ -402,7 +442,7 @@ class Device:
                 try:
                     self.result['restored'] = (not private or not had_data or self.hashes(self.data) == private_hashes) and (not public or not had_public or self.hashes(self.public) == public_hashes) and not errors
                     self.result['host_unchanged'] = self.sh('pidof miniapp') == self.host and self.sh('cat /proc/sys/kernel/random/boot_id') == self.boot
-                    self.sh('rm -f '+self.remote_package+' '+self.helper+' '+self.snapshot+' '+self.snapshot_helper)
+                    self.sh('rm -f '+self.remote_package+' '+self.helper+' '+self.snapshot+' '+self.snapshot_helper+' '+self.input_state_probe)
                 except Exception as error:
                     errors.append('restore verification: '+str(error))
                 self.result['recovery_errors'] = errors
