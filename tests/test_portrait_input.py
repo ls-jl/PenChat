@@ -146,6 +146,13 @@ def run():
                 shot(a,'raised-magnifier')
                 a.send('touch',x=tx+60,y=ty,pressed=False)
                 t.wait_for(lambda:not a.diag()['editor']['cursor_drag'])
+                # Caret/selection release can retain the shared edit menu.
+                # Its first outside contact dismisses it without click-through;
+                # only a fresh reader gesture should scroll the conversation.
+                if a.diag()['editor']['menu']:
+                    before=a.diag()['scroll_y'];a.tap(280,200)
+                    t.wait_for(lambda:not a.diag()['editor']['menu'])
+                    assert a.diag()['editor']['active'] and a.diag()['scroll_y']==before
                 before=a.diag()['scroll_y'];swipe(a,200)
                 assert a.diag()['editor']['active'] and a.diag()['scroll_y']!=before
                 assert a.diag()['editor']['target_bounds'][3]<a.diag()['editor']['panel_top']
