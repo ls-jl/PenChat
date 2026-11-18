@@ -17,9 +17,13 @@
 | 本地路径 | 对应内容 | 支持操作 |
 | --- | --- | --- |
 | `/app/` | 主机 `/srv/files/app/` | 列目录、读文件、上传或覆盖文件、创建目录、删除文件和空目录 |
+| `/files/` | 主机 `/srv/files/` | 同上，下载站总目录 |
+| `/penchat-rk/` | 主机 `/srv/files/penchat-rk/` | 普通 RK 更新源直达入口；读写子目录与文件，禁止修改映射根目录本身 |
 | `/logs/primary/` | 主机 `/srv/app-logs/` | 列目录、读日志、上传新日志、删除日志 |
 | `/logs/hk/` | 香港机 `/srv/app-logs/` | 列目录、读日志、上传新日志、删除日志 |
 | `/standby/app/` | 香港机 `/srv/files/app/` | 只读，检查异步同步结果 |
+| `/standby/files/` | 香港机 `/srv/files/` | 只读，检查下载站同步结果 |
+| `/standby/penchat-rk/` | 香港机 `/srv/files/penchat-rk/` | 只读，检查普通 RK 更新源同步结果 |
 | `/health` | 本地服务状态 | 健康检查 |
 
 目录地址返回 JSON 文件列表；在目录地址后追加文件名，读取原始文件内容。
@@ -27,9 +31,14 @@
 
 ## 主从与日志规则
 
-应用文件以主机的 `/app/` 为准。变更主机目录后，中转会触发到香港机的异步同步；
-`/standby/app/` 仅用于读回检查。主机写入成功不等于香港机已经同步完成，报告同步
+下载文件以主机为准，`/app/`、`/files/` 和 `/penchat-rk/` 的写操作均作用于主机。
+变更后中转会触发到香港机的异步同步；`/standby/` 下对应入口仅用于读回检查。
+主机写入成功不等于香港机已经同步完成，报告同步
 成功前应核对香港机对应文件的内容或 SHA-256。
+
+普通更新的公网地址是 `https://cdn.ls-jl.cn/penchat-rk/`，对应 `/srv/files/penchat-rk/`，
+应使用 `/penchat-rk/` 或 `/files/penchat-rk/` 管理；`/app/penchat-rk/` 是另一条路径，
+不对应客户端使用的更新源。降级目录继续使用 `/app/downgrade/`。
 
 两台服务器的日志分别保存在各自节点，不按应用目录的主从规则处理。上传新日志使用
 目录地址上的 POST，继续经过原有日志接收服务，由服务生成文件名，并保留原有容量
@@ -55,6 +64,10 @@ curl --fail --show-error http://localhost:17865/logs/hk/
 
 # 查看主机降级目录
 curl --fail --show-error http://localhost:17865/app/downgrade/
+
+# 查看普通 RK 更新源及香港镜像
+curl --fail --show-error http://localhost:17865/penchat-rk/
+curl --fail --show-error http://localhost:17865/standby/penchat-rk/
 
 # 读取指定日志或文件：在目录 URL 后追加列表返回的文件名
 curl --fail --show-error \
@@ -98,4 +111,19 @@ systemctl --user stop vps-local-relay.service
 验证记录见 [checks.json](/home/ls-jl/Documents/ChatGPT/土豆器配置喵/local-relay/checks.json)。
 按用户提供的记录，服务已通过 7 项隔离测试，以及真实读写、香港同步和服务重启验证；
 测试文件及测试日志已清理，并已验证局域网地址无法连接、外部网页跨站请求被拦截。
-这些是已有记录，本次文档整理没有重新执行服务器读写或服务重启。
+以上是最初接入时引用的已有记录；其后的新增验证另见下节。
+
+## 2026-11-18：普通 RK 更新源专用映射
+
+在已有 `/files/` 后端能力上增加 `/penchat-rk/` 和 `/standby/penchat-rk/` 直达映射。
+保留原通道、认证和主机校验；仅重载本地中转服务，没有修改服务器端 helper 或设备宿主。
+
+- 主机可 GET／HEAD、PUT、MKCOL，以及删除文件和空子目录；映射根目录本身不可覆盖或删除。
+- 香港入口仅允许 GET／HEAD；写操作返回 409，主机根目录修改返回 403。
+- 保留路径穿越、符号链接、跨站／异常 Host、非递归删除、容量与中断写入保护。
+- 13 项隔离测试通过；实际创建非版本临时目录，完成写入、覆盖、读回、HEAD、香港同步及
+  拒绝操作检查，随后删除临时文件和目录。原更新目录条目逐项核对不变。
+
+验证记录在 PenChat 主工作区忽略目录 `.work/relay-penchat-rk/`。
+按用户本次指令，仅开放映射和确认权限，**未向普通更新源上传 0.3.4**。
+本地三件套继续保存在 `.work/update-0.3.4/`，上传保持暂停；既有降级目录不变。

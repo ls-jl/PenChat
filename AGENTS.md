@@ -187,6 +187,10 @@ relay at `http://localhost:17865/`. Local calls require no SSH password, shared 
 or `Authorization`; the relay owns upstream credentials. `/app/` is authoritative
 on the primary server and asynchronously syncs to the read-only `/standby/app/`.
 Primary and Hong Kong logs are separate at `/logs/primary/` and `/logs/hk/`.
+Ordinary RK updates at `/srv/files/penchat-rk/` use `/penchat-rk/`
+(or `/files/penchat-rk/`); `/standby/penchat-rk/` is read-only. Do not put
+ordinary updates under `/app/penchat-rk/`. The dedicated mapped root cannot
+be overwritten/deleted; child file/directory operations retain the relay guards.
 Perform remote mutations only within the current task's authorization; relay access
 does not grant standing release or deletion permission. Keep fetched logs, backups
 and packages in ignored directories.
