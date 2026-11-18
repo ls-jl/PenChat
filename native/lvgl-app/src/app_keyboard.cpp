@@ -1403,12 +1403,27 @@ void App::editorSyncText(bool text) {
   if(!editorText_)return;
   if(editorInlineChat_&&editorInPlace())editorViewport();
   const int scroll=lv_obj_get_scroll_y(editorText_);
+  const int scrollX=lv_obj_get_scroll_x(editorText_);
   if(text&&editor_.text!=lv_textarea_get_text(editorText_))lv_textarea_set_text(editorText_,editor_.text.c_str());
   if(text||lv_textarea_get_cursor_pos(editorText_)!=editor_.cursor)lv_textarea_set_cursor_pos(editorText_,editor_.cursor);
   auto label=lv_textarea_get_label(editorText_);auto r=editor_.range();
   lv_label_set_text_selection_start(label,editor_.selected()?r.first:LV_LABEL_TEXT_SELECTION_OFF);
   lv_label_set_text_selection_end(label,editor_.selected()?r.second:LV_LABEL_TEXT_SELECTION_OFF);
   lv_obj_update_layout(editorText_);
+  // set_text temporarily moves LVGL's cursor to the end. Its animated scroll
+  // survives restoring a cursor that is already visible in the old viewport.
+  // Resolve visibility once from the final native cursor, with no stale motion.
+  lv_obj_stop_scroll_anim(editorText_);
+  lv_obj_scroll_to_x(editorText_,scrollX,LV_ANIM_OFF);
+  editorScroll(scroll);
+  if(editorFollowCursor_&&!editorCursorDrag_&&editorHandle_<0) {
+    const auto point=editorPoint(editor_.cursor);lv_area_t area;
+    lv_obj_get_content_coords(editorText_,&area);
+    const int bottom=point.y-editorDesign().controls.caretOffset;
+    const int top=bottom-int(editorTextFont()->line_height);
+    if(top<area.y1)editorScroll(scroll+top-area.y1);
+    else if(bottom>area.y2+1)editorScroll(scroll+bottom-area.y2-1);
+  }
   editorSyncCaret();
   if(editorCursorDrag_||editorHandle_>=0||!editorFollowCursor_)editorScroll(scroll);
   for(int i=0;i<2;++i)if(editorHandles_[i]) {

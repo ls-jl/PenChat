@@ -108,3 +108,9 @@ Provider 的“厂商参数适配”默认自动，只精确识别已核实的 H
 - `npm run check`仍给出既有的可选cnpm安装建议，未修改全局环境；生产构建和AMR检查正常。
 
 截图和设备验收原始记录在忽略的`.work/`中，不提交用户数据、诊断文件或截图。原始工作簿SHA256仍为`3ae65a479a94dd53687cc8a3bf49e6c0095e6b880e7bdd0d67333bfbdafb88f5`，未改写。
+
+## DeepSeek 协议切换兼容
+
+Responses 请求按当前协议解析持久化 reasoning 能力；旧 Chat 配置的 disabled
+开关映射为标准 none，不发送 Chat thinking 对象。Chat 自身仍使用 thinking.type，
+显式 api_default 继续省略强度和开关。数据库不改写，也不自动重试失败请求。

@@ -75,6 +75,23 @@ int main(int argc, char **argv) {
     body = requestBody(resolveReasoning(deep, {{"effort", "api_default"}}, "high"), input, true);
     assert(!body.contains("thinking") && !body.contains("reasoning_effort") && !body.contains("output_config"));
   }
+  // Changing Provider protocol must not replay Chat's saved thinking switch
+  // as a Responses effort enum, including already-resolved request snapshots.
+  auto switched = model("deepseek-flash", "chat", "https://api.deepseek.com");
+  switched["capabilities_json"] = initialModelCapabilities(switched);
+  auto oldRequest = resolveReasoning(switched, {{"effort", "none"}}, "");
+  assert(oldRequest.at("effort_value") == "disabled");
+  switched["provider_metadata"]["api"] = "responses";
+  oldRequest["provider_metadata"]["api"] = "responses";
+  for (const auto &request : {oldRequest, resolveReasoning(switched, {{"effort", "none"}}, "")}) {
+    body = requestBody(request, input, true);
+    assert(body.at("reasoning").at("effort") == "none");
+    assert(!body.contains("thinking") && !body.contains("reasoning_effort"));
+  }
+  body = requestBody(resolveReasoning(switched, {{"effort", "api_default"}}, "high"), input, true);
+  assert(!body.contains("thinking") && !body.contains("reasoning"));
+  body = requestBody(resolveReasoning(switched, {{"effort", "high"}}, ""), input, true);
+  assert(body.at("reasoning").at("effort") == "high" && !body.contains("thinking"));
   auto qwen = model("qwen3.8-max", "chat", "https://dashscope.aliyuncs.com/compatible-mode/v1");
   auto caps = initialModelCapabilities(qwen); caps["reasoning"]["request_mode"] = "enabled"; caps["reasoning"]["token_budget"] = 2048;
   qwen["capabilities_json"] = caps; body = requestBody(qwen, input, true);
