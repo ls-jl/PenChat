@@ -15,11 +15,11 @@ std::function<Json(const Json &)> toolContextCompactor(
     Json snapshot, Json compressionModel, Json chatModel, std::atomic<bool> &cancel);
 Json compactWindow(const Json &rows, const Json &units, Json old, Json model,
                    const Json &pending, const Json &chatModel, std::atomic<bool> &cancel,
-                   std::function<void(int, int)> progress);
+                   std::function<void(int, int)> progress, const Json &originalInput = Json());
 void checkContextResources(const Json &input);
 size_t estimatedText(const std::string &text);
-size_t modelContextEstimate(const Json &input, const Json &model);
-size_t estimatedContext(const Json &input, const std::string &prompt = "");
+size_t modelContextEstimate(const Json &input, const Json &model, bool countImages = true);
+size_t estimatedContext(const Json &input, const std::string &prompt = "", bool countImages = true);
 std::string contextChecksum(const Json &rows, int64_t through);
 Json contextInput(const Json &rows, int64_t after, int64_t through,
                   const Json &model = Json::object(), bool states = false);

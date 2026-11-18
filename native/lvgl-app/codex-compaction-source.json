@@ -8,7 +8,7 @@
     "codex-rs/prompts/templates/compact/summary_prefix.md": "e9b088e794a6bb9082ac053fcc760bd818d7e720ee4bcdc72c6e480de7b7cb0e"
   },
   "adapted_files": {
-    "native/lvgl-app/src/context.cpp": "7be8c7a6d27d2a79539f6def4f665fbbeaefeddb320f5896a877b6382937e6ec",
-    "native/lvgl-app/src/context.hpp": "4202dd1d62f59818f1988d23019eb8a8b6aa7391c68bb4fc87f1af37b982b0e8"
+    "native/lvgl-app/src/context.cpp": "2ab70d45b6c9512b57bd322e680a1d22d3ae6a1bb369c8179e57a9c3a4709211",
+    "native/lvgl-app/src/context.hpp": "3a8a721d2e55daf4470c072df194eb6746469c841b1e34915f5015cd1380e840"
   }
 }

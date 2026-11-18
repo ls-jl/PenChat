@@ -21,8 +21,9 @@ int main(int argc, char **argv) {
         const auto cp = compressContext(db, snapshot, request.at("model"),
             request.value("pending", Json::array()), chat, true, cancel, [](int, int) {});
         out["checkpoint"] = cp;
-        out["input"] = effectiveContext(snapshot.at("rows"), cp, chat);
+        out["input"] = effectiveContext(snapshot.at("rows"), cp.empty() ? snapshot.value("checkpoint", Json::object()) : cp, chat);
         out["valid"] = validContext(cp, snapshot.at("rows"));
+        out["unchanged"] = cp.empty();
       }
     } catch (const std::exception &error) { out["error"] = error.what(); }
     std::cout << out.dump() << '\n';
@@ -46,7 +47,7 @@ int main(int argc, char **argv) {
   Json rows = Json::array();
   for (int i = 1; i <= 2; ++i)
     rows.push_back({{"seq", i}, {"role", i == 1 ? "user" : "assistant"},
-                    {"status", "complete"}, {"output_text", "Local reference."},
+                    {"status", "complete"}, {"output_text", "Local reference. " + std::string(500, 'x')},
                     {"parts", Json::array()}});
   Json chat = {{"capabilities_json", {{"context_budget", 32768}}}};
   try {

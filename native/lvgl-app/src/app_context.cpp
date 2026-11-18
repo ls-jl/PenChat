@@ -149,10 +149,15 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, J
             });
         if (contextCancel_)
           throw std::runtime_error("压缩已取消，输入已保留");
-        if(!regenerate&&!deferred)checkpoint = db_.commitCompression(snapshot, checkpoint, contextCancel_);
-        input = (regenerate || deferred) ? effectiveContext(history, checkpoint, requestModel) : db_.responseInput(session, retry, requestModel);
-        for (const auto &m : pending)
-          input.push_back(m);
+        if (checkpoint.empty()) {
+          if (manual) throw std::runtime_error("本次压缩无法减少上下文，已保留原历史与图片");
+          compressed = false;
+        } else {
+          if(!regenerate&&!deferred)checkpoint = db_.commitCompression(snapshot, checkpoint, contextCancel_);
+          input = (regenerate || deferred) ? effectiveContext(history, checkpoint, requestModel) : db_.responseInput(session, retry, requestModel);
+          for (const auto &m : pending)
+            input.push_back(m);
+        }
       } else if (estimate > size_t(contextBudget(model))) {
         throw std::runtime_error(
             "上下文超过本地预算，请手动压缩或提高模型预算；没有截断历史");

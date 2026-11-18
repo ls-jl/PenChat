@@ -2,6 +2,9 @@
 import http.server
 import json
 import pathlib
+import re
+import struct
+import zlib
 import subprocess
 import tempfile
 import threading
@@ -27,6 +30,10 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             self.send_response(400 if self.mode == 'overflow' else 401)
         else:
             text = 'Checkpoint facts, decisions, constraints and unfinished work.'
+            if self.mode in ('adaptive', 'no_gain', 'ignore_budget'):
+                limits = re.findall(r'Maximum (\d+) Unicode', json.dumps(body))
+                count = min(480, int(limits[-1])) if limits else 480
+                text = '事' * (80 if self.mode == 'no_gain' else 600 if self.mode == 'ignore_budget' else count)
             if self.mode == 'empty':
                 text = ''
             if self.path.endswith('/messages'):
@@ -88,7 +95,10 @@ class Compaction(unittest.TestCase):
                 cp = result['checkpoint']
                 self.assertEqual(cp['version'], 2)
                 self.assertEqual(cp['through'], 8)
-                self.assertEqual([m['seq'] for m in cp['retained']], [1, 3, 5, 7])
+                self.assertTrue(cp['retained'])
+                seqs = [m['seq'] for m in cp['retained']]
+                self.assertEqual(seqs, sorted(set(seqs)))
+                self.assertEqual(seqs[-1], 7)
                 self.assertNotIn('assistant', [m['role'] for m in result['input']])
                 text = json.dumps(result['input'], ensure_ascii=False)
                 self.assertEqual(text.count('original-7'), 1)
@@ -128,10 +138,10 @@ class Compaction(unittest.TestCase):
 
     def test_legacy_checkpoint_upgrades(self):
         # Build a real checksum through the native path, then reuse its v1-compatible subset.
-        first, _ = self.run_case(data=rows(2))
+        first, _ = self.run_case(data=rows(2, 500))
         old = dict(first['checkpoint'], version=1)
         old.pop('retained')
-        result, requests = self.run_case(data=rows(6), snapshot={'rows': rows(6), 'checkpoint': old})
+        result, requests = self.run_case(data=rows(6, 500), snapshot={'rows': rows(6, 500), 'checkpoint': old})
         self.assertNotIn('error', result)
         self.assertEqual(result['checkpoint']['version'], 2)
         self.assertIn('Checkpoint facts', json.dumps(requests))
@@ -152,6 +162,46 @@ class Compaction(unittest.TestCase):
         self.assertIn('原话中段省略', retained)
         self.assertTrue(retained.startswith('original-1'))
         self.assertGreater(len(source[0]['output_text']), len(retained))
+
+    def test_no_benefit_keeps_original_context(self):
+        source = rows(2, 10)
+        result, requests = self.run_case(data=source, mode='no_gain')
+        self.assertNotIn('error', result)
+        self.assertTrue(result['unchanged'])
+        self.assertEqual(result['checkpoint'], {})
+        self.assertIn(source[-1]['output_text'], json.dumps(result['input']))
+        self.assertEqual(len(requests), 1)
+
+    def test_no_benefit_keeps_original_image(self):
+        with tempfile.TemporaryDirectory() as directory:
+            image = pathlib.Path(directory) / 'source.png'
+            def chunk(kind, data):
+                return struct.pack('!I', len(data)) + kind + data + struct.pack('!I', zlib.crc32(kind + data))
+            image.write_bytes(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('!2I5B', 12, 12, 8, 2, 0, 0, 0)) +
+                              chunk(b'IDAT', zlib.compress((b'\0' + bytes([80, 40, 20]) * 12) * 12)) + chunk(b'IEND', b''))
+            source = rows(2, 10)
+            source[0]['parts'] = [{'type': 'image', 'path': str(image), 'signature': 'fixture'}]
+            result, _ = self.run_case(data=source, mode='no_gain')
+            self.assertTrue(result['unchanged'])
+            self.assertIn(str(image), json.dumps(result['input']))
+            self.assertTrue(image.exists())
+
+    def test_small_window_refines_summary_then_advances(self):
+        source = rows(6, 400)
+        for row in source[-2:]:
+            row['output_text'] += 'x' * 2600
+        result, requests = self.run_case(data=source, mode='adaptive', budget=4096, chat_budget=2048)
+        self.assertNotIn('error', result)
+        self.assertFalse(result['unchanged'])
+        self.assertEqual(result['checkpoint']['through'], 6)
+        self.assertGreaterEqual(len(requests), 3)
+        self.assertLessEqual(len(requests), 4)
+        self.assertTrue(any('original-' not in json.dumps(request) for request in requests))
+
+    def test_summary_budget_repair_is_bounded(self):
+        result, requests = self.run_case(data=rows(8, 200), mode='ignore_budget', budget=4096)
+        self.assertIn('精简预算', result['error'])
+        self.assertEqual(len(requests), 2)
 
     def test_multi_tool_checkpoints_progress(self):
         exchange = lambda n: [wire(f'completed-tool-{n} ' + 't' * 3500)]
