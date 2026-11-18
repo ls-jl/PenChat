@@ -70,7 +70,7 @@ def run(env,Server):
         if b[1]>=v[1] and b[3]<=v[3]:break
         d.drag(220,v[3]-10,220,max(v[1]+10,v[3]-110))
     after_ring=ring_state();assert after_ring['estimated_tokens']<before_ring['estimated_tokens']
-    assert len(Server.requests)==2 and 'PenChat_CONTEXT_COMPRESSION_V1' in json.dumps(Server.requests[-1])
+    assert len(Server.requests)==2 and 'PenChat_CONTEXT_CHECKPOINT_V2' in json.dumps(Server.requests[-1])
     d.capture('context-ring-after-compression');d.tap(W-30,80)
     assert d.state()['view']=='chat' and d.pid()==native
     d.tap(40,168);assert not d.state()['modal']

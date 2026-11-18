@@ -24,6 +24,10 @@ for item in json.loads((ROOT / 'licenses/manifest.json').read_text())['files']:
     source = item['source']
     if source.startswith('.deps/') and (ROOT / source).is_file():
         assert hashlib.sha256((ROOT / source).read_bytes()).hexdigest() == item['sha256'], source
+codex = json.loads((ROOT / 'native/lvgl-app/codex-compaction-source.json').read_text())
+assert codex['license'] == 'Apache-2.0' and len(codex['commit']) == 40
+for name, digest in codex['adapted_files'].items():
+    assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == digest, name
 adaptation = json.loads((ROOT / 'native/camera/stb-adaptation.json').read_text())
 assert hashlib.sha256((ROOT / 'native/camera' / adaptation['file']).read_bytes()).hexdigest() == adaptation['adapted_sha256']
 pinyin = json.loads((ROOT/'native/pinyin/source-lock.json').read_text())

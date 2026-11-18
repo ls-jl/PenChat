@@ -6,7 +6,7 @@ Json webToolDefinitions();
 Json wireToolDefinitions(const Json &model);
 void validateToolModel(const Json &model);
 void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &events,
-                    int generation);
+                    int generation, std::function<Json(const Json &)> compact = {});
 void streamModelRound(const Json &model, Json input, std::atomic<bool> &cancel, Events &events,
                       int generation);
 // Every call is executed outside LVGL. One caller per instance.

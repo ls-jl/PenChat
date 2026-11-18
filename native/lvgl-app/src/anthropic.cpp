@@ -183,7 +183,7 @@ void streamAnthropic(const Json &model, Json input, std::atomic<bool> &cancel,
     diagnostic = {{"status", result.status}, {"request_id", redact(result.requestId)}, {"elapsed_ms", result.elapsedMs}, {"timings", result.timings},
                   {"outcome", cancel ? "cancelled" : !complete ? "api_or_transport_error" : "response"}};
     state.finish(ticks()); publish(complete);
-    tag["http_status"] = result.status; tag["request_id"] = redact(result.requestId);
+    tag["http_status"] = result.status; tag["error_code"] = result.errorCode; tag["request_id"] = redact(result.requestId);
     tag["elapsed_ms"] = result.elapsedMs; tag["snapshots"] = publications;
     if (cancel) events.push("cancelled", tag);
     else if (!complete) { tag["error"] = error; events.push("network_error", tag); }

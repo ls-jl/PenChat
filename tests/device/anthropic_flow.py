@@ -50,7 +50,7 @@ def run(ctx,handler):
  assert info['latest']['uncached_input_tokens']==10 and info['totals']['total_tokens']==58
  capture('anthropic-information');ctx['settings_swipe'](-130);ctx['settings_swipe'](-130);capture('anthropic-usage');ctx['navigate_back_or_menu']()
  attachment('compress');wait(lambda:state()['view']=='context_summary' and not state()['compressing'],timeout=25);assert not state()['modal']
- assert 'PenChat_CONTEXT_COMPRESSION_V1' in handler.requests[-1][2]['system'] and 'thinking' not in handler.requests[-1][2]
+ assert 'PenChat_CONTEXT_CHECKPOINT_V2' in json.dumps(handler.requests[-1][2]) and 'thinking' not in handler.requests[-1][2]
  capture('anthropic-compression');ctx['navigate_back_or_menu']()
  count=len(handler.requests);type_question();ctx['send_chat']();settle(count+1)
  assert SIGNATURE not in json.dumps(handler.requests[-1][2]);capture('anthropic-after-compression')

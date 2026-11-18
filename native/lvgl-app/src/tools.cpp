@@ -216,6 +216,8 @@ Json WebProcess::call(const std::string &name, const Json &arguments, std::atomi
 }
 Json publicWebMetadata(const Json &metadata) {
   Json out = Json::object();
+  if (metadata.contains("tool_compaction")) out["tool_compaction"] = publicContext(metadata["tool_compaction"]);
+  if (metadata.contains("public_tool_exchanges")) out["public_tool_exchanges"] = metadata["public_tool_exchanges"];
   auto strings = [](const Json &input, std::initializer_list<const char *> keys) {
     Json item = Json::object();
     for (const auto key : keys)
@@ -309,10 +311,10 @@ std::string decode64(const std::string &input) {
 
 } // namespace
 void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &events,
-                    int generation) {
+                    int generation, std::function<Json(const Json &)> compact) {
   Json metadata = Json::object(), records = Json::array(), sources = Json::array(),
        images = Json::array(), replay = Json::array();
-  Json usageRounds = Json::array();
+  Json usageRounds = Json::array(), exchanges = Json::array(), publicExchanges = Json::array(), compaction;
   std::string output, reasoning;
   std::set<std::string> calls;
   const auto start = ticks();
@@ -380,6 +382,9 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
     metadata["web_records"] = records;
     metadata["web_images"] = images;
     metadata["tool_replay_input"] = replay;
+    metadata["tool_exchanges"] = exchanges;
+    metadata["public_tool_exchanges"] = publicExchanges;
+    if (!compaction.is_null()) metadata["tool_compaction"] = compaction;
     events.pushLatest("response_state", {{"generation", generation},
                                          {"output", output},
                                          {"reasoning", reasoning},
@@ -396,7 +401,16 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
       if (remaining <= 0)
         throw std::runtime_error("本次请求已超时");
       model["web_tools"] = true;
-      model["tool_remaining_ms"] = remaining;
+      if (round > 0 && compact) {
+        const auto compacted = compact({{"input", input}, {"exchanges", exchanges}, {"metadata", metadata},
+                                         {"output", output}, {"reasoning", reasoning}});
+        input = compacted.at("input");
+        if (compacted.contains("checkpoint")) compaction = compacted["checkpoint"];
+        publish();
+      }
+      const auto afterCompaction = int64_t(apiOptions(model).timeout) * 1000 - (ticks() - start);
+      if (afterCompaction <= 0) throw std::runtime_error("本次请求已超时");
+      model["tool_remaining_ms"] = afterCompaction;
       checkContextResources(input);
       if (modelContextEstimate(input, model) > size_t(contextBudget(model)))
         throw std::runtime_error("工具资料达到模型上下文预算，请压缩上下文后重试");
@@ -652,8 +666,20 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
         exchange.push_back(item);
       }
       // Persist paths, not repeated Base64. Canonical inputs are materialized at request time.
+      exchanges.push_back(exchange);
+      auto publicBatch = publicToolMaterial(exchange);
+      // Pixels stay in the message's public asset references, never the text payload.
+      for (auto &entry : publicBatch) {
+        auto &parts = entry["content"];
+        parts.erase(std::remove_if(parts.begin(), parts.end(), [](const Json &part) {
+          return part.value("type", std::string()) == "input_image";
+        }), parts.end());
+      }
+      publicExchanges.push_back(std::move(publicBatch));
       for (const auto &item : exchange)
         replay.push_back(item);
+      if (replay.dump().size() > 64 * 1024 * 1024)
+        throw std::runtime_error("工具记录达到本地资源上限，已保留当前回复");
       publish();
     }
   } catch (const std::exception &e) {

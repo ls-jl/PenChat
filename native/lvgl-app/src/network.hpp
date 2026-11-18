@@ -17,7 +17,7 @@ public:
 };
 struct HttpResult {
   long status = 0;
-  std::string body, error, contentType, requestId;
+  std::string body, error, errorCode, contentType, requestId;
   int64_t elapsedMs = 0;
   int curlCode = 0;
   int64_t retryAfterSeconds = 0;
@@ -55,7 +55,8 @@ HttpResult apiRequest(const Json &model, const std::string &resource,
                       std::function<void(const char *, size_t)> chunks = {},
                       std::function<bool()> complete = {});
 void streamChat(const Json &model, Json input, std::atomic<bool> &cancel,
-                Events &events, int generation);
+                Events &events, int generation,
+                std::function<Json(const Json &)> compact = {});
 std::string generateTitle(Json model, const std::string &question,
                           const std::string &answer, int maxCharacters,
                           std::atomic<bool> &cancel);

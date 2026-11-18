@@ -170,7 +170,7 @@ def run_compression(d):
     cp = checkpoint()
     assert cp.get('summary') and cp.get('archive_id') and cp['through'] == 72 and cp['revision'] == 1, cp
     calls = [body for _, body in ContextServer.requests]
-    compression = [body for body in calls if 'PenChat_CONTEXT_COMPRESSION_V1' in json.dumps(body)]
+    compression = [body for body in calls if 'PenChat_CONTEXT_CHECKPOINT_V2' in json.dumps(body)]
     assert len(compression) > 1
     assert all(body['model'] == 'b' and 'reasoning' not in body and 'reasoning_effort' not in body for body in compression)
     answer = calls[-1]

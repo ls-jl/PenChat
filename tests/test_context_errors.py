@@ -65,9 +65,9 @@ try:
         if mode == 'success' or compatible:
             assert result['compression']['success'], result
         elif mode == 'overlong':
-            assert '未满足预算' in result['compression']['error'], result
+            assert '精简预算' in result['compression']['error'], result
         else:
-            assert result['compression']['error'].startswith('第 1 段压缩失败：'), result
+            assert result['compression']['error'].startswith('压缩失败：'), result
         results.append(result)
         print(json.dumps(result, ensure_ascii=False), flush=True)
 finally:

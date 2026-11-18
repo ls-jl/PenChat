@@ -35,7 +35,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
   answer='中文回答。'
   serialized=json.dumps(body,ensure_ascii=False)
   if '[penchat-title]' in serialized:answer='Messages 标题'
-  elif 'PenChat_CONTEXT_COMPRESSION_V1' in serialized:answer='历史摘要：保留事实、图片与未完成问题。'
+  elif 'PenChat_CONTEXT_CHECKPOINT_V2' in serialized:answer='历史摘要：保留事实、图片与未完成问题。'
   if mode=='refusal':answer='无法回答这个问题。'
   content.append({'type':'text','text':answer})
   reason={'length':'max_tokens','context':'model_context_window_exceeded','tool':'tool_use','pause':'pause_turn','refusal':'refusal','stop':'stop_sequence','unknownstop':'alien'}.get(mode,'end_turn')

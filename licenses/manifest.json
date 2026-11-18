@@ -191,6 +191,16 @@
       "file": "openssl-headers.txt",
       "source": ".deps/openssl-headers/LICENSE",
       "sha256": "c32913b33252e71190af2066f08115c69bc9fddadf3bf29296e20c835389841c"
+    },
+    {
+      "file": "codex-LICENSE.txt",
+      "source": "https://github.com/openai/codex/blob/4389a526d51a5a7600e0648436a7142a304f0188/LICENSE",
+      "sha256": "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc"
+    },
+    {
+      "file": "codex-NOTICE.txt",
+      "source": "https://github.com/openai/codex/blob/4389a526d51a5a7600e0648436a7142a304f0188/NOTICE",
+      "sha256": "9d71575ecfd9a843fc1677b0efb08053c6ba9fd686a0de1a6f5382fd3c220915"
     }
   ]
 }

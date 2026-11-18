@@ -17,6 +17,14 @@ std::string lower(std::string value) {
   for (auto &c : value) c = std::tolower(static_cast<unsigned char>(c));
   return value;
 }
+std::string windowErrorCode(const Json &error) {
+  if (!error.is_object()) return {};
+  const auto code = error.value("code", error.value("type", Json()));
+  if (!code.is_string()) return {};
+  const auto value = code.get<std::string>();
+  return value == "context_length_exceeded" || value == "context_window_exceeded"
+             ? value : std::string();
+}
 std::string messageError(const Json &value) {
   if (value.is_string()) return value.get<std::string>();
   if (value.is_object()) {
@@ -167,6 +175,9 @@ HttpResult apiRequest(const Json &model, const std::string &resource,
             headerProfile});
   if (!cancel && (result.status < 200 || result.status >= 300)) {
     auto parsed = Json::parse(result.body, nullptr, false);
+    if (parsed.is_object() && parsed.contains("error") && parsed["error"].is_object()) {
+      result.errorCode = windowErrorCode(parsed["error"]);
+    }
     const auto detail = parsed.is_object() && parsed.contains("error") ? messageError(parsed["error"]) : safeError(result.body.substr(0, 1500));
     result.error = result.status ? "HTTP " + std::to_string(result.status) + ": " + detail : result.error;
     if (result.status == 401 || result.status == 403) result.error += "（检查密钥和权限）";
@@ -259,12 +270,12 @@ Json requestBody(const Json &m, Json input, bool streaming) {
   return body;
 }
 void streamChat(const Json &model, Json input, std::atomic<bool> &cancel, Events &events,
-                int generation) {
+                int generation, std::function<Json(const Json &)> compact) {
   Json requestModel = model;
   requestModel["system_prompt"] = chatInstructions(
       model.value("system_prompt", std::string()), model.value("web_enabled", false));
   if (requestModel.value("web_enabled", false))
-    streamToolChat(requestModel, std::move(input), cancel, events, generation);
+    streamToolChat(requestModel, std::move(input), cancel, events, generation, std::move(compact));
   else
     streamModelRound(requestModel, std::move(input), cancel, events, generation);
 }
@@ -314,11 +325,17 @@ void streamModelRound(const Json &m, Json input, std::atomic<bool> &cancel, Even
     auto consume = [&](const Json &j, std::string type) {
       if (!j.is_object()) throw std::runtime_error("Invalid API response object");
       if (j.contains("type")) type = j.at("type").get<std::string>();
-      if (j.contains("error") && !j["error"].is_null()) protocolError = messageError(j["error"]);
+      if (j.contains("error") && !j["error"].is_null()) {
+        protocolError = messageError(j["error"]);
+        tag["error_code"] = windowErrorCode(j["error"]);
+      }
       const auto response = j.contains("response") ? j.at("response") : j;
       if (!chat && response.is_object()) {
         const auto status = response.value("status", std::string());
-        if (type == "response.failed" || status == "failed") protocolError = messageError(response.value("error", Json()));
+        if (type == "response.failed" || status == "failed") {
+          protocolError = messageError(response.value("error", Json()));
+          tag["error_code"] = windowErrorCode(response.value("error", Json()));
+        }
         if (type == "response.incomplete" || status == "incomplete") {
           const auto details = objectField(response, "incomplete_details");
           finishReason=details.value("reason",std::string("unknown"));
@@ -468,6 +485,7 @@ void streamModelRound(const Json &m, Json input, std::atomic<bool> &cancel, Even
     publish();
     tag["finish_reason"]=finishReason;
     tag["http_status"] = result.status; tag["request_id"] = result.requestId;
+    if (!result.errorCode.empty()) tag["error_code"] = result.errorCode;
     tag["elapsed_ms"] = result.elapsedMs; tag["snapshots"] = publications;
     if (cancel) { events.push("cancelled", tag); return; }
     const bool complete =

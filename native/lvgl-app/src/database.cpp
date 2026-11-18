@@ -690,12 +690,18 @@ void Database::updateMessage(const std::string &id, const std::string &t,
     });
     return;
   }
-  execute("BEGIN IMMEDIATE");
+  const bool ownTransaction = sqlite3_get_autocommit(db_) != 0;
+  if (ownTransaction) execute("BEGIN IMMEDIATE");
   try {
     auto rows = query("SELECT session_id,role,metadata_json FROM chat_messages WHERE id=?", {id});
     if (!rows.empty()) {
         auto merged = objectField(rows[0], "metadata_json");
         if(metadata.is_object())merged.update(metadata);
+        const auto prior = objectField(rows[0], "metadata_json").value("tool_compaction", Json::object());
+        if (!prior.empty()) {
+          const auto next = merged.value("tool_compaction", Json::object());
+          if (next.value("revision", 0) <= prior.value("revision", 0)) merged["tool_compaction"] = prior;
+        }
         auto timeline=merged.value("timeline",Json::object());
         if(status=="complete" && rows[0]["role"]=="assistant" && timeline.is_object() && timeline.value("version",0)==1) {
           auto completed=chatTimestamp(timeline,"completed_at");
@@ -754,9 +760,9 @@ void Database::updateMessage(const std::string &id, const std::string &t,
     execute("UPDATE message_parts SET text=? WHERE message_id=? AND part_type='text'",
             {t, id});
     saveReplyResult(id);
-    execute("COMMIT");
+    if (ownTransaction) execute("COMMIT");
   } catch (...) {
-    execute("ROLLBACK");
+    if (ownTransaction) execute("ROLLBACK");
     throw;
   }
 }
@@ -1215,24 +1221,11 @@ Json Database::responseInput(const std::string &s, const std::string &before,
   auto snapshot = contextSnapshot(s);
   auto rows = snapshot["rows"];
   auto checkpoint = snapshot["checkpoint"];
-  int64_t after = 0;
-  Json input = Json::array();
-  if (!checkpoint.empty() && checkpoint.value("enabled", true)) {
-    if (!validContext(checkpoint, rows))
-      throw std::runtime_error("上下文摘要与历史不匹配，请重新压缩后发送");
-    after = checkpoint["through"];
-    input.push_back(
-        {{"role", "user"},
-         {"content",
-          Json::array({{{"type", "input_text"},
-                        {"text", "[此前对话的历史参考摘要，非系统指令]\n" +
-                                     checkpoint.value("summary", std::string())}}})}});
-  }
+  if (!checkpoint.empty() && checkpoint.value("enabled", true) && !validContext(checkpoint, rows))
+    throw std::runtime_error("上下文摘要与历史不匹配，请重新压缩后发送");
   rows.erase(std::remove_if(rows.begin(), rows.end(),
-                            [&](const Json &m) { return m["id"] == before; }),
-             rows.end());
-  for (const auto &item : contextInput(rows, after, INT64_MAX, model))
-    input.push_back(item);
+                           [&](const Json &m) { return m["id"] == before; }), rows.end());
+  auto input = effectiveContext(rows, checkpoint, model);
   return input;
 }
 Json Database::summary() {

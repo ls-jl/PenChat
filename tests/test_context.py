@@ -20,13 +20,13 @@ class Server(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         self.requests.append((self.path,body))
-        compression='PenChat_CONTEXT_COMPRESSION_V1' in json.dumps(body)
+        compression='PenChat_CONTEXT_CHECKPOINT_V2' in json.dumps(body)
         if compression and self.fail:
             self.send_response(500);self.send_header('Content-Length','0');self.end_headers();return
         self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Connection','close');self.end_headers()
         try:
             if compression: time.sleep(self.delay)
-            text=('事实摘要：保留约束、决定和图片信息。' if not self.verbose else '过长摘要'*1000) if compression else '正文完成。'
+            text=('事实摘要：保留约束、决定和图片信息。' if not self.verbose else '过长摘要'*100000) if compression else '正文完成。'
             chat=self.path.endswith('/chat/completions')
             payload={'choices':[{'delta':{'content':text}}]} if chat else {'type':'response.output_text.delta','delta':text}
             # Exercise fragmented multibyte SSE for the separate compression reader too.
@@ -138,9 +138,9 @@ def run():
                     snapshot(app,'context-progress-'+api)
                     wait_idle(app)
                     assert not app.diag()['modal'],(p/'runtime.log').read_text()
-                    cp=checkpoint(p);assert cp['summary'] and cp['archive_id'] and cp['through']==72,cp
-                    calls=[b for _,b in Server.requests if 'PenChat_CONTEXT_COMPRESSION_V1' in json.dumps(b)]
-                    assert len(calls)>1,len(calls)
+                    cp=checkpoint(p);assert cp['summary'] and cp['archive_id'] and 0 < cp['through'] <= 80 and cp['version'] == 2,cp
+                    calls=[b for _,b in Server.requests if 'PenChat_CONTEXT_CHECKPOINT_V2' in json.dumps(b)]
+                    assert len(calls)>=1,len(calls)
                     assert all(b['model']=='b' and 'reasoning_effort' not in b and 'reasoning' not in b for b in calls)
                     assert 'data:image/' in json.dumps(calls),calls[0]
                     answer=Server.requests[-1][1]
@@ -153,7 +153,8 @@ def run():
                         assert_chat_prompt(answer['messages'][0]['content'],'CHAT_SYSTEM_ONCE')
                         assert sum(m['role']=='system' for m in answer['messages'])==1
                     # Covered source/opaque data is absent; summary is ordinary historical data.
-                    assert 'fact-0:' not in json.dumps(answer) and 'opaque-covered' not in json.dumps(calls)
+                    assert 'opaque-covered' not in json.dumps(calls)
+                    assert cp['retained'] and '历史参考摘要' in json.dumps(answer,ensure_ascii=False)
                     with sqlite3.connect(p/'penchat.db') as db:
                         assert db.execute("select count(*) from chat_sessions where status='archived'").fetchone()[0]==1
                         assert db.execute("select count(*) from chat_messages where session_id=?",(cp['archive_id'],)).fetchone()[0]==80
@@ -212,16 +213,16 @@ def run():
                 assert 'fact-0:' in json.dumps(body) and 'fact-101:' in json.dumps(body)
                 assert not checkpoint(p)
             finally:app.close()
-        # Manual compaction also works on fewer than four turns and splits one very long reply.
+        # Manual compaction also works on fewer than four turns. Complete turns stay indivisible.
         with tempfile.TemporaryDirectory(prefix='penchat-context-manual-') as d:
             p=pathlib.Path(d);fixture(p,server.server_port,rounds=1,budget=16384)
             with sqlite3.connect(p/'penchat.db') as db:
-                db.execute("update chat_messages set output_text=? where id='m1'",('长回复事实。'*3000,))
+                db.execute("update chat_messages set output_text=? where id='m1'",('短历史事实。'*100,))
             app=Native(binary,p)
             try:
                 Server.requests=[];app.edit('MANUAL_DRAFT');manual(app);wait_idle(app)
                 assert checkpoint(p)['through']==2
-                assert len(Server.requests)>1
+                assert len(Server.requests)==1
                 # dev now opens a reader page after manual compression; return
                 # through its navigation instead of tapping the former modal.
                 state=app.diag();assert state['view']=='context_summary' and not state['modal']

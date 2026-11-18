@@ -147,3 +147,7 @@ The unchanged source bundle, dated URL, SHA-256 and source attribution are in
 `native/web-search/trust/`; the full MPL-2.0 text and provenance ship alongside it
 in `assets/web-search/`. Source: https://curl.se/docs/caextract.html.
 This data license does not change the license of PenChat's application code.
+
+## Codex context compaction
+
+The native text checkpoint algorithm is adapted from OpenAI Codex commit `4389a526d51a5a7600e0648436a7142a304f0188`, under Apache-2.0. See `licenses/codex-LICENSE.txt`, `licenses/codex-NOTICE.txt` and `native/lvgl-app/codex-compaction-source.json`. PenChat preserves excluded recent turns, supports its three API protocols, and commits checkpoints with SQLite archives.

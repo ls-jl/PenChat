@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/openai/codex",
+  "commit": "4389a526d51a5a7600e0648436a7142a304f0188",
+  "license": "Apache-2.0",
+  "files": {
+    "codex-rs/core/src/compact.rs": "984b611df982a55835eb961c647fb7a9d8608300f6695d7a771d623cd10a9a5c",
+    "codex-rs/prompts/templates/compact/prompt.md": "ab0c334d4faca17e3afbb9b16967c1b2fdcc7242a9a0880af57949fa236d6d07",
+    "codex-rs/prompts/templates/compact/summary_prefix.md": "e9b088e794a6bb9082ac053fcc760bd818d7e720ee4bcdc72c6e480de7b7cb0e"
+  },
+  "adapted_files": {
+    "native/lvgl-app/src/context.cpp": "2ab70d45b6c9512b57bd322e680a1d22d3ae6a1bb369c8179e57a9c3a4709211",
+    "native/lvgl-app/src/context.hpp": "3a8a721d2e55daf4470c072df194eb6746469c841b1e34915f5015cd1380e840"
+  }
+}
