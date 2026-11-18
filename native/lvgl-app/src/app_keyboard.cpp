@@ -1710,7 +1710,15 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
       x>=selection.x1&&x<=selection.x2&&y>=selection.y1&&y<=selection.y2;
     if(!popupHit&&editorMenu_){editorMenu_=false;editorSyncSelectionMenu();}
     bool overlay=editorClipboardOpen_||(editorExpanded_&&(!layout.portrait||layout.candidateCover().contains(x,y)))||editorLayoutMenu_||editorPunctuation_||editorToolsOpen_||popupHit;
-    if(!overlay && editor_.selected()) {
+    // A flipped start handle can extend its enlarged hit target over an edge
+    // toolbar button. Visible actions own their actual bounds; the invisible
+    // handle padding must not steal Copy/Tools/Done contacts.
+    bool controlHit=false;
+    for(const auto &entry:editorLocalActions_)if(!lv_obj_is_hidden(entry.second)) {
+      lv_area_t bounds;lv_obj_get_coords(entry.second,&bounds);
+      if(x>=bounds.x1&&x<=bounds.x2&&y>=bounds.y1&&y<=bounds.y2){controlHit=true;break;}
+    }
+    if(!overlay && !controlHit && editor_.selected()) {
       auto r=editor_.range();int distance=100000;
       for(int i=0;i<2;++i) {
         if(!editorHandles_[i]||lv_obj_is_hidden(editorHandles_[i]))continue;
@@ -1723,7 +1731,7 @@ void App::editorTouch(int x,int y,bool pressed,bool cancelled) {
         editorHandleOffsetY_=y-int(point.y)+editorDesign().controls.caretOffset+editorTextFont()->line_height/2;
       }
     }
-    editorTextTouch_=editorHandle_>=0||(!overlay&&editorTextArea().contains(x,y));
+    editorTextTouch_=editorHandle_>=0||(!overlay&&!controlHit&&editorTextArea().contains(x,y));
     if(editorTextTouch_) {
       if(!editor_.preedit.empty()&&editor_.raw()) {editorChanged();editorSyncText(true);}
       // Manual reading/selection owns the viewport until text input resumes.

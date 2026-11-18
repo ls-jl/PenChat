@@ -3579,13 +3579,16 @@ void App::handle(const Json &m) {
     display_.visible(false);keyboard_ = false;display_.topHeight(0);
     if (editor_.active) {
       const bool closedNormally=m.value("error",std::string()).empty();
-      if (m.value("confirmed", false)||(closedNormally&&!restoreFullScreen)) {
+      if (m.value("confirmed", false)||closedNormally) {
         closeAttachments();
-        auto text = m.value("text", editor_.text);
+        // A normal fullscreen Cancel restores the seed and ends editing. Keep
+        // the snapshot for data recovery without reopening the native keyboard.
+        // Docked editing still retains its latest committed live proxy text.
+        auto text = restoreFullScreen&&!m.value("confirmed",false)?editor_.text:m.value("text", editor_.text);
         // A normal dismissal may omit text. Preserve the exact seed including
         // unfinished native phonetics; an explicitly returned empty value still
         // means the user deleted everything. Live proxy changes clear preedit.
-        if(!m.contains("text")&&!editor_.preedit.empty())
+        if(!restoreFullScreen&&!m.contains("text")&&!editor_.preedit.empty())
           text.insert(editByte(text,editor_.cursor),editor_.preedit);
         if (editLength(text) <= editor_.limit) { editor_.text = text; editor_.preedit.clear(); editorFinish(true); }
         else { editor_.notice = "官方输入超过长度上限，请调整";editorPolicy(true);editorBuild();editorOcrStart(); }

@@ -255,6 +255,13 @@ void App::closeHistoryContext() {
   historyActions_.clear();historyContextId_.clear();refreshHistoryHighlight();
   messageActions_.clear();messageContextId_.clear();messageContextText_.clear();
   navigationPointerDown_=navigationBackdrop_=false;
+  // Clear ownership before retiring the layer, so its delayed delete callback
+  // cannot affect a replacement. Restore the composer here for the same reason:
+  // a modal's ownership-checked delete callback will intentionally do nothing.
+  if(object&&view_=="chat"&&chatControls_) {
+    lv_obj_set_hidden(chatControls_,false);
+    updateChatControls(true);
+  }
   if(object)motion::dismiss(object,panel);
 }
 void App::historyContext(const std::string &id) {

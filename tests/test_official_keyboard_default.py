@@ -75,6 +75,34 @@ def run(w,h):
                 assert not preference(a)['saved'];open_editor(a);assert not a.diag()['keyboard'];close_native(a)
             finally:a.close()
         print('Official default setting: default, durable toggle, failed save/retry, chat/form/secret routes, cancellation/native/manual, restart and invalid values:',w,h,'passed',flush=True)
+def normal_dismiss(w,h):
+    with tempfile.TemporaryDirectory(prefix='penchat-official-normal-close-') as folder:
+        p=pathlib.Path(folder);kwargs=dict(official_adapter=False,screen={'width':w,'height':h})
+        a=ui.Native(BINARY,p,**kwargs);a.close()
+        original='keep\n原草稿'
+        with sqlite3.connect(p/'penchat.db') as db:
+            db.execute('insert or replace into app_settings values(?,?,1)',(KEY,'true'))
+            db.execute("insert or replace into chat_drafts(draft_key,revision,text) values('new',1,?)",(original,))
+        a=ui.Native(BINARY,p,**kwargs)
+        try:
+            b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+            request=a.receive('keyboard.open');assert request['text']==original
+            if h>w:
+                a.send('keyboard.change',requestId=request['requestId'],text='latest committed',cursorIndex=16)
+                expected='latest committed'
+                a.send('keyboard.result',requestId=request['requestId'],confirmed=False,retained=True,text=expected)
+            else:
+                expected=original
+                a.send('keyboard.result',requestId=request['requestId'],confirmed=False,text='')
+            ui.wait_for(lambda:not a.diag()['keyboard'] and not editor(a)['active'])
+            assert a.diag()['draft_length']==len(expected)
+            time.sleep(.2);assert not editor(a)['active'] and not a.diag()['keyboard']
+            b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+            again=a.receive('keyboard.open');assert again['text']==expected
+            cancel_official(a,again,'fixture open failure');close_native(a)
+        finally:a.close()
+        print('Official normal close: no native rebound, preserved fullscreen seed/live portrait text and error fallback',w,h,flush=True)
+
 def selection_only():
     from test_message_edit import fixture,menu,action
     with tempfile.TemporaryDirectory(prefix='penchat-official-select-') as folder:
@@ -88,5 +116,5 @@ def selection_only():
         finally:a.close()
         print('Official default preserves read-only selection session',flush=True)
 if __name__=='__main__':
-    for size in [(960,266),(640,260),(568,1210)]:run(*size)
+    for size in [(960,266),(640,260),(568,1210)]:run(*size);normal_dismiss(*size)
     selection_only()
