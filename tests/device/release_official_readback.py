@@ -10,11 +10,21 @@ import struct
 import zlib
 
 
+def owned_fullscreen(state, owner=None):
+  editor=state.get('editor',{})
+  pid,session=state.get('pid'),editor.get('session')
+  matched=bool(type(pid) is int and pid>0 and isinstance(session,str) and session and
+               owner and owner.get('pid')==str(pid) and
+               owner.get('session')==editor.get('session'))
+  return bool(state.get('keyboard') and editor.get('active') and editor.get('official') and
+              not editor.get('docked') and not state.get('system_overlay',{}).get('panel_visible',False) and
+              (state.get('system_overlay',{}).get('app_focused') or matched))
+
+
 def capture(d, name):
   s=d.state()
-  owned_fullscreen = (s['keyboard'] and s['editor']['active'] and s['editor']['official'] and
-                      not s['editor']['docked'] and s['system_overlay'].get('app_focused'))
-  assert (s['page_visible'] or owned_fullscreen) and not s['system_overlay'].get('panel_visible',False)
+  owned=owned_fullscreen(s,getattr(d,'owned_official_request',None))
+  assert (s['page_visible'] or owned) and not s['system_overlay'].get('panel_visible',False)
   assert (s['keyboard'] and s['editor']['active'] and s['editor']['official']) or (s['input_focused'] and s['touch_input']['active'])
   state=d.sh('cat /sys/kernel/debug/dri/0/state')
   candidates=[]

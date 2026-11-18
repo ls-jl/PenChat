@@ -7,6 +7,17 @@ import pathlib
 
 def official_visual(d, name):
   if getattr(d, 'official_readback_probe', False):
+    state = d.state()
+    editor = state.get('editor', {})
+    owned_fullscreen = (state.get('keyboard') and editor.get('active') and
+                        editor.get('official') and not editor.get('docked') and
+                        not state.get('system_overlay', {}).get('panel_visible', False))
+    from release_official_readback import owned_fullscreen as verified_fullscreen
+    if owned_fullscreen and not state.get('page_visible') and not verified_fullscreen(state,getattr(d,'owned_official_request',None)):
+      # Full-screen Falcon editing may hide our page and own the app focus.
+      # Observe it through the SDK; keep primary readback's stricter ownership
+      # rules for retained native editing, where exact boundary pixels matter.
+      return d.system_capture(name)
     from release_official_readback import capture
     return capture(d, name)
   return d.system_capture(name)

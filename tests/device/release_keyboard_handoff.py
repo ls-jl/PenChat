@@ -5,6 +5,12 @@ from release_official_surface import controller_command, official_visual
 def run(d):
  assert d.serial in ('MEB0400008900794','MEA2300009007113','JDA0700006552216')
  assert d.s6 or getattr(d,'official_controller_file',None), 'Observe each RK official editor before choosing system controls'
+ def observe(name):
+  s=d.state();assert s['keyboard'] and s['editor']['active'] and s['editor']['official']
+  # This scope just requested the system editor on its isolated fake field.
+  # Full-screen IME may own focus; pin readback to this process and edit session.
+  d.owned_official_request={'pid':str(s['pid']),'session':s['editor']['session']}
+  return official_visual(d,name)
  d.settings();d.tap(d.reveal(lambda s:s['settings']['rows']['keyboard']['bounds']))
  d.wait(lambda:d.state()['view']=='keyboard_settings')
  if not d.state()['editor']['official_shortcut']['saved']:
@@ -16,7 +22,7 @@ def run(d):
  assert d.state()['editor']['length']==2
  d.capture('direct-system-action');assert 'official' in d.state()['editor']['actions']
  d.editor_action('official');d.wait(lambda:d.state()['keyboard']);time.sleep(.7)
- image=official_visual(d,'official-return-target')
+ image=observe('official-return-target')
  print(json.dumps({'stage':'official-return-target','image':str(image)},ensure_ascii=False),flush=True)
  command=controller_command(d) if getattr(d,'official_controller_file',None) else ['official-return','34','18'];assert len(command)==3 and command[0]=='official-return'
  def tap_system(command):
@@ -31,7 +37,7 @@ def run(d):
  d.tap(d.reveal(lambda s:s['settings']['rows']['prefer_official_keyboard']['bounds']))
  d.wait(lambda:d.state()['editor']['official_preference']['saved'])
  d.chat();d.tap(d.state()['composer_text_bounds']);d.wait(lambda:d.state()['keyboard']);time.sleep(.5)
- image=official_visual(d,'default-official-return-target')
+ image=observe('default-official-return-target')
  print(json.dumps({'stage':'default-official-return-target','image':str(image)},ensure_ascii=False),flush=True)
  command=controller_command(d) if getattr(d,'official_controller_file',None) else ['official-return','34','18'];assert len(command)==3 and command[0]=='official-return'
  tap_system(command);d.wait(lambda:not d.state()['keyboard'] and not d.state()['editor']['active'])
@@ -39,7 +45,7 @@ def run(d):
  assert d.state()['draft_length']==2 and not d.state()['composer_hidden']
  d.capture('default-system-return-no-native-keyboard')
  d.tap(d.state()['composer_text_bounds']);d.wait(lambda:d.state()['keyboard']);time.sleep(.5)
- image=official_visual(d,'official-confirm-target')
+ image=observe('official-confirm-target')
  print(json.dumps({'stage':'official-confirm-target','image':str(image)},ensure_ascii=False),flush=True)
  command=controller_command(d) if getattr(d,'official_controller_file',None) else ['official-delete','592','124']
  assert len(command)==3 and command[0]=='official-delete'
@@ -47,7 +53,7 @@ def run(d):
  # The full-screen editor commits only with its matching result. Use a changed
  # value so a premature hide/cancel that merely restores the seed cannot pass.
  assert d.state()['editor']['length']==2
- image=official_visual(d,'official-confirm-edited-target')
+ image=observe('official-confirm-edited-target')
  print(json.dumps({'stage':'official-confirm-edited-target','image':str(image)},ensure_ascii=False),flush=True)
  command=controller_command(d) if getattr(d,'official_controller_file',None) else ['official-confirm','592','222']
  assert len(command)==3 and command[0]=='official-confirm'

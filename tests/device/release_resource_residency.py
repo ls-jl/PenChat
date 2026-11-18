@@ -52,10 +52,18 @@ def run(d):
  timings=[]
  for cycle in range(3):
   d.tap(d.state()['composer_text_bounds']);d.wait(lambda:d.state()['editor']['active'])
-  d.wait(lambda:not d.state()['surface_motion']);timing=d.state()['editor']['timing']
+  d.wait(lambda:not d.state()['surface_motion']);editor=d.state()['editor'];timing=editor['timing']
   expected=180 if d.h>d.w else 120
-  assert timing['duration_ms']==expected and timing['entry_finished']-timing['animation']>=expected-5,timing
+  elapsed=timing['entry_finished']-timing['animation']
+  assert timing['duration_ms']==expected and timing['animation']<=timing['first_frame']<=timing['entry_finished'],timing
+  # Async OCR/capability completion can rebuild an entering keyboard. That
+  # path intentionally uses its current displacement to resolve the remaining
+  # duration; only an uninterrupted entry has the original wall-time bound.
+  rebuilt=editor['build_count']>1
+  assert elapsed>0 and (rebuilt or elapsed>=expected-5),(timing,editor['build_count'])
   d.editor_action('done');d.wait(lambda:not d.state()['surface_motion'])
   closed=d.state()['editor']['timing'];assert closed['exit_finished']-closed['exit_started']>=expected-5,closed
+  closed.update(entry_elapsed_ms=elapsed,entry_build_count=editor['build_count'],
+                entry_duration_mode='remaining-distance-after-rebuild' if rebuilt else 'full')
   timings.append(closed);d.wait(ready,90)
  return {'cycles':rows,'keyboard_timings':timings,'same_native_pid':pid,'same_worker_pid':worker,'snapshot_files_created':False,'model_prepare_requests':requests}

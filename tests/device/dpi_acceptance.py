@@ -282,12 +282,14 @@ try:
     e=state()['editor'];b=e['text_bounds'];space=e['coordinate_space']
     touch((b[0]+12)*W/space['width'],(b[1]+10)*H/space['height'],650)
     wait(lambda:state()['editor']['selected']);capture('selection');result['text_selection']=True
-    action('official');wait(lambda:state()['keyboard']);capture('official-keyboard')
-    # Return using the current native editor protocol's own cancellation. This
-    # does not require external input or enter a real message.
-    result['official_open']=True
-    sh('miniapp_cli start '+APP['appid']);time.sleep(.5)
-    result['native_alive_after_official']=bool(pid())
+    # Finish through the live native field action. Opening system IME and then
+    # starting this app again does not cancel that editor; close_app would have
+    # to terminate native while Falcon still owns it and leave a failure page.
+    # Observed system controls/confirmation belong to the dedicated isolated
+    # keyboard-handoff and official-editing release scopes.
+    action('cancel');wait(lambda:not state()['editor']['active'])
+    result['native_field_cancelled']=True
+    result['official_keyboard_scope']='Separate keyboard-handoff / official-editing acceptance'
     result['layout']='compact' if s6 else 'portrait' if H>W else 'wide'
     result['typed_letters']=4
     result['settings_rows']=26
@@ -326,9 +328,6 @@ finally:
         assert result['restored'] and result['host_unchanged'] and not recovery_errors,result
         sh('miniapp_cli start '+APP['appid'])
 # Verify the executable actually running after restoring the original data.
-deadline=time.monotonic()+3
-while not pid() and time.monotonic()<deadline:time.sleep(.1)
-if not pid():touch(122,H-47)
 wait(pid)
 d=state()
 with zipfile.ZipFile(args.package) as package:
