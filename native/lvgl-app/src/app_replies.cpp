@@ -5,15 +5,35 @@ std::string replyText(const Json &row) {
   auto i=row.find("output_text");return i!=row.end()&&i->is_string()?i->get<std::string>():std::string();
 }
 }
+void App::loadDraft(const std::string &session) {
+  const auto key=db_.sessionInfo(session).empty()?std::string("new"):session;
+  draftState_=db_.draft(key);draft_=draftState_.at("text").get<std::string>();
+}
+void App::saveDraft() {
+  if(draftState_.empty()||!messageEdit_.empty())return;
+  const auto text=editor_.active&&editorChat_?editor_.text:draft_;
+  if(text==draftState_.value("text",std::string()))return;
+  const auto revision=draftState_.value("revision",uint64_t(0))+1;
+  draftState_["revision"]=revision;draftState_["text"]=text;
+  db_.queueDraft(draftState_,text);
+}
+bool App::draftImage(const std::string &id) const {
+  for(const auto &image:draftState_.value("images",Json::array()))if(image.at("id")==id)return true;
+  return false;
+}
+Json App::draftRows() const {
+  Json rows=Json::array();
+  for(const auto &image:draftState_.value("images",Json::array())) {
+    rows.push_back({{"id",image.at("id")},{"role","user"},{"status","complete"},
+      {"seq",INT_MAX},{"output_text",""},{"stored_path",image.at("path")},
+      {"display_src",image.value("previewPath",image.at("path"))},{"draft_virtual",true},{"edit_virtual",true}});
+  }
+  return rows;
+}
 bool App::switchDraft(const std::string &next) {
   if(next==session_)return true;
-  size_t bytes=draft_.size();
-  for(const auto &d:sessionDrafts_)if(d.first!=next&&d.first!=session_)bytes+=d.second.size();
-  if(bytes>1024*1024){modal("草稿暂存已满","请先发送或清空部分草稿，再切换会话；当前输入仍保留。");return false;}
-  if(draft_.empty())sessionDrafts_.erase(session_);else sessionDrafts_[session_]=draft_;
-  auto found=sessionDrafts_.find(next);
-  draft_=found==sessionDrafts_.end()?std::string():std::move(found->second);
-  if(found!=sessionDrafts_.end())sessionDrafts_.erase(found);
+  saveDraft();
+  loadDraft(next);
   composerShortcut_.reset();
   return true;
 }
@@ -146,7 +166,7 @@ void App::branchReply(const std::string &id) {
   if(generating_||contextBusy_||replyBusy_||imageStoreBusy_||saveInFlight_||messageEditBusy_||!messageEdit_.empty())return;
   auto preferences=sessionPreferences_,model=currentModel();
   if(!model.empty()) {
-    preferences["model_id"]=model["id"];const auto effort=model.value("effective_effort",std::string());preferences["effort"]=effort.empty()?"api_default":effort;
+    preferences["model_id"]=model["id"];
   }
   closeAttachments();resetPull();replyCancel_=false;replyBusy_=true;replyToken_=uid("branch");
   modal("正在创建分支","正在复制到所选回复，并移动草稿和待发送图片…");
@@ -188,8 +208,10 @@ bool App::replyEvent(const Event &e) {
     replyBusy_ = false;
     if(e.data.value("session",std::string())!=session_)return true;
     if(e.data.contains("error")){build();if(!e.data.value("cancelled",false))modal("无法创建分支",e.data["error"]);return true;}
-    sessionDrafts_.erase(session_);
+    saveDraft();db_.flush();
+    db_.moveDraft(draftState_.at("key"),e.data.at("result").at("id"));
     session_=e.data.at("result").at("id").get<std::string>();sessionPreferences_=db_.sessionPreferences(session_);
+    loadDraft(session_);
     // draft_ deliberately moves with the active page; no attach()/auto-send path.
     assistant_.clear();output_.clear();reasoning_.clear();reasoningMetadata_=Json::object();
     expandedReasoning_.clear();reasoningOverrides_.clear();tableScrolls_.clear();

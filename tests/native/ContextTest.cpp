@@ -193,6 +193,39 @@ int main() {
   db.selectReplyResult(choiceSession, firstReply, 1);
   auto restored = db.contextSnapshot(choiceSession);
   assert(restored["rows"].size() == 5 && restored["rows"] == referenceRows(db, choiceSession));
+  {
+  // Durable drafts do not create history, and a successful send invalidates old writers.
+  auto fresh=db.draft("new");fresh["revision"]=1;
+  db.queueDraft(fresh,"给我解释");db.flush();
+  const auto shared=db.draft("new");assert(shared["text"]=="给我解释");
+  auto personal=db.draft(session);personal["revision"]=1;
+  db.queueDraft(personal,"会话草稿");db.flush();
+  const auto photo=join(root,"draft.png");
+  {std::ofstream file(photo);file<<"local-image-fixture";}
+  db.addDraftImage(shared,{{"path",photo},{"source","album"}});
+  const auto withImage=db.draft("new");assert(withImage["images"].size()==1);
+  const auto other=uid("session");
+  db.append(other,"user","existing");
+  auto otherDraft=db.draft(other);otherDraft["revision"]=1;
+  db.queueDraft(otherDraft,"send now");db.flush();
+  db.execute("CREATE TRIGGER draft_fail BEFORE INSERT ON chat_messages BEGIN SELECT RAISE(ABORT,'fixture');END");
+  try{db.commitDraftSend(db.draft(other),other,"send now",Json::object(),model,1,Json::object(),Json::object());assert(false);}catch(const std::exception&){}
+  assert(db.draft("new")["images"].size()==1&&db.draft(other)["text"]=="send now");
+  db.execute("DROP TRIGGER draft_fail");
+  db.commitDraftSend(db.draft(other),other,"send now",Json::object(),model,1,Json::object(),Json::object());
+  auto late=withImage;late["revision"]=999;db.queueDraft(late,"stale resurrection");db.flush();
+  assert(db.draft("new")["text"]==""&&db.draft("new")["images"].empty());
+  assert(db.draft(session)["text"]=="会话草稿");
+  auto restartDraft=db.draft("new");restartDraft["revision"]=1;
+  db.queueDraft(restartDraft,"restart");db.flush();
+  {Database reopened(join(root,"penchat.db"));assert(reopened.draft("new")["text"]=="restart");}
+  auto imageDraft=db.draft("new");db.addDraftImage(imageDraft,{{"path",photo},{"source","album"}});
+  imageDraft=db.draft("new");const auto imageSession=uid("session");
+  assert(db.sessionInfo(imageSession).empty());
+  db.commitDraftSend(imageDraft,imageSession,"restart",Json::object(),model,1,Json::object(),Json::object());
+  assert(db.query("SELECT id FROM chat_messages WHERE session_id=? AND message_type='image'",{imageSession}).size()==1);
+  assert(db.draft("new")["images"].empty());
+  }
   std::cout << "context snapshots, 106 messages, atomic rollback, shared assets and "
                "preset reset passed\n";
 }

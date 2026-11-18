@@ -301,8 +301,10 @@ void App::effortPicker() {
   auto panel=box(attachments_,area.x,area.y,area.width,area.height,theme::palette().popup);
   attachmentPanel_=panel;lv_obj_set_scrollable(panel,false);
   lv_obj_set_style_bg_opa(panel,LV_OPA_TRANSP,0);
-  const int initial=effortChoiceIndex(model);
-  auto title=label(panel,effortCaption(options[initial]),uiMetrics_.dp(24),uiMetrics_.dp(16),
+  if(options.empty()){closeAttachments();modal("推理强度","当前模型尚未配置可选强度，请在模型设置中核对能力。");return;}
+  const bool explicitEffort=!sessionPreferences_.value("effort",std::string()).empty()&&sessionPreferences_.value("effort",std::string())!="api_default";
+  const int initial=std::max(0,effortChoiceIndex(model));
+  auto title=label(panel,explicitEffort?effortCaption(options[initial]):std::string("跟随服务商默认 · 推理强度"),uiMetrics_.dp(24),uiMetrics_.dp(16),
                    area.width-uiMetrics_.dp(48),uiMetrics_.fontSize(UiFont::Body),theme::palette(theme::Mode::Dark).richHeading);
   lv_obj_set_style_text_align(title,LV_TEXT_ALIGN_CENTER,0);
   lv_label_set_long_mode(title,LV_LABEL_LONG_MODE_DOTS);

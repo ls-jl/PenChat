@@ -38,7 +38,7 @@ inline Json applyPresetSnapshot(Json preferences, const Json &preset,
   }
   auto effort = preset.value("effort", std::string());
   if (!effort.empty() && (empty || preset.value("effort_when", std::string("empty")) == "always")) {
-    if (presetSupports(model, effort)) { preferences["effort"] = effort; preferences["gauge"] = true; }
+    if (presetSupports(model, effort)) { preferences["effort"] = effort; preferences["gauge"] = effort!="api_default"; }
     else warning += "当前模型不支持预设强度，已保留会话强度。";
   }
   auto mode = preset.value("prompt_mode", std::string("inherit"));

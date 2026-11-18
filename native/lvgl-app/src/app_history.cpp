@@ -321,7 +321,7 @@ void App::historyContext(const std::string &id) {
   for(const auto &entry:historyActions_)stylePopupRow(entry.second);
 }
 void App::retireSession(const std::string &id, bool archive) {
-  if(!archive)sessionDrafts_.erase(id);
+
   if (id == session_)
     stopNetwork();
   if (archive)
@@ -337,7 +337,7 @@ void App::retireSession(const std::string &id, bool archive) {
     expandedReasoning_.clear();
     reasoningOverrides_.clear();
     tableScrolls_.clear();
-    draft_.clear();
+    loadDraft(session_);
     db_.setting("active_session_id", nullptr);
     pullNeedsPause_ = pullTrackActivity_ = false;
     messageOffset_ = 0;

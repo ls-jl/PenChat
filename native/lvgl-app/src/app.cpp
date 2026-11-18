@@ -131,6 +131,14 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
                                               db_.models(), db_.activeModel(), true, presetWarning);
   }
   initializeUpdates();
+  if(!draft_.empty()) {
+    const auto key=db_.sessionInfo(session_).empty()?std::string("new"):session_;
+    if(db_.query("SELECT draft_key FROM chat_drafts WHERE draft_key=?",{key}).empty()) {
+      auto legacy=db_.draft(key);legacy["revision"]=1;
+      db_.queueDraft(legacy,draft_);db_.flush();
+    }
+  }
+  loadDraft(session_);
   initializeOnboarding(config);
   build();sendAppearance();
   if (!onboardingActive_ && !presetWarning.empty()) modal("默认预设已部分应用", presetWarning);
@@ -396,7 +404,7 @@ Json App::currentModel() {
   const auto model = id.empty() ? db_.activeModel() : db_.model(id);
   return model.empty()
              ? model
-             : resolveReasoning(model, sessionPreferences_, effortMemory_);
+             : resolveReasoning(model, sessionPreferences_, "");
 }
 void App::savePreferences() {
   if (!messageEdit_.empty() || emptyForPreset()) return;
@@ -409,13 +417,7 @@ void App::bindPreferences(const Json &model) {
   // selection made while context preparation runs belongs to the next request.
   if (sessionPreferences_.value("model_id", std::string()).empty())
     sessionPreferences_["model_id"] = model["id"];
-  if (!sessionPreferences_.contains("effort")) {
-    const auto effort = model.value("effective_effort", std::string());
-    if (!effort.empty())
-      sessionPreferences_["effort"] = effort;
-  }
-  if (!sessionPreferences_.contains("gauge"))
-    sessionPreferences_["gauge"] = !effortMemory_.empty();
+
 }
 void App::chooseModel(const std::string &id) {
   sessionPreferences_["model_id"] = id;
@@ -426,7 +428,7 @@ void App::chooseModel(const std::string &id) {
 void App::chooseEffort(const std::string &key) {
   sessionPreferences_["effort"] = key;
   sessionPreferences_["preset_adjusted"] = true;
-  effortMemory_ = key;
+  effortMemory_.clear();
   savePreferences();
 }
 void App::modelPage() {
@@ -703,6 +705,7 @@ bool App::chatTouch(int x, int y, bool pressed) {
   return pressed && pullCandidate_ && !began;
 }
 void App::clear() {
+  if(modal_)lv_obj_delete(modal_);
   stopOfficialReaderGlide();
   chatBottomState_.pause();
   motion::finishAll();
@@ -1009,6 +1012,11 @@ void App::error(const std::string &m) {
     modal("提示", m);
 }
 void App::modal(const std::string &title, const std::string &text) {
+  if(keyboard_&&!officialDocked_&&
+     (title=="联网搜索不可用"||title=="已修改联网搜索"||title=="上下文未更新")) {
+    deferredModalTitle_=title;deferredModalText_=text;return;
+  }
+
   if(readGesture_.active())readSuppressed_=readDown_;
   readReset();
   closeAttachments();
@@ -1016,14 +1024,21 @@ void App::modal(const std::string &title, const std::string &text) {
   if (modal_)
     lv_obj_delete(modal_);
   const bool portraitPhoto = !layout().portrait() && (view_=="camera" || view_=="crop") && cameraAngle_%180;
-  const int mw=portraitPhoto?photoWidth():screen_.width,mh=portraitPhoto?photoHeight():screen_.height;
+  const int mw=portraitPhoto?photoWidth():screen_.width;
+  const int mh=keyboard_&&officialDocked_?display_.topHeight():(portraitPhoto?photoHeight():screen_.height);
   const int layerWidth=portraitPhoto?mw-uiMetrics_.dp(16):layout().modalWidth();
-  auto layer = box(screenObj_, portraitPhoto?uiMetrics_.dp(8):layout().modalX(), 0, layerWidth, mh, theme::palette().popup);
+  auto layer = box(lv_screen_active(), portraitPhoto?uiMetrics_.dp(8):layout().modalX(), 0, layerWidth, mh, theme::palette().popup);
   modal_ = layer;modalButtons_.clear();
+  if(view_=="chat"&&chatControls_)lv_obj_set_hidden(chatControls_,true);
+  if(toBottom_)lv_obj_set_hidden(toBottom_,true);
   lv_obj_add_event_cb(
       layer,
       [](lv_event_t *e) {
-        auto app=static_cast<App *>(lv_event_get_user_data(e));app->modal_=nullptr;app->modalButtons_.clear();app->modalScroll_=nullptr;
+        auto app=static_cast<App *>(lv_event_get_user_data(e));
+        if(app->modal_!=lv_event_get_target_obj(e))return;
+        app->modal_=nullptr;app->modalButtons_.clear();app->modalScroll_=nullptr;
+        if(app->chatControls_)lv_obj_set_hidden(app->chatControls_,false);
+        app->updateChatControls(true);
       },
       LV_EVENT_DELETE, this);
   lv_obj_set_style_radius(layer, uiMetrics_.dp(16), 0);
@@ -1036,7 +1051,7 @@ void App::modal(const std::string &title, const std::string &text) {
   auto scroll = box(layer, uiMetrics_.dp(10), rounded?top+uiMetrics_.dp(40):uiMetrics_.dp(42), layerWidth-uiMetrics_.dp(20), mh-uiMetrics_.dp(115), theme::palette().popup);
   modalScroll_=scroll;
   readableLabel(scroll, text, uiMetrics_.dp(5), 0, layerWidth-uiMetrics_.dp(30), uiMetrics_.fontSize(UiFont::SettingsTitle));
-  button(layer, "关闭", portraitPhoto?layerWidth-uiMetrics_.dp(110):screen_.width-uiMetrics_.dp(205), mh-uiMetrics_.dp(66), uiMetrics_.dp(100), uiMetrics_.dp(44),
+  button(layer, "关闭", layerWidth-uiMetrics_.dp(110), mh-uiMetrics_.dp(66), uiMetrics_.dp(100), uiMetrics_.dp(44),
          [layer] { lv_obj_delete(layer); });
 }
 void App::chat() {
@@ -1123,6 +1138,7 @@ void App::rebuildChatControls() {
         draft_, "请输入消息",
         [this](const std::string &s) {
           draft_ = s;
+          saveDraft();
           build();
         },
         8192, "ZhCNPreferred", {}, true, false, false, true);
@@ -1377,8 +1393,8 @@ void App::newChat(bool inherit) {
     auto model = currentModel();
     if (!model.empty()) {
       preferences["model_id"] = model["id"];
-      auto effort = model.value("effective_effort", std::string());
-      preferences["effort"] = effort.empty() ? "api_default" : effort;
+      if(!sessionPreferences_.value("effort",std::string()).empty())preferences["effort"]=sessionPreferences_.at("effort");
+      else preferences.erase("effort");
     }
     preferences.erase("has_sent");
   }
@@ -1397,7 +1413,6 @@ void App::newChat(bool inherit) {
   expandedReasoning_.clear();
   reasoningOverrides_.clear();
   tableScrolls_.clear();
-  draft_.clear();
   chatFollowing_ = true;
   chatScroll_ = 0;
   messageOffset_ = 0;
@@ -1893,7 +1908,7 @@ void App::renderMessages(bool bottom, bool cached) {
       messageOffset_ += 30;
       renderMessages(true);
     });
-  if (messages.empty()) {
+  if (messages.empty()&&draftState_.value("images",Json::array()).empty()) {
     const auto detail=db_.models().empty()
         ? "先到设置添加服务商，获取或填写模型并保存，即可开始提问。发送第一条消息后会生成历史记录。"
         : "输入问题，或从加号添加图片，再点击发送。发送第一条消息后会生成历史记录，未发送的草稿会保留在这里。";
@@ -1908,7 +1923,10 @@ void App::renderMessages(bool bottom, bool cached) {
                   {session_,messageEdit_.value("pivot",INT64_MAX)})[0]["seq"]
             .get<int>();
   const auto lastAssistant = lastAssistantSeq_;
-  renderMessageRows(messageContent_,messages,session_,width,false,lastAssistant,questionSeq);
+  auto visibleRows=messages;
+  if(messageEdit_.empty()&&messageOffset_==0)
+    for(const auto &image:draftRows())visibleRows.push_back(image);
+  renderMessageRows(messageContent_,visibleRows,session_,width,false,lastAssistant,questionSeq);
   syncReplyControls();
   if(!messageEdit_.empty()) {
     auto banner=box(messageContent_,0,0,width,uiMetrics_.dp(44),theme::palette().background);
@@ -2710,7 +2728,7 @@ void App::stopNetwork() {
 bool App::canSend() {
   if(messageEditBusy_)return false;
   if(!messageEdit_.empty())return hasText(draft_)||!messageEditImages_.empty();
-  if (hasText(draft_))
+  if (!draftState_.value("images",Json::array()).empty() || hasText(draft_))
     return true;
   // Pending user content survives an interruption or image auto-send being off.
   auto latest = db_.messages(session_, 0, 1);
@@ -2750,17 +2768,11 @@ void App::sendPrepared(Json model, Json input, const std::string &retryId,
   bindPreferences(model);
   sessionPreferences_["has_sent"] = true;
   std::string preparedAssistant;
-  if(!prepared.empty()) {
-    auto recordModel=model;recordModel.erase("api_key");recordModel.erase("headers");recordModel.erase("provider_headers");
-    prepared["_record_model"]=recordModel;prepared["_sent_at"]=sendActionAt_;
-  }
-  if(!prepared.empty())preparedAssistant=db_.commitReplyContinuation(prepared,normalizedChatText(draft),sessionPreferences_,checkpoint).at("message").get<std::string>();
-  else savePreferences();
-  if (retryId.empty()) {
-    const auto text = normalizedChatText(draft);
-    if (preparedAssistant.empty()&&!text.empty()) db_.append(session_, "user", text, Json::object(), sessionPreferences_);
-    if (draft_ == draft)
-      draft_.clear();
+  if(retryId.empty()) {
+    const auto sent=db_.commitDraftSend(contextDraft_,session_,normalizedChatText(draft),
+        sessionPreferences_,model,sendActionAt_,prepared,checkpoint);
+    preparedAssistant=sent.at("message").get<std::string>();
+    loadDraft(session_);
   }
   if (network_.joinable())
     network_.join();
@@ -2808,14 +2820,15 @@ void App::storeImage(const Json &image, std::function<void(bool)> completion) {
   imageStoreBusy_ = true;
   imageStoreCompletion_ = std::move(completion);
   const auto session = session_;
-  const auto preferences = sessionPreferences_;
+  saveDraft();db_.flush();
+  const auto draftSnapshot=draftState_;
   const auto editToken=messageEdit_.empty()?std::string():messageEditToken_;
   modal("正在保存图片", "图片准备完成后会自动返回，请稍候…");
-  imageStoreWorker_ = std::thread([this, image, session, preferences,editToken] {
+  imageStoreWorker_ = std::thread([this, image, session,editToken,draftSnapshot] {
     bool ok = true;
     Json asset=Json::object();std::vector<std::string> created;
     try {
-      if(editToken.empty())db_.append(session, "user", "", image, preferences);
+      if(editToken.empty())db_.addDraftImage(draftSnapshot,image);
       else {
         const auto directory=join(dataDir_,".message-edit");
         ensureDirectory(directory);
@@ -2929,6 +2942,12 @@ void App::stopOfficialReaderGlide() {
   officialReaderGlideBody_=nullptr;officialReaderMomentum_=0;officialReaderVelocity_=0;
 }
 void App::officialReaderTouch(const Json &message) {
+  if(modal_) {
+    if(message.value("y",0)>=display_.topHeight())return;
+    if(message.value("cancelled",false))input_.cancel();
+    else input_.touch(message.value("x",0),message.value("y",0),message.value("pressed",false));
+    return;
+  }
   const bool down=message.value("pressed",false);
   const bool cancel=message.value("cancelled",false)||
     (message.contains("points")&&message["points"].is_array()&&message["points"].size()>1);
@@ -3098,6 +3117,7 @@ void App::updateInputFocus() {
   }
 }
 void App::suspend(bool value) {
+  if(value){saveDraft();db_.flush();}
   if(pageVisible_==!value){updateInputFocus();return;}
   if(value){penObserverRequest_.clear();penObserverReady_=false;}
   if(value)chatBottomState_.pause();
@@ -3168,6 +3188,7 @@ void App::shutdown() {
   display_.mediaHandoff(true);
 #endif
   if (shutdownComplete_) return;
+  saveDraft();db_.flush();
   shutdownComplete_ = true;
   motion::finishAll();
   cancelWebReader();
@@ -3231,6 +3252,11 @@ void App::shutdown() {
     db_.setting("export_cleanup_failed", true);
 }
 void App::routeTouch(const Json &m) {
+  if(modal_) {
+    if(m.value("cancelled",false))input_.cancel();
+    else input_.touch(m.value("x",0),m.value("y",0),m.value("pressed",false));
+    return;
+  }
   // A captured page-to-keyboard push owns its cancellation. Selection/read
   // suppression must not swallow that terminal frame and leave the panel moved.
   if (m.value("cancelled",false) && editor_.active &&
@@ -3441,7 +3467,7 @@ void App::handle(const Json &m) {
     }
     if(editor_.active&&down&&!editorReaderTouch_&&editorDismissReturnAt_)editorResetDismiss();
     const bool multi=m.contains("points") && m["points"].is_array() && m["points"].size()>1;
-    if(editor_.active && !imageViewer_ && view_!="crop" && !nonImageMulti_ && editorKeyTouch(m)) {
+    if(!modal_ && editor_.active && !imageViewer_ && view_!="crop" && !nonImageMulti_ && editorKeyTouch(m)) {
       resetBack();
     } else if(multi || nonImageMulti_ || imageGesture_.multi || imageGesture_.mode<0) {
       resetBack();
@@ -3611,6 +3637,7 @@ void App::tick() {
   }
   imageReturnTick();
   for (const auto &saved : db_.saveEvents()) {
+    if(saved.type=="draft_error"){notice_="草稿未保存，请检查存储空间";continue;}
     if(saved.data.value("key",std::string())=="ocr_multiline"){ocrModeSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="prefer_official_keyboard"||saved.data.value("key",std::string())=="quick_official_keyboard"){officialKeyboardPreferenceSaved(saved);continue;}
     if(saved.data.value("key",std::string())=="ui_refresh_hz"){refreshRateSaved(saved);continue;}
@@ -3696,6 +3723,9 @@ void App::tick() {
       auto callback = std::move(imageStoreCompletion_);
       imageStoreCompletion_ = {};
       bool ok = e.data.value("ok", false);
+      if(ok&&e.data.value("session",std::string())==session_&&messageEdit_.empty()) {
+        const auto saved=db_.draft(draftState_.at("key"));draftState_["images"]=saved.at("images");
+      }
       auto editToken=e.data.value("edit_token",std::string());
       if(!editToken.empty()&&ok) {
         auto asset=e.data.at("asset");
@@ -3773,7 +3803,7 @@ void App::tick() {
       if (view_ == "chat" && visible_ && !contextBusy_ && !navigationOpen_ &&
           !attachments_ && !modal_ && !keyboard_ &&
           e.data.value("session", std::string()) == session_ &&
-          ((!messageEdit_.empty()&&std::any_of(messageEditImages_.begin(),messageEditImages_.end(),[&](const Json &a){return a["edit_id"]==id;}))||db_.pendingImage(session_, id))) {
+          ((!messageEdit_.empty()&&std::any_of(messageEditImages_.begin(),messageEditImages_.end(),[&](const Json &a){return a["edit_id"]==id;}))||draftImage(id)||db_.pendingImage(session_, id))) {
         input_.cancel();
         modal("删除图片", "删除这张待发送图片？系统相册原图不会删除。");
         imageDeleteId_ = id;
@@ -3805,7 +3835,9 @@ void App::tick() {
         if(!messageEdit_.empty()) {
           const auto id=e.data.value("message",std::string());
           messageEditImages_.erase(std::remove_if(messageEditImages_.begin(),messageEditImages_.end(),[&](const Json &a){return a["edit_id"]==id;}),messageEditImages_.end());build();
-        } else if (db_.removePendingImage(session_,e.data.value("message", std::string()))) {
+        } else if (db_.removeDraftImage(draftState_,e.data.value("message", std::string())) ||
+                   db_.removePendingImage(session_,e.data.value("message", std::string()))) {
+          draftState_["images"]=db_.draft(draftState_.at("key")).at("images");
           messageOffset_ = 0;
           build();
         } else {
@@ -3983,6 +4015,11 @@ void App::tick() {
       }
     }
   }
+  if(!deferredModalTitle_.empty()&&!keyboard_&&!editor_.active&&visible_&&inputFocused_) {
+    auto title=std::move(deferredModalTitle_),text=std::move(deferredModalText_);
+    deferredModalTitle_.clear();deferredModalText_.clear();modal(title,text);
+  }
+  if(modal_&&chatControls_)lv_obj_set_hidden(chatControls_,true);
   if(onboarding_)onboarding_->tick(visible_&&!keyboard_&&!editor_.active);
   updateTick();
   if(updateExit_)return;
@@ -4068,7 +4105,7 @@ Json App::diagnostics() const {
       }
   }
   if (!model.empty())
-    model = resolveReasoning(model, sessionPreferences_, effortMemory_);
+    model = resolveReasoning(model, sessionPreferences_, "");
   lv_area_t reasonHeader{};
   if (!reasoningHeaders_.empty())
     lv_obj_get_coords(reasoningHeaders_.back(), &reasonHeader);

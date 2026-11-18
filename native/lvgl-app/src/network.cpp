@@ -36,9 +36,11 @@ std::string redact(std::string error, const Json &model) {
     }
   };
   remove(model.value("api_key", std::string()));
-  const auto headers = objectField(model, "headers_json");
-  for (auto it = headers.begin(); it != headers.end(); ++it)
-    if (it->is_string()) remove(it->get<std::string>());
+  for(const auto &field:{"headers_json","headers","provider_headers"}) {
+    const auto headers=objectField(model,field);
+    for(auto it=headers.begin();it!=headers.end();++it)
+      if(it->is_string())remove(it->get<std::string>());
+  }
   return safeError(error.substr(0, 2000));
 }
 }
@@ -319,7 +321,8 @@ void streamModelRound(const Json &m, Json input, std::atomic<bool> &cancel, Even
         if (type == "response.failed" || status == "failed") protocolError = messageError(response.value("error", Json()));
         if (type == "response.incomplete" || status == "incomplete") {
           const auto details = objectField(response, "incomplete_details");
-          protocolError = "回复未完成：" + details.value("reason", std::string("unknown"));
+          finishReason=details.value("reason",std::string("unknown"));
+          protocolError = "回复未完成：" + finishReason;
         }
         if (type == "response.completed" || status == "completed") ended = true;
       }
@@ -463,6 +466,7 @@ void streamModelRound(const Json &m, Json input, std::atomic<bool> &cancel, Even
         protocolError = "工具调用参数不完整";
     }
     publish();
+    tag["finish_reason"]=finishReason;
     tag["http_status"] = result.status; tag["request_id"] = result.requestId;
     tag["elapsed_ms"] = result.elapsedMs; tag["snapshots"] = publications;
     if (cancel) { events.push("cancelled", tag); return; }

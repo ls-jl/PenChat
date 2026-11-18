@@ -91,6 +91,7 @@ void App::beginMessageEdit(const std::string &id, bool archive) {
   if(generating_||contextBusy_||imageStoreBusy_||messageEditBusy_||!messageEdit_.empty())return;
   messageEditArchive_=archive;messageEditToken_=uid("message-edit");
   messageEditOffset_=messageOffset_;messageEditScroll_=chatScroll_;messageEditFollowing_=chatFollowing_;
+  saveDraft();db_.flush();
   messageEditPreferences_=sessionPreferences_;messageEditMemory_=effortMemory_;
   messageEditBusy_=true;
   modal("准备编辑", "正在读取原消息和图片…");
@@ -112,7 +113,7 @@ void App::cancelMessageEdit(bool restore) {
   messageEdit_=Json::object();messageEditImages_=Json::array();messageEditCursors_.clear();
   for(const auto &path:messageEditFiles_) {unlink(path.c_str());unlink((path+".part").c_str());}
   messageEditFiles_.clear();messageEditToken_.clear();
-  sessionPreferences_=messageEditPreferences_;effortMemory_=messageEditMemory_;draft_.clear();
+  sessionPreferences_=messageEditPreferences_;effortMemory_=messageEditMemory_;loadDraft(session_);
   if(restore){messageOffset_=messageEditOffset_;chatScroll_=messageEditScroll_;chatFollowing_=messageEditFollowing_;show("chat");}
 }
 void App::commitMessageEdit() {
@@ -170,7 +171,7 @@ bool App::messageEvent(const Event &e) {
     cancelMessageEdit(false);sessionPreferences_=prefs;effortMemory_=memory;
     if(prefs.value("model_id",std::string())!=messageEditPreferences_.value("model_id",std::string()))db_.selectModel(prefs.value("model_id",std::string()));
     assistant_.clear();output_.clear();reasoning_.clear();reasoningOverrides_.clear();tableScrolls_.clear();
-    messageOffset_=0;chatFollowing_=true;draft_.clear();show("chat");startContext(false);return true;
+    messageOffset_=0;chatFollowing_=true;show("chat");startContext(false,"",false,Json(),true);return true;
   }
   if(e.type=="message_menu") {
     if(view_=="chat"&&visible_&&!keyboard_&&!editor_.active&&!modal_&&!navigationOpen_&&!imageViewer_&&!messageEditBusy_&&e.data.value("session",std::string())==session_)

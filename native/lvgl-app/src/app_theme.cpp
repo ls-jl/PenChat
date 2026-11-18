@@ -52,7 +52,9 @@ void App::syncEffortGauge() {
   layoutChatComposer();
   const auto model=currentModel();
   const auto options=effortChoices(model);
-  const auto placement=effortGaugePlacement(options,effortChoiceIndex(model));
+  const auto key=sessionPreferences_.value("effort",std::string());
+  const bool explicitEffort=std::find(options.begin(),options.end(),key)!=options.end();
+  const auto placement=effortGaugePlacement(options,explicitEffort?effortChoiceIndex(model):-1);
   setIcon(composerGauge_,"gauge",placement.isDefault?theme::palette().muted:theme::palette().accent,1.f,uiMetrics_);
   setGaugePosition(composerGauge_,placement.index,placement.count);
 }

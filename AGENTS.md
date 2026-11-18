@@ -101,7 +101,12 @@ height relative to 208px. Freeze geometry at pointer-down, excluding resting
 composer space, clipping and viewport translations. Native evdev frames apply tp_direction and touch offsets exactly once; never scale
 spatial gesture thresholds a second time using physical/raw touch dimensions.
 Blank new chats are transient; persist the conversation and active selection
-atomically with the first message. Do not add history rows for unsent drafts.
+atomically with the first message. Chat drafts use independent chat_drafts and
+draft_attachments records: one per existing session and one shared new-chat draft.
+Coalesce confirmed editor text on the DB worker, retain private draft pictures,
+and invalidate old write epochs when a send transaction clears a draft. Every
+new user send also clears the shared new-chat draft. Drafts never create history
+rows or enter chat exports; legacy pending image messages remain readable.
 Chat model selection is per session and also updates the global new-chat default.
 Resolve effort centrally: session override, process-only memory, Provider default,
 then omit the API parameter. Skip unsupported levels, never silently approximate.
@@ -112,9 +117,10 @@ send time. Preserve public reasoning separately from opaque Responses items;
 opaque items may only replay to the same Provider/model, never appear in UI or
 logs. Reasoning headers precede answers, with in-place public-summary expansion.
 No returned reasoning means no header; legacy text without timing stays untimed.
-Explicit api_default effort is a separate slider stop after none; it bypasses
-all inherited defaults and never sends an effort field. Empty effort still means
-inherit settings. Auto-title requests run once after the first assistant completes,
+The effort slider contains only supported explicit levels. The neutral gray gauge
+follows Provider defaults until the user chooses a level. Legacy explicit api_default
+bypasses inherited defaults and never sends an effort field. Empty effort follows
+the Provider default; gauge visibility alone never changes request parameters. Auto-title requests run once after the first assistant completes,
 using its model unless Settings specifies one. Bound titles by both character count
 and 80% of the measured row width. Keep auxiliary work off the UI thread and
 coalesce its stream snapshots. Apply results only to the original session/token;

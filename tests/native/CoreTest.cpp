@@ -323,8 +323,7 @@ int main(int argc, char **argv) {
   assert(!requestBody(explicitDefault, Json::array(), true)
               .value("reasoning", Json::object())
               .contains("effort"));
-  assert(effortChoices({{"name", "gpt-5.2"}})[0] == "none" &&
-         effortChoices({{"name", "gpt-5.2"}})[1] == "api_default");
+  assert(effortChoices({{"name", "gpt-5.2"}}) == supportedEfforts({{"name", "gpt-5.2"}}));
   auto dir = std::string("/tmp/penchat-native-") + std::to_string(getpid());
   ensureDirectory(dir);
   Database db(join(dir, "penchat.db"));

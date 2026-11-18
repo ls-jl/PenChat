@@ -27,7 +27,7 @@ bool logDirty = false;
 size_t logBytes = 0;
 const std::set<std::string> events = {
   "lifecycle.runtime_error", "lifecycle.exit", "lifecycle.start", "lifecycle.background", "lifecycle.foreground", "lifecycle.stop", "lifecycle.startup_error",
-  "ui.error", "camera.started", "camera.error", "camera.photo", "camera.orientation",
+  "context.failure", "ui.error", "camera.started", "camera.error", "camera.photo", "camera.orientation",
   "storage.save_error", "storage.save_complete", "scanner.started", "scanner.finished",
   "scanner.released", "scanner.error", "scanner.review_error", "scanner.stopped", "network.request_end", "feedback.request_end", "feedback.upload_result"};
 const std::set<std::string> numbers = {
@@ -53,6 +53,13 @@ Json safeFields(const Json &input) {
       code==35||code==60?"tls":code==42?"cancelled":"transport";
     if(code==0 && out.value("status",0)>=400)kind="http";
     out["error_category"]=kind;
+  }
+  for(const auto &key:{"request_id","finish_reason"}) {
+    const auto field=input.find(key);
+    if(field==input.end()||!field->is_string())continue;
+    auto value=field->get<std::string>();
+    if(value.size()>128||value.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.:/")!=std::string::npos)continue;
+    out[key]=value;
   }
   return out;
 }

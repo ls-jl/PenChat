@@ -87,7 +87,7 @@ def select_effort(app,key):
     options=d['effort_choices'];index=options.index(key)
     x1,y1,x2,y2=d['popup_bounds']
     # The 44px track's round-cap centres also define the painted ticks and
-    # actual pointer mapping. api_default is an ordinary explicit slider stop.
+    # actual pointer mapping. Only supported explicit levels appear on the slider.
     first=x1+24+22;last=x2-24-22
     x=(first+last)//2 if len(options)==1 else first+(last-first)*index//(len(options)-1)
     app.tap(x,y1+68+22)
@@ -138,8 +138,8 @@ def run():
             app.tap(521,174);wait_for(lambda:app.diag()['toolbar_y']==208)
             send(app,'同模型继续')
             assert any(item.get('encrypted_content')=='opaque-test-only' for item in Server.requests[-1][1]['input'])
-            gauge(app);select_effort(app,'api_default')
-            assert app.diag()['effective_effort']=='api_default'
+            app.attachment_action('effort')
+            assert app.diag()['effective_effort']=='' and not app.diag()['effort_gauge']
             send(app,'服务端默认')
             assert 'effort' not in Server.requests[-1][1].get('reasoning',{})
             gauge(app);select_effort(app,'max')

@@ -17,7 +17,7 @@ void App::cancelContext() {
   contextRegenerating_ = false;
   ++contextGeneration_;
 }
-void App::startContext(bool manual, const std::string &retry, bool regenerate, Json frozenModel) {
+void App::startContext(bool manual, const std::string &retry, bool regenerate, Json frozenModel, bool edited) {
   if(!messageEdit_.empty()) {
     if(manual)modal("请先完成消息编辑","发送或取消编辑后，再压缩上下文。原对话尚未修改。");
     return;
@@ -51,11 +51,14 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, J
   }
   if (contextWorker_.joinable())
     contextWorker_.join();
-  const auto session = session_, draft = regenerate?std::string():draft_;
+  const auto session = session_, draft = (regenerate||edited)?std::string():draft_;
   const auto contextSettings = db_.settings();
   const bool automatic = contextSettings.value("auto_context_compression", true);
   model["context_compression_percent"] = compressionPercent(contextSettings);
   const auto token = ++contextGeneration_;
+  if(!edited)saveDraft();
+  db_.flush();
+  contextDraft_=edited?Json{{"edited",true}}:db_.draft(draftState_.at("key"));
   contextCancel_ = false;
   contextBusy_ = true;contextRegenerating_=regenerate;
   closeAttachments();
@@ -64,7 +67,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, J
   if (manual)
     contextProgress("正在检查上下文…");
   contextWorker_ = std::thread([this, session, draft, model, compressionModel, manual,
-                                automatic, retry, token,regenerate,archiveChoice] {
+                                automatic, retry, token,regenerate,archiveChoice,edited] {
     bool leased = false;
     try {
       db_.flush();
@@ -79,6 +82,13 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, J
       const bool deferred=!manual&&!snapshot.value("reply_choices",Json::object()).empty();
       Json pending = Json::array();
       const auto text = normalizedChatText(draft);
+      if(!regenerate&&!edited&&retry.empty())for(const auto &image:contextDraft_.value("images",Json::array())) {
+        std::string encoded,error;
+        if(!camera::imageDataUrl(image.at("path").get<std::string>(),&encoded,&error))
+          throw std::runtime_error("草稿图片不可读，输入已保留");
+        pending.push_back({{"role","user"},{"content",Json::array({{{"type","input_image"},{"image_url",encoded}}})}});
+        checkContextResources(pending);
+      }
       if (!text.empty())
         pending.push_back(
             {{"role", "user"},

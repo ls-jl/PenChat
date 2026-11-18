@@ -326,7 +326,12 @@ class App {
   double viewerReturnZoom_ = 1;
   Json imageViewerDiagnostic() const;
 
-  std::map<std::string,std::string> sessionDrafts_;
+  Json draftState_, contextDraft_;
+  std::string deferredModalTitle_,deferredModalText_;
+  void loadDraft(const std::string &session);
+  void saveDraft();
+  bool draftImage(const std::string &id) const;
+  Json draftRows() const;
   bool switchDraft(const std::string &next);
   struct ReplyControls {lv_obj_t *bar,*copy,*retry,*branch,*previous,*next;bool body,question;int ordinal,total;};
   Json replyChoiceRows_=Json::object();
@@ -938,7 +943,7 @@ class App {
   std::atomic<bool> contextCancel_{false};
   void startContext(bool manual, const std::string &retry = "",
                     bool regenerate = false,
-                    Json frozenModel = Json::object());
+                    Json frozenModel = Json::object(), bool edited = false);
   void cancelContext();
   void contextProgress(const std::string &text);
   void contextEvent(Event &event);

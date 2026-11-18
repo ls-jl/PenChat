@@ -37,6 +37,8 @@ class Database {
   void savePending(const std::string &id);
   std::map<std::string, Json> pendingSaves_, failedSaves_, saveVersions_;
   std::set<std::string> scheduledSaves_;
+  std::map<std::string, Json> pendingDrafts_;
+  std::set<std::string> scheduledDrafts_;
   int latestSaveGeneration_ = -1;
   Events saveEvents_;
   std::map<std::string, std::map<int, Json>> sessionCursors_;
@@ -56,6 +58,17 @@ public:
   ~Database();
   Json query(const std::string &sql, const Json &args = Json::array());
   void execute(const std::string &sql, const Json &args = Json::array());
+  Json draft(const std::string &key);
+  void queueDraft(const Json &snapshot, const std::string &text);
+  Json addDraftImage(const Json &snapshot, const Json &image);
+  bool removeDraftImage(const Json &snapshot, const std::string &id);
+  void clearDraft(const std::string &key);
+  void collectDraftFiles();
+  void moveDraft(const std::string &from, const std::string &to);
+  Json commitDraftSend(const Json &draft, const std::string &session,
+                       const std::string &text, const Json &preferences,
+                       const Json &model, int64_t sentAt,
+                       const Json &prepared, const Json &checkpoint);
   Json settings();
   void setting(const std::string &key, const Json &value);
   void queueSetting(const std::string &key, const Json &value, const std::string &request = "");
@@ -135,7 +148,8 @@ public:
   void selectReplyResult(const std::string &session,const std::string &message,int ordinal);
   void discardPreparedReply(const std::string &message,const std::string &result);
   Json commitReplyContinuation(const Json &snapshot,const std::string &text,
-                               const Json &preferences,const Json &checkpoint);
+                               const Json &preferences,const Json &checkpoint,
+                               const Json &images = Json::array(), bool ownTransaction = true);
   Json summary();
 };
 } // namespace penchat

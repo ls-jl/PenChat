@@ -3,6 +3,7 @@
 #include "network.hpp"
 #include "reasoning.hpp"
 #include "tools.hpp"
+#include "feedback.hpp"
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -290,22 +291,33 @@ static const char *Instruction =
     "。"
     "结合上一次摘要，按时间顺序整合，不要丢失尚有效的信息。仅输出可继续对话的文字摘要，"
     "不输出分析过程。尽可能简洁，目标不超过给定的本地估算 token 预算。";
-static std::string summarize(Json model, const Json &input, std::atomic<bool> &cancel) {
+static std::string summarize(Json model, const Json &input, std::atomic<bool> &cancel, int batch) {
   checkContextResources(input);
   Events local(true);
   streamModelRound(model, input, cancel, local, 1);
   std::string summary;
   bool done = false;
+  Json failure,terminal;
   for (const auto &e : local.drain()) {
     if (e.type == "response_state")
       summary = e.data.value("output", std::string());
-    if (e.type == "done")
-      done = true;
+    if (e.type == "done"){done = true;terminal=e.data;}
+    if (e.type == "network_error")failure=e.data;
   }
   if (cancel)
     throw std::runtime_error("压缩已取消，输入已保留");
-  if (!done || summary.find_first_not_of(" \r\n\t") == std::string::npos)
-    throw std::runtime_error("上下文压缩失败，请检查网络或模型配置；未发送本次消息");
+  if(!failure.is_null()) {
+    diagnosticRecord("context","failure",{{"batches",batch},{"status",failure.value("http_status",0)},
+        {"request_id",failure.value("request_id",std::string())},{"finish_reason",failure.value("finish_reason",std::string())}});
+    throw std::runtime_error("第 "+std::to_string(batch)+" 段压缩失败："+
+        redactApiError(failure.value("error",std::string("请求未完成")),model));
+  }
+  if(!done)throw std::runtime_error("第 "+std::to_string(batch)+" 段压缩失败：响应中途断开");
+  if(summary.find_first_not_of(" \r\n\t")==std::string::npos) {
+    diagnosticRecord("context","failure",{{"batches",batch},{"status",terminal.value("http_status",0)},
+      {"request_id",terminal.value("request_id",std::string())},{"finish_reason","empty_output"}});
+    throw std::runtime_error("第 "+std::to_string(batch)+" 段压缩失败：模型未返回摘要正文");
+  }
   if (summary.size() > 256 * 1024)
     throw std::runtime_error("压缩摘要过大，原上下文保持不变");
   return summary;
@@ -427,7 +439,7 @@ Json compressContext(Database &db, const Json &snapshot, Json model,
       throw std::runtime_error(
           "单条历史或已有摘要超过压缩模型预算，请更换模型或提高预算；未截断内容");
     progress(++batch, int(material.size() - at));
-    summary = summarize(model, input, cancel);
+    summary = summarize(model, input, cancel,batch);
     if (estimatedText(summary) > summaryBudget)
       throw std::runtime_error(
           "模型生成的摘要未满足预算，原上下文保持不变，请调整压缩模型后重试");

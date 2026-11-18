@@ -1399,6 +1399,7 @@ void App::editorMagnify(bool show) {
   lv_obj_move_foreground(editorMagnifier_);
 }
 void App::editorSyncText(bool text) {
+  if(text&&editorChat_&&messageEdit_.empty())saveDraft();
   if(!editorText_)return;
   if(editorInlineChat_&&editorInPlace())editorViewport();
   const int scroll=lv_obj_get_scroll_y(editorText_);

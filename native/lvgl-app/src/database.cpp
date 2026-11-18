@@ -68,6 +68,7 @@ Database::Database(const std::string &path) {
       jobs_.push_back([this] {
         try {
           collectAssets(true);
+          collectDraftFiles();
         } catch (...) {
           saveEvents_.push("maintenance_error");
         }
@@ -462,6 +463,7 @@ void Database::removeSession(const std::string &s) {
                           {s});
   execute("BEGIN IMMEDIATE");
   try {
+    clearDraft(s);
     enqueueAssets(scanAssets);
     for (auto table :
          {"stream_events", "message_parts", "message_assets", "chat_messages"}) {

@@ -30,11 +30,7 @@ inline std::vector<std::string> supportedEfforts(const Json &model) {
   return out;
 }
 inline std::vector<std::string> effortChoices(const Json &model) {
-  auto options = supportedEfforts(model);
-  auto position = std::find(options.begin(), options.end(), "none");
-  options.insert(position == options.end() ? options.begin() : position + 1,
-                 "api_default");
-  return options;
+  return supportedEfforts(model);
 }
 struct EffortGaugePlacement { bool isDefault; int index,count; };
 inline EffortGaugePlacement effortGaugePlacement(const std::vector<std::string> &options,int selected) {

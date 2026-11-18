@@ -237,10 +237,10 @@ Json Database::replyUsageExtras(const std::string &session,const Json &visible) 
     addSpent(spent,objectField(row,"usage_json"));
   return spent;
 }
-Json Database::commitReplyContinuation(const Json &snapshot,const std::string &text,const Json &preferences,const Json &checkpoint) {
+Json Database::commitReplyContinuation(const Json &snapshot,const std::string &text,const Json &preferences,const Json &checkpoint,const Json &images,bool ownTransaction) {
   return perform([=] {
     const auto session=snapshot.at("session").at("id").get<std::string>();
-    execute("BEGIN IMMEDIATE");
+    if(ownTransaction)execute("BEGIN IMMEDIATE");
     try {
       const auto current=contextSnapshot(session);sameView(current,snapshot);
       const auto cut=replyCut(session);
@@ -260,13 +260,15 @@ Json Database::commitReplyContinuation(const Json &snapshot,const std::string &t
         for(const auto &row:pending)execute("UPDATE chat_messages SET seq=? WHERE id=?",{next++,row["id"]});
       }
       saveSessionPreferences(session,preferences);
+      for(const auto &image:images)append(session,"user","",image,preferences);
       if(!text.empty())append(session,"user",text,Json::object(),preferences);
       const auto assistant=append(session,"assistant","",Json::object(),preferences);
       const auto recordModel=snapshot.value("_record_model",Json::object());
       if(!recordModel.empty())recordRequest(assistant,recordModel,snapshot.value("_sent_at",int64_t(0)),nowMs());
-      execute("COMMIT");messageCursors_.clear();gcCursor_.clear();deferAssetCollection();
+      if(ownTransaction)execute("COMMIT");
+      messageCursors_.clear();gcCursor_.clear();deferAssetCollection();
       return Json{{"message",assistant}};
-    }catch(...){execute("ROLLBACK");throw;}
+    }catch(...){if(ownTransaction)execute("ROLLBACK");throw;}
   });
 }
 } // namespace penchat

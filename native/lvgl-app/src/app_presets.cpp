@@ -1,5 +1,8 @@
 #include "app.hpp"
 #include "empty_state.hpp"
+#include "attachment_layout.hpp"
+#include "menu_action.hpp"
+#include "ui_motion.hpp"
 namespace penchat {
 static bool presetHasText(const std::string &text) {
   return text.find_first_not_of(" \t\r\n") != std::string::npos;
@@ -26,60 +29,49 @@ void App::applyPreset(const Json &preset) {
   if (!warning.empty()) modal("预设已部分应用", warning);
 }
 void App::presetPicker() {
-  closeAttachments();
-  resetPull();
-  const bool portrait=layout().portrait();
+  const int inheritedWidth=attachmentPanel_?lv_obj_get_width(attachmentPanel_):uiMetrics_.dp(240);
+  closeAttachments();resetPull();
+  if(!chatControls_)return;
+  lv_obj_update_layout(chatControls_);
+  lv_area_t capsule;lv_obj_get_coords(chatControls_,&capsule);
   const auto presets=presetList(db_.settings());
-  const int headingHeight=std::max(uiMetrics_.dp(24),int(font(uiMetrics_.fontSize(UiFont::FormHint))->line_height));
-  const int firstRow=std::max(uiMetrics_.dp(32),uiMetrics_.dp(4)+headingHeight+uiMetrics_.dp(4));
-  const int buttonHeight=std::max(uiMetrics_.dp(44),int(font(uiMetrics_.fontSize(UiFont::Button))->line_height)+uiMetrics_.dp(8));
-  const int detailHeight=std::max(uiMetrics_.dp(22),int(font(uiMetrics_.fontSize(UiFont::Detail))->line_height));
-  const int rowPitch=std::max(uiMetrics_.dp(72),buttonHeight+detailHeight+uiMetrics_.dp(6));
-  attachments_ = box(portrait?lv_screen_active():screenObj_,layout().gutter(),0,screen_.width-layout().gutter(),screen_.height);
-  popupKind_ = "presets";
-  lv_obj_set_style_bg_color(attachments_, lv_color_hex(theme::palette().scrim), 0);
-  lv_obj_set_style_bg_opa(attachments_, LV_OPA_50, 0);
-  lv_obj_set_scrollable(attachments_, false);
-  auto backdrop = button(attachments_, "", 0, 0, screen_.width-layout().gutter(), screen_.height,
-                         [this] { closeAttachments(); });
-  lv_obj_set_style_bg_opa(backdrop, LV_OPA_TRANSP, 0);
-  int naturalWidth=uiMetrics_.dp(288);
-  if(portrait)for(const auto &preset:presets) {
+  int naturalWidth=inheritedWidth;
+  for(const auto &preset:presets) {
     lv_point_t measured{};
-    const auto title=preset.value("name",std::string())+" · 已调整";
-    lv_text_get_size(&measured,title.c_str(),font(uiMetrics_.fontSize(UiFont::Button)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
-    naturalWidth=std::max(naturalWidth,int(measured.x)+uiMetrics_.dp(68));
+    lv_text_get_size(&measured,preset.value("name",std::string()).c_str(),
+        font(uiMetrics_.fontSize(UiFont::SettingsTitle)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+    naturalWidth=std::max(naturalWidth,int(measured.x)+uiMetrics_.dp(76));
   }
-  const auto area=portrait?placeContextPopup(screen_.width,screen_.height,roundedDisplay_,
-      {layout().safeSide(),chatComposerY(),1,1},std::min(uiMetrics_.dp(440),naturalWidth),
-      std::min(uiMetrics_.dp(360),firstRow+int(presets.size())*rowPitch+uiMetrics_.dp(4)),keepChatEditor()?editorLayout().panelTop:0,uiMetrics_):
-      pickerArea(screen_.width-uiMetrics_.dp(130));
-  const int panelWidth=area.width;
-  auto panel=box(attachments_,area.x,area.y,panelWidth,area.height,theme::palette().popup);
+  const int rowHeight=std::max(uiMetrics_.touchTarget(),int(font(uiMetrics_.fontSize(UiFont::SettingsTitle))->line_height)+uiMetrics_.dp(8));
+  auto area=attachmentMenuArea(layout(),{capsule.x1,capsule.y1,capsule.x2-capsule.x1+1,capsule.y2-capsule.y1+1},
+      naturalWidth,int(presets.size())*rowHeight+uiMetrics_.dp(8));
+  if(keyboard_&&officialDocked_) {
+    area.height=std::min(area.height,std::max(1,display_.topHeight()-layout().safeTop()-uiMetrics_.dp(16)));
+    area.y=std::max(layout().safeTop(),std::min(area.y,display_.topHeight()-uiMetrics_.dp(8)-area.height));
+  }
+  attachments_=box(lv_screen_active(),0,0,screen_.width,screen_.height);
+  popupKind_="presets";
+  lv_obj_set_scrollable(attachments_,false);
+  lv_obj_set_style_bg_color(attachments_,lv_color_hex(theme::palette().scrim),0);
+  lv_obj_set_style_bg_opa(attachments_,LV_OPA_50,0);
+  menuAction(attachments_,[this]{closeAttachments();});
+  auto panel=box(attachments_,area.x,area.y,area.width,area.height,theme::palette().surface);
   attachmentPanel_=panel;stylePopupPanel(panel,layout().portrait(),uiMetrics_);
-  lv_obj_set_scroll_dir(panel, LV_DIR_VER);
-  lv_obj_set_scroll_elastic(panel, false);
-  lv_obj_set_scroll_momentum(panel, false);
-  lv_obj_set_scroll_chain_ver(panel, false);
-  auto current = sessionPreferences_.value("preset_name", std::string("未选择预设"));
-  if (sessionPreferences_.value("preset_adjusted", false)) current += " · 已调整";
-  auto heading = label(panel, "当前：" + current, uiMetrics_.dp(14), uiMetrics_.dp(4), panelWidth-uiMetrics_.dp(38), uiMetrics_.fontSize(UiFont::FormHint), theme::palette().muted);
-  lv_label_set_long_mode(heading, LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(heading,headingHeight);
-  int y=firstRow;
-  for (const auto &p : presets) {
-    const bool active = p["id"] == sessionPreferences_.value("preset_id", std::string());
-    auto title = (portrait?std::string():active?"● ":"○ ") + p.value("name", std::string());
-    if (active && sessionPreferences_.value("preset_adjusted", false)) title += " · 已调整";
-    auto item=button(panel, title, uiMetrics_.dp(8), y, panelWidth-uiMetrics_.dp(24),buttonHeight,
-           [this, p] { applyPreset(p); }, theme::palette().surface, LV_TEXT_ALIGN_LEFT);
-    if(portrait){selected(item,active);stylePopupRow(item);}
-    auto caption = label(panel, presetSummary(p), uiMetrics_.dp(22), y+buttonHeight,panelWidth-uiMetrics_.dp(50), uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
-    lv_label_set_long_mode(caption, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_height(caption,detailHeight);
-    lv_obj_set_clickable(caption, false);
-    y+=rowPitch;
+  lv_obj_set_scroll_dir(panel,LV_DIR_VER);lv_obj_set_scroll_elastic(panel,false);
+  lv_obj_set_scroll_momentum(panel,false);lv_obj_set_scroll_chain_ver(panel,false);
+  lv_obj_t *activeRow=nullptr;int y=uiMetrics_.dp(4);
+  for(const auto &preset:presets) {
+    const bool active=preset.at("id")==sessionPreferences_.value("preset_id",std::string("default"));
+    auto row=button(panel,preset.value("name",std::string()),uiMetrics_.dp(4),y,
+        area.width-uiMetrics_.dp(8),rowHeight,[this,preset]{applyPreset(preset);},
+        theme::palette().surface,LV_TEXT_ALIGN_LEFT);
+    selected(row,active);stylePopupRow(row);
+    if(active)activeRow=row;
+    y+=rowHeight;
   }
+  lv_obj_update_layout(panel);
+  if(activeRow)lv_obj_scroll_to_view(activeRow,LV_ANIM_OFF);
+  motion::present(panel,1,uiMetrics_);
 }
 void App::presetsPage() {
   pageHeader("会话预设");
@@ -107,14 +99,20 @@ void App::presetsPage() {
   const int detailHeight=std::max(uiMetrics_.dp(21),int(font(uiMetrics_.fontSize(UiFont::Detail))->line_height));
   const int rowHeight=std::max(uiMetrics_.dp(64),detailTop+detailHeight+uiMetrics_.dp(7));
   for (const auto &p : presets) {
-    auto row = button(pageContent_, p.value("name", std::string()), uiMetrics_.dp(10), y,width,rowHeight,
+    bool modified=false;
+    const auto defaults=defaultPreset();
+    if(p.at("id")=="default")for(auto it=defaults.begin();it!=defaults.end();++it)
+      if(it.key()!="id"&&it.key()!="name"&&p.value(it.key(),it.value())!=it.value())modified=true;
+    const int modifiedHeight=modified?detailHeight:0;
+    auto row = button(pageContent_, p.value("name", std::string()), uiMetrics_.dp(10), y,width,rowHeight+modifiedHeight,
                       [this, p] { presetForm_ = p; show("preset_edit"); }, theme::palette().surface, LV_TEXT_ALIGN_LEFT);
     lv_obj_align(lv_obj_get_child(row, 0), LV_ALIGN_TOP_LEFT, uiMetrics_.dp(12), uiMetrics_.dp(6));
-    auto detail = label(row, presetSummary(p), uiMetrics_.dp(12),detailTop,width-uiMetrics_.dp(24), uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
+    if(modified)label(row,"（已修改）",uiMetrics_.dp(12),detailTop,width-uiMetrics_.dp(24),uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);
+    auto detail = label(row, presetSummary(p), uiMetrics_.dp(12),detailTop+modifiedHeight,width-uiMetrics_.dp(24), uiMetrics_.fontSize(UiFont::Detail), theme::palette().muted);
     lv_label_set_long_mode(detail, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_height(detail,detailHeight);
     lv_obj_set_clickable(detail, false);
-    y+=rowHeight+uiMetrics_.dp(8);
+    y+=rowHeight+modifiedHeight+uiMetrics_.dp(8);
   }
 }
 Json App::presetsDiagnostic() const {
@@ -167,7 +165,7 @@ void App::presetChoices(const std::string &field) {
     for (const auto &m : db_.models()) if (m["id"] == id) model = m;
     std::vector<std::string> choices;
     if (id.empty()) { choices = effortOrder(); choices.insert(choices.begin() + 1, "api_default"); }
-    else if (model.is_object()) choices = effortChoices(model);
+    else if (model.is_object()) {choices = effortChoices(model);choices.insert(choices.begin(),"api_default");}
     else choices = {"api_default"};
     for (const auto &key : choices) option(key, key == "api_default" ? "API 默认（不传参数）" : effortLabel(key));
   }
