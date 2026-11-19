@@ -129,7 +129,11 @@ int main(int argc,char **argv) {
   r=f.search("shi");assert(r["candidates"][0]==target);
   r=f.search("ceying");f.choose(r,"测嘤");
   r=f.search("239464","zh9");f.choose(r,"测嘤");
-  f.restart();r=f.search("ceying");f.choose(r,"测嘤");
+  f.restart();
+  // Single characters must survive restart and share ranking with nine-key.
+  r=f.search("shi");assert(r["candidates"][0]==target);
+  r=f.search("744","zh9");assert(r["candidates"][0]==target);
+  r=f.search("ceying");f.choose(r,"测嘤");
   auto data=Json::parse(fileText(join(f.root,"ime/user.json")));assert(data["records"].size()==2);
   f.service->clear();r=f.search("ceying");for(const auto &v:r["candidates"])assert(v!="测嘤");
   data=Json::parse(fileText(join(f.root,"ime/user.json")));assert(data["records"].empty());
