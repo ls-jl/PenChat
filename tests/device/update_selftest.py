@@ -40,7 +40,8 @@ def require_parent_lock(serial):
 
 
 def build_marker(directory,target,appid,operation):
-  assert appid!='8001792332371649' and appid.isdigit()
+  main_id=json.loads((ROOT/'package.json').read_text())['appid']
+  assert appid!=main_id and appid.isdigit()
   assert len(operation)==36 and all(c in '0123456789abcdef-' for c in operation)
   compiler=subprocess.check_output(['bash','-c','source scripts/native-target.sh '+target+'; printf "%s" "$PENCHAT_BUILD_CXX"'],cwd=ROOT,text=True)
   library=pathlib.Path(directory)/'libjsapi_penchat_owned_marker.so'
@@ -48,6 +49,7 @@ def build_marker(directory,target,appid,operation):
     subprocess.run([compiler,'-std=c++14','-shared','-fPIC','-Os','-include','pthread.h',
       '-I'+str(ROOT/'native/vendor/iot-miniapp-sdk/include'),
       '-DPENCHAT_SELFTEST_APPID='+json.dumps(appid),
+      '-DPENCHAT_MAIN_APPID='+json.dumps(main_id),
       '-DPENCHAT_SELFTEST_OPERATION='+json.dumps(operation),
       '-DPENCHAT_SELFTEST_MODULE='+json.dumps('penchatOwnedMarker_'+operation.replace('-','')),
       str(ROOT/'tests/device/owned_install_marker.cpp'),'-ldl','-o',str(library)],stdout=log,stderr=subprocess.STDOUT,check=True)

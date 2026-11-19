@@ -13,6 +13,9 @@
 #ifndef PENCHAT_SELFTEST_APPID
 #error Owned AppID required
 #endif
+#ifndef PENCHAT_MAIN_APPID
+#error Main application identity required
+#endif
 #ifndef PENCHAT_SELFTEST_OPERATION
 #error Owned operation required
 #endif
@@ -34,7 +37,7 @@ int child(int parent,const std::string &name) {
 JSValue mark(JSContext *ctx,JSValueConst,int argc,JSValueConst *argv) {
   try {
     if(argc!=2||JQuick::getAppid(ctx)!=PENCHAT_SELFTEST_APPID||
-       std::string(PENCHAT_SELFTEST_APPID)=="8001792332371649")
+       std::string(PENCHAT_SELFTEST_APPID)==PENCHAT_MAIN_APPID)
       throw std::runtime_error("marker owner mismatch");
     const char *v=JS_ToCString(ctx,argv[0]);
     if(!v)return JS_EXCEPTION;
@@ -54,7 +57,7 @@ JSValue mark(JSContext *ctx,JSValueConst,int argc,JSValueConst *argv) {
 }
 JSValue runtime(JSContext *ctx,JSValueConst,int,JSValueConst *) {
   if(JQuick::getAppid(ctx)!=PENCHAT_SELFTEST_APPID||
-     std::string(PENCHAT_SELFTEST_APPID)=="8001792332371649")
+     std::string(PENCHAT_SELFTEST_APPID)==PENCHAT_MAIN_APPID)
     return JS_ThrowTypeError(ctx,"runtime marker owner mismatch");
   const auto path=JQuick::getWorkspace(ctx)+"/assets/runtime/libpenchat_selftest_runtime.so";
   auto library=dlopen(path.c_str(),RTLD_NOW|RTLD_LOCAL|RTLD_NODELETE);
