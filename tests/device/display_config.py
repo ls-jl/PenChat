@@ -84,10 +84,24 @@ def state(image=False):
     # monotonic clock may be ahead of this one. Only compare this process's time.
     previous=saved.get('diagnostic_time',-1) if str(saved.get('pid'))==p else -1
     shell('kill -'+('USR1' if image else 'USR2')+' '+p)
+    last_request=[time.monotonic()];observed=[]
     def fresh():
+        current=pid()
+        if current!=p:
+            raise RuntimeError('Native diagnostic owner changed during request')
         value=json.loads(shell('cat '+target))
-        return value if str(value.get('pid'))==p and value.get('diagnostic_time',0)>previous else None
-    return wait(fresh)
+        observed.append({k:value.get(k) for k in ('pid','diagnostic_time','visible','page_visible','window_focused','input_focused','screen_power')})
+        if str(value.get('pid'))==p and value.get('diagnostic_time',0)>previous:return value
+        # Standard signals coalesce; reissue only this idempotent read request
+        # to the same signal-ready owner. Keep the existing absolute deadline.
+        if not image and time.monotonic()-last_request[0]>=.35:
+            shell('kill -USR2 '+p);last_request[0]=time.monotonic()
+        return None
+    try:return wait(fresh)
+    except (AssertionError,RuntimeError):
+        (OUT/'diagnostic-timeout.json').write_text(json.dumps({'owner_pid':p,'previous_time':previous,'observed':observed[-8:]},indent=2)+'\n')
+        raise
+
 def capture(name):
     state(True)
     subprocess.run(['adb','-s',SERIAL,'pull',DATA+'/lvgl-diagnostic.png',str(OUT/(name+'.png'))],check=True,capture_output=True)

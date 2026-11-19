@@ -66,12 +66,22 @@ def run_inner(c):
  # Home must regain its actual function after the capture ends.
  if physical_home:
   assert shell(c['key_source']+(' --physical139 ' if home_code==139 else ' --physical ')+physical_home)=='sent';time.sleep(.4)
- shell('miniapp_cli capture /tmp/penchat-feedback-home.png');subprocess.run(['adb','-s',c['SERIAL'],'pull','/tmp/penchat-feedback-home.png',str(c['OUT']/'feedback-home-restored.png')],check=True,capture_output=True)
+ if physical_home:
+  def departed():
+   if not c['pid']():return {'native_exited':True}
+   try:s=read()
+   except (AssertionError,RuntimeError):
+    if not c['pid']():return {'native_exited':True}
+    raise
+   assert not s.get('system_overlay',{}).get('panel_visible',False),'Home unexpectedly opened a panel'
+   return {k:s.get(k) for k in ('pid','visible','page_visible','window_focused')} if not (s['visible'] and s['page_visible'] and s['window_focused']) else None
+  c['result']['home_departure_evidence']=wait(departed)
+ # SDK capture redraws a global scene. Do not capture the unowned Home page.
+
  c['start_app']();wait(lambda:read()['visible']);time.sleep(.4);open_feedback()
  if read()['feedback']['screen']=='form':go('adapt')
  capture('feedback-resumed-review');go('review');go('preview');wait(lambda:read()['feedback']['screen']=='preview');capture('feedback-preview')
  assert not list(filter(None,shell('find '+data+'/.feedback/reports -type f').splitlines()))
- shell('rm -f /tmp/penchat-feedback-home.png')
  for _ in range(5):
   if read()['view']=='settings':break
   c['navigate_back_or_menu']()

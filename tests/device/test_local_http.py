@@ -48,8 +48,13 @@ class TestRelay(unittest.TestCase):
   finally:
    stopped.set()
    for peer in peers:peer.close()
-   control.shutdown(socket.SHUT_RDWR);control.close();thread.join(5)
-   self.assertEqual(p.wait(timeout=5),0);p.stdout.close();p.stderr.close()
+   # Keep the read half open until the relay observes an orderly input EOF.
+   # Closing both halves with queued close frames can send a TCP reset, which
+   # is a transport failure rather than the clean EOF this test exercises.
+   control.shutdown(socket.SHUT_WR)
+   try:self.assertEqual(p.wait(timeout=5),0)
+   finally:
+    control.close();thread.join(5);p.stdout.close();p.stderr.close()
  def test_oversized_frame_is_rejected(self):
   p,info,control=self.start()
   control.sendall(struct.pack('!IIB',1,32769,2));self.assertEqual(p.wait(timeout=5),1)
