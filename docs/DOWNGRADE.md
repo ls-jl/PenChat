@@ -136,3 +136,19 @@ Service 指针。确认后重新打开应用。历史包可能没有这个降级
 证据索引为 `.work/rescue/build-proof.json`、`acceptance.json`、`packages/identity.json`、
 `catalog/history/`、`catalog/notes-update.json` 及 `devices/<serial>/<scope>/`。
 原始截图、报告回执和报告服务器测试标记读回均留在忽略目录，不包含在开发包。
+
+## 2026-11-20：0.3.5 降级条目
+
+按用户本次授权，新增下列两个版本目录，保留0.3.2、0.3.3、0.3.4及原元数据：
+
+- `https://cdn.ls-jl.cn/app/downgrade/penchat-rk3562/0.3.5/`
+- `https://cdn.ls-jl.cn/app/downgrade/penchat-cv1826-s/0.3.5/`
+
+来源为[0.3.5验收记录](RELEASE-0.3.5.md)封存的完整包；RK SHA-256为
+`bf85d39011e9618dabf14a6be9fb505ed2999b359d103194f69f1882e3b949b6`，CVI为
+`1d245a94d28b6723149380009adbc5e7ed559ee6af1de38951651b27351a5e0d`。
+每个目录包含完整AMR、同名校验文件、说明，以及最后提交的`release.json`。
+元数据为format=1、schema 3–3、channel=release；这里表示本次服务器交付，不代表创建GitHub Release。
+
+主机、香港节点与公网HTTPS全部逐文件读回核对。实际原生降级worker分别使用显式RK/CVI profile，只执行列表查询，不下载或安装设备：两者均按`0.3.5 → 0.3.4 → 0.3.3 → 0.3.2`返回，最新条目兼容schema v3。旧条目与目录列表核对保持不变。
+本次使用独立冻结上传清单，未改动仅限四个历史候选的`scripts/rescue-catalog.py`。完整操作记录见`.work/release-0.3.5/server-upload-20261120/`。
