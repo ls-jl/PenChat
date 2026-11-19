@@ -495,6 +495,16 @@ lv_point_t selectionHandleGrip(lv_obj_t *object) {
   const auto shape=selectionHandleShape(object);
   return {(shape.x1+shape.x2)/2,(shape.y1+shape.y2)/2};
 }
+bool selectionHandleInkContains(lv_obj_t *object,int x,int y) {
+  const auto shape=selectionHandleShape(object);
+  if(x<shape.x1||x>shape.x2||y<shape.y1||y>shape.y2)return false;
+  const auto data=iconData(object);
+  const int side=data?(data->side?data->side:(data->name=="selection-start"?-1:1)):1;
+  const double u=double(x-shape.x1)/std::max(1,int(shape.x2-shape.x1));
+  const double v=double(y-shape.y1)/std::max(1,int(shape.y2-shape.y1));
+  return ((side<0?u>=.5:u<=.5)&&(side<0?v>=.5:v<=.5)) ||
+         (2*u-1)*(2*u-1)+(2*v-1)*(2*v-1)<=1.;
+}
 bool selectionHandleContains(lv_obj_t *object,int x,int y) {
   lv_area_t area;lv_obj_get_coords(object,&area);
   const auto shape=selectionHandleShape(object);

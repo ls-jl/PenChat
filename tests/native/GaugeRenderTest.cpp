@@ -15,6 +15,19 @@ int main(int argc, char **argv) {
     Screen screen; screen.width = 320; screen.height = 240;
     Display display(screen, true);
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x000000), 0);
+    for (int percent : {75, 100, 125, 150}) for (const auto *name : {"selection-start", "selection-end"}) {
+      auto handle=lv_obj_create(lv_screen_active());lv_obj_remove_style_all(handle);
+      lv_obj_set_pos(handle,40,40);lv_obj_set_size(handle,44,44);
+      attachIcon(handle,name,0x3388ff,1.f,UiMetrics(100,percent));
+      setSelectionHandleTop(handle,0,10,22,23,17);lv_obj_update_layout(handle);
+      const auto shape=selectionHandleShape(handle);const auto grip=selectionHandleGrip(handle);
+      assert(selectionHandleInkContains(handle,grip.x,grip.y));
+      assert(selectionHandleContains(handle,shape.x1-1,grip.y));
+      assert(!selectionHandleInkContains(handle,shape.x1-1,grip.y));
+      const bool start=std::string(name)=="selection-start";
+      assert(!selectionHandleInkContains(handle,start?shape.x1:shape.x2,start?shape.y1:shape.y2));
+      lv_obj_delete(handle);
+    }
     for (int percent : {75, 100, 125, 150}) for (int size : {27, 28, 43, 44}) {
       UiMetrics metrics(100, percent);
       auto object = lv_obj_create(lv_screen_active()); lv_obj_remove_style_all(object);

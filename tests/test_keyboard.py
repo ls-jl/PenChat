@@ -108,6 +108,11 @@ with tempfile.TemporaryDirectory(prefix='penchat-keyboard-') as temp:
   for h in handles:assert abs(h['x']-h['anchor'][0])<=1 and abs(h['y']-h['anchor'][1])<=1
   shot(a,'selection-bottom-overflow');end=next(h for h in handles if h['endpoint']==1);before=current['selection_end']
   a.send('touch',x=end['x'],y=end['y']+8,pressed=True);a.send('touch',x=end['x']-24,y=end['y']+8,pressed=True);a.send('touch',x=end['x']-24,y=end['y']+8,pressed=False);time.sleep(.1)
+  # That old anchor-based point lies in Cancel and outside the painted grip.
+  # Padding may not steal the button; its moved contact must not cancel either.
+  assert state(a)['active'] and state(a)['selected'] and state(a)['selection_end']==before
+  hx,hy=end['grip']
+  a.send('touch',x=hx,y=hy,pressed=True);a.send('touch',x=hx-24,y=hy,pressed=True);a.send('touch',x=hx-24,y=hy,pressed=False);time.sleep(.1)
   assert state(a)['active'] and state(a)['selected'] and state(a)['selection_end']<before
   seed(a,'alpha beta 中文 👩‍💻')
   double(a,624,93);assert state(a)['selected'] and state(a)['selection_end']==5;shot(a,'selection')

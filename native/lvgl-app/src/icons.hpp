@@ -18,4 +18,6 @@ void setSelectionHandleTop(lv_obj_t *object, int top, int corner, int x, int dia
 lv_point_t selectionHandleGrip(lv_obj_t *object);
 lv_area_t selectionHandleShape(lv_obj_t *object);
 bool selectionHandleContains(lv_obj_t *object, int x, int y);
+// Visible grip only, excluding the enlarged invisible touch padding.
+bool selectionHandleInkContains(lv_obj_t *object, int x, int y);
 } // namespace penchat
