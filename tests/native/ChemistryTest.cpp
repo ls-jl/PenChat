@@ -23,7 +23,9 @@ int main(int argc, char **argv) {
     R"(\ce{NH4+ <=> NH3 + H+})", R"(\ce{A ->[\Delta][H2O] B})",
     R"(\ce{CuSO4 · 5 H2O})", R"(\ce{^{14}_{6}C})", R"(\ce{H2(g) + O2(g) -> H2O(l)})",
     R"(\ce{CH3-CH2-OH})", R"(\ce{A <-> B})", R"(\ce{A <- B})",
-    R"(x + \ce{H2O} + \frac{1}{2})", R"(\ce{2 H2 + O2 ->[{heat}] 2 H2O})"
+    R"(x + \ce{H2O} + \frac{1}{2})", R"(\ce{2 H2 + O2 ->[{heat}] 2 H2O})",
+    R"(\ce{CaCO3 ->[\Delta] CaO + CO2 ^})", R"(\ce{Ag+ + Cl- -> AgCl v})",
+    R"(\ce{H2 + 1/2 O2 -> H2O})"
   };
   for (const auto *source : examples) {
     for (uint32_t color : {0xd5d7deu, 0x30343bu}) {
@@ -36,6 +38,9 @@ int main(int argc, char **argv) {
     assert(doc.blocks[0].runs[0].text == source);
     assert(blockPlainText(doc.blocks[0]) == std::string("$") + source + "$");
   }
+  assert(chemistryTex(R"(\ce{CO2 ^})").find("\\uparrow") != std::string::npos);
+  assert(chemistryTex(R"(\ce{AgCl v})").find("\\downarrow") != std::string::npos);
+  assert(chemistryTex(R"(\ce{1/2 O2})").find("\\frac{1}{2}") != std::string::npos);
   for (const auto *source : {R"(\ce{H2O)", R"(\ce H2O)", R"(\ce{H^})"}) {
     bool rejected = false; try { chemistryTex(source); } catch (...) { rejected = true; }
     assert(rejected);

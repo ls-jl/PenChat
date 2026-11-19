@@ -30,6 +30,13 @@ inline std::string equation(const std::string &s, unsigned depth = 0) {
   for (size_t i = 0; i < s.size();) {
     const auto c = static_cast<unsigned char>(s[i]);
     if (std::isspace(c)) { append("\\,"); ++i; atom = false; continue; }
+    // Standalone mhchem gas/precipitate markers are arrows, not a missing
+    // exponent or an element. Adjacent H^ and isotope/charge scripts retain
+    // their existing interpretation.
+    if ((c == '^' || c == 'v') && (i == 0 || std::isspace(static_cast<unsigned char>(s[i-1]))) &&
+        (i + 1 == s.size() || std::isspace(static_cast<unsigned char>(s[i+1])))) {
+      append(c == '^' ? "\\uparrow " : "\\downarrow "); ++i; atom = false; continue;
+    }
     std::string arrow;
     size_t length = 0;
     for (const auto &p : {std::make_pair("<=>", "\\rightleftharpoons"),
@@ -61,6 +68,12 @@ inline std::string equation(const std::string &s, unsigned depth = 0) {
       const auto begin = i++;
       while (i < s.size() && (std::isdigit(static_cast<unsigned char>(s[i])) || s[i] == '.')) ++i;
       auto number = s.substr(begin, i - begin);
+      if (!atom && i + 1 < s.size() && s[i] == '/' && std::isdigit(static_cast<unsigned char>(s[i+1]))) {
+        const auto denominator = ++i;
+        while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) ++i;
+        append("\\frac{" + number + "}{" + s.substr(denominator, i - denominator) + "}\\,");
+        continue;
+      }
       if (atom) append("_{" + number + "}");
       else { append(number); append("\\,"); }
       continue;
