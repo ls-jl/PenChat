@@ -39,13 +39,29 @@ def require_parent_lock(serial):
   raise RuntimeError('Direct release wrapper parent does not own the serial flock')
 
 
+def build_marker(directory,target,appid,operation):
+  assert appid!='8001792332371649' and appid.isdigit()
+  assert len(operation)==36 and all(c in '0123456789abcdef-' for c in operation)
+  compiler=subprocess.check_output(['bash','-c','source scripts/native-target.sh '+target+'; printf "%s" "$PENCHAT_BUILD_CXX"'],cwd=ROOT,text=True)
+  library=pathlib.Path(directory)/'libjsapi_penchat_owned_marker.so'
+  with (pathlib.Path(directory)/'marker-build.log').open('w') as log:
+    subprocess.run([compiler,'-std=c++14','-shared','-fPIC','-Os','-include','pthread.h',
+      '-I'+str(ROOT/'native/vendor/iot-miniapp-sdk/include'),
+      '-DPENCHAT_SELFTEST_APPID='+json.dumps(appid),
+      '-DPENCHAT_SELFTEST_OPERATION='+json.dumps(operation),
+      '-DPENCHAT_SELFTEST_MODULE='+json.dumps('penchatOwnedMarker_'+operation.replace('-','')),
+      str(ROOT/'tests/device/owned_install_marker.cpp'),'-ldl','-o',str(library)],stdout=log,stderr=subprocess.STDOUT,check=True)
+  return library
+
+
 def fixture_page(version, operation, action):
-  # Exit is independent of every diagnostic promise, including a hung mkdir.
+  # Arm the finish watchdog before optional runtime work and keep it outside
+  # diagnostic promise chains. The parent retains isolation on unknown unloads.
   return '''<template><div class="page"><text class="message">{{message}}</text></div></template>
 <script>
-import fs from 'fs'
-import {launcher} from 'penchatLauncher'
-const mark=async(event)=>{console.warn('PENCHAT_SELFTEST_OP_VERSION_'+event);try{await fs.mkdir('./selftest-OP/VERSION/'+event)}catch(error){/* independent console marker survives firmware fs limitations */}}
+import {mark as ownedMarker,loadRuntime} from 'MARKER_MODULE'
+let launcher=null
+const mark=async(event)=>{if(!ownedMarker('VERSION',event))throw Error('marker failed')}
 export default {
  data(){return {message:'UPDATE TEST VERSION',fixtureError:''}},
  async mounted(){
@@ -55,6 +71,7 @@ export default {
      finally{this.$page.finish()}
    },15000);
    try{await mark('mounted')}catch(error){failed('mounted-marker',error);return}
+   try{launcher=loadRuntime()}catch(error){failed('runtime-factory',error);return}
    ACTION
  },
  onUnload(){clearTimeout(this.finishTimer);clearTimeout(this.installTimer);
@@ -62,7 +79,7 @@ export default {
  beforeDestroy(){clearTimeout(this.finishTimer);clearTimeout(this.installTimer)}
 }
 </script><style>.page{width:930px;height:280px;background-color:#212121;}.message{color:#ffffff;font-size:18px;}</style>
-'''.replace('OP', operation).replace('VERSION', version).replace('ACTION', action)
+'''.replace('OP', operation).replace('VERSION', version).replace('ACTION', action).replace('MARKER_MODULE','penchatOwnedMarker_'+operation.replace('-',''))
 
 
 def main():
@@ -102,7 +119,7 @@ def main():
   def push(source, target):
     subprocess.run(base+['push', str(source), target], check=True, capture_output=True, timeout=60)
 
-  own = '/userdisk/secondary/miniapp/data/mini_app/pkg/'+appid
+  own = ('/userdisk/miniapp' if bits==32 else '/userdisk/secondary/miniapp')+'/data/mini_app/pkg/'+appid
   data = own+'/data'
   remote = '/tmp/penchat-self-install-'+operation+'.amr'
   markers = data+'/selftest-'+operation
@@ -131,20 +148,15 @@ def main():
 
   def marker(version, event):
     if exists(markers+'/'+version+'/'+event):return True
-    # Only this operation's explicit JS lifecycle markers are read from the
-    # host's bounded log tail; never inspect another app's data or Storage.
-    token='PENCHAT_SELFTEST_'+operation+'_'+version+'_'+event
-    line=sh('tail -c 16777216 '+host_log+' | grep -F '+token+' | tail -1')
-    return token in line
+    return False
 
   assert sh('uname -m') == ('armv7l' if bits == 32 else 'aarch64')
   screen = json.loads(sh('cat /etc/miniapp/resources/cfg.json'))['screen']
   assert int(screen['width'])>0 and int(screen['height'])>0
+  if bits==32 and screen.get('direction') in (90,270):screen['width'],screen['height']=screen['height'],screen['width']
   assert not exists(own), 'Random fixture identity already exists; refusing access'
   host = sh('pidof miniapp')
   assert host.isdigit(), 'Require one running MiniApp host; never start/restart it'
-  host_log=sh('readlink /proc/'+host+'/fd/1')
-  assert host_log.startswith('/userdata/applog/DictPen_') and host_log.endswith('.log')
   boot = sh('cat /proc/sys/kernel/random/boot_id')
   record.update(host_pid=host, boot_id=boot)
   save()
@@ -160,6 +172,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='penchat-self-install-') as temporary:
       root = pathlib.Path(temporary)
       packages = {}
+      marker_so=build_marker(out,platform,appid,operation)
       for version in ('0.0.2', '0.0.1'):
         directory = root/version
         (directory/'src').mkdir(parents=True)
@@ -167,11 +180,11 @@ def main():
         cfg = dict(app, name='PenChat isolated update', appid=appid, version=version, scripts={})
         (directory/'package.json').write_text(json.dumps(cfg))
         shutil.copy(ROOT/cfg['icon'], directory/cfg['icon'])
-        # Only this random, disposable test AppID auto-loads the exact runtime
-        # export to exercise its install method. Production packages continue
-        # to auto-load only rescue and verify the runtime before lazy loading.
+        # A tiny owned marker loads the exact package runtime through the same
+        # versioned factory as rescue; the main runtime is never auto-loaded.
         libdir=directory/'libs'/('arm' if bits==32 else 'arm64');libdir.mkdir()
-        (libdir/'libjsapi_penchat_launcher_selftest.so').write_bytes(launcher)
+        runtime_asset=directory/'assets/runtime/libpenchat_selftest_runtime.so';runtime_asset.parent.mkdir(parents=True,exist_ok=True);runtime_asset.write_bytes(launcher)
+        shutil.copy2(marker_so,libdir/marker_so.name)
         shutil.copy(ROOT/'src/app.js', directory/'src/app.js')
         shutil.copytree(ROOT/'src/platform', directory/'src/platform')
         (directory/'src/app.json').write_text('{"pages":{"index":"Page.vue"}}')
@@ -185,21 +198,22 @@ def main():
             launcher.reopen();}catch(error){this.message='INSTALL FAILED'}},2500);'''.replace('TICKET', json.dumps(ticket))
         else:
           action = "this.message='UPDATED 0.0.2';"
-        # SDK fs.md documents mkdir (own data only), not writeFile. Marker directory
-        # names encode operation/version/event; no Storage API or foreign path.
+        # The test-only marker writes only this compiled owned AppID/operation.
+        # It needs neither the optional SDK fs module nor external Storage.
         source = fixture_page(version, operation, action).replace('width:930px;height:280px;', 'width:'+str(screen['width'])+'px;height:'+str(screen['height'])+'px;')
         (directory/'src/Page.vue').write_text(source)
         with (out/(version+'-build.log')).open('w') as log:
           subprocess.run(['aiot-cli', '-c', '-q', '-p'], cwd=directory, stdout=log, stderr=subprocess.STDOUT, check=True)
         packages[version] = directory/(appid+'.'+version.replace('.', '_')+'.amr')
+      record['marker_sha256']=sha(marker_so.read_bytes())
+      record['runtime_factory_version']=1
       record['test_package_sha256'] = {v: sha(p.read_bytes()) for v, p in packages.items()}
       save()
       mutated = True  # Even failed push/install must pass through recovery.
       push(packages['0.0.1'], remote)
       assert '"ret": 0' in sh('miniapp_cli install '+remote)
-      # Some deployed SDK builds return false for recursive mkdir despite the
-      # documented API. Prepare only event-parent directories with adb; every
-      # operation/version/event leaf must still be created by its real JS hook.
+      # Prepare only parents; each lifecycle leaf must be created by the
+      # matching real JS hook through the owned native marker.
       sh('mkdir -p '+data+'/.updates '+markers+'/0.0.1 '+markers+'/0.0.2')
       for version in ('0.0.1','0.0.2'):
         for event in ('mounted','finish-requested','unloaded'):
