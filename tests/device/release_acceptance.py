@@ -853,6 +853,31 @@ class ReleaseDevice(ScopedDevice):
       self.record()
       raise RuntimeError('Owned child still alive; no device cleanup or original restoration attempted')
 
+  def quarantine_unsettled_fixture(self, stopped):
+    if not self.testing_payload_installed:
+      return False
+    closes=self.result.get('lifecycle_closes',[])
+    forced=bool(closes and closes[-1].get('forced_term'))
+    unexpected=False
+    if stopped and self.result.get('error'):
+      try:
+        raw=self.sh('cat '+self.data+'/last-exit.json 2>/dev/null || true')
+        exit_state=json.loads(raw) if raw else {}
+        unexpected=exit_state.get('reason')!='explicit_exit'
+      except (ValueError,subprocess.CalledProcessError):
+        unexpected=True
+    if not forced and not unexpected:
+      return False
+    # A failed Falcon page can retain an asynchronous rescue reporter after the
+    # native child stops. Keep its entire fake tree in place until page teardown
+    # is proved, so a late callback cannot write into the user's restored tree.
+    self.result['owned_fixture_recovery_required']=True
+    write_json(self.out/'owned-page-recovery.json',{
+      'serial':self.serial,'reason':'Native failure/forced termination needs owned Falcon page teardown before data restoration',
+      'forced_term':forced,'unexpected_exit':unexpected,'data':self.data,
+      'saved':self.saved,'public_saved':self.public_saved})
+    return True
+
   def require_owned_page_settled(self):
     if self.result.get('owned_fixture_recovery_required'):
       self.result.update(restored=False,recovery_errors=['Owned test AppID page cleanup unconfirmed; isolation retained'])
@@ -1169,6 +1194,8 @@ class ReleaseDevice(ScopedDevice):
         except Exception as error:
           errors.append('native close: '+str(error))
         stopped = not self.pid()
+        unsettled = self.quarantine_unsettled_fixture(stopped)
+        if unsettled:errors.append('Owned Falcon failure page remains unconfirmed; original trees retained')
         # A nested recovery path must never be deleted while it still carries a
         # child fixture. Retain outer originals under their explicit saved names.
         nested = []
@@ -1182,7 +1209,7 @@ class ReleaseDevice(ScopedDevice):
                                                    (public, self.public, self.public_saved, had_public)):
           if not isolated:
             continue
-          if not stopped or nested:
+          if not stopped or nested or unsettled:
             errors.append('Retained original isolation for recovery: '+saved)
             continue
           try:

@@ -59,9 +59,15 @@ def run(d):
   samples = []
 
   def ready():
-    s = d.state()
-    assert s['visible'] and s['input_focused'] and s['touch_input']['active'], 'UI review lost foreground input'
-    return s
+    def renewed():
+      s=d.state()
+      assert (s['visible'] and s['page_visible'] and s['window_focused'] and
+              not s['system_overlay'].get('panel_visible',False) and
+              not s['screen_power'].get('blocked',False)), 'UI review lost foreground ownership'
+      # A font rebuild can cross the existing 300ms touch lease. Wait for its
+      # normal renewal; do not change the lease, relaunch or replay any touch.
+      return s if s['input_focused'] and s['touch_input']['active'] and not s['surface_motion'] else None
+    return d.wait(renewed,3)
 
   def page_action(name):
     for _ in range(35):

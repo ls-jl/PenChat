@@ -114,7 +114,12 @@ def run(d):
   d.chat();s=d.state();start=inner(s);native=d.pid()
   before,after,receipt=gesture(start,(start[0]+s['back_navigation']['distance']+20,start[1]),expect_exit=True)
   d.wait(lambda:not d.pid(),10)
-  exit_state=json.loads(d.sh('cat '+d.data+'/last-exit.json'))
+  def exit_record():
+    raw=d.sh('cat '+d.data+'/last-exit.json 2>/dev/null || true')
+    if not raw:return None
+    value=json.loads(raw)
+    return value if str(value.get('pid'))==native else None
+  exit_state=d.wait(exit_record,10)
   assert exit_state.get('reason')=='explicit_exit',exit_state
   results['root_finish']={'start':start,'native_pid_before':native,'native_exited_without_term':True,'receipt':receipt}
   results['geometry']=g

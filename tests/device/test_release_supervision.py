@@ -183,5 +183,33 @@ class CaptureOwnershipTests(unittest.TestCase):
       device.system_capture('foreign')
     device.sh.assert_not_called()
 
+class FailurePageIsolationTests(unittest.TestCase):
+  def device(self,folder,error='',forced=False):
+    d=ReleaseDevice.__new__(ReleaseDevice);d.testing_payload_installed=True
+    d.out=pathlib.Path(folder);d.serial='fixture';d.data='/owned/fake'
+    d.saved='/owned/original';d.public_saved='/owned/public-original'
+    d.result={'error':error,'lifecycle_closes':[{'forced_term':forced}]}
+    d.sh=mock.Mock(return_value=json.dumps({'reason':'explicit_exit'}))
+    return d
+
+  def test_normal_root_exit_does_not_quarantine(self):
+    with tempfile.TemporaryDirectory() as folder:
+      d=self.device(folder,error='diagnostic raced normal root exit')
+      self.assertFalse(d.quarantine_unsettled_fixture(True))
+      self.assertFalse((d.out/'owned-page-recovery.json').exists())
+
+  def test_forced_term_retains_fake_tree_for_late_report(self):
+    with tempfile.TemporaryDirectory() as folder:
+      d=self.device(folder,forced=True)
+      self.assertTrue(d.quarantine_unsettled_fixture(True))
+      self.assertTrue(d.result['owned_fixture_recovery_required'])
+      self.assertEqual(json.loads((d.out/'owned-page-recovery.json').read_text())['saved'],d.saved)
+
+  def test_unexpected_exit_keeps_originals_isolated(self):
+    with tempfile.TemporaryDirectory() as folder:
+      d=self.device(folder,error='native disappeared')
+      d.sh.return_value=json.dumps({'reason':'runtime_error'})
+      self.assertTrue(d.quarantine_unsettled_fixture(True))
+
 if __name__ == '__main__':
   unittest.main()
