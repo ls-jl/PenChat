@@ -935,6 +935,7 @@ class App {
   void presetsPage();
   Json presetsDiagnostic() const;
   void presetEditor();
+  void fitAttachmentEditor(LayoutRect &area) const;
   void presetPicker();
   void presetChoices(const std::string &field);
   void applyPreset(const Json &preset);

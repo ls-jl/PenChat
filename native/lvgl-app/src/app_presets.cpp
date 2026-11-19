@@ -45,10 +45,7 @@ void App::presetPicker() {
   const int rowHeight=std::max(uiMetrics_.touchTarget(),int(font(uiMetrics_.fontSize(UiFont::SettingsTitle))->line_height)+uiMetrics_.dp(8));
   auto area=attachmentMenuArea(layout(),{capsule.x1,capsule.y1,capsule.x2-capsule.x1+1,capsule.y2-capsule.y1+1},
       naturalWidth,int(presets.size())*rowHeight+uiMetrics_.dp(8));
-  if(keyboard_&&officialDocked_) {
-    area.height=std::min(area.height,std::max(1,display_.topHeight()-layout().safeTop()-uiMetrics_.dp(16)));
-    area.y=std::max(layout().safeTop(),std::min(area.y,display_.topHeight()-uiMetrics_.dp(8)-area.height));
-  }
+  fitAttachmentEditor(area);
   attachments_=box(lv_screen_active(),0,0,screen_.width,screen_.height);
   popupKind_="presets";
   lv_obj_set_scrollable(attachments_,false);

@@ -7,6 +7,17 @@
 #include "ui_motion.hpp"
 #include "empty_state.hpp"
 namespace penchat {
+void App::fitAttachmentEditor(LayoutRect &area) const {
+  if(!editor_.active)return;
+  const auto editor=editorLayout();
+  if(!editor.docked)return;
+  const int bottom=keyboard_&&officialDocked_?display_.topHeight():
+      int((int64_t(editor.panelTop)*editor.scaleY()+255)/256);
+  const int top=std::max(layout().safeTop(),uiMetrics_.dp(8));
+  area.height=std::min(area.height,std::max(1,bottom-top-uiMetrics_.dp(8)));
+  area.y=std::max(top,std::min(area.y,bottom-uiMetrics_.dp(8)-area.height));
+}
+
 void App::closeAttachments() {
   if(effortPreview_){effortPreview_=false;syncEffortGauge();}
   if (popupKind_ == "attachments") { ++sessionInfoGeneration_; sessionInfoPending_ = false; }
@@ -69,11 +80,7 @@ void App::toggleAttachments() {
   }
   auto area=attachmentMenuArea(layout(),{capsule.x1,capsule.y1,capsule.x2-capsule.x1+1,capsule.y2-capsule.y1+1},
                                     measuredWidth,int(names.size())*uiMetrics_.dp(44)+uiMetrics_.dp(8));
-  if(keyboard_&&officialDocked_) {
-    const int top=std::max(layout().safeTop(),uiMetrics_.dp(8));
-    area.height=std::min(area.height,std::max(1,display_.topHeight()-top-uiMetrics_.dp(8)));
-    area.y=std::max(top,std::min(area.y,display_.topHeight()-uiMetrics_.dp(8)-area.height));
-  }
+  fitAttachmentEditor(area);
   const int menuWidth=area.width;
   auto menu=box(attachments_,area.x,area.y,area.width,area.height,theme::palette().surface);
   attachmentPanel_=menu;

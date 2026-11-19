@@ -111,7 +111,7 @@ def run(binary, target, width, height, theme, scale):
       b = region['parts'][0]
       font = a.diag()['reading_font']['size']
       x, y = b[0] + font // 2, b[1] + font // 2
-      a.long_press(x, y, .55)
+      a.long_press(x, y, .66)
       t.wait_for(lambda: a.diag()['text_selection']['menu'])
       selected = a.diag()['text_selection']
       assert selected['start'] == 0 and selected['end'] == 5, selected

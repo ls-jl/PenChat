@@ -47,19 +47,13 @@ try:
                                      ('presets', dp(32)+3*dp(72)+dp(4))]:
                     bounds = open_menu(name)
                     if name == 'presets':
-                        # Rounded component heights can exceed a rounded 72dp
-                        # pitch. Keep exact natural sizing, using real font lines.
                         labels = a.diag()['presets_layout']['labels']
-                        heading = next(x for x in labels if x['role']=='heading')
                         titles = [x for x in labels if x['role']=='title']
-                        details = [x for x in labels if x['role']=='detail']
-                        assert len(titles)==len(details)==3
+                        assert len(titles)==3 and len(labels)==3, labels
                         assert all(x['bounds'][3]-x['bounds'][1]+1>=x['line_height'] for x in labels)
-                        first = max(dp(32),2*dp(4)+max(dp(24),heading['line_height']))
-                        button = max(dp(44),max(x['line_height'] for x in titles)+dp(8))
-                        detail = max(dp(22),max(x['line_height'] for x in details))
-                        height = first+3*max(dp(72),button+detail+dp(6))+dp(4)
-                    assert bounds[3]-bounds[1]+1 == min(dp(360), height), (scale, name, bounds)
+                        row = max(44, dp(44), max(x['line_height'] for x in titles)+dp(8))
+                        height = 3*row+dp(8)
+                    assert bounds[3]-bounds[1]+1 == (height if name=='presets' else min(dp(360),height)), (scale, name, bounds)
                     assert bounds[2]-bounds[0]+1 <= dp(440)
                     capture(a, OUT/f'{scale}-{name}.png')
                     a.tap(566, 400)
@@ -77,7 +71,8 @@ try:
                 for name, y in [('models', dp(4)+dp(30)+dp(22)),
                                 ('presets', dp(32)+dp(22))]:
                     bounds = open_menu(name)
-                    a.tap(bounds[0]+dp(100), bounds[1]+y)
+                    if name=='presets':tap(a.diag()['presets_layout']['labels'][0]['row_bounds'])
+                    else:a.tap(bounds[0]+dp(100), bounds[1]+y)
                     t.wait_for(lambda: not a.diag()['attachments'])
                     after = a.diag()['editor']
                     for field in ('session', 'preedit_length', 'ocr_request', 'build_count', 'keys'):

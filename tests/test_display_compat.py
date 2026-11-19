@@ -52,8 +52,10 @@ for width,height in [(960,266),(568,1210)]:
    a.editor_action('official');request=a.receive('keyboard.open');assert request['inline'] is False
    assert not a.diag()['display_visible']
    a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
-   ui.wait_for(lambda:a.diag()['editor']['active'] and a.diag()['display_visible'],timeout=15)
-   assert a.diag()['editor']['session']==before['session'] and a.diag()['editor']['preedit_length']==2
+   ui.wait_for(lambda:not a.diag()['editor']['active'] and a.diag()['display_visible'],timeout=15)
+   assert a.diag()['draft_length']==0  # Fullscreen Cancel never commits native phonetics.
+   b=a.diag()['composer_text_bounds'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+   ui.wait_for(lambda:a.diag()['editor']['active'])
    a.editor_action('official');request=a.receive('keyboard.open');assert request['inline'] is False
    a.send('keyboard.result',requestId=request['requestId'],confirmed=True,text='fixture confirmed')
    ui.wait_for(lambda:not a.diag()['keyboard'] and a.diag()['display_visible'],timeout=15)

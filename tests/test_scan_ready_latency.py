@@ -23,7 +23,10 @@ for w,h in [(960,266),(640,260),(568,1210)]:
    # Retain originals through the save modal and commit exactly once.
    a.tap(w//2,h-100) if h>w else a.tap(w-205,54)
    ui.wait_for(lambda:a.diag()['view']=='chat');s=a.diag()
-   assert len(a.read_messages())==1 and s['scanner']['generation']==generation
+   assert not a.read_messages() and s['summary']['sessions']==0
+   with __import__('sqlite3').connect(pathlib.Path(folder)/'penchat.db') as db:
+    assert db.execute('select count(*) from draft_attachments').fetchone()[0]==1
+   assert s['scanner']['generation']==generation
    saved=s['scan_latency'];assert saved['stored']>=saved['confirm_clicked']>0
    rows.append({'geometry':[w,h],'prepare_after_finished_ms':latency['prepared']-latency['finished'],'export_us':latency['export_us'],'decode_after_prepare_ms':latency['decoded']-latency['prepared'],'view_click_to_loaded_ms':view,'confirm_to_saved_ms':saved['stored']-saved['confirm_clicked']})
   finally:a.close()
