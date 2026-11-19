@@ -41,3 +41,25 @@ checks spacing, hanging indents and formula colours. UiControlsTest exercises th
 real message tree, collapsed margins, selection/copy and retained disclosure
 objects. MarkdownWrapTest, MarkdownTableTest and TextSelectionTest cover existing
 line breaking, tables and hit/selection behavior.
+
+## 原生化学式输入（2026-11-19）
+
+MicroTeX 之前没有注册 `\ce`，未知命令会直接露出命令名。现在由原生
+`chemistry.hpp` 将常用 mhchem 风格输入转换为现有 MicroTeX 可排版的数学表达式，
+不在 Vue 中运行化学式解析，也不额外引入 Web 渲染器。输入语法参考
+[mhchem 官方手册](https://mhchem.github.io/MathJax-mhchem/)。
+
+覆盖元素直立字形、自动数字下标、显式上下标与电荷、圆／方括号、同位素、系数、
+水合物点号、常用键线，以及 `->`／`<-`／`<->`／`<-->`／`<=>` 和上下标注。
+例如 `\ce{H2O}`、`\ce{SO4^2-}`、`\ce{Ca(OH)2}`、`\ce{^{14}_{6}C}`、
+`\ce{2 H2 + O2 -> 2 H2O}` 和 `\ce{A ->[\Delta][H2O] B}`。
+这是原生常用语法适配，不是完整移植 mhchem；复杂扩展宏和 `\pu` 不在本次支持范围。
+
+`$...$`、`$$...$$` 和既有 `\(...\)`／`\[...\]` 数学环境内都使用这条路径。
+完整的裸 `\ce{...}` 会识别为行内公式；代码围栏、行内代码以及尚未闭合的流式内容
+保持原有文字处理。公式源文仍用于复制、选择和缓存键，排版替换只发生在栅格化入口。
+主题前景色、字体尺度和已有公式缓存上限保持不变；输入、嵌套及展开长度分别受界限保护。
+
+`penchat-chemistry` 覆盖 16 组实际 MicroTeX 位图、深浅两种前景色、普通数学式不变、
+源文／复制语义、代码隔离、无效输入及裸公式。三种主机布局的深浅截图保存在
+`.work/feedback-fixes-20261119/image-chemistry-stream-gauge/visual/`。

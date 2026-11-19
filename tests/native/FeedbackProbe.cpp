@@ -26,6 +26,10 @@ int main(int argc,char **argv) {
     // Simulate sensitive fields reaching a logging call: none are allowlisted.
     diagnosticRecord("network","request_end",{{"status",401},{"dns_ms",3},{"secret","SECRET_BODY_KEY"},{"url","https://SECRET_URL"},{"code","SECRET_TEXT"}});
     diagnosticRecord("SECRET_BODY_KEY","request_end",{{"count",1}});
+    diagnosticRecord("network","stream_end",{{"status",200},{"semantic_chunks",7},
+      {"stream_quiet_ms",120000},{"stream_observed",true},{"stream_done",false},
+      {"cancelled",false},{"request_id","fake-stream-request"},{"finish_reason","stop"},
+      {"reasoning","SECRET_REASONING"},{"content","SECRET_CONTENT"},{"api_key","SECRET_KEY"}});
     Events events;Screen screen;screen.width=936;screen.height=280;screen.rotation=270;
     Feedback feedback(events,argv[1],feedbackScreen({{"screen",{{"width",936},{"height",280},{"direction",270},{"tp_direction",270},{"dbuffer",true},{"serial","SECRET_SERIAL"}}}},screen),false);
     std::string line;

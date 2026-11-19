@@ -29,10 +29,11 @@ const std::set<std::string> events = {
   "lifecycle.runtime_error", "lifecycle.exit", "lifecycle.start", "lifecycle.background", "lifecycle.foreground", "lifecycle.stop", "lifecycle.startup_error",
   "context.failure", "ui.error", "camera.started", "camera.error", "camera.photo", "camera.orientation",
   "storage.save_error", "storage.save_complete", "scanner.started", "scanner.finished",
-  "scanner.released", "scanner.error", "scanner.review_error", "scanner.stopped", "network.request_end", "feedback.request_end", "feedback.upload_result"};
+  "scanner.released", "scanner.error", "scanner.review_error", "scanner.stopped", "network.request_end", "network.stream_end", "feedback.request_end", "feedback.upload_result"};
 const std::set<std::string> numbers = {
   "signal", "status", "curl_code", "elapsed_ms", "dns_ms", "tcp_ms", "tls_ms", "first_byte_ms", "queue_ms",
   "new_connections", "connection_reused", "attempts", "count", "width", "height", "angle",
+  "semantic_chunks", "stream_quiet_ms", "stream_observed", "stream_done", "cancelled",
   "received", "filtered", "selected", "committed", "dropped_raw", "unlocated", "queue_peak", "queue_capacity",
   "raw_queued", "selected_queued", "raw_peak", "selected_peak", "frame_bytes", "canvas_bytes",
   "peak_frame_bytes", "peak_canvas_bytes", "rss_bytes", "rss_peak_bytes", "swap_bytes",

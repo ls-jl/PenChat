@@ -1707,7 +1707,7 @@ void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::str
       const auto searches=reasoningSearchText(metadata,live&&generating_);
       std::string title = "思考过程";
       if (thinking)
-        title = "正在思考…";
+        title = metadata.value("stream_waiting", false) ? "等待服务商继续返回…" : "正在思考…";
       else if (metadata.contains("reasoning_duration_ms")) {
         const auto seconds =
             metadata["reasoning_duration_ms"].get<int64_t>() / 1000;

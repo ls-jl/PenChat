@@ -3,6 +3,7 @@
 #include "md4c.h"
 #include "markdown_tables.hpp"
 #include "theme.hpp"
+#include "chemistry.hpp"
 extern "C" {
 #include "entity.h"
 }
@@ -208,6 +209,7 @@ std::string normalizeMath(const std::string &input) {
   size_t i = 0;
   char fence = 0;
   size_t fenceCount = 0;
+  size_t mathDelimiter = 0;
   while (i < input.size()) {
     bool lineStart = i == 0 || input[i - 1] == '\n';
     if (lineStart) {
@@ -252,6 +254,24 @@ std::string normalizeMath(const std::string &input) {
       out += input.substr(i, close + ticks.size() - i);
       i = close + ticks.size();
       continue;
+    }
+    if (input[i] == '$') {
+      const size_t count = i + 1 < input.size() && input[i + 1] == '$' ? 2 : 1;
+      if (!mathDelimiter) mathDelimiter = count;
+      else if (mathDelimiter == count) mathDelimiter = 0;
+      out += input.substr(i, count); i += count; continue;
+    }
+    if (!mathDelimiter && input.compare(i, 3, "\\ce") == 0) {
+      size_t at = i + 3;
+      while (at < input.size() && std::isspace(static_cast<unsigned char>(input[at]))) ++at;
+      if (at < input.size() && input[at] == '{') {
+        try {
+          std::string body;
+          if (chemistry::group(input, at, '{', '}', body)) {
+            out += "$" + input.substr(i, at - i) + "$"; i = at; continue;
+          }
+        } catch (const std::exception &) { /* Preserve unfinished streaming text. */ }
+      }
     }
     if (input[i] == '\\' && i + 1 < input.size()) {
       char open = input[i + 1];
@@ -500,7 +520,7 @@ std::shared_ptr<const Bitmap> RichText::formulaShared(const std::string &source,
 #endif
   const float formulaSize = size * 1.5f;
   std::unique_ptr<tex::TeXRender> r(
-      tex::LaTeX::parse(tex::utf82wide(source), 4096, formulaSize,
+      tex::LaTeX::parse(tex::utf82wide(chemistryTex(source)), 4096, formulaSize,
                         formulaSize * .2, (0xff000000u | foreground)));
   auto bitmap = std::make_shared<Bitmap>();
   auto &b = *bitmap;

@@ -125,6 +125,7 @@ void paint(lv_event_t *event) {
   auto arc = [&](int start, int end, int radius, int x = 0, int y = 0) {
     lv_draw_arc_dsc_t d;
     lv_draw_arc_dsc_init(&d);
+    d.base.obj = object;
     d.color = ink;
     d.opa = opacity;
     d.width = icon->metrics.dp(2);
@@ -263,10 +264,24 @@ void paint(lv_event_t *event) {
     rect(-6, -6, 12, 12, 3, true);
   else if (k == "gauge") {
     arc(140, 400, 11);
-    circle(0, 1, 2);
+    const lv_point_t center{int32_t(std::lround(cx)), int32_t(std::lround(cy))};
+    const int radius = std::max(1, int(std::lround(2 * scale)));
+    lv_draw_rect_dsc_t hub; lv_draw_rect_dsc_init(&hub);
+    hub.base.obj = object;
+    hub.radius = LV_RADIUS_CIRCLE; hub.bg_opa = LV_OPA_TRANSP;
+    hub.border_color = ink; hub.border_opa = opacity; hub.border_width = icon->metrics.dp(2);
+    const lv_area_t area{center.x-radius, center.y-radius, center.x+radius, center.y+radius};
+    lv_draw_rect(layer, &hub, &area);
     const float angle=(140.f+260.f*icon->gaugePosition)*.0174532925199433f;
-    line(std::cos(angle)*2,1+std::sin(angle)*2,
-         std::cos(angle)*8,1+std::sin(angle)*8);
+    // The frame, hub and every needle angle share the same center. Draw from
+    // one snapped pixel origin, including fractional UI scale and odd bounds.
+    lv_draw_line_dsc_t needle; lv_draw_line_dsc_init(&needle);
+    needle.base.obj = object;
+    needle.color = ink; needle.opa = opacity; needle.width = icon->metrics.dp(2);
+    needle.round_start = needle.round_end = 1; needle.p1 = {center.x, center.y};
+    needle.p2 = {center.x + int32_t(std::lround(std::cos(angle)*8*scale)),
+                 center.y + int32_t(std::lround(std::sin(angle)*8*scale))};
+    lv_draw_line(layer, &needle);
   } else if (k == "history") {
     arc(215, 535, 10);
     line(-9, -6, -9, 0);

@@ -97,14 +97,26 @@ void App::tickTitles() {
     return;
   }
   std::string question;
+  bool hasImages = false, hasQuestionText = false;
   for (const auto &row :
        db_.query("SELECT output_text,message_type FROM chat_messages WHERE "
                  "session_id=? AND role='user' AND seq<? ORDER BY seq",
                  {id, rows[0]["seq"]})) {
-    if (row["message_type"] == "image")
+    if (row["message_type"] == "image") {
+      hasImages = true;
       question += "[图片提问] ";
-    if (row["output_text"].is_string())
-      question += row["output_text"].get<std::string>();
+    }
+    if (row["output_text"].is_string()) {
+      const auto &text = row["output_text"].get_ref<const std::string &>();
+      const auto first = text.find_first_not_of(" \t\r\n");
+      bool meaningful = first != std::string::npos;
+      if (meaningful && row["message_type"] == "image") {
+        const auto last = text.find_last_not_of(" \t\r\n");
+        if (last - first < 64) meaningful = !genericImageTitle(text.substr(first, last - first + 1));
+      }
+      hasQuestionText = hasQuestionText || meaningful;
+      question += text;
+    }
     question += '\n';
   }
   const auto answer = rows[0]["output_text"].is_string()
@@ -118,11 +130,12 @@ void App::tickTitles() {
   titleBusy_ = true;
   titleCancel_ = false;
   const int limit = titleLimit();
-  titleWorker_ = std::thread([this, job, model, question, answer, limit] {
+  const bool imageOnly = hasImages && !hasQuestionText;
+  titleWorker_ = std::thread([this, job, model, question, answer, limit, imageOnly] {
     std::string title;
     try {
       title =
-          generateTitle(db_.requestModel(model), question, answer, limit, titleCancel_);
+          generateTitle(db_.requestModel(model), question, answer, limit, titleCancel_, imageOnly);
     } catch (...) {
     }
     events_.push("title_result", {{"session", job["session"]},

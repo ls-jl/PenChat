@@ -59,5 +59,5 @@ void streamChat(const Json &model, Json input, std::atomic<bool> &cancel,
                 std::function<Json(const Json &)> compact = {});
 std::string generateTitle(Json model, const std::string &question,
                           const std::string &answer, int maxCharacters,
-                          std::atomic<bool> &cancel);
+                          std::atomic<bool> &cancel, bool imageOnly = false);
 } // namespace penchat

@@ -12,7 +12,8 @@ int main() {
   Events events(true);
   try {
     if(request.value("task",std::string())=="title") {
-      const auto result=generateTitle(model,"question","answer",20,cancel);
+      const auto result=generateTitle(model,request.value("question",std::string("question")),
+          request.value("answer",std::string("answer")),20,cancel,request.value("image_only",false));
       events.push("title",{{"text",result}});
     } else if(request.value("task",std::string())=="models_pages") {
       events.push("models_list",{{"body",fetchModelList(model,cancel)}});
