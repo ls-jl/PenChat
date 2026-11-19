@@ -16,7 +16,7 @@ def run(d):
   def save():
     (d.out/'y07-new-native-back-results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2)+'\n')
 
-  def gesture(start, end, hold=0, long_press=False):
+  def gesture(start, end, hold=0, long_press=False, expect_exit=False):
     before=d.state();assert before['visible'] and before['page_visible'] and before['input_focused'] and before['touch_input']['active']
     d.input_release();before=d.state()
     values=(*d.raw(*start),*d.raw(*end))
@@ -26,7 +26,8 @@ def run(d):
     suffix=(' 700 '+str(hold)) if long_press else (' 150 '+str(hold)) if hold else ''
     receipt=d.sh('PENCHAT_TOUCH_DEVICE='+d.event+' '+d.helper+flag+' '.join(map(str,values))+suffix+' 2>&1')
     time.sleep(.4 if long_press else .7)
-    after=d.state() if d.pid() else None
+    # Root Finish can reap between a PID probe and its diagnostic request.
+    after=None if expect_exit else d.state() if d.pid() else None
     return before,after,receipt
 
   def inner(s):
@@ -111,8 +112,10 @@ def run(d):
       'note':'SDK outer strip remains reserved; not counted as a usable native Back entry'}
     save()
   d.chat();s=d.state();start=inner(s);native=d.pid()
-  before,after,receipt=gesture(start,(start[0]+s['back_navigation']['distance']+20,start[1]))
+  before,after,receipt=gesture(start,(start[0]+s['back_navigation']['distance']+20,start[1]),expect_exit=True)
   d.wait(lambda:not d.pid(),10)
+  exit_state=json.loads(d.sh('cat '+d.data+'/last-exit.json'))
+  assert exit_state.get('reason')=='explicit_exit',exit_state
   results['root_finish']={'start':start,'native_pid_before':native,'native_exited_without_term':True,'receipt':receipt}
   results['geometry']=g
   (d.out/'y07-new-native-back-results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2)+'\n')

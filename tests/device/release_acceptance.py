@@ -272,6 +272,13 @@ class ReleaseDevice(ScopedDevice):
                                        'visual_review': 'pending'})
 
   def system_capture(self, name):
+    # SDK capture redraws the scene; it is not passive framebuffer readback.
+    # Never invoke it on a retired page or a different application's foreground.
+    owner=self.state() if self.pid() else None
+    from release_official_readback import owned_fullscreen
+    if not owner or not (owner.get('page_visible') or
+        owned_fullscreen(owner,getattr(self,'owned_official_request',None))):
+      raise RuntimeError('SDK screenshot requires a live owned page/editor')
     token=uuid.uuid4().hex
     remote='/tmp/penchat-release-system-'+token+'.png'
     local=self.out/(name+'-'+token+'.png');partial=local.with_suffix('.partial')

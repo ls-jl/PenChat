@@ -25,6 +25,7 @@ def run(d):
  meta=json.loads(pathlib.Path(base+'.raw.json').read_text());pixels=pathlib.Path(base+'.raw').read_bytes()
  state=d.state();start=state['composer_bounds'][3]+1;end=state['display_top_height']
  assert start<=end
+ boundary_errors=[]
  for yy in range(start,end+1):
   for xx in [0,d.w//2,d.w-1]:
    px,py=d.w-1-xx,d.h-1-yy;offset=py*meta['pitch']+px*4
@@ -32,7 +33,9 @@ def run(d):
    # Falcon can retain transparent black on its primary plane in dark mode;
    # the native/DRM background is black too. Light mode must be opaque white
    # or the former hole would show the reported black stripe.
-   assert pixel[:3]==bytes([color,color,color]) and (theme=='dark' or pixel[3]==255),(xx,yy,list(pixel))
+   if not (pixel[:3]==bytes([color,color,color]) and (theme=='dark' or pixel[3]==255)):
+    boundary_errors.append((xx,yy,list(pixel)))
+ (out/'official-boundary-result.json').write_text(json.dumps({'theme':theme,'start':start,'end':end,'mismatches':boundary_errors},indent=2)+'\n')
 
  plus();d.wait(lambda:d.state()['attachments'] and d.state()['keyboard'])
  rawtap(d.w-8,100);d.wait(lambda:not d.state()['attachments']);assert d.state()['keyboard']
@@ -84,6 +87,9 @@ def run(d):
  d.capture('direct-system-hidden')
  # Normal shutdown checkpoints the isolated DB; inspect only this fixture.
  d.close()
+ # Settle the official editor and owned page before rejecting pixel evidence.
+ # A geometry failure must not force-kill a live system editing connection.
+ assert not boundary_errors,('official boundary pixels',boundary_errors[:12])
  import subprocess,sqlite3
  saved=out/'sent-fixture.db';subprocess.run(['adb','-s',d.serial,'pull',d.data+'/penchat.db',str(saved)],check=True,capture_output=True)
  with sqlite3.connect(saved) as db:

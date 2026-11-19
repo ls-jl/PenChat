@@ -166,5 +166,22 @@ time.sleep(.4)
     child.terminate.assert_not_called()
 
 
+class CaptureOwnershipTests(unittest.TestCase):
+  def test_retired_page_never_calls_sdk_capture(self):
+    device=ReleaseDevice.__new__(ReleaseDevice)
+    device.pid=lambda:''
+    device.sh=mock.Mock(side_effect=AssertionError('must not redraw retired SDK page'))
+    with self.assertRaisesRegex(RuntimeError,'live owned'):
+      device.system_capture('retired')
+    device.sh.assert_not_called()
+
+  def test_background_foreign_page_never_calls_sdk_capture(self):
+    device=ReleaseDevice.__new__(ReleaseDevice)
+    device.pid=lambda:'42';device.state=lambda:{'page_visible':False,'keyboard':False}
+    device.sh=mock.Mock(side_effect=AssertionError('must not capture a foreign page'))
+    with self.assertRaisesRegex(RuntimeError,'live owned'):
+      device.system_capture('foreign')
+    device.sh.assert_not_called()
+
 if __name__ == '__main__':
   unittest.main()

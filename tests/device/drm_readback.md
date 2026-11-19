@@ -42,3 +42,11 @@ Host verification for this change: strict GCC `-Wall -Wextra -Werror` C++14 buil
 for host and AArch64, invalid-ID argument rejection before opening a DRM device,
 and source inspection of the complete ioctl/mmap call set. No device capture or
 production payload build is part of this helper-only validation.
+
+A 2026-11-19 Y07 acceptance failure left a Falcon minidump with
+`DbgCmdViews::capture -> Window::dispatchDraw -> SkDraw::drawBitmap -> free -> abort`
+while requesting SDK capture after leaving a failure page. SDK capture actively
+redraws; it must not be treated as passive readback or invoked after page ownership
+has ended. The release wrapper rejects retired/foreign pages before that API.
+Use observed primary/native plane readback for steady-state diagnostics and
+retain the distinction between stored plane pixels and composed LCD evidence.
