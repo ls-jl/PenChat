@@ -148,6 +148,12 @@ class Device:
                 self.wait(acknowledged, 1.2)
                 return
             except AssertionError:
+                def evidence(value):
+                    return {key:value.get(key) for key in ('pid','diagnostic_time','visible','page_visible',
+                        'window_focused','input_focused','touch_input','touch','input_focus_trace','screen_power','surface_motion')}
+                trace=self.result.setdefault('unacknowledged_input',[])
+                trace.append({'attempt':attempt,'before':evidence(before),'after':evidence(observed[-1]) if observed else None})
+                (self.out/'unacknowledged-input.json').write_text(json.dumps(trace,indent=2)+'\n')
                 if attempt or not observed or not retry_unseen_tap(before, observed[-1], allow_cancelled_down=True):
                     raise
                 if self.sh('test -x '+self.input_state_probe+' && echo yes') != 'yes':

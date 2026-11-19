@@ -5,6 +5,7 @@ import test_lvgl_app as t
 from test_reasoning_ui import seed
 from image_gestures import capture
 OUT=t.ROOT/'.work/y07-preset-popup/screenshots';OUT.mkdir(parents=True,exist_ok=True)
+BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
 t.port=1
 
 def tap(a,b):a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
@@ -29,7 +30,7 @@ try:
                     db.execute('insert into app_settings(key,value_json,updated_at) values(?,?,1)',(k,json.dumps(v)))
             (p/'.updates').mkdir();app=json.loads((t.ROOT/'package.json').read_text())
             (p/'.updates/restore.json').write_text(json.dumps({'appid':app['appid'],'target':app['version'],'snapshot':{'session':'','draft':'保留草稿','preferences':{'model_id':'a','preset_id':'default','preset_name':'默认预设'},'scroll':0,'offset':0,'following':True}}))
-            a=t.Native(t.ROOT/'build/host/penchat-lvgl',p,seed_model=False,official_adapter=False,screen={'width':568,'height':1210,'direction':0})
+            a=t.Native(BINARY,p,seed_model=False,official_adapter=False,screen={'width':568,'height':1210,'direction':0})
             try:
                 b=open_presets(a);d=a.diag();labels=d['presets_layout']['labels']
                 assert len(labels)==count and all(x['role']=='title' for x in labels),labels

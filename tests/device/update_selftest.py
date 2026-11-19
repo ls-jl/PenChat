@@ -15,7 +15,7 @@ import uuid
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-SERIALS = ('MEA2300009007113', 'MEB0400008900794', '7G12000010905426')
+SERIALS = ('MEA2300009007113', 'MEB0400008900794', '7G12000010905426', 'JDA0700006552216')
 
 
 def sha(payload):
@@ -45,7 +45,7 @@ def fixture_page(version, operation, action):
 <script>
 import fs from 'fs'
 import {launcher} from 'penchatLauncher'
-const mark=async(event)=>{const result=await fs.mkdir('./selftest-OP/VERSION/'+event);if(!result)throw Error('mkdir returned '+String(result))}
+const mark=async(event)=>{console.warn('PENCHAT_SELFTEST_OP_VERSION_'+event);try{await fs.mkdir('./selftest-OP/VERSION/'+event)}catch(error){/* independent console marker survives firmware fs limitations */}}
 export default {
  data(){return {message:'UPDATE TEST VERSION',fixtureError:''}},
  async mounted(){
@@ -78,11 +78,19 @@ def main():
     assert len(archive.namelist()) == len(set(archive.namelist()))
     manifest = json.loads(archive.read('manifest.json'))
     assert (manifest['appid'], manifest['version']) == (app['appid'], app['version'])
-    member = 'libs/arm64-rk3562/libjsapi_penchat_launcher.so'
+    payload = json.loads(archive.read('assets/rescue/payload.json'))
+    platform = 'cv1826-s' if args.serial == 'JDA0700006552216' else 'rk3562'
+    bits, machine = (32, 40) if platform == 'cv1826-s' else (64, 183)
+    assert payload['platform'] == platform and payload['abi_bits'] == bits
+    member = payload['runtime']
+    assert member.startswith('assets/runtime/') and '..' not in member
     launcher = archive.read(member)
-    assert launcher[:5] == b'\x7fELF\x02' and struct.unpack_from('<H', launcher, 18)[0] == 183
-    copies = [n for n in archive.namelist() if n.startswith('libs/') and n.endswith('.so')]
-    assert len(copies) == 2 and all(archive.read(n) == launcher for n in copies)
+    assert sha(launcher) == payload['runtime_sha256']
+    assert launcher[:5] == b'\x7fELF'+bytes([bits//32]) and struct.unpack_from('<H', launcher, 18)[0] == machine
+    libraries=[n for n in archive.namelist() if n.startswith('libs/') and n.endswith('.so')]
+    assert len(libraries)==2 and all(
+      n.startswith(('libs/arm/libjsapi_penchat_rescue_', 'libs/arm64/libjsapi_penchat_rescue_')) for n in libraries)
+    assert {n.split('/')[1] for n in libraries}=={'arm','arm64'}
   operation = str(uuid.uuid4())
   appid = '800'+str(uuid.uuid4().int % 10**13).zfill(13)
   assert appid != app['appid']
@@ -122,12 +130,21 @@ def main():
     return sh('test -e '+path+' -o -L '+path+' && echo exists || true') == 'exists'
 
   def marker(version, event):
-    return exists(markers+'/'+version+'/'+event)
+    if exists(markers+'/'+version+'/'+event):return True
+    # Only this operation's explicit JS lifecycle markers are read from the
+    # host's bounded log tail; never inspect another app's data or Storage.
+    token='PENCHAT_SELFTEST_'+operation+'_'+version+'_'+event
+    line=sh('tail -c 16777216 '+host_log+' | grep -F '+token+' | tail -1')
+    return token in line
 
-  assert sh('uname -m') == 'aarch64'
+  assert sh('uname -m') == ('armv7l' if bits == 32 else 'aarch64')
+  screen = json.loads(sh('cat /etc/miniapp/resources/cfg.json'))['screen']
+  assert int(screen['width'])>0 and int(screen['height'])>0
   assert not exists(own), 'Random fixture identity already exists; refusing access'
   host = sh('pidof miniapp')
   assert host.isdigit(), 'Require one running MiniApp host; never start/restart it'
+  host_log=sh('readlink /proc/'+host+'/fd/1')
+  assert host_log.startswith('/userdata/applog/DictPen_') and host_log.endswith('.log')
   boot = sh('cat /proc/sys/kernel/random/boot_id')
   record.update(host_pid=host, boot_id=boot)
   save()
@@ -150,7 +167,11 @@ def main():
         cfg = dict(app, name='PenChat isolated update', appid=appid, version=version, scripts={})
         (directory/'package.json').write_text(json.dumps(cfg))
         shutil.copy(ROOT/cfg['icon'], directory/cfg['icon'])
-        (directory/'libs'/('libjsapi_penchat_launcher_selftest_'+version.replace('.', '_')+'.so')).write_bytes(launcher)
+        # Only this random, disposable test AppID auto-loads the exact runtime
+        # export to exercise its install method. Production packages continue
+        # to auto-load only rescue and verify the runtime before lazy loading.
+        libdir=directory/'libs'/('arm' if bits==32 else 'arm64');libdir.mkdir()
+        (libdir/'libjsapi_penchat_launcher_selftest.so').write_bytes(launcher)
         shutil.copy(ROOT/'src/app.js', directory/'src/app.js')
         shutil.copytree(ROOT/'src/platform', directory/'src/platform')
         (directory/'src/app.json').write_text('{"pages":{"index":"Page.vue"}}')
@@ -166,7 +187,7 @@ def main():
           action = "this.message='UPDATED 0.0.2';"
         # SDK fs.md documents mkdir (own data only), not writeFile. Marker directory
         # names encode operation/version/event; no Storage API or foreign path.
-        source = fixture_page(version, operation, action)
+        source = fixture_page(version, operation, action).replace('width:930px;height:280px;', 'width:'+str(screen['width'])+'px;height:'+str(screen['height'])+'px;')
         (directory/'src/Page.vue').write_text(source)
         with (out/(version+'-build.log')).open('w') as log:
           subprocess.run(['aiot-cli', '-c', '-q', '-p'], cwd=directory, stdout=log, stderr=subprocess.STDOUT, check=True)
@@ -182,7 +203,7 @@ def main():
       sh('mkdir -p '+data+'/.updates '+markers+'/0.0.1 '+markers+'/0.0.2')
       for version in ('0.0.1','0.0.2'):
         for event in ('mounted','finish-requested','unloaded'):
-          assert not marker(version,event),'Lifecycle marker leaf must not be precreated'
+          assert not exists(markers+'/'+version+'/'+event),'Lifecycle marker leaf must not be precreated'
       record.update(marker_parents_precreated=['0.0.1','0.0.2'],marker_leaves_absent_before_start=True)
       save()
       push(packages['0.0.2'], data+'/.updates/package.amr')

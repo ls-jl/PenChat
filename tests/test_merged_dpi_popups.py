@@ -10,6 +10,7 @@ import test_lvgl_app as t
 from test_reasoning_ui import seed
 from image_gestures import capture
 
+BINARY = pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY', t.ROOT/'build/host/penchat-lvgl'))
 t.port = 1
 OUT = t.ROOT / '.work/dpi-merge/popups'
 OUT.mkdir(parents=True, exist_ok=True)
@@ -25,7 +26,7 @@ try:
             with sqlite3.connect(folder/'penchat.db') as db:
                 for key, value in [('chat_presets', presets), ('presets_enabled', True)]:
                     db.execute('insert into app_settings values(?,?,1)', (key, json.dumps(value)))
-            a = t.Native(t.ROOT/'build/host/penchat-lvgl', folder, seed_model=False,
+            a = t.Native(BINARY, folder, seed_model=False,
                          official_adapter=False, screen={'width': 568, 'height': 1210},
                          ui_scale_percent=scale)
             try:

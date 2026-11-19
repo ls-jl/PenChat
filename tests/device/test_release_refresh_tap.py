@@ -1,4 +1,4 @@
-import copy,json,unittest
+import copy,json,unittest,tempfile,pathlib
 from unittest.mock import Mock,patch
 from refresh_bottom_acceptance import Device
 
@@ -6,6 +6,8 @@ from refresh_bottom_acceptance import Device
 class RefreshTapTest(unittest.TestCase):
   def fixture(self, states, active=False):
     device=Device.__new__(Device)
+    folder=tempfile.TemporaryDirectory(prefix="penchat-tap-diagnostic-");self.addCleanup(folder.cleanup)
+    device.out=pathlib.Path(folder.name)
     device.pid=lambda:'11'
     values=iter(states);device.state=lambda:copy.deepcopy(next(values))
     def wait(predicate,seconds):
@@ -37,6 +39,7 @@ class RefreshTapTest(unittest.TestCase):
     with patch('refresh_bottom_acceptance.time.sleep'):device._tap_with_ack(emit)
     self.assertEqual(emit.call_count,2)
     self.assertEqual(device.result['cancelled_input_tap_retries'],1)
+    self.assertEqual(len(json.loads((device.out/'unacknowledged-input.json').read_text())),1)
     self.assertEqual(sum('--release' in c.args[0] for c in device.sh.call_args_list),1)
 
   def test_active_kernel_contact_never_represses(self):
