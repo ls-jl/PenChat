@@ -97,6 +97,10 @@ int main(int argc, char **argv) {
   assert(popup.position==SelectionMenu::Below && popup.bounds.y==56);
   popup=placeSelectionMenu(selected,{8,4,624,100},188,52,24);
   assert(popup.position==SelectionMenu::LowerLeft);
+  // An upper start grip can displace the popup below. Reserve the lower
+  // end grip too, even though the first candidate was above.
+  popup=placeSelectionMenu({100,92,83,38},{8,4,944,252},188,52,39,{},UiMetrics(),39);
+  assert(popup.position==SelectionMenu::Below && popup.bounds.y==177);
   EditorClipboard c;
   assert(c.copy("one"));
   assert(c.copy("secret", true));

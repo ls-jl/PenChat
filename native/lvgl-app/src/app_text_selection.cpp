@@ -512,13 +512,16 @@ void App::readDraw(bool menu) {
   readSelectionBounds_ = selectedBounds;
   const auto candidate = placeSelectionMenu(
       selectedBounds, selectionMenuSafeArea(screen_.width, screen_.height,roundedDisplay_,uiMetrics_), uiMetrics_.dp(188), uiMetrics_.touchTarget()+uiMetrics_.dp(8),0,layout().safety(),uiMetrics_);
-  int clearance=0;
+  auto aboveCandidate=candidate,belowCandidate=candidate;
+  aboveCandidate.position=SelectionMenu::Above;belowCandidate.position=SelectionMenu::Below;
+  int aboveClearance=0,belowClearance=0;
   for(auto handle:readHandles_)if(!lv_obj_is_hidden(handle)) {
     const auto shape=selectionHandleShape(handle);
-    clearance=std::max(clearance,selectionMenuClearance(selectedBounds,candidate,
-      {shape.x1,shape.y1,shape.x2-shape.x1+1,shape.y2-shape.y1+1}));
+    const LayoutRect grip{shape.x1,shape.y1,shape.x2-shape.x1+1,shape.y2-shape.y1+1};
+    aboveClearance=std::max(aboveClearance,selectionMenuClearance(selectedBounds,aboveCandidate,grip));
+    belowClearance=std::max(belowClearance,selectionMenuClearance(selectedBounds,belowCandidate,grip));
   }
-  const auto placement=placeSelectionMenu(selectedBounds,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_,uiMetrics_),uiMetrics_.dp(188),uiMetrics_.touchTarget()+uiMetrics_.dp(8),candidate.position==SelectionMenu::Below?clearance:0,layout().safety(),uiMetrics_,candidate.position==SelectionMenu::Above?clearance:0);
+  const auto placement=placeSelectionMenu(selectedBounds,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_,uiMetrics_),uiMetrics_.dp(188),uiMetrics_.touchTarget()+uiMetrics_.dp(8),belowClearance,layout().safety(),uiMetrics_,aboveClearance);
   const auto &popup = placement.bounds;
   lv_obj_set_pos(readMenu_, popup.x, popup.y);
   lv_obj_set_size(readMenu_, popup.width, popup.height);

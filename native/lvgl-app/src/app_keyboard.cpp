@@ -1475,16 +1475,19 @@ void App::editorSyncSelectionMenu() {
   const int buttonWidth=layout.selectionButtonWidth(),buttonHeight=layout.selectionButtonHeight();
   const auto candidate=placeSelectionMenu(native,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_,editorMetrics()),
     int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+editorMetrics().dp(4))+editorMetrics().dp(4))*sx)),int(std::ceil((buttonHeight+editorMetrics().dp(8))*sy)),0,this->layout().safety(),editorMetrics());
-  int clearance=0;
+  auto aboveCandidate=candidate,belowCandidate=candidate;
+  aboveCandidate.position=SelectionMenu::Above;belowCandidate.position=SelectionMenu::Below;
+  int aboveClearance=0,belowClearance=0;
   if(editor_.selected())for(auto handle:editorHandles_)if(handle&&!lv_obj_is_hidden(handle)) {
     const auto shape=selectionHandleShape(handle);
     const LayoutRect grip{int(std::floor(shape.x1*sx)),int(std::floor(shape.y1*sy)),
       int(std::ceil((shape.x2+1)*sx))-int(std::floor(shape.x1*sx)),
       int(std::ceil((shape.y2+1)*sy))-int(std::floor(shape.y1*sy))};
-    clearance=std::max(clearance,selectionMenuClearance(native,candidate,grip));
+    aboveClearance=std::max(aboveClearance,selectionMenuClearance(native,aboveCandidate,grip));
+    belowClearance=std::max(belowClearance,selectionMenuClearance(native,belowCandidate,grip));
   }
   const auto placed=placeSelectionMenu(native,selectionMenuSafeArea(screen_.width,screen_.height,roundedDisplay_,editorMetrics()),
-    int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+editorMetrics().dp(4))+editorMetrics().dp(4))*sx)),int(std::ceil((buttonHeight+editorMetrics().dp(8))*sy)),candidate.position==SelectionMenu::Below?clearance:0,this->layout().safety(),editorMetrics(),candidate.position==SelectionMenu::Above?clearance:0);
+    int(std::ceil(((editorSelectionOnly_?2:5)*(buttonWidth+editorMetrics().dp(4))+editorMetrics().dp(4))*sx)),int(std::ceil((buttonHeight+editorMetrics().dp(8))*sy)),belowClearance,this->layout().safety(),editorMetrics(),aboveClearance);
   const auto &p=placed.bounds;
   if(!editorSelectionMenu_) {
     editorSelectionMenu_=box(editorRoot_,0,0,editorMetrics().dp(1),editorMetrics().dp(1),theme::palette().sidebar);

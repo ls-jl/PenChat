@@ -1220,7 +1220,7 @@ bool App::chatComposerVisible() const {
 bool App::composerShortcutAvailable() const {
   return composerShortcut_.enabled() && !layout().portrait() && view_ == "chat" &&
       visible_ && inputFocused_ && !keyboard_ && !editor_.active && !imageViewer_ &&
-      !navigationOpen_ && !modal_ && !attachments_ && !pulling_;
+      !navigationOpen_ && !modal_ && !attachments_ && !pulling_ && !readBusy();
 }
 bool App::composerShortcutTouch(int x, int y, bool pressed, bool cancelled) {
   if (!composerShortcutAvailable()) { composerShortcut_.pause(); return false; }
