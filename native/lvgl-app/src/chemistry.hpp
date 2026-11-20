@@ -130,8 +130,8 @@ inline std::string equation(const std::string &s, unsigned depth = 0) {
   return out;
 }
 } // namespace chemistry
-inline std::string chemistryTex(const std::string &source) {
-  if (source.size() > 8192) throw std::runtime_error("Formula too large");
+inline std::string chemistryTex(const std::string &source,size_t inputLimit=8192) {
+  if (source.size() > inputLimit) throw std::runtime_error("Formula too large");
   std::string out;
   for (size_t i = 0; i < source.size();) {
     if (source.compare(i, 3, "\\ce") == 0 &&

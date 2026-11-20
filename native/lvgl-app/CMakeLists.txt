@@ -94,7 +94,7 @@ add_custom_command(OUTPUT "${FORMAT_INCLUDE}"
     "${ROOT}/docs/transfer-format/使用说明.md" "${ROOT}/docs/transfer-format/聊天格式.md"
     "${ROOT}/docs/transfer-format/预设格式.md" "${ROOT}/docs/transfer-format/Markdown导入.md"
   VERBATIM)
-add_library(penchat_core STATIC src/pinyin.cpp src/common.cpp src/database.cpp src/database_storage.cpp src/database_transfer.cpp src/database_context.cpp src/database_drafts.cpp src/database_messages.cpp src/database_replies.cpp src/context.cpp src/usage.cpp src/transfer.cpp src/transfer_format.cpp "${FORMAT_INCLUDE}" src/network.cpp src/balance.cpp src/tools.cpp src/http_service.cpp src/anthropic.cpp src/markdown.cpp src/images.cpp src/scanner.cpp
+add_library(penchat_core STATIC src/pinyin.cpp src/common.cpp src/database.cpp src/database_storage.cpp src/database_transfer.cpp src/database_context.cpp src/database_drafts.cpp src/database_messages.cpp src/database_replies.cpp src/context.cpp src/usage.cpp src/transfer.cpp src/transfer_format.cpp "${FORMAT_INCLUDE}" src/network.cpp src/balance.cpp src/tools.cpp src/http_service.cpp src/anthropic.cpp src/markdown.cpp src/latex_extensions.cpp src/images.cpp src/scanner.cpp
   "${ROOT}/native/scanner/src/hardware.cpp"
   "${CAMERA}/src/accelerometer.cpp" "${CAMERA}/src/camera_logic.cpp" "${CAMERA}/src/util.cpp" "${CAMERA}/src/capture.cpp" "${CAMERA}/src/overlay.cpp" "${CAMERA}/src/stb_impl.cpp" "${CAMERA}/src/image_data.cpp")
 target_include_directories(penchat_core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -248,6 +248,10 @@ if(NOT CMAKE_CROSSCOMPILING)
   add_test(NAME penchat-usage COMMAND penchat-usage-tests)
 endif()
 if(NOT CMAKE_CROSSCOMPILING)
+  add_executable(penchat-latex-tests "${ROOT}/tests/native/LatexExtensionsTest.cpp")
+  target_link_libraries(penchat-latex-tests PRIVATE penchat_core)
+  target_compile_options(penchat-latex-tests PRIVATE -UNDEBUG)
+  add_test(NAME penchat-latex COMMAND penchat-latex-tests "${ROOT}/.deps/chinese.ttf" "${ROOT}/.deps/microtex/res")
   add_executable(penchat-chemistry-tests "${ROOT}/tests/native/ChemistryTest.cpp")
   target_link_libraries(penchat-chemistry-tests PRIVATE penchat_core)
   target_compile_options(penchat-chemistry-tests PRIVATE -UNDEBUG)
