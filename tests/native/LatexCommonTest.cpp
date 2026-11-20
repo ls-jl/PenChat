@@ -66,7 +66,7 @@ $$\ce{A\bond{~-}B\bond{=}C\bond{#}D}+\ce{^227_90Th+}$$)"};
         const int top=edge/2?std::max(0,total-visible):0;Bitmap image;image.width=screen.first;image.height=screen.second;image.pixels.resize(size_t(image.width)*image.height*4);
         auto surface=cairo_image_surface_create_for_data(image.pixels.data(),CAIRO_FORMAT_ARGB32,image.width,image.height,image.width*4);auto context=cairo_create(surface);const auto bg=theme::palette().background;
         cairo_set_source_rgb(context,((bg>>16)&255)/255.,((bg>>8)&255)/255.,(bg&255)/255.);cairo_paint(context);cairo_rectangle(context,pad,pad,width,visible);cairo_clip(context);
-        for(size_t i=0;i<document.blocks.size();++i){const int start=std::max(0,top-ys[i]),end=std::min(heights[i],top+visible-ys[i]);if(end<=start)continue;const int horizontal=edge%2?std::max(0,widths[i]-width):0;auto b=rich.paint(document.blocks[i],width,start,end-start,size,false,horizontal,width);
+        for(size_t i=0;i<document.blocks.size();++i){const int start=std::max(0,top-ys[i]),end=std::min(heights[i],top+visible-ys[i]);if(end<=start)continue;const int horizontal=edge%2?std::max(0,widths[i]-width):0;auto b=rich.paint(document.blocks[i],width,start,end-start,size,horizontal,width,false);assert(b.width==width);
           auto part=cairo_image_surface_create_for_data(b.pixels.data(),CAIRO_FORMAT_ARGB32,b.width,b.height,b.width*4);cairo_set_source_surface(context,part,pad,pad+ys[i]+start-top);cairo_paint(context);cairo_surface_destroy(part);}
         cairo_surface_flush(surface);cairo_destroy(context);cairo_surface_destroy(surface);
         emit(image,"matrix-"+std::to_string(screen.first)+"-"+std::to_string(scale)+"-"+theme::name(mode)+"-"+std::to_string(d)+"-"+std::to_string(edge),bg);
