@@ -8,7 +8,7 @@ export class RescueController {
     try {
       await this.a.stop();if(this.disposed||generation!==this.cancelGeneration)return
       const result=this.a.bridge.request('prepare',{id:release.id,force:release.compatible!==true});this.job=result.job
-    }catch(err){this.a.error(err&&err.message||'无法准备降级安装')}
+    }catch(err){this.a.error(err&&err.message||'无法准备版本回退安装')}
     finally{this.pending=false}
   }
   async check() {

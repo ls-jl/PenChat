@@ -190,6 +190,10 @@ class App {
   Json updateSnapshot() const;
   void updateBack();
   void beginUpdate();
+  void beginRollback();
+  void openRollback();
+  std::string rollbackRequest_;
+  lv_obj_t *rollbackContinue_=nullptr;
   std::unique_ptr<Feedback> feedback_;
   std::string feedbackView_ = "form", feedbackOperation_;
   uint64_t feedbackActionSequence_ = 0;

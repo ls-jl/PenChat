@@ -15,8 +15,8 @@ namespace {
 Bson bson(const penchat::Json &value){std::string error;return Bson::parse(value.dump(),error);}
 void pinBridge() {
   static void *pinned=nullptr;if(pinned)return;Dl_info info{};
-  if(!dladdr(reinterpret_cast<void*>(&pinBridge),&info)||!info.dli_fname)throw std::runtime_error("无法识别降级组件");
-  pinned=dlopen(info.dli_fname,RTLD_NOW|RTLD_NODELETE);if(!pinned)throw std::runtime_error("无法保留降级安装回调");
+  if(!dladdr(reinterpret_cast<void*>(&pinBridge),&info)||!info.dli_fname)throw std::runtime_error("无法识别版本回退组件");
+  pinned=dlopen(info.dli_fname,RTLD_NOW|RTLD_NODELETE);if(!pinned)throw std::runtime_error("无法保留版本回退安装回调");
 }
 class Rescue : public JQBaseObject {
   std::unique_ptr<penchat::rescue::Service> service_;
@@ -46,7 +46,7 @@ public:
   void loadRuntime(JQFunctionInfo &info) {
     try {
       if(!JS_IsUndefined(launcher_)){info.GetReturnValue().Set(JS_DupValue(context_,launcher_));return;}
-      const auto env=service_->bootstrap();if(!env.value("compatible",false))throw std::runtime_error("当前安装包与设备不匹配，或原生主程序不可用，请使用降级");
+      const auto env=service_->bootstrap();if(!env.value("compatible",false))throw std::runtime_error("当前安装包与设备不匹配，或原生主程序不可用，请使用版本回退");
       const auto payload=env.at("payload");const auto name=payload.value("runtime",std::string());
       if(name.compare(0,15,"assets/runtime/")!=0||name.find("..")!=std::string::npos||name.find('\\')!=std::string::npos)throw std::runtime_error("Invalid runtime path");
       const auto path=penchat::join(workspace_,name);std::atomic<bool> cancel{false};

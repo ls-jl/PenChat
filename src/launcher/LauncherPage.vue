@@ -6,20 +6,20 @@
       <input v-if="officialSingleLine" :key="officialControlKey" ref="officialInput" class="official-input" :style="officialInputStyle" :type="officialSensitive ? 'password' : 'text'" :value="officialInitialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="false" cursorColor="transparent" @input="officialInputHandlers.input" @confirm="officialInputHandlers.confirm" />
       <textarea v-else :key="officialControlKey" ref="officialInput" class="official-input" :style="officialInputStyle" :value="officialInitialText" :inputType="officialInputType" :maxlength="officialLimit" :autofocus="true" :softInputEnable="true" :showCursor="false" cursorColor="transparent" @input="officialInputHandlers.input" @confirm="officialInputHandlers.confirm" />
     </div>
-    <div v-if="!nativeReady && !errorText" class="startup-panel" :style="appearanceStyles.panel">
+    <div v-if="!nativeReady && !errorText && !rescueOpen" class="startup-panel" :style="appearanceStyles.panel">
       <text class="startup-title" :style="appearanceStyles.title">{{ appName }}</text>
       <text class="startup-text" :style="appearanceStyles.hint">{{ startupText }}</text>
     </div>
-    <div v-if="errorText" class="failure-panel" :style="appearanceStyles.panel">
+    <div v-if="errorText || rescueOpen" class="failure-panel" :style="appearanceStyles.panel">
       <scroller class="rescue-reader">
         <div class="rescue-content" :style="rescueContentStyle">
-          <text :style="appearanceStyles.title">{{ rescueOpen ? '降级' : appName }}</text>
-          <text :style="rescueTextStyle">{{ errorText }}</text>
-          <text :style="rescueHintStyle">如果上一个版本可用，可以进行降级</text>
-          <text :style="rescueHintStyle">{{ rescueReportText }}</text>
+          <text :style="appearanceStyles.title">{{ rescueOpen ? '版本回退' : appName }}</text>
+          <text v-if="errorText" :style="rescueTextStyle">{{ errorText }}</text>
+          <text :style="rescueHintStyle">如果上一个版本可用，可以进行版本回退</text>
+          <text v-if="!rescueFromUpdate" :style="rescueHintStyle">{{ rescueReportText }}</text>
           <div v-if="!rescueOpen" key="startup-actions" class="rescue-actions">
             <div class="rescue-control" :style="rescueButtonStyle" @click="retry"><text :style="rescueButtonTextStyle">重新启动</text></div>
-            <div class="rescue-control" :style="rescueButtonStyle" @click="openRescue"><text :style="rescueButtonTextStyle">降级</text></div>
+            <div class="rescue-control" :style="rescueButtonStyle" @click="openRescue"><text :style="rescueButtonTextStyle">版本回退</text></div>
             <div class="rescue-control" :style="rescueButtonStyle" @click="finish"><text :style="rescueButtonTextStyle">返回</text></div>
           </div>
           <div v-if="rescueOpen" key="downgrade-content">
@@ -30,22 +30,22 @@
               <div v-if="!rescueBusy" class="rescue-control" :style="rescueButtonStyle" @click="refreshRescue"><text :style="rescueButtonTextStyle">刷新版本</text></div>
               <div v-if="rescueBusy && rescueState.status !== 'installing'" class="rescue-control" :style="rescueButtonStyle" @click="cancelRescue"><text :style="rescueButtonTextStyle">取消</text></div>
               <div v-if="rescueState.ticket" class="rescue-control" :style="rescueButtonStyle" @click="checkRescueInstall"><text :style="rescueButtonTextStyle">核对结果</text></div>
-              <div v-if="!rescueBusy" class="rescue-control" :style="rescueButtonStyle" @click="closeRescue"><text :style="rescueButtonTextStyle">返回启动页</text></div>
+              <div v-if="!rescueBusy" class="rescue-control" :style="rescueButtonStyle" @click="closeRescue"><text :style="rescueButtonTextStyle">{{ rescueFromUpdate ? '返回软件更新' : '返回启动页' }}</text></div>
             </div>
             <div v-for="item in rescueState.releases" :key="item.id" class="rescue-release" :style="rescueReleaseStyle" @click="selectRescue(item)">
               <text :style="rescueTextStyle">{{ item.version }}</text>
-              <text :style="rescueHintStyle">{{ item.release_notes || '此版本暂无更新说明' }}</text>
+              <text :style="rescueHintStyle">{{ rollbackText(item.release_notes) || '此版本暂无更新说明' }}</text>
             </div>
             <div v-if="rescueSelected && !rescueBusy" :key="'selected-'+rescueSelected.id" class="rescue-release" :style="rescueReleaseStyle">
               <text :style="rescueTextStyle">{{ '已选择 ' + rescueSelected.version }}</text>
-              <text :style="rescueHintStyle">安装前会完整备份数据。旧版可能没有降级入口，降级后的入口以旧版自身能力为准。</text>
-              <text v-if="rescueSelected.install_warning" :style="rescueWarningStyle">{{ rescueSelected.install_warning }}</text>
-              <text v-if="!rescueSelected.compatible" :style="rescueWarningStyle">此版本的数据兼容性不受保证。强制降级可能导致数据损坏或仍无法启动；备份不会自动转换数据。备份失败不会安装。</text>
-              <div class="rescue-control" :style="rescueWideButtonStyle" @click="installRescue"><text :style="rescueButtonTextStyle">{{ rescueSelected.compatible ? '备份并安装' : '备份并强制降级' }}</text></div>
+              <text :style="rescueHintStyle">安装前会完整备份数据。旧版可能没有版本回退入口，回退后的入口以旧版自身能力为准。</text>
+              <text v-if="rescueSelected.install_warning" :style="rescueWarningStyle">{{ rollbackText(rescueSelected.install_warning) }}</text>
+              <text v-if="!rescueSelected.compatible" :style="rescueWarningStyle">此版本的数据兼容性不受保证。强制回退可能导致数据损坏或仍无法启动；备份不会自动转换数据。备份失败不会安装。</text>
+              <div class="rescue-control" :style="rescueWideButtonStyle" @click="installRescue"><text :style="rescueButtonTextStyle">{{ rescueSelected.compatible ? '备份并安装' : '备份并强制回退' }}</text></div>
             </div>
             <text v-if="rescueState.ticket && rescueState.ticket.backup" :style="rescueHintStyle">{{ '备份位置：' + rescueState.ticket.backup.path }}</text>
           </div>
-          <div v-if="rescueState.report && rescueState.report.status === 'failed'" class="rescue-control" :style="rescueWideButtonStyle" @click="retryRescueReport"><text :style="rescueButtonTextStyle">重试精简诊断</text></div>
+          <div v-if="!rescueFromUpdate && rescueState.report && rescueState.report.status === 'failed'" class="rescue-control" :style="rescueWideButtonStyle" @click="retryRescueReport"><text :style="rescueButtonTextStyle">重试精简诊断</text></div>
         </div>
       </scroller>
     </div>
@@ -90,7 +90,7 @@ function resolvedAppearance(c, m) {
   }
 }
 export default {
-  data() { return { rescueOpen: false, rescueForeground: true, rescueEnv: {}, rescueState: { status: 'idle', releases: [], report: {} }, rescueSelected: null, rescueMessage: '', appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialHoleStyle: {}, officialBackingStyle: {}, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
+  data() { return { rescueOpen: false, rescueFromUpdate: false, rescueForeground: true, rescueEnv: {}, rescueState: { status: 'idle', releases: [], report: {} }, rescueSelected: null, rescueMessage: '', appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialHoleStyle: {}, officialBackingStyle: {}, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
   computed: {
     rescueBusy() { return ['queued','listing','downloading','validating','backing_up','ready_to_install','installing'].includes(this.rescueState.status) },
     rescueContentStyle() { return {padding:(this.rescueEnv.rescue_inset||16)+'px',paddingBottom:Math.max(24,this.rescueEnv.rescue_inset||0)+'px'} },
@@ -111,6 +111,7 @@ export default {
   onUnload() { this.detachPage() },
   beforeDestroy() { this.detachPage() },
   methods: {
+    rollbackText(value) { return String(value || '').replace(/降级/g,'版本回退') },
     ensureRescueController() {
       if(this._rescueController&&!this._rescueController.disposed)return this._rescueController
       this._rescueController=new RescueController({bridge:rescue,pm,appid:appConfig.appid,isForeground:()=>this.rescueForeground,
@@ -119,15 +120,33 @@ export default {
       return this._rescueController
     },
     pollRescue() {
-      try {const environment=rescue.bootstrap();this.rescueForeground=am.hasWindowFocus()===true&&!environment.panel_visible&&environment.screen_interactive!==false;this.rescueState=rescue.state();if(this._rescueController)this._rescueController.tick(this.rescueState);if(!this.rescueOpen&&this.rescueState.report&&['sent','failed','disabled'].includes(this.rescueState.report.status)){clearInterval(this._rescuePoll);this._rescuePoll=null}}catch(_){this.rescueMessage='降级服务暂不可用，请重试'}
+      try {const environment=rescue.bootstrap();this.rescueForeground=am.hasWindowFocus()===true&&!environment.panel_visible&&environment.screen_interactive!==false;this.rescueState=rescue.state();if(this._rescueController)this._rescueController.tick(this.rescueState);if(!this.rescueOpen&&this.rescueState.report&&['sent','failed','disabled'].includes(this.rescueState.report.status)){clearInterval(this._rescuePoll);this._rescuePoll=null}}catch(_){this.rescueMessage='版本回退服务暂不可用，请重试'}
     },
     watchRescue() { if(!this._rescuePoll)this._rescuePoll=setInterval(()=>this.pollRescue(),200);this.pollRescue() },
     openRescue() { this.rescueOpen=true;this.rescueMessage='';this.ensureRescueController();this.watchRescue();this.refreshRescue() },
+    async openRollback(event) {
+      if(this._openingRescue||this.rescueOpen||!this.running||!this.nativeReady||this._disposed||this.errorText||typeof event.operation!=='string'||!event.operation)return
+      this._openingRescue=true
+      const generation=this._generation
+      try {
+        const result=await this.stopRuntime(true)
+        if(this._disposed||generation!==this._generation||generation!==generationSeed)return
+        if(result&&result.ok===false)throw new Error('runtime stop rejected')
+        this.stopOcr();this.cancelOfficialKeyboard()
+        this.running=false;this.nativeReady=false;this._nativeImage=false
+        clearInterval(this._poll);clearTimeout(this._readyTimer);this._poll=this._readyTimer=null
+        this.setBackPolicy(true);this.setNativeEditorPolicy(false)
+        this.rescueFromUpdate=true
+        this.openRescue()
+      } catch (_) {
+        if(!this._disposed&&generation===this._generation&&generation===generationSeed)this.send('rescue.open.result',{operation:event.operation,ok:false})
+      } finally {this._openingRescue=false}
+    },
     refreshRescue() { if(this.rescueBusy)return;this.rescueSelected=null;this.rescueMessage='';try{rescue.request('list',{});this.pollRescue()}catch(e){this.rescueMessage=e.message||'版本列表读取失败'} },
     selectRescue(item) { if(!this.rescueBusy)this.rescueSelected=item },
     installRescue() { if(this.rescueBusy||!this.rescueSelected)return;this.rescueMessage='正在停止原生程序…';this.rescueState=Object.assign({},this.rescueState,{status:'queued'});this.ensureRescueController().prepare(this.rescueSelected) },
     cancelRescue() { this.ensureRescueController().cancel();this.rescueMessage='操作已取消' },
-    closeRescue() { if(this.rescueBusy)return;this.ensureRescueController().cancel();this.rescueOpen=false;this.rescueSelected=null },
+    async closeRescue() { if(this.rescueBusy)return;this.ensureRescueController().cancel();this.rescueOpen=false;this.rescueSelected=null;if(this.rescueFromUpdate){this.rescueFromUpdate=false;this._returnToUpdate=true;await this.boot()} },
     checkRescueInstall() { this.ensureRescueController().check() },
     retryRescueReport() { rescue.report({code:this._rescueFailureCode||'startup',retry:true});this.watchRescue() },
     hidePage() {
@@ -158,6 +177,7 @@ export default {
       this._disposed = false;this._detached=false
       this.visible = true
       this.watchInputFocus()
+      if(this.rescueOpen||this._openingRescue){this.setBackPolicy(true);this.setNativeEditorPolicy(false);if(this.rescueOpen)this.watchRescue();return}
       this.setBackPolicy(false)
       this.setNativeEditorPolicy(!!this._nativeEditor && !this.keyboardOpen)
       if (this.running && (typeof launcher.status !== 'function' || !launcher.status().alive)) {
@@ -258,7 +278,7 @@ export default {
       finally { this._starting = false }
     },
     poll() {
-      if(this._disposed||this._generation!==generationSeed)return
+      if(this._disposed||this._openingRescue||this._generation!==generationSeed)return
       try {
         this.syncWindowFocus()
         this.syncInputFocus()
@@ -272,7 +292,7 @@ export default {
           }
           else if (event.type === 'appearance') this.applyAppearance(event)
           else if (event.type === 'startup') { if(event.display)this._displayInfo=event.display; this.startupText = ({ display: '正在准备显示…', data: '正在读取数据…', interface: '正在准备页面…', frame: '正在显示页面…' })[event.stage] || '正在打开…' }
-          else if (event.type === 'ready') { this.nativeReady = true; this.syncWindowFocus(true); this.syncInputFocus(true); clearTimeout(this._readyTimer); this._readyTimer = null; if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
+          else if (event.type === 'ready') { this.nativeReady = true; this.syncWindowFocus(true); this.syncInputFocus(true); clearTimeout(this._readyTimer); this._readyTimer = null; if(this._returnToUpdate){this._returnToUpdate=false;this.send('update.open')} if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
           else if (event.type === 'editor.state') this.editorState(event)
           else if (event.type === 'navigation.state') this.navigationState(event)
           else if (event.type === 'keyboard.open') this.openKeyboard(event)
@@ -298,6 +318,7 @@ export default {
           else if (event.type === 'ocr.pen') { if (this._ocr) this._ocr.pen(event) }
           else if (event.type === 'ocr.start') this.startOcr(event)
           else if (event.type === 'ocr.cancel') this.stopOcr(event.requestId, true)
+          else if (event.type === 'rescue.open') {this.openRollback(event);break}
           else if (event.type === 'update.install') this.installUpdate(event)
           else if (event.type === 'finish') this.finish()
           else if (event.type === 'fatal') { if(!this.errorText&&event.display)this._displayInfo=event.display; this.fail(event.error || '原生页面启动失败') }

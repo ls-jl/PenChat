@@ -25,7 +25,7 @@ for w,h in [(960,266),(936,280)]:
   try:
    a.open_settings();a.setting('update');t.wait_for(lambda:a.diag()['update']['status']=='available');shot('missing-checksum')
    assert a.diag()['update']['weak'];action('page_next');t.wait_for(lambda:a.diag()['update']['note_page']==1);shot('notes-page2');a.settings_swipe(-180);time.sleep(.25);shot('notes-content')
-   action('download');t.wait_for(lambda:a.diag()['update']['status']=='downloading');time.sleep(.35);shot('downloading')
+   action('download');t.wait_for(lambda:a.diag()['update']['status']=='downloading');t.wait_for(lambda:'rollback' not in a.diag()['update']['actions']);time.sleep(.35);shot('downloading')
    action('cancel');t.wait_for(lambda:a.diag()['view']=='settings');assert not (p/'.updates/download.part').exists()
    a.setting('update');t.wait_for(lambda:a.diag()['update']['status']=='available');action('later');t.wait_for(lambda:a.diag()['view']=='settings');shot('settings')
    # Automatic checks never interrupt an active native editor.

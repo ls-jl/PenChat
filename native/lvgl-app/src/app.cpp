@@ -3460,6 +3460,11 @@ void App::handle(const Json &m) {
     }
     return;
   }
+  if(type=="update.open") {rollbackRequest_.clear();openUpdate(false);return;}
+  if(type=="rescue.open.result") {
+    if(!rollbackRequest_.empty()&&m.value("operation",std::string())==rollbackRequest_){rollbackRequest_.clear();modal("版本回退未打开","未能安全停止当前运行，请稍后重试。保存的数据未被删除。");}
+    return;
+  }
   if(type=="update.install.result") {updater_->request("install_result",m);return;}
   if (type == "display.area") {
     if (m.value("x", 0) != 0 || m.value("y", 0) != 0 ||
@@ -3735,6 +3740,7 @@ void App::tick() {
     }
     if(e.type=="onboarding_action"){if(e.data.value("step",-1)==onboardingStep_)onboardingAction(e.data.value("action",std::string()));continue;}
     if(e.type=="open_onboarding"){openOnboarding();continue;}
+    if (e.type == "update_rollback_open") {openRollback();continue;}
     if (e.type == "update_release_fault") { feedback_->request("update_fault",e.data); continue; }
     if (e.type == "update_state" || e.type == "update_prepared") { updateEvent(e); continue; }
     if (e.type == "feedback_state") { feedbackEvent(e); continue; }
@@ -4253,10 +4259,11 @@ Json App::diagnostics() const {
           {"vision", modelForm_.value("vision", objectField(modelForm_, "capabilities_json").value("vision", Json()))}}) : Json::object()},
       {"update", [this] {
         Json actions=Json::object();for(const auto &item:updateActions_){lv_area_t a;lv_obj_get_coords(item.second,&a);actions[item.first]={a.x1,a.y1,a.x2,a.y2};}
+        if(rollbackContinue_){lv_area_t a;lv_obj_get_coords(rollbackContinue_,&a);actions["rollback_continue"]={a.x1,a.y1,a.x2,a.y2};}
         return Json{{"status",updateState_.value("status",std::string())},{"current",PENCHAT_VERSION},
           {"target",updateState_.value("release",Json::object()).value("version",std::string())},
           {"weak",updateState_.value("release",Json::object()).value("weak",false)},
-          {"suppressed",updateState_.value("suppressed",false)},{"progress",updateState_.value("progress",Json::object())},
+          {"rollback_pending",!rollbackRequest_.empty()},{"suppressed",updateState_.value("suppressed",false)},{"progress",updateState_.value("progress",Json::object())},
           {"notes",updateState_.value("notes",Json::array()).size()},{"note_index",updateState_.value("note_index",size_t(0))},
           {"note_page",updateState_.value("note_page",size_t(0))},{"actions",actions}};
       }()},

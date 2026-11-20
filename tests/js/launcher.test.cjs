@@ -1156,3 +1156,45 @@ test('display probe survives startup and first fatal is retained across later fa
  f.page.poll();assert.deepEqual(f.page._displayInfo,display);assert.equal(f.page.errorText,'first display probe failure')
  f.page.fail('another exit');assert.equal(f.page.errorText,'first display probe failure');f.page.dispose()
 })
+
+
+test('software update opens rollback after one owned stop without a crash report, then returns to updates',async()=>{
+ const f=fixture();await f.page.boot();f.page.nativeReady=true
+ let stopped=0,reports=0,lists=0,release
+ f.native.stop=()=>{stopped++;return new Promise(resolve=>{release=resolve})}
+ f.emergency.report=()=>{reports++};f.emergency.request=op=>{if(op==='list')lists++;return {job:'rollback-list'}}
+ const pending=f.page.openRollback({operation:'confirmed-operation'})
+ await f.page.openRollback({operation:'duplicate'})
+ assert.equal(stopped,1);assert.equal(lists,0);assert(!f.page.rescueOpen)
+ f.native.poll=()=>[{type:'exit',status:0}];f.page.poll();assert.equal(reports,0)
+ release({ok:true});await pending
+ assert(f.page.rescueOpen&&f.page.rescueFromUpdate&&!f.page.running&&!f.page.errorText)
+ assert.equal(lists,1);assert.equal(reports,0)
+ f.page.hidePage();f.page.resume();assert(f.page.rescueOpen&&!f.page.running);assert.equal(f.calls.filter(c=>c[0]==='start').length,1)
+ f.native.stop=async()=>({ok:true});await f.page.closeRescue()
+ assert(f.page.running&&!f.page.rescueOpen,JSON.stringify({running:f.page.running,rescue:f.page.rescueOpen,error:f.page.errorText,starting:f.page._starting,calls:f.calls.slice(-8)}))
+ f.native.poll=()=>[{type:'ready',generation:f.page._generation}];f.page.poll()
+ assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='update.open').length,1)
+ f.page.poll();assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='update.open').length,1)
+ f.page.dispose()
+})
+test('failed rollback handoff keeps native alive and matches the original operation',async()=>{
+ const f=fixture();await f.page.boot();f.page.nativeReady=true
+ f.native.stop=async()=>({ok:false,stale:true});await f.page.openRollback({operation:'current'})
+ assert(f.page.running&&!f.page.rescueOpen&&!f.page.errorText)
+ const result=f.calls.find(c=>c[0]==='send'&&c[1].type==='rescue.open.result')[1]
+ assert.equal(result.operation,'current');assert.equal(result.ok,false);f.page.dispose()
+})
+test('rollback handoff from an obsolete page cannot open or query the new page',async()=>{
+ const f=fixture();await f.page.boot();f.page.nativeReady=true
+ let release,lists=0;f.native.stop=()=>new Promise(resolve=>{release=resolve})
+ f.emergency.request=()=>{lists++;return {job:'stale'}}
+ const pending=f.page.openRollback({operation:'old'});f.page.detachPage();release({ok:true});await pending
+ assert(!f.page.rescueOpen);assert.equal(lists,0)
+})
+test('rollback UI uses version rollback wording and hides failure-only diagnostics for the settings entry',()=>{
+ const source=fs.readFileSync('src/launcher/LauncherPage.vue','utf8')
+ assert(!source.split('<script>')[0].includes('降级'));assert(source.includes('版本回退'));assert(source.includes('返回软件更新'))
+ const f=fixture();assert.equal(f.page.rollbackText('旧版没有降级入口。'),'旧版没有版本回退入口。')
+ assert(source.includes('v-if="errorText || rescueOpen"'));assert(source.includes('v-if="!rescueFromUpdate" :style="rescueHintStyle">{{ rescueReportText }}'))
+})

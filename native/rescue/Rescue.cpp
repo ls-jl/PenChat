@@ -27,11 +27,11 @@ Json readJson(const std::string &path,size_t limit=65536) {
   close(fd);auto value=Json::parse(text,nullptr,false);return value.is_discarded()?Json():value;
 }
 void privateDir(const std::string &path) {
-  struct stat st{};if(!lstat(path.c_str(),&st)&&!S_ISDIR(st.st_mode))fail("降级目录不是普通目录");
+  struct stat st{};if(!lstat(path.c_str(),&st)&&!S_ISDIR(st.st_mode))fail("版本回退目录不是普通目录");
   ensureDirectory(path);
   const auto parent=path.substr(0,path.find_last_of('/'));
   const int fd=open(parent.c_str(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
-  if(fd<0)fail("降级目录无法同步");const bool ok=fsync(fd)==0;close(fd);if(!ok)fail("降级目录同步失败");
+  if(fd<0)fail("版本回退目录无法同步");const bool ok=fsync(fd)==0;close(fd);if(!ok)fail("版本回退目录同步失败");
 }
 bool privateDirectory(const std::string &path) {
   struct stat st{};return !lstat(path.c_str(),&st)&&S_ISDIR(st.st_mode);
@@ -39,18 +39,18 @@ bool privateDirectory(const std::string &path) {
 void durable(const std::string &path,const Json &value) {
   const auto temporary=path+".part";const auto text=value.dump();
   int fd=open(temporary.c_str(),O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW|O_CLOEXEC,0600);
-  if(fd<0)fail("无法保存降级状态");
+  if(fd<0)fail("无法保存版本回退状态");
   size_t at=0;while(at<text.size()) {
     const auto n=write(fd,text.data()+at,text.size()-at);
-    if(n<0&&errno==EINTR)continue;if(n<=0){close(fd);fail("降级状态写入失败");}at+=size_t(n);
+    if(n<0&&errno==EINTR)continue;if(n<=0){close(fd);fail("版本回退状态写入失败");}at+=size_t(n);
   }
   const bool synced=fsync(fd)==0;close(fd);
-  if(!synced||rename(temporary.c_str(),path.c_str()))fail("降级状态持久化失败");
+  if(!synced||rename(temporary.c_str(),path.c_str()))fail("版本回退状态持久化失败");
   fd=open(path.substr(0,path.find_last_of('/')).c_str(),O_DIRECTORY|O_RDONLY|O_CLOEXEC);
-  if(fd<0)fail("降级目录无法同步");const bool ok=fsync(fd)==0;close(fd);if(!ok)fail("降级目录同步失败");
+  if(fd<0)fail("版本回退目录无法同步");const bool ok=fsync(fd)==0;close(fd);if(!ok)fail("版本回退目录同步失败");
 }
 std::string uuid() {
-  unsigned char bytes[16];if(RAND_bytes(bytes,sizeof(bytes))!=1)fail("无法生成降级操作编号");
+  unsigned char bytes[16];if(RAND_bytes(bytes,sizeof(bytes))!=1)fail("无法生成版本回退操作编号");
   bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;std::string out;
   for(unsigned i=0;i<16;++i){if(i==4||i==6||i==8||i==10)out+='-';out+="0123456789abcdef"[bytes[i]>>4];out+="0123456789abcdef"[bytes[i]&15];}return out;
 }
@@ -101,17 +101,17 @@ HttpResult http(const std::string &url,const std::string &node,std::atomic<bool>
                 const std::string &body={},const std::string &token={},bool head=false) {
   const bool secure=url.compare(0,8,"https://")==0;
 #ifdef PENCHAT_NATIVE_DEVICE
-  if(!secure)fail("降级服务必须使用 HTTPS");
+  if(!secure)fail("版本回退服务必须使用 HTTPS");
 #else
   if(!secure&&url.compare(0,17,"http://127.0.0.1:")!=0)fail("测试地址必须为 loopback");
 #endif
   static const bool initialized=curl_global_init(CURL_GLOBAL_DEFAULT)==CURLE_OK;
-  if(!initialized)fail("降级网络初始化失败");
+  if(!initialized)fail("版本回退网络初始化失败");
   std::unique_ptr<CURL,decltype(&curl_easy_cleanup)> easy(curl_easy_init(),curl_easy_cleanup);
-  if(!easy)fail("降级连接创建失败");
+  if(!easy)fail("版本回退连接创建失败");
   struct Transfer {HttpResult result;std::atomic<bool> *cancel;int fd=-1;uint64_t size=0,limit=0;std::function<void(uint64_t)> progress;};
   File output;
-  if(!file.empty()){output.fd=open(file.c_str(),O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);if(output.fd<0)fail("降级下载文件无法创建");}
+  if(!file.empty()){output.fd=open(file.c_str(),O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);if(output.fd<0)fail("版本回退下载文件无法创建");}
   Transfer t{{},&cancel,output.fd,0,expected?expected:2*1024*1024,std::move(progress)};
   auto *c=easy.get();curl_easy_setopt(c,CURLOPT_URL,url.c_str());curl_easy_setopt(c,CURLOPT_NOSIGNAL,1L);
   if(head)curl_easy_setopt(c,CURLOPT_NOBODY,1L);
@@ -134,10 +134,10 @@ HttpResult http(const std::string &url,const std::string &node,std::atomic<bool>
   {
     CURLU *u=curl_url();curl_url_set(u,CURLUPART_URL,url.c_str(),0);char *host=nullptr,*port=nullptr;
     curl_url_get(u,CURLUPART_HOST,&host,0);curl_url_get(u,CURLUPART_PORT,&port,0);
-    if(!host){curl_url_cleanup(u);fail("降级地址无效");}
+    if(!host){curl_url_cleanup(u);fail("版本回退地址无效");}
     auto target=node;
     if(target.empty()){auto addresses=updates::resolve(host,cancel);if(!addresses.empty())target=addresses.front();}
-    if(target.empty()){curl_free(host);curl_free(port);curl_url_cleanup(u);fail("降级服务域名解析失败");}
+    if(target.empty()){curl_free(host);curl_free(port);curl_url_cleanup(u);fail("版本回退服务域名解析失败");}
     const std::string route=std::string(host)+":"+(port?port:(secure?"443":"80"))+":"+(target.find(':')==std::string::npos?target:"["+target+"]")+":"+(port?port:(secure?"443":"80"));
     curl_free(host);curl_free(port);curl_url_cleanup(u);routes=curl_slist_append(routes,route.c_str());curl_easy_setopt(c,CURLOPT_CONNECT_TO,routes);
   }
@@ -149,7 +149,7 @@ HttpResult http(const std::string &url,const std::string &node,std::atomic<bool>
   t.result.code=int(curl_easy_perform(c));curl_easy_getinfo(c,CURLINFO_RESPONSE_CODE,&t.result.status);
   curl_easy_getinfo(c,CURLINFO_CONTENT_LENGTH_DOWNLOAD_T,&t.result.length);
   if(output.fd>=0&&(!t.result.code&&t.result.status==200)&&fsync(output.fd))fail("下载文件同步失败");
-  if(output.fd>=0&&(t.result.code||t.result.status!=200||t.size!=expected)) {unlink(file.c_str());if(cancel)fail("cancelled");fail("降级包下载失败，请重试");}
+  if(output.fd>=0&&(t.result.code||t.result.status!=200||t.size!=expected)) {unlink(file.c_str());if(cancel)fail("cancelled");fail("版本回退包下载失败，请重试");}
   return t.result;
 }
 struct Entry {std::string relative;uint64_t bytes;bool directory=false;};
@@ -217,9 +217,9 @@ Json environment(const std::string &workspace,const std::string &modelPath,const
   return env;
 }
 Json validate(const std::string &path,const Json &release,const std::string &platform,std::atomic<bool> &cancel) {
-  if(!hash(release.value("sha256",std::string()))||release.value("platform",std::string())!=platform)fail("降级包平台或校验信息无效");
+  if(!hash(release.value("sha256",std::string()))||release.value("platform",std::string())!=platform)fail("版本回退包平台或校验信息无效");
   auto result=updates::validatePackage(path,PENCHAT_APP_ID,release.at("version"),release.at("sha256"),cancel,platform);
-  if(result["bytes"]!=release.at("size"))fail("降级包大小与目录不一致");
+  if(result["bytes"]!=release.at("size"))fail("版本回退包大小与目录不一致");
   return result;
 }
 int schema(const std::string &data) {
@@ -258,7 +258,7 @@ struct Service::Impl {
     if(config.fixture.is_object())env=config.fixture;
 #endif
     try {privateDir(root);privateDir(join(root,"backups"));privateDir(join(root,"reports"));}
-    catch(...){published["storage_error"]="降级存储不可写，请检查可用空间和权限";}
+    catch(...){published["storage_error"]="版本回退存储不可写，请检查可用空间和权限";}
     auto old=privateDirectory(root)?readJson(join(root,"install.json")):Json();
     if(old.is_object()&&old.value("operation",Json()).is_string()&&old.value("state",Json()).is_string())published["ticket"]=old;
     const bool spoolSafe=privateDirectory(root)&&privateDirectory(join(root,"reports"));
@@ -283,7 +283,7 @@ struct Service::Impl {
   std::vector<std::string> routes()const{auto n=config.nodes;n.push_back("");return n;}
   HttpResult get(const std::string &url) {
     for(const auto &node:routes()){if(cancelled||closing)fail("cancelled");auto r=http(url,node,cancelled);if(r.code==0&&r.status==200)return r;}
-    fail("无法读取降级目录，请检查网络后重试");return {};
+    fail("无法读取版本回退目录，请检查网络后重试");return {};
   }
   bool complete(const std::string &url,uint64_t bytes) {
     for(const auto &node:routes()){if(cancelled||closing)fail("cancelled");try{const auto r=http(url,node,cancelled,{},0,{},"","",true);if(!r.code&&r.status==200&&r.length>=0&&uint64_t(r.length)==bytes)return true;}catch(...){}}
@@ -321,7 +321,7 @@ struct Service::Impl {
       r["compatible"]=compatible;
     }
     {std::lock_guard<std::mutex> lock(mutex);published["releases"]=releases;published["schema"]=current;}
-    status("available",releases.empty()?"暂无可用降级版本，请稍后刷新或联系开发者提供对应机型安装包。":"请选择要安装的版本");
+    status("available",releases.empty()?"暂无可回退版本，请稍后刷新或联系开发者提供对应机型安装包。":"请选择要安装的版本");
   }
   Json backup(const std::string &operation) {
     if(nativeAlive(data))fail("原生程序尚未完全停止，不能备份或安装");
@@ -350,20 +350,20 @@ struct Service::Impl {
     {std::lock_guard<std::mutex> lock(mutex);for(const auto &r:published["releases"])if(r["id"]==args.value("id",std::string()))release=r;}
     if(release.is_null())fail("版本列表已变化，请重新选择");
     {std::lock_guard<std::mutex> lock(mutex);published["selected"]=release;published["total"]=release.at("size");published["downloaded"]=0;}
-    if(!release.value("compatible",false)&&!args.value("force",false))fail("此版本不兼容或兼容性未知，需要先确认完整备份并强制降级");
-    if(nativeAlive(data))fail("请先停止 PenChat 原生程序再进行降级安装");
+    if(!release.value("compatible",false)&&!args.value("force",false))fail("此版本不兼容或兼容性未知，需要先确认完整备份并强制回退");
+    if(nativeAlive(data))fail("请先停止 PenChat 原生程序再进行版本回退安装");
     const auto operation=uuid(),temporary=join(root,operation+".part");
-    status("downloading","正在下载降级安装包…");bool downloaded=false;
+    status("downloading","正在下载版本回退安装包…");bool downloaded=false;
     for(const auto &node:routes()) {
       try{http(release.at("url"),node,cancelled,temporary,release.at("size"),[this](uint64_t size){std::lock_guard<std::mutex> lock(mutex);published["downloaded"]=size;});downloaded=true;break;}
       catch(...){unlink(temporary.c_str());if(cancelled||closing)throw;}
     }
-    if(!downloaded)fail("降级包下载失败，请重试");
+    if(!downloaded)fail("版本回退包下载失败，请重试");
     try {
       status("validating","正在校验包身份及架构…");const auto validated=validate(temporary,release,env.at("platform"),cancelled);
       status("backing_up","正在完整备份，备份失败不会安装…");const auto saved=backup(operation);
       if(cancelled||closing)fail("cancelled");
-      const auto path=join(root,"package.amr");if(rename(temporary.c_str(),path.c_str()))fail("降级包无法暂存");
+      const auto path=join(root,"package.amr");if(rename(temporary.c_str(),path.c_str()))fail("版本回退包无法暂存");
       Json ticket={{"operation",operation},{"appid",PENCHAT_APP_ID},{"version",release.at("version")},{"platform",env.at("platform")},
         {"sha256",release.at("sha256")},{"size",release.at("size")},{"native_sha256",validated.at("native_sha256")},
         {"path",path},{"backup",saved},{"state","prepared"},{"force",args.value("force",false)}};
@@ -399,7 +399,7 @@ struct Service::Impl {
         } else {
           const auto id=recent?record.value("id",uuid()):uuid();
           Json payload={{"format_version",1},{"event_id",id},{"time_ms",nowMs()},{"type","rescue_startup_failure"},
-            {"app",{{"appid",PENCHAT_APP_ID},{"name",PENCHAT_NAME},{"version",PENCHAT_VERSION},{"platform","linux-rescue"}}},{"description","启动降级自动精简诊断"},
+            {"app",{{"appid",PENCHAT_APP_ID},{"name",PENCHAT_NAME},{"version",PENCHAT_VERSION},{"platform","linux-rescue"}}},{"description","启动版本回退自动精简诊断"},
             {"screen",env.value("screen",Json())},{"rescue",{{"code",code},{"platform",env["platform"]},{"abi_bits",env["abi_bits"]},
               {"package_platform",env.value("payload",Json()).is_object()?env["payload"].value("platform",std::string()):std::string()}}}};
           auto exit=readJson(join(data,"last-exit.json"));for(const char *key:{"status","pid","runtimeId","ownerGeneration","time_ms"})if(exit.is_object()&&exit.contains(key)&&exit[key].is_number())payload["rescue"][key]=exit[key];
@@ -424,13 +424,13 @@ struct Service::Impl {
               const auto path=join(join(root,"reports"),name);const auto old=readJson(path);
               if(old.is_object()&&old.value("state",std::string())!="pending"&&nowMs()-old.value("time_ms",int64_t(0))>=86400000)unlink(path.c_str());else ++retained;
             }
-            if(retained>=32)fail("降级诊断队列已满");
+            if(retained>=32)fail("版本回退诊断队列已满");
             record={{"id",id},{"fingerprint",fingerprint},{"time_ms",nowMs()},{"payload",payload},{"attempts",0},{"due_ms",0}};
           }
           if(retry){record["attempts"]=0;record["due_ms"]=0;}
           record["state"]="pending";durable(reportFile,record);
           if(config.endpoint.empty()||config.token.empty()) {
-            std::lock_guard<std::mutex> lock(mutex);reportState={{"status","disabled"},{"message","此构建未配置降级日志服务"}};
+            std::lock_guard<std::mutex> lock(mutex);reportState={{"status","disabled"},{"message","此构建未配置版本回退日志服务"}};
           } else {
             bool sent=false;
             for(unsigned attempt=record.value("attempts",0u);attempt<4&&!closing;++attempt) {
@@ -475,8 +475,8 @@ Json Service::state()const {
   auto result=p_->published;result["report"]=p_->reportState;return result;
 }
 Json Service::request(const std::string &op,const Json &args) {
-  if(op!="list"&&op!="prepare")fail("未知降级操作");
-  std::lock_guard<std::mutex> lock(p_->mutex);if(p_->busy)fail("已有降级操作正在执行");
+  if(op!="list"&&op!="prepare")fail("未知版本回退操作");
+  std::lock_guard<std::mutex> lock(p_->mutex);if(p_->busy)fail("已有版本回退操作正在执行");
   if(p_->published.value("status",std::string())=="installing")fail("安装已提交，不能重复操作");
   const auto ticket=p_->published.value("ticket",Json());
   if(op=="prepare"&&ticket.is_object()&&(ticket.value("state",std::string())=="requested"||ticket.value("state",std::string())=="unknown"))fail("上次安装结果尚未确认，请先核对结果");
@@ -494,7 +494,7 @@ void Service::report(const Json &failure,bool retry) {
 }
 Json Service::authorize(const Json &ticket) {
   p_->requireHostAbi();
-  if(p_->cancelled)fail("降级操作已取消");
+  if(p_->cancelled)fail("版本回退操作已取消");
   Json own;
   {std::lock_guard<std::mutex> lock(p_->mutex);own=p_->published.value("ticket",Json());
     if(!own.is_object()||own!=ticket||own.value("state",std::string())!="prepared")fail("安装票据无效或已提交");
@@ -509,7 +509,7 @@ Json Service::authorize(const Json &ticket) {
   }catch(...){installResult(own.at("operation"),"failed",-1);throw;}
 }
 Json Service::verifyInstalled(const Json &info) {
-  if(!privateDirectory(p_->root))fail("降级存储目录不可用");
+  if(!privateDirectory(p_->root))fail("版本回退存储目录不可用");
   auto ticket=readJson(join(p_->root,"install.json"));if(!ticket.is_object())return {{"verified",false}};
   const auto state=ticket.value("state",std::string());
   if(state!="requested"&&state!="unknown"&&state!="installed")return {{"verified",false}};

@@ -247,7 +247,7 @@ public:
 #else
     const bool executableMatches=penchat::runtimeExecutableMatches(binary.c_str(),64,183);
 #endif
-    if(!executableMatches){info.postError("原生程序不存在或架构不匹配，请使用降级");return;}
+    if(!executableMatches){info.postError("原生程序不存在或架构不匹配，请使用版本回退");return;}
 #endif
     chmod(binary.c_str(), 0755);
     int pair[2];
