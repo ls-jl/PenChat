@@ -36,7 +36,7 @@ SQLite 使用可选只读 dlopen，失败按数据兼容性未知处理，不阻
 
 版本子目录包含完整 AMR、`<AMR>.sha256` 和最后发布的 `release.json`。
 format=1 元数据包含 version、platform、appid、file、size、sha256、build、channel、
-schema.min/max、known_issues。列表按语义版本倒序，校验元数据、校验文件及 AMR HEAD
+schema.min/max、known_issues，以及可选release_notes和install_warning。列表按语义版本倒序，校验元数据、校验文件及 AMR HEAD
 长度，未完成发布的版本不展示。允许同版重装及旧版选择。下载使用有界流式缓冲、
 取消、进度、TLS 校验和固定来源；不跟随重定向，不调用 shell。
 
@@ -152,3 +152,17 @@ Service 指针。确认后重新打开应用。历史包可能没有这个降级
 
 主机、香港节点与公网HTTPS全部逐文件读回核对。实际原生降级worker分别使用显式RK/CVI profile，只执行列表查询，不下载或安装设备：两者均按`0.3.5 → 0.3.4 → 0.3.3 → 0.3.2`返回，最新条目兼容schema v3。旧条目与目录列表核对保持不变。
 本次使用独立冻结上传清单，未改动仅限四个历史候选的`scripts/rescue-catalog.py`。完整操作记录见`.work/release-0.3.5/server-upload-20261120/`。
+
+## 2026-11-20：用户版版本说明
+
+新客户端版本卡片仅显示版本号和`release_notes`更新要点，必要时局部滚动；不显示
+构建、ABI、发布渠道或候选来源。说明最多8192字节，安装警告最多2048字节，均验证
+文本边界。`install_warning`在选中版本后显示，备份失败阻止安装和未知兼容性确认不变。
+
+RK/CVI的0.3.2–0.3.5共八个条目已补齐用户说明，旧`known_issues`同步相同文案。
+CVI的0.3.4使用专属说明，不列RK显示回退和不适用的多行OCR变化。维护源为
+`scripts/rescue-release-notes.json`，历史目录脚本按平台选择文案。
+更新前后元数据快照和双节点/公网核对均保存在`.work/s6-latex-motion/server/`。
+AMR、SHA、版本、平台、schema、channel及来源字段保持不变。旧客户端硬编码的
+候选标签需要更新客户端才能消失，不为隐藏它伪造历史channel。详见
+[S6-LATEX-MOTION.md](S6-LATEX-MOTION.md)。

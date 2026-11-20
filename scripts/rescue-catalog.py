@@ -46,7 +46,8 @@ def main():
     channel='candidate',schema=dict(min=3,max=3),
     provenance='docs/RELEASE-'+version+'.md')
   copy=json.loads((ROOT/'scripts/rescue-release-notes.json').read_text())[version]
-  metadata['release_notes']=copy['notes'];metadata['known_issues']=copy['notes']
+  text=copy.get('cvi_notes',copy['notes']) if target=='cv1826-s' else copy['notes']
+  metadata['release_notes']=text;metadata['known_issues']=text
   metadata['install_warning']=copy.get('cvi_warning' if target=='cv1826-s' else 'warning',copy.get('warning',''))
   folder=out/('penchat-'+target)/version;folder.mkdir(parents=True,exist_ok=True)
   (folder/'release.json').write_text(json.dumps(metadata,ensure_ascii=False,indent=2)+'\n')
