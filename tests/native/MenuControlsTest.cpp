@@ -61,7 +61,7 @@ struct MenusMotionTest {
     pointer.state=LV_INDEV_STATE_RELEASED;lv_indev_read(input);
     const int released=data->position;frame("slider-release");advance(45);assert(data->position!=released);frame("slider-snap-mid");advance(100);frame("slider-snap-end");
     assert(commit==data->index&&data->position==data->index*10000/3);
-    {std::ofstream output(join(a.dataDir_,"slider-frames.json"));output<<Json{{"area",{area.x1,area.y1,area.x2,area.y2}},{"frames",frames},{"color",theme::palette().text}}.dump(2);}
+    {std::ofstream output(join(a.dataDir_,"slider-frames.json"));output<<Json{{"area",{area.x1,area.y1,area.x2,area.y2}},{"frames",frames},{"color",theme::palette().text},{"theme",theme::mode()==theme::Mode::Light?"light":"dark"}}.dump(2);}
     const int original=commit;
     pointer.point={first,cy};pointer.state=LV_INDEV_STATE_PRESSED;lv_indev_read(input);
     advance(65);assert(data->position>0&&data->position<10000);
@@ -237,9 +237,13 @@ int main(int argc,char **argv) {
     Screen screen;screen.width=std::stoi(argv[4]);screen.height=std::stoi(argv[5]);
     Display display(screen,true);Input input;Bridge bridge(-1);
     ensureDirectory(argv[2]);Database db(join(argv[2],"penchat.db"));
+    const auto requestedTheme=argc==7?theme::parse(argv[6]):theme::Mode::Dark;
     if(argc==7)db.setting("theme_mode",argv[6]);
+    // Production initializes the process palette before constructing App.
+    theme::setMode(requestedTheme);
     App app(db,bridge,display,input,screen,argv[1],argv[2],join(argv[1],".deps/chinese.ttf"),
         join(argv[1],".deps/microtex/res"),false,Json::object(),UiMetrics(100,std::stoi(argv[3])));
+    assert(theme::mode()==requestedTheme);
     MenusMotionTest::run(app);
   }
   lv_deinit();shutdownFonts();std::cout<<"MENU_SLIDER_GAUGE_MOTION_BALANCE_FIXTURES_OK\n";

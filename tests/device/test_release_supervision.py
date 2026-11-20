@@ -11,11 +11,16 @@ import time
 import unittest
 from unittest import mock
 
-from release_acceptance import ReleaseDevice, RELEASE, defer_cleanup_signals, stop_owned_child
+from release_acceptance import ReleaseDevice, RELEASE, ROOT, scoped_output, defer_cleanup_signals, stop_owned_child
 from release_matrix import supervise
 
 
 class RecoverySupervisionTests(unittest.TestCase):
+  def test_task_output_stays_inside_work(self):
+    self.assertEqual(scoped_output(ROOT/'.work/task/devices'),ROOT/'.work/task/devices')
+    for path in [ROOT,ROOT/'.work',ROOT/'.work/../src']:
+      with self.assertRaises(AssertionError):scoped_output(path)
+
   def test_cleanup_defers_repeated_term_and_interrupt(self):
     original = {n: signal.getsignal(n) for n in (signal.SIGTERM, signal.SIGINT)}
     with defer_cleanup_signals() as deferred:

@@ -41,6 +41,10 @@ DEVICES = {
 }
 RELEASE = 'release-'+APP['version']
 OUT = ROOT/'.work'/RELEASE/'devices'
+def scoped_output(path):
+  value=pathlib.Path(path).resolve();base=(ROOT/'.work').resolve()
+  assert value!=base and base in value.parents,'Acceptance output must stay in a task subdirectory of .work'
+  return value
 # Reuse individual feature fixtures, never acceptance.py on original user data.
 FEATURES = {
   'resource-residency': 'Control center retains underlay/worker/model and observes but gates pen input',
@@ -429,6 +433,13 @@ class ReleaseDevice(ScopedDevice):
         self.sh(self.key_helper+' /dev/input/by-path/rk805-pwrkey 116 1 100 300')
         time.sleep(.4)
       assert int(self.sh('cat '+backlight)) > 5, 'Device did not wake with its paired power key'
+    if self.s6 and self.key_helper_ready and self.sh('cat /sys/class/backlight/backlight/bl_power')!='0':
+      config=json.loads(self.sh('cat /usr/configs/hal_key_config.json'))['Plum_V0']
+      assert int(config['power_key_code'])==116
+      node='/dev/input/by-path/'+config['power_key_id']
+      assert self.sh('test -c '+shlex.quote(node)+' && echo yes')=='yes'
+      self.sh(self.key_helper+' '+shlex.quote(node)+' 116 1 100 300');time.sleep(.4)
+      assert self.sh('cat /sys/class/backlight/backlight/bl_power')=='0','S6 did not wake; no touch permitted'
     # S6's brightness=5 can still be interactive; superclass readiness checks
     # its actual focus/evdev lease instead of treating this value as sleep.
     self.sh('miniapp_cli start '+APP['appid'])
@@ -1250,10 +1261,12 @@ class ReleaseDevice(ScopedDevice):
 
 
 def main():
+  global OUT
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument('--plan', action='store_true', help='Emit coverage without invoking adb')
   parser.add_argument('--serial', choices=tuple(DEVICES))
   parser.add_argument('--package', type=pathlib.Path)
+  parser.add_argument('--output-dir',type=pathlib.Path,help='Task artifact directory under .work; does not change device isolation or locks')
   parser.add_argument('--discard-pending-input', action='store_true', help='Explicitly authorized: discard unsent editor/draft; preserve saved user data')
   parser.add_argument('--discard-pending-images', action='store_true', help='Separate explicit authorization: abandon temporary scan/image work; saved DB/assets still restored')
   parser.add_argument('--official-controller-file', type=pathlib.Path, help='Append-only host command file for reconnectable owned official controls')
@@ -1261,6 +1274,7 @@ def main():
   parser.add_argument('--manual-paper-scan', action='store_true', help='Wait for a user paper scan instead of injecting the pen key; scan-original scope only')
   parser.add_argument('--features', nargs='+', choices=tuple(FEATURES), default=['smoke'])
   args = parser.parse_args()
+  if args.output_dir:OUT=scoped_output(args.output_dir)
   if args.plan:
     print(json.dumps({'devices': DEVICES, 'features': FEATURES,
                       'manual_pending': ['All visual screenshots need user review',
