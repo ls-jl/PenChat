@@ -96,6 +96,8 @@ PenChat 需要你自行准备模型服务的 **API Key**，调用费用由对应
 
 ### 备份放在哪里？
 
+版本回退前创建的完整备份可从“设置 → 还原备份”增量还原，已有聊天或配置逐项选择替换／跳过；详见[还原说明](docs/BACKUP-RESTORE.md)。聊天导出文件仍使用下面的导入导出目录。
+
 聊天与预设文件位于设备的 `/userdisk/Favorite/PenChat/`：
 
 ```text
@@ -141,4 +143,4 @@ PenChat 自有代码采用 [Apache-2.0](LICENSE)，第三方材料保留原许�
 
 项目地址：[github.com/ls-jl/PenChat](https://github.com/ls-jl/PenChat)。软件内的版本、署名与项目地址也可在 **设置 → 关于 PenChat** 查看。
 
-启动失败页的“降级”、双架构 bootstrap、历史版本目录与数据备份约定见 [docs/DOWNGRADE.md](docs/DOWNGRADE.md)。
+启动失败页的“版本回退”、双架构 bootstrap、历史版本目录与数据备份约定见 [docs/DOWNGRADE.md](docs/DOWNGRADE.md)。

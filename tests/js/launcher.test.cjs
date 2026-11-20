@@ -1219,3 +1219,44 @@ test('closing the version dialog cancels selection and the backup choice remains
  f.page.selectRescue(release);f.page.installRescue();assert.equal(prepared.length,1);assert.equal(prepared[0][1].backup,true)
  const source=fs.readFileSync('src/launcher/LauncherPage.vue','utf8');assert(source.includes('class="rescue-dialog"'));assert(!source.includes("rescueSelected && !rescueBusy"));assert.equal(f.page.rescueDangerButtonStyle.backgroundColor,'#b42318')
 })
+
+test('backup restoration reloads only its owned runtime once and returns to the restore result page',async()=>{
+ const f=fixture();await f.page.boot();f.page.nativeReady=true
+ f.native.poll=()=>[{type:'backup.applying',operation:'restore_current',generation:f.page._generation}];f.page.poll()
+ assert.equal(f.page._restoring,'restore_current');assert(!f.page.nativeReady)
+ let complete,count=0;f.native.stop=()=>{count++;return new Promise(resolve=>{complete=resolve})}
+ const finish=f.page.finishBackupRestore({operation:'restore_current',ok:true,result:{added:2,replaced:1,skipped:3}})
+ await f.page.finishBackupRestore({operation:'restore_current',ok:true});assert.equal(count,1)
+ complete({ok:true});await finish;assert(f.page.running&&!f.page._restoring)
+ f.native.poll=()=>[{type:'ready',generation:f.page._generation}];f.page.poll()
+ const packets=f.calls.filter(c=>c[0]==='send'&&c[1].type==='backup.return');assert.equal(packets.length,1);assert.equal(packets[0][1].result.replaced,1)
+ await f.page.finishBackupRestore({operation:'restore_current',ok:true});assert.equal(count,1)
+ f.native.stop=async()=>({ok:true});f.page.dispose()
+})
+test('stale restoration callback cannot stop or reopen a replacement page',async()=>{
+ const f=fixture();await f.page.boot();f.page._restoring='restore_old'
+ let complete;f.native.stop=()=>new Promise(resolve=>{complete=resolve})
+ const finish=f.page.finishBackupRestore({operation:'restore_old',ok:true});f.page.detachPage();complete({ok:true});await finish
+ assert(!f.page._returnBackupResult);assert.equal(f.calls.filter(c=>c[0]==='start').length,1)
+})
+
+test('restoration completion under a system panel waits for interactive focus before reloading',async()=>{
+ const f=fixture();await f.page.boot();f.page.nativeReady=true;f.page._restoring='restore_panel'
+ f.native.panelVisible=true;f.page.syncWindowFocus(true)
+ let stops=0;f.native.stop=async()=>{stops++;return {ok:true}}
+ await f.page.finishBackupRestore({operation:'restore_panel',ok:true,result:{added:1}})
+ assert.equal(stops,0);assert(f.page._restoreFinished)
+ f.native.panelVisible=false;f.page.syncWindowFocus(true);f.page.poll()
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(stops,1);assert.equal(f.calls.filter(c=>c[0]==='start').length,2)
+ assert(f.page._returnBackupResult.ok);f.page.dispose()
+})
+test('background restoration resumes polling and a failed apply returns its failure without repeated work',async()=>{
+ const f=fixture();await f.page.boot();f.page.nativeReady=true;f.page._restoring='restore_background'
+ f.page.backgroundPage();assert.equal(f.page._poll,null)
+ await f.page.finishBackupRestore({operation:'restore_background',ok:false,message:'备份校验失败'})
+ assert(!f.calls.some(c=>c[0]==='stop'));f.page.resume()
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(f.calls.filter(c=>c[0]==='start').length,2)
+ assert.equal(f.page._returnBackupResult.message,'备份校验失败')
+ f.native.poll=()=>[{type:'ready',generation:f.page._generation}];f.page.poll()
+ assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='backup.return').length,1);f.page.dispose()
+})

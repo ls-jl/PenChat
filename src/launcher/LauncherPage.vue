@@ -141,6 +141,24 @@ export default {
     },
     watchRescue() { if(!this._rescuePoll)this._rescuePoll=setInterval(()=>this.pollRescue(),200);this.pollRescue() },
     openRescue() { this.rescueOpen=true;this.rescueMessage='';this.ensureRescueController();this.watchRescue();this.refreshRescue() },
+    async finishBackupRestore(event) {
+      if(!this._restoring||event.operation!==this._restoring||this._restoreRestarting||this._disposed)return
+      this._restoreFinished=this._restoreFinished||event
+      if(!this.visible||this._pageHidden||this._panelVisible||this._screenPowerBlocked||this._windowFocused===false)return
+      event=this._restoreFinished;this._restoreFinished=null
+      this._restoreRestarting=true
+      const generation=this._generation
+      try {
+        const stopped=await this.stopRuntime(true)
+        if(this._disposed||generation!==this._generation||generation!==generationSeed)return
+        if(stopped&&stopped.ok===false){this.detachPage();return}
+        this.running=false;this.nativeReady=false;this._restoring=''
+        clearInterval(this._poll);clearTimeout(this._readyTimer);this._poll=this._readyTimer=null
+        this._returnBackupResult={operation:event.operation,ok:event.ok===true,result:event.result||{},message:event.message||''}
+        await this.boot()
+      } catch (_) {if(!this._disposed&&generation===this._generation&&generation===generationSeed){this._restoring='';this.fail('还原结束后未能重新加载，请点击重新启动')}}
+      finally {this._restoreRestarting=false}
+    },
     async openRollback(event) {
       if(this._openingRescue||this.rescueOpen||!this.running||!this.nativeReady||this._disposed||this.errorText||typeof event.operation!=='string'||!event.operation)return
       this._openingRescue=true
@@ -206,6 +224,7 @@ export default {
       this._disposed = false;this._detached=false
       this.visible = true
       this.watchInputFocus()
+      if(this._restoring){clearInterval(this._poll);this._poll=setInterval(()=>this.poll(),20);this.syncWindowFocus(true);this.poll();if(!launcher.status().alive&&!this._restoreRestarting)this.finishBackupRestore({operation:this._restoring,ok:false,message:'上次还原结果待核对'});return}
       if(this.rescueOpen||this._openingRescue){this.setBackPolicy(true);this.setNativeEditorPolicy(false);if(this.rescueOpen)this.watchRescue();return}
       this.setBackPolicy(false)
       this.setNativeEditorPolicy(!!this._nativeEditor && !this.keyboardOpen)
@@ -312,6 +331,7 @@ export default {
         this.syncWindowFocus()
         this.syncInputFocus()
         this.checkOfficialKeyboard()
+        if(this._restoring&&this._restoreFinished)this.finishBackupRestore(this._restoreFinished)
         for (const event of launcher.poll(this.runtimeToken()) || []) {
           if (event.generation !== undefined && event.generation !== this._generation && event.type !== 'booted' && event.type !== 'startup' && event.type !== 'fatal' && event.type !== 'exit') continue
           if (event.type === 'booted') {
@@ -321,7 +341,7 @@ export default {
           }
           else if (event.type === 'appearance') this.applyAppearance(event)
           else if (event.type === 'startup') { if(event.display)this._displayInfo=event.display; this.startupText = ({ display: '正在准备显示…', data: '正在读取数据…', interface: '正在准备页面…', frame: '正在显示页面…' })[event.stage] || '正在打开…' }
-          else if (event.type === 'ready') { this.nativeReady = true; this.syncWindowFocus(true); this.syncInputFocus(true); clearTimeout(this._readyTimer); this._readyTimer = null; if(this._returnToUpdate){this._returnToUpdate=false;this.send('update.open')} if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
+          else if (event.type === 'ready') { this.nativeReady = true; this.syncWindowFocus(true); this.syncInputFocus(true); clearTimeout(this._readyTimer); this._readyTimer = null; if(this._returnBackupResult){this.send('backup.return',this._returnBackupResult);this._returnBackupResult=null} if(this._returnToUpdate){this._returnToUpdate=false;this.send('update.open')} if (this._pendingUpdateResult) { this.send('update.install.result', this._pendingUpdateResult); this._pendingUpdateResult = null } }
           else if (event.type === 'editor.state') this.editorState(event)
           else if (event.type === 'navigation.state') this.navigationState(event)
           else if (event.type === 'keyboard.open') this.openKeyboard(event)
@@ -347,10 +367,14 @@ export default {
           else if (event.type === 'ocr.pen') { if (this._ocr) this._ocr.pen(event) }
           else if (event.type === 'ocr.start') this.startOcr(event)
           else if (event.type === 'ocr.cancel') this.stopOcr(event.requestId, true)
+          else if(event.type==='backup.applying'){this._restoring=event.operation;this.nativeReady=false;this.startupText='正在还原备份…'}
+          else if(event.type==='backup.progress'&&this._restoring===event.operation)this.startupText=event.message||'正在还原备份…'
+          else if(event.type==='backup.finished')this.finishBackupRestore(event)
           else if (event.type === 'rescue.open') {this.openRollback(event);break}
           else if (event.type === 'update.install') this.installUpdate(event)
           else if (event.type === 'finish') this.finish()
           else if (event.type === 'fatal') { if(!this.errorText&&event.display)this._displayInfo=event.display; this.fail(event.error || '原生页面启动失败') }
+          else if(event.type==='exit'&&this._restoring){if(!this._restoreRestarting)this.finishBackupRestore({operation:this._restoring,ok:false,message:'上次还原结果待核对'})}
           else if (event.type === 'exit' && !this._updating && this.running) this.fail(event.status < 0 ? '原生程序意外退出，请重试' : `原生程序已退出（${event.status}）`)
         }
       } catch (err) { this.fail('原生页面通信失败') }

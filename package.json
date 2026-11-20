@@ -29,6 +29,7 @@
     "check:beta": "aiot-cli check -b",
     "build:native": "bash scripts/build-lvgl.sh rk3562 && bash scripts/build-scanner.sh rk3562",
     "build:host": "bash scripts/build-lvgl.sh host && bash scripts/build-scanner.sh host",
+    "test:backup-restore": "python3 tests/test_backup_restore.py && python3 tests/test_backup_restore_ui.py",
     "test:device": "python3 tests/device/acceptance.py",
     "check:package": "python3 tests/check_amr.py",
     "test:device:chat": "python3 tests/device/chat_acceptance.py",

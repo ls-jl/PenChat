@@ -182,6 +182,7 @@ int main(int argc, char **argv) {
     const auto displayInfo=display.information();
     std::fprintf(stderr,"DISPLAY_PROBE %s\n",displayInfo.dump().c_str());
     startup("data",{{"display",displayInfo}});
+    BackupRestore::recover(data,BackupRestore::publicDirectory(data));
     Database db(join(data, "penchat.db"));
 #ifndef PENCHAT_NATIVE_DEVICE
     if (!uiScaleSpecified)
@@ -210,7 +211,7 @@ int main(int argc, char **argv) {
       // A closed launcher must not dispatch one last batch of physical touches.
       if (!running || (!standalone && !bridge.connected())) break;
       app.tick();
-      if(app.updateExit())break;
+      if(app.updateExit()||app.backupExit())break;
       const auto nextTimer = lv_timer_handler();
       display.check();
       if(!firstFrameReported&&display.presented()) {
@@ -235,6 +236,7 @@ int main(int argc, char **argv) {
     if(terminationSignal)exitReason="signal";
     else if(!standalone&&!bridge.connected())exitReason="ipc_eof";
     else if(app.updateExit())exitReason="update";
+    else if(app.backupExit())exitReason="backup_restore";
     bridge.send("native.exit",{{"reason",exitReason},{"signal",int(terminationSignal)}});
     auto persistExit=[&](const char *phase) {
       try {atomicText(join(data,"native-exit.json"),Json({{"pid",getpid()},{"reason",exitReason},
@@ -243,6 +245,7 @@ int main(int argc, char **argv) {
     persistExit("shutdown_started");
     diagnosticRecord("lifecycle","exit",{{"signal",int(terminationSignal)}});flushDiagnostics();
     app.shutdown();
+    if(app.backupExit()&&!terminationSignal)app.finishBackupRestore();
     display.visible(false);
     persistExit("shutdown_complete");
     return 0;
