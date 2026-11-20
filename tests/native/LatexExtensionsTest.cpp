@@ -41,6 +41,14 @@ Reference $\ref{manual}+\eqref{missing}$.)");
   auto manualMultline=parseMarkdown(R"($$\begin{multline}\tag{T}\label{whole}a+b\\=c\end{multline}$$ $$\begin{equation}x\end{equation}$$)");assert(manualMultline.formulaLabels.at("whole")=="T");assert(math(manualMultline)[1]->formulaRows[0].tag=="1");
   auto unnumberedMultline=parseMarkdown(R"($$\begin{multline}a+b\notag\\=c\end{multline}$$)");for(const auto &row:math(unnumberedMultline)[0]->formulaRows)assert(!row.showTag);
   auto badAlignat=parseMarkdown(R"($$\begin{alignat}{0}a&=b\end{alignat}$$ $$\begin{equation}x\label{valid}\end{equation}$$)");assert(math(badAlignat)[0]->mathInvalid&&badAlignat.formulaLabels.at("valid")=="1");
+  auto sub=parseMarkdown(R"(\begin{subequations}\label{parent}\begin{equation}a=b\label{a}\end{equation}\begin{align}c&=d\label{b}\\e&=f\tag{M}\label{m}\\g&=h\label{c}\end{align}\end{subequations}
+\begin{equation}x=y\label{next}\end{equation})");
+  assert(sub.formulaLabels.at("parent")=="1"&&sub.formulaLabels.at("a")=="1a"&&sub.formulaLabels.at("b")=="1b"&&sub.formulaLabels.at("c")=="1c"&&sub.formulaLabels.at("m")=="M"&&sub.formulaLabels.at("next")=="2");
+  auto prose=parseMarkdown(R"($$\begin{align}a&=b\label{before}\\\intertext{For all $x>0$: \eqref{after}}c&=d\label{after}\\\shortintertext{thus}e&=f\end{align}$$)");
+  auto proseRuns=math(prose);assert(proseRuns.size()==1&&proseRuns[0]->formulaRows.size()==5);
+  assert(proseRuns[0]->formulaRows[1].prose&&!proseRuns[0]->formulaRows[1].showTag&&proseRuns[0]->formulaRows[1].cells[0].find("(2)")!=std::string::npos);
+  assert(proseRuns[0]->formulaRows[3].prose&&proseRuns[0]->formulaRows[3].compact&&proseRuns[0]->formulaRows[4].tag=="3");
+  auto parentBad=parseMarkdown(R"($$\begin{subequations}\label{bad}invalid\end{subequations}$$ $$\begin{equation}x\label{ok}\end{equation}$$)");assert(!parentBad.formulaLabels.count("bad")&&parentBad.formulaLabels.at("ok")=="1");
   auto code=parseMarkdown("`\\eqref{first}`\n\n```tex\n\\begin{equation}x\\label{a}\\end{equation}\n```\n");assert(math(code).empty()&&code.formulaLabels.empty());
   auto indented=parseMarkdown("    \\begin{equation}x\\end{equation}\n    \\ce{H2O}\n");assert(math(indented).empty());assert(blockPlainText(indented.blocks[0]).find("$$")==std::string::npos);
   auto macros=parseMarkdown(R"($$\begin{align}\newcommand{\sq}[1]{#1^2}\sq{x}&=1\\\sq{y}&=2\end{align}$$)");

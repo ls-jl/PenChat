@@ -70,7 +70,13 @@ add_library(tinyxml2 STATIC "${DEPS}/tinyxml2/tinyxml2.cpp")
 target_include_directories(tinyxml2 PUBLIC "${DEPS}/tinyxml2")
 file(GLOB_RECURSE TEX_SRC "${DEPS}/microtex/src/*.cpp")
 list(FILTER TEX_SRC EXCLUDE REGEX "/(samples|platform)/")
-add_library(microtex STATIC ${TEX_SRC} src/tex_cairo.cpp)
+set(MICROTEX_OVERLAY "${CMAKE_CURRENT_BINARY_DIR}/microtex-overlay/src/atom/atom_matrix.cpp" "${CMAKE_CURRENT_BINARY_DIR}/microtex-overlay/src/render.cpp")
+add_custom_command(OUTPUT ${MICROTEX_OVERLAY}
+  COMMAND "${Python3_EXECUTABLE}" "${ROOT}/scripts/generate-microtex-overlay.py" "${DEPS}/microtex" "${CMAKE_CURRENT_BINARY_DIR}/microtex-overlay"
+  DEPENDS "${ROOT}/scripts/generate-microtex-overlay.py" "${ROOT}/native/lvgl-app/microtex-overlays.json" "${ROOT}/native/lvgl-app/dependencies.lock.json" "${DEPS}/microtex/src/atom/atom_matrix.cpp" "${DEPS}/microtex/src/render.cpp"
+  VERBATIM)
+list(REMOVE_ITEM TEX_SRC "${DEPS}/microtex/src/atom/atom_matrix.cpp" "${DEPS}/microtex/src/render.cpp")
+add_library(microtex STATIC ${TEX_SRC} ${MICROTEX_OVERLAY} src/tex_cairo.cpp)
 target_include_directories(microtex PUBLIC "${DEPS}/microtex/src" "${RENDER_PREFIX}/include/cairo" "${RENDER_PREFIX}/include/freetype2" src)
 target_link_libraries(microtex PUBLIC tinyxml2 "${RENDER_PREFIX}/lib/libcairo.a" "${RENDER_PREFIX}/lib/libpixman-1.a" "${RENDER_PREFIX}/lib/libfreetype.a" m dl pthread)
 set(WEBP_BUILD_ANIM_UTILS OFF CACHE BOOL "" FORCE)
