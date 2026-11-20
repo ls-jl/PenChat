@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "elf_slot.hpp"
+#include "firmware.hpp"
 #include <cstdio>
 #include <cstring>
 #include <dlfcn.h>
@@ -50,8 +51,7 @@ int permission(std::uintptr_t address) {
   }
   return 0;
 }
-void validateHash(const std::string& path, const char* expected) {
-  if (!expected) return;
+std::string imageHash(const std::string& path) {
   std::ifstream file(path, std::ios::binary);
   if (!file) throw std::runtime_error("Cannot read target image identity");
   SHA256_CTX ctx;
@@ -70,7 +70,7 @@ void validateHash(const std::string& path, const char* expected) {
   SHA256_Final(digest, &ctx);
   char hex[65]{};
   for (unsigned i = 0; i < 32; ++i) std::snprintf(hex + 2 * i, 3, "%02x", digest[i]);
-  if (std::strcmp(hex, expected)) throw std::runtime_error("Target image SHA256 mismatch; no hook installed");
+  return hex;
 }
 #if __SIZEOF_POINTER__ == 4
 unsigned type(ElfW(Xword) info) { return ELF32_R_TYPE(info); }
@@ -81,8 +81,7 @@ unsigned type(ElfW(Xword) info) { return ELF64_R_TYPE(info); }
 unsigned index(ElfW(Xword) info) { return ELF64_R_SYM(info); }
 constexpr unsigned kJumpSlot = R_X86_64_JUMP_SLOT;
 #endif
-}
-Slot locate(const char* name, const char* symbol, const char* expectedHash) {
+Module locateModule(const char* name) {
   struct Search { const char* name; Module result; unsigned matches = 0; } search{name, {}, 0};
   dl_iterate_phdr([](dl_phdr_info* info, std::size_t, void* opaque) {
     auto& s = *static_cast<Search*>(opaque);
@@ -94,8 +93,9 @@ Slot locate(const char* name, const char* symbol, const char* expectedHash) {
     return 0;
   }, &search);
   if (search.matches != 1) throw std::runtime_error("Expected exactly one loaded target image");
-  const auto& m = search.result;
-  validateHash(m.path, expectedHash);
+  return search.result;
+}
+Slot resolveSlot(const Module &m,const char *symbol) {
   const ElfW(Dyn)* dynamic = nullptr;
   std::size_t dynamicCount = 0;
   for (std::size_t i = 0; i < m.count; ++i) if (m.phdr[i].p_type == PT_DYNAMIC) {
@@ -168,6 +168,26 @@ Slot locate(const char* name, const char* symbol, const char* expectedHash) {
   if (!resolved || slot.original != resolved || !contains(m, resolved, 4, PF_R | PF_X))
     throw std::runtime_error("PLT slot is unresolved or changed by another owner");
   return slot;
+}
+} // namespace
+Slot locate(const char* module,const char* symbol,const char* expectedHash) {
+  const auto image=locateModule(module);
+  if(expectedHash&&imageHash(image.path)!=expectedHash)throw std::runtime_error("Target image SHA256 mismatch; no hook installed");
+  return resolveSlot(image,symbol);
+}
+Slot locateCviDisplay() {
+  const auto image=locateModule("libfalcon.so");
+  const auto digest=imageHash(image.path);
+#if defined(__arm__)
+  constexpr unsigned machine=EM_ARM;
+#elif defined(__aarch64__)
+  constexpr unsigned machine=EM_AARCH64;
+#else
+  constexpr unsigned machine=EM_X86_64;
+#endif
+  const auto profile=firmwareProfile(digest,sizeof(void*)*8,machine);
+  if(!profile)throw std::runtime_error("CVI Falcon ABI is not verified (SHA256 "+digest+"); no hook installed");
+  auto slot=resolveSlot(image,profile->symbol);slot.profile=profile->id;slot.firmwareSha=digest;return slot;
 }
 bool Slot::replace(std::uintptr_t expected, std::uintptr_t replacement, std::string& error) const {
   const long pageSize = sysconf(_SC_PAGESIZE);

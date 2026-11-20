@@ -259,7 +259,7 @@ CompositeStats Composite::stats() {
   s.sharedBytes = geometry_.total;
   s.copyMedianMs = median(copyTimes_, copyCount_);
   s.blendMedianMs = median(blendTimes_, frameCount_); s.presentMedianMs = median(presentTimes_, frameCount_);
-  s.reason = reason_;
+  s.reason = reason_;s.profile=slot_.profile;s.firmwareSha=slot_.firmwareSha;
   return s;
 }
 }

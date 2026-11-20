@@ -51,7 +51,7 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
         assert hashlib.sha256(model).hexdigest() == lock['files']['models/cvimodel/pintu_rgb32_int8_experimental.cvimodel']['sha256']
     binary = archive.read('assets/bin/penchat-lvgl')
     assert b'PENCHAT_TEST_CA' not in binary and b'scanner.test' not in binary
-    assert b'S6 compositor is unavailable' in binary
+    assert b'CVI compositor is unavailable' in binary
     assert b'/sys/module/cvifb/parameters/start_' not in binary, 'Old CVI display linked'
     launcher = runtime
     assert b'11e46687d3c7301d3049d02d84144ee37e5a9994ca5ec1e9f5eaf278db92519b' in launcher

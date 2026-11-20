@@ -522,6 +522,10 @@ keep an edit snapshot for cancellation, never persist previews. Do not hide an I
 window from inside its own completion callback; defer completion to the next turn.
 Only dismiss the system panel while our app owns the foreground. Do not restore
 system pinyin borrowing or copy its dictionary.
+CVI-S basic UI admission is shared by hardware-family identity, ARM32 hard-float
+ABI and an exact verified Falcon display profile, not the S6/Plum product name.
+Keep unknown firmware/ABI rejection and independent scan/photo admission. See
+docs/CVI-COMPATIBILITY.md; other models are not certified without device evidence.
 S6 adaptation is integrated on dev. S6
 JDA0700006552216 is an explicit CV1826/ARMv7 target; reuse the accepted CVI INT8
 bundle and public runtime in place, never load RKNN or copy device libraries into

@@ -4,14 +4,13 @@ namespace camera {
 // UI/business components never select hardware by screen resolution or model.
 struct DeviceCapabilities {
   const char *family;
-  const char *requiredBoard;
   bool physicalScreenConfig,sharedCaptureDisplay,photoCamera,multiLineOcr;
 };
 inline DeviceCapabilities deviceCapabilities() {
 #ifdef PENCHAT_CVI_PLATFORM
-  return {"s6-cv1826","Cvitek Cv1826 for Youdao Plum V0 version",true,true,false,false};
+  return {"cvi-arm32",true,true,false,false};
 #else
-  return {"rockchip","",false,false,true,true};
+  return {"rockchip",false,false,true,true};
 #endif
 }
 }

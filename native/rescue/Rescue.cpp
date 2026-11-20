@@ -1,3 +1,4 @@
+#include "../platform/identity.hpp"
 #include "Rescue.hpp"
 #include "update.hpp"
 #include "layout.hpp"
@@ -192,13 +193,15 @@ int installationFlags(const std::string &version,const std::string &falconSha) {
   return 0x4000;
 }
 Json environment(const std::string &workspace,const std::string &modelPath,const std::string &screenPath) {
-  Json env={{"platform",""},{"abi_bits",sizeof(void*)*8},{"version",PENCHAT_VERSION},{"appid",PENCHAT_APP_ID},{"compatible",false},{"failure","unsupported_hardware"}};
+  Json env={{"platform",""},{"abi_bits",sizeof(void*)*8},{"version",PENCHAT_VERSION},{"appid",PENCHAT_APP_ID},{"compatible",false},{"catalog_compatible",false},{"failure","unsupported_hardware"}};
   std::string model,compatible;
   try {model=fileText(modelPath,4096);if(modelPath=="/proc/device-tree/model")compatible=fileText("/proc/device-tree/compatible",4096);}catch(...){}
   auto board=model+compatible;std::transform(board.begin(),board.end(),board.begin(),[](unsigned char c){return char(std::tolower(c));});
-  std::string platform;if(board.find("rk3562")!=std::string::npos)platform="rk3562";
-  else if(board.find("cv1826")!=std::string::npos)platform="cv1826-s";
-  env["platform"]=platform;
+  const auto identity=platform::identify(model,compatible);
+  const std::string platform=identity.packageTarget();
+  env["platform"]=platform;env["hardware_family"]=identity.name();env["soc"]=identity.soc;
+  const unsigned requiredBits=platform=="rk3562"?64:platform=="cv1826-s"?32:0;
+  env["catalog_compatible"]=requiredBits!=0&&requiredBits==sizeof(void*)*8;
   try {
     const auto screen=Screen::fromConfig(readJson(screenPath),platform=="cv1826-s");env["screen"]=screen.descriptor();
     const ScreenSafety safety{screen.width,screen.height,board.find("rk3562 y07 ")!=std::string::npos};
@@ -206,6 +209,7 @@ Json environment(const std::string &workspace,const std::string &modelPath,const
   }catch(...){env["screen"]=nullptr;env["failure"]="screen_configuration";}
   auto payload=readJson(join(workspace,"assets/rescue/payload.json"));env["payload"]=payload;
   if(platform.empty())return env;
+  if(!env["catalog_compatible"].get<bool>()){env["failure"]="unsupported_host_abi";return env;}
   if(!payload.is_object()||!payload.value("platform",Json()).is_string()){env["failure"]="payload_metadata";return env;}
   if(payload.value("platform",std::string())!=platform||(platform=="rk3562"?64:32)!=int(sizeof(void*)*8)){env["failure"]="architecture_mismatch";return env;}
   try {verifyElf(join(workspace,"assets/bin/penchat-lvgl"),platform);env["compatible"]=!env["screen"].is_null();if(env["compatible"])env["failure"]="";}
@@ -285,7 +289,8 @@ struct Service::Impl {
     for(const auto &node:routes()){if(cancelled||closing)fail("cancelled");try{const auto r=http(url,node,cancelled,{},0,{},"","",true);if(!r.code&&r.status==200&&r.length>=0&&uint64_t(r.length)==bytes)return true;}catch(...){}}
     return false;
   }
-  std::string base() const {const auto platform=env.value("platform",std::string());if(platform.empty())fail("无法识别当前硬件平台");return config.root+"penchat-"+platform+"/";}
+  void requireHostAbi() const {if(!env.value("catalog_compatible",false))fail("当前宿主架构没有可用的 PenChat 安装包");}
+  std::string base() const {requireHostAbi();const auto platform=env.value("platform",std::string());if(platform.empty())fail("无法识别当前硬件平台");return config.root+"penchat-"+platform+"/";}
   void list() {
     status("listing","正在获取可用版本…");const auto b=base();const auto links=updates::directoryLinks(get(b).text,b);
     Json releases=Json::array();
@@ -339,6 +344,7 @@ struct Service::Impl {
     durable(join(target,"manifest.json"),manifest);return {{"path",target},{"files",manifest["files"].size()},{"bytes",bytes}};
   }
   void prepare(const Json &args) {
+    requireHostAbi();
     privateDir(root);privateDir(join(root,"backups"));
     Json release;
     {std::lock_guard<std::mutex> lock(mutex);for(const auto &r:published["releases"])if(r["id"]==args.value("id",std::string()))release=r;}
@@ -487,6 +493,7 @@ void Service::report(const Json &failure,bool retry) {
   Json report={{"code",failure.value("code",std::string("unknown"))},{"retry",retry}};p_->reportQueue.push_back(report);p_->cv.notify_all();
 }
 Json Service::authorize(const Json &ticket) {
+  p_->requireHostAbi();
   if(p_->cancelled)fail("降级操作已取消");
   Json own;
   {std::lock_guard<std::mutex> lock(p_->mutex);own=p_->published.value("ticket",Json());

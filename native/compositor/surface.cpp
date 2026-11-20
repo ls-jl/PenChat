@@ -30,7 +30,7 @@ class Surface final : public camera::DisplaySurface {
   int refreshRate_ = 30;
   std::string error_;
   void send(const Packet& p) {
-    if (!sendPacket(socket_, p)) throw std::runtime_error("S6 compositor connection lost");
+    if (!sendPacket(socket_, p)) throw std::runtime_error("CVI compositor connection lost");
   }
   void cleanup() {
     if (system_) munmap(const_cast<std::uint8_t*>(system_), 2 * geometry_.slotBytes);
@@ -60,12 +60,12 @@ class Surface final : public camera::DisplaySurface {
         const auto result = poll(&wait, 1, delay);
         if (result < 0 && errno == EINTR) continue;
         if (result < 0 || wait.revents & (POLLHUP | POLLERR | POLLNVAL))
-          throw std::runtime_error("S6 compositor disconnected");
+          throw std::runtime_error("CVI compositor disconnected");
         for (unsigned batch = 0; batch < 32; ++batch) {
           Packet p;
           const int status = receivePacket(socket_, p);
           if (!status) break;
-          if (status < 0 || p.type == Wire::Stop) throw std::runtime_error("S6 compositor stopped");
+          if (status < 0 || p.type == Wire::Stop) throw std::runtime_error("CVI compositor stopped");
           if (p.type == Wire::Focus) {
             if (p.value > 1 || !p.epoch) throw std::runtime_error("Invalid compositor focus");
             focused = p.value != 0; epoch = p.epoch; heartbeat = monotonicMs();
@@ -114,12 +114,12 @@ public:
       refreshRate_ = penchat::refresh::defaultRate(g.width, g.height);
       pollfd wait{socket_, POLLIN, 0}; Packet hello;
       if (socket_ < 0 || shared_ < 0 || poll(&wait, 1, 3000) <= 0 || receivePacket(socket_, hello) != 1 || hello.type != Wire::Hello)
-        throw std::runtime_error("S6 compositor is unavailable");
+        throw std::runtime_error("CVI compositor is unavailable");
       geometry_ = Geometry::make(g.width, g.height, sysconf(_SC_PAGESIZE));
       struct stat st{};
       if (hello.value != unsigned(g.width) || hello.aux != unsigned(g.height) || hello.value2 != geometry_.slotBytes ||
           fstat(shared_, &st) || std::uint64_t(st.st_size) != geometry_.total)
-        throw std::runtime_error("S6 compositor geometry mismatch");
+        throw std::runtime_error("CVI compositor geometry mismatch");
       auto* map = mmap(nullptr, 2 * geometry_.slotBytes, PROT_READ, MAP_SHARED, shared_, 0);
       if (map == MAP_FAILED) throw std::runtime_error("Cannot map compositor system frames");
       system_ = static_cast<const std::uint8_t*>(map);
@@ -140,7 +140,7 @@ public:
     std::lock_guard<std::mutex> lock(mutex_);
     if (!error_.empty()) throw std::runtime_error(error_);
     if (!pixels || width != int(geometry_.width) || height != int(geometry_.height))
-      throw std::runtime_error("S6 compositor frame geometry changed");
+      throw std::runtime_error("CVI compositor frame geometry changed");
     std::memcpy(native_.data(), pixels, geometry_.bytes);
     if (!++revision_) throw std::runtime_error("Compositor revision exhausted");
     visible_ = true;
@@ -163,7 +163,7 @@ public:
 }
 void configureDisplay(int socket, int shared) {
   if (socket < 0 || shared < 0 || socket == shared || configuredSocket >= 0 || configuredShared >= 0)
-    throw std::runtime_error("Invalid S6 compositor descriptors");
+    throw std::runtime_error("Invalid CVI compositor descriptors");
   configuredSocket = socket; configuredShared = shared;
 }
 std::unique_ptr<camera::DisplaySurface> makeSurface(const camera::DisplayGeometry& g) {

@@ -12,6 +12,10 @@ int main(){
   auto e=penchat::rescue::environment(root,root+"/model",root+"/screen");assert(e["platform"]=="rk3562"&&!e["compatible"].get<bool>()&&e["screen"]["width"]==568);
   write(root+"/model","CV1826 Plum");write(root+"/screen",R"({"screen":{"width":260,"height":640,"direction":270}})");
   e=penchat::rescue::environment(root,root+"/model",root+"/screen");assert(e["platform"]=="cv1826-s"&&e["screen"]["width"]==640&&e["screen"]["height"]==260);
+  for(const auto &board:{"Cvitek Cv1826 for AnotherBoard V1","Vendor CV182X reference","Sophgo cv1835 board"}){
+    write(root+"/model",board);auto generic=penchat::rescue::environment(root,root+"/model",root+"/screen");assert(generic["platform"]=="cv1826-s"&&generic["hardware_family"]=="cvi");assert(generic["screen"]["width"]==640);assert(generic["catalog_compatible"].get<bool>()==(sizeof(void*)==4));
+    if(sizeof(void*)!=4)assert(generic["failure"]=="unsupported_host_abi");
+  }
   write(root+"/model","unknown");e=penchat::rescue::environment(root,root+"/model",root+"/screen");assert(e["platform"]==""&&!e["compatible"].get<bool>());
   std::string elf(64,'\0');elf.replace(0,4,"\177ELF");elf[4]=2;elf[5]=1;elf[18]=char(183);write(root+"/elf",elf);
   penchat::rescue::verifyElf(root+"/elf","rk3562");bool rejected=false;try{penchat::rescue::verifyElf(root+"/elf","cv1826-s");}catch(...){rejected=true;}assert(rejected);
@@ -26,7 +30,7 @@ int main(){
   write(root+"/assets/rescue/payload.json",R"({"platform":7})");
   e=penchat::rescue::environment(root,root+"/model",root+"/screen");assert(e["failure"]=="payload_metadata");
   write(root+"/assets/rescue/payload.json",R"({"platform":"cv1826-s","abi_bits":32})");
-  e=penchat::rescue::environment(root,root+"/model",root+"/screen");assert(e["failure"]=="architecture_mismatch");
+  e=penchat::rescue::environment(root,root+"/model",root+"/screen");assert(e["failure"]=="architecture_mismatch");assert(e["catalog_compatible"].get<bool>()==(sizeof(void*)==8));
   unlink((root+"/assets/bin/penchat-lvgl").c_str());unlink((root+"/assets/rescue/payload.json").c_str());
   rmdir((root+"/assets/bin").c_str());rmdir((root+"/assets/rescue").c_str());rmdir((root+"/assets").c_str());
   auto executable=elf;executable[4]=2;executable[18]=char(183);executable[6]=1;executable[16]=2;

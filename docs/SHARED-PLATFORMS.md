@@ -126,3 +126,7 @@ ORANGE、S6 机型名标识构建。机型 profile、设备名单和历史适配
 偏好在下次打开编辑器时应用。
 三类布局都通过长按地球500ms后的“有道输入法”菜单项进入系统输入法；
 短按只切换原有三种内置布局。详见 [键盘互换说明](WIDE-KEYBOARD-SWAP.md)。
+
+## CVI-S基础兼容通用化
+
+`cv1826-s`现作为CVI/ARM32包族的历史构建标识保留。基础启动不再要求S6/Plum完整板名，而是分别核验硬件族、实际ABI和已验证Falcon显示profile；外设仍独立匹配。相同机制与未知固件的具体边界见[CVI-COMPATIBILITY.md](CVI-COMPATIBILITY.md)。没有其他机型实测，不扩大已有S6验收结论。

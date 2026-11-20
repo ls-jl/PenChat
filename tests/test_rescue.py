@@ -22,11 +22,11 @@ class Server(http.server.BaseHTTPRequestHandler):
   body=self.rfile.read(int(self.headers['Content-Length']));self.posts.append((json.loads(body),dict(self.headers)))
   reply=b'{"ok":true}';self.send_response(self.post_status);self.send_header('Content-Length',str(len(reply)));self.end_headers();self.wfile.write(reply)
 class Probe:
- def __init__(self,root,url,retry_unit_ms=1,extra_env=None):
+ def __init__(self,root,url,retry_unit_ms=1,extra_env=None,abi_bits=64):
   self.root=pathlib.Path(root);self.data=self.root/'data';self.public=self.root/'public';self.workspace=self.root/'workspace'
   for d in [self.data,self.public,self.workspace]:d.mkdir(exist_ok=True)
   self.p=subprocess.Popen([str(BINARY)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=dict(os.environ,**(extra_env or {})))
-  self.p.stdin.write(json.dumps(dict(root=url,retry_unit_ms=retry_unit_ms,endpoint=url+'logs',data=str(self.data),public=str(self.public),workspace=str(self.workspace)))+'\n');self.p.stdin.flush()
+  self.p.stdin.write(json.dumps(dict(root=url,abi_bits=abi_bits,retry_unit_ms=retry_unit_ms,endpoint=url+'logs',data=str(self.data),public=str(self.public),workspace=str(self.workspace)))+'\n');self.p.stdin.flush()
   assert json.loads(self.p.stdout.readline())['platform']=='rk3562'
  def cmd(self,op,**data):
   self.p.stdin.write(json.dumps(dict(op=op,**data))+'\n');self.p.stdin.flush();return json.loads(self.p.stdout.readline())
@@ -68,6 +68,13 @@ class Tests(unittest.TestCase):
   self.probe.cmd('list');return self.probe.wait(lambda s:s['status'] in ['available','error'])
  def prepared(self,sha,**args):
   self.probe.cmd('prepare',id=sha,**args);return self.probe.wait(lambda s:s['status'] in ['ready_to_install','error','cancelled'])
+ def test_unsupported_host_abi_blocks_catalog_prepare_and_install(self):
+  self.probe.close();self.probe=Probe(self.root,self.url,abi_bits=32)
+  self.probe.cmd('list');state=self.probe.wait(lambda s:s['status']=='error')
+  self.assertIn('宿主架构',state['message'])
+  self.probe.cmd('prepare',id='stale',force=True);state=self.probe.wait(lambda s:s['status']=='error')
+  self.assertIn('宿主架构',state['message'])
+  self.assertIn('宿主架构',self.probe.cmd('authorize',ticket={})['error'])
  def test_user_release_notes_and_selected_install_warning(self):
   _,_,base=self.release();r=json.loads(Server.routes[base+'release.json']);r.update(release_notes='修复公式显示。\n改善菜单操作。',install_warning='旧版没有降级入口。',known_issues='legacy technical source');Server.routes[base+'release.json']=json.dumps(r).encode()
   row=self.listed()['releases'][0];self.assertEqual(row['release_notes'],r['release_notes']);self.assertEqual(row['install_warning'],r['install_warning'])
