@@ -602,19 +602,25 @@ std::shared_ptr<const Bitmap> RichText::formulaRunShared(const Run &run,int size
   const auto &rows=run.formulaRows;
   if(rows.size()==1&&rows[0].cells.size()==1&&!rows[0].showTag)return formulaShared(rows[0].cells[0],size,foreground);
   if(!foreground)foreground=theme::palette().richBody;
-  std::string identity="formula-layout1:"+run.mathKind+":"+std::to_string(available)+":";
+  std::string identity="formula-layout2:"+run.mathKind+":"+std::to_string(available)+":";
   for(const auto &row:rows) {
+    identity+="gap:"+std::to_string(row.gapBefore.size())+":"+row.gapBefore;
     identity+=row.showTag?(row.tagStar?"star:":"tag:"):"none:";identity+=std::to_string(row.tag.size())+":"+row.tag;
     for(const auto &cell:row.cells)identity+=":"+std::to_string(cell.size())+":"+cell;
     identity+=';';
   }
   const auto key=formulaKey(p_->cacheIdentity+"composite:",identity,size,foreground);
   auto found=p_->cache.find(key);if(found!=p_->cache.end())return found->second;
-  struct Row {std::vector<std::shared_ptr<const Bitmap>> cells;std::shared_ptr<const Bitmap> tag;int ascent=0,descent=0,y=0;bool below=false;};
+  struct Row {std::vector<std::shared_ptr<const Bitmap>> cells;std::shared_ptr<const Bitmap> tag;int ascent=0,descent=0,y=0,gap=0;bool below=false;};
   std::vector<Row> measured;std::vector<int> columns;
   const int gap=p_->metrics.dp(12),lineGap=p_->metrics.dp(6);int height=0,totalWidth=0,tagWidth=0;
   for(const auto &row:rows) {
     Row r;
+    if(!row.gapBefore.empty()) {
+      auto gap=row.gapBefore;const bool negative=gap[0]=='-';if(negative||gap[0]=='+')gap.erase(0,1);
+      auto spacer=formulaShared("\\rule{0pt}{"+gap+"}",size,foreground);
+      r.gap=std::max(0,spacer->height-p_->metrics.dp(4))*(negative?-1:1);
+    }
     for(size_t i=0;i<row.cells.size();++i) {
       auto bitmap=formulaShared(row.cells[i].empty()?"\\vphantom{x}":row.cells[i],size,foreground);
       if(columns.size()<=i)columns.resize(i+1);
@@ -627,7 +633,7 @@ std::shared_ptr<const Bitmap> RichText::formulaRunShared(const Run &run,int size
       r.tag=formulaShared("\\text{"+text+"}",size,foreground);tagWidth=std::max(tagWidth,r.tag->width);
       r.ascent=std::max(r.ascent,r.tag->baseline);r.descent=std::max(r.descent,r.tag->height-r.tag->baseline);
     }
-    height+=r.ascent+r.descent+lineGap;if(height>2048)throw std::runtime_error("Formula height exceeds limit");
+    height+=r.ascent+r.descent+lineGap+std::max(0,r.gap);if(height>2048)throw std::runtime_error("Formula height exceeds limit");
     measured.push_back(std::move(r));
   }
   for(auto w:columns)totalWidth+=w;
@@ -636,8 +642,9 @@ std::shared_ptr<const Bitmap> RichText::formulaRunShared(const Run &run,int size
   const bool tagsBelow=tagWidth&&totalWidth+gap+tagWidth>viewport;
   const int width=std::max(std::max(totalWidth,tagWidth),tagWidth?viewport:totalWidth);
   height=0;
-  for(auto &r:measured){r.y=height;r.below=tagsBelow&&bool(r.tag);height+=r.ascent+r.descent+(r.below?r.tag->height+lineGap:0)+lineGap;}
-  height=std::max(1,height-lineGap);
+  bool firstRow=true;
+  for(auto &r:measured){if(!firstRow)height+=std::max(0,lineGap+r.gap);firstRow=false;r.y=height;r.below=tagsBelow&&bool(r.tag);height+=r.ascent+r.descent+(r.below?r.tag->height+lineGap:0);}
+  height=std::max(1,height);
   if(width<1||width>4096||height>2048)throw std::runtime_error("Formula dimensions exceed limits");
   auto bitmap=std::make_shared<Bitmap>();bitmap->width=width;bitmap->height=height;bitmap->baseline=measured.front().ascent;
   bitmap->pixels.resize(size_t(width)*height*4);

@@ -14,7 +14,7 @@ enum Style {
 };
 struct FormulaRow {
   std::vector<std::string> cells;
-  std::string tag;
+  std::string tag,gapBefore;
   bool tagStar=false,showTag=false;
 };
 struct Run {

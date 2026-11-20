@@ -1,6 +1,7 @@
 #include "latex_extensions.hpp"
 #include "markdown.hpp"
 #include <cctype>
+#include <cmath>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -201,7 +202,7 @@ std::vector<std::string> split(const std::string &s,bool columns) {
     if(c=='\\') {
       const auto at=p;auto n=command(s,p);
       if((n=="begin"||n=="end")&&hasGroup(s,p)){group(s,p);if(n=="begin")++nested;else if(nested)--nested;}
-      else if(!braces&&!nested&&!columns&&n=="\\"){rows.push_back(s.substr(start,at-start));start=p;}
+      else if(!braces&&!nested&&!columns&&n=="\\"){rows.push_back(s.substr(start,at-start));if(p<s.size()&&s[p]=='*')++p;start=p;}
       continue;
     }
     if(c=='{'){if(++braces>32)throw std::runtime_error("LaTeX nesting exceeds limit");}
@@ -213,6 +214,15 @@ std::vector<std::string> split(const std::string &s,bool columns) {
   rows.push_back(s.substr(start));return rows;
 }
 struct Binding {std::vector<std::string> labels;bool suppressed=false,tagged=false;};
+std::string dimension(const std::string &s) {
+  size_t p=0;space(s,p);const auto start=p;if(p<s.size()&&(s[p]=='+'||s[p]=='-'))++p;
+  bool digits=false;while(p<s.size()&&(std::isdigit(static_cast<unsigned char>(s[p]))||s[p]=='.')){digits|=s[p]!='.';++p;}
+  if(!digits||p-start>32)throw std::runtime_error("Invalid formula row spacing");
+  const auto number=s.substr(start,p-start);size_t used=0;const double value=std::stod(number,&used);
+  if(used!=number.size()||!std::isfinite(value)||std::abs(value)>2048)throw std::runtime_error("Formula row spacing exceeds limit");
+  space(s,p);size_t tail=s.size();while(tail>p&&std::isspace(static_cast<unsigned char>(s[tail-1])))--tail;const auto unit=s.substr(p,tail-p);if(unit.empty()&&value==0)return "0pt";static const std::set<std::string> units={"pt","em","ex","mu","px","mm","cm","in","pc","dd","cc","sp"};
+  if(!units.count(unit))throw std::runtime_error("Unsupported formula row spacing unit");return number+unit;
+}
 std::string annotations(const std::string &s,FormulaRow &row,Binding &binding) {
   std::string out;size_t p=0;unsigned braces=0;
   while(p<s.size()) {
@@ -293,11 +303,20 @@ void prepare(Document &doc) {
         // Expand once for the whole formula, so local definitions also work
         // across alignment cells/rows without touching MicroTeX globals.
         body=expand(body);
+        FormulaRow multlineTag;Binding multlineBinding;
+        if(kind=="multline")body=annotations(body,multlineTag,multlineBinding);
         auto rows=(kind=="align"||kind=="alignat"||kind=="gather"||kind=="multline")?split(body,false):std::vector<std::string>{body};
         while(rows.size()>1&&rows.back().find_first_not_of(" \t\r\n")==std::string::npos)rows.pop_back();
         std::vector<FormulaRow> prepared;
         for(const auto &source:rows) {
-          FormulaRow row;Binding binding;auto clean=annotations(source,row,binding);
+          FormulaRow row;Binding binding;size_t rowStart=0;std::string gap;
+          if(!prepared.empty()&&hasGroup(source,rowStart,'['))gap=dimension(group(source,rowStart,'[',']'));
+          std::string clean;
+          if(kind=="multline") {
+            clean=source.substr(rowStart);
+            if(prepared.size()+1==rows.size()){row=multlineTag;binding=multlineBinding;}else binding.suppressed=true;
+          } else clean=annotations(source.substr(rowStart),row,binding);
+          row.gapBefore=gap;
           row.showTag=binding.tagged;
           if(numbered&&!binding.suppressed&&!binding.tagged&&(kind!="multline"||prepared.size()+1==rows.size())){row.tag=std::to_string(++counter);row.showTag=true;}
           for(const auto &label:binding.labels) {
