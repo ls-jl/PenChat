@@ -128,6 +128,9 @@ public:
   void selectModel(const std::string &id);
   Json responseInput(const std::string &session, const std::string &beforeMessage,
                      const Json &model = Json::object());
+  void restoreSnapshot(const std::string &path);
+  Json restoreRead(const std::function<Json(sqlite3 *)> &read);
+  Json restoreTransaction(const std::function<Json()> &apply);
   void transferSnapshot(const std::string &path);
   void releaseTransferSnapshot();
   Json importTransfer(const Json &bundle);

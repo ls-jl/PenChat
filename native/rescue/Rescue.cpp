@@ -331,7 +331,7 @@ struct Service::Impl {
     // A new SQLite WAL reader can rewrite SHM; use the list's cached schema.
     int sourceSchema=-1;{std::lock_guard<std::mutex> lock(mutex);sourceSchema=published.value("schema",-1);}
     Json manifest={{"format",1},{"operation",operation},{"time_ms",nowMs()},{"appid",PENCHAT_APP_ID},
-      {"source_version",PENCHAT_VERSION},{"source_schema",sourceSchema},{"platform",env.at("platform")},{"files",Json::array()}};
+      {"source_version",PENCHAT_VERSION},{"source_schema",sourceSchema},{"platform",env.at("platform")},{"data_root",data},{"files",Json::array()}};
     std::vector<std::string> directories{target};
     for(const auto &source:std::vector<std::pair<std::string,std::vector<Entry>>>{{data,files},{publicRoot,shared}}) {
       const auto group=source.first==data?"data":"public";privateDir(join(target,group));

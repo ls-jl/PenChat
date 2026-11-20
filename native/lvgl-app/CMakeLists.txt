@@ -110,7 +110,7 @@ endif()
 target_include_directories(penchat_core PUBLIC src "${DEPS}/webp/src" "${DEPS}/json/single_include" "${DEPS}/curl/include" "${DEPS}/include" "${CAMERA}/src" "${CAMERA}/third_party/stb" "${LIBDRM_DIR}" "${LIBDRM_DIR}/include/drm")
 target_compile_options(penchat_core PRIVATE -Wall -Wextra -Werror=return-type)
 target_sources(penchat_core PRIVATE src/feedback.cpp src/feedback_collect.cpp src/feedback_keys.cpp src/update.cpp src/update_transport.cpp src/update_package.cpp)
-target_sources(penchat_core PRIVATE src/database_reply_choices.cpp)
+target_sources(penchat_core PRIVATE src/database_reply_choices.cpp src/backup_restore.cpp)
 target_link_libraries(penchat_core PUBLIC penchat_model_catalog pinyinime penchat_zip md4c microtex webpdecoder lvgl::lvgl ${SQLITE_LIB} ${CURL_LIB} dl pthread m)
 add_executable(penchat-sensor-guard "${CAMERA}/src/sensor_guard.cpp")
 if(NOT CMAKE_CROSSCOMPILING)
@@ -560,4 +560,22 @@ if(NOT CMAKE_CROSSCOMPILING)
   target_link_libraries(penchat-display-recovery-tests PRIVATE penchat_core)
   target_compile_options(penchat-display-recovery-tests PRIVATE -UNDEBUG -Wall -Wextra)
   add_test(NAME penchat-display-recovery COMMAND penchat-display-recovery-tests)
+endif()
+
+if(NOT CMAKE_CROSSCOMPILING)
+  add_executable(penchat-backup-restore-probe "${ROOT}/tests/native/BackupRestoreProbe.cpp")
+  target_link_libraries(penchat-backup-restore-probe PRIVATE penchat_core)
+endif()
+
+# Focused restore/SQLite instrumentation, without rebuilding the rendering stack.
+if(NOT CMAKE_CROSSCOMPILING)
+  add_executable(penchat-backup-restore-sanitize EXCLUDE_FROM_ALL
+    "${ROOT}/tests/native/BackupRestoreProbe.cpp" src/backup_restore.cpp
+    src/common.cpp src/database.cpp src/database_storage.cpp src/database_transfer.cpp
+    src/database_context.cpp src/database_drafts.cpp src/database_messages.cpp
+    src/database_replies.cpp src/database_reply_choices.cpp)
+  target_link_libraries(penchat-backup-restore-sanitize PRIVATE penchat_core)
+  target_compile_options(penchat-backup-restore-sanitize PRIVATE
+    -O1 -g0 -fsanitize=address,undefined -fno-omit-frame-pointer -UNDEBUG)
+  target_link_options(penchat-backup-restore-sanitize PRIVATE -fsanitize=address,undefined -no-pie)
 endif()
