@@ -17,6 +17,7 @@ void options(const std::string &s,UnitOptions &o){
     else if(key=="separate-uncertainty")o.separate=boolean();
     else if(key=="range-units"||key=="list-units"){if(value!="repeat"&&value!="single")throw std::runtime_error("Invalid unit repetition");o.repeat=value=="repeat";}
     else if(key=="round-mode"){if(value!="none"&&value!="places"&&value!="figures")throw std::runtime_error("Invalid rounding mode");o.round=value;}
+    else if(key=="round-half"){if(value!="up"&&value!="even")throw std::runtime_error("Invalid rounding tie rule");o.half=value;}
     else if(key=="round-precision"){if(value.empty()||value.size()>3||value.find_first_not_of("0123456789")!=std::string::npos)throw std::runtime_error("Invalid rounding precision");o.precision=std::stoi(value);if(o.precision>100)throw std::runtime_error("Rounding precision exceeds limit");}
     else if(key=="range-phrase"){if(value.size()>32||value.find_first_of("\\{}$")!=std::string::npos)throw std::runtime_error("Invalid range phrase");o.range=value;}
     else throw std::runtime_error("Unsupported unit option: "+key);
@@ -35,7 +36,7 @@ void round(Decimal &n,const UnitOptions &o){
   const int remove=n.scale-places;
   if(remove>0){
     if(remove>int(n.digits.size()))n.digits="0";
-    else{size_t keep=n.digits.size()-remove;const char next=n.digits[keep];bool above=n.digits.find_first_not_of('0',keep+1)!=std::string::npos;const bool up=next>'5'||(next=='5'&&(above||(keep&&((n.digits[keep-1]-'0')%2))));n.digits.resize(keep);
+    else{size_t keep=n.digits.size()-remove;const char next=n.digits[keep];bool above=n.digits.find_first_not_of('0',keep+1)!=std::string::npos;const bool up=next>'5'||(next=='5'&&(above||o.half=="up"||(keep&&((n.digits[keep-1]-'0')%2))));n.digits.resize(keep);
       if(n.digits.empty())n.digits="0";if(up){size_t i=n.digits.size();while(i&&n.digits[i-1]=='9')n.digits[--i]='0';if(i)++n.digits[i-1];else n.digits.insert(0,"1");}}
     n.scale=places;
   }else if(remove<0){if(-remove>4096)throw std::runtime_error("Decimal expansion exceeds limit");n.digits.append(-remove,'0');n.scale=places;}
@@ -78,7 +79,7 @@ struct Unit {std::string symbol;int power=1;std::string join;};
 std::string units(const std::string &s,const UnitOptions &o){
   static const std::set<std::string> prefixes={"quecto","ronto","yocto","zepto","atto","femto","pico","nano","micro","milli","centi","deci","deca","deka","hecto","kilo","mega","giga","tera","peta","exa","zetta","yotta","ronna","quetta"};
   std::vector<Unit> atoms;std::string prefix,join;bool per=false,forceFraction=false;size_t p=0;
-  auto integer=[&](const std::string &x){auto text=trim(x);size_t used=0;int n=std::stoi(text,&used);if(used!=text.size()||std::abs(n)>1024)throw std::runtime_error("Invalid unit exponent");return n;};
+  auto integer=[&](const std::string &x){auto text=trim(x);size_t used=0;const auto n=std::stoll(text,&used);if(used!=text.size()||n < -1024||n > 1024)throw std::runtime_error("Invalid unit exponent");return int(n);};
   auto power=[&](int n){if(atoms.empty())throw std::runtime_error("Missing powered unit");atoms.back().power=n*(per?-1:1);};
   while(p<s.size()){
     const char c=s[p];if(std::isspace(static_cast<unsigned char>(c))){++p;continue;}if(c=='*'||c=='.'){join="\\cdot ";++p;continue;}

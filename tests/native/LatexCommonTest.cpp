@@ -14,7 +14,8 @@ int main(int argc,char **argv){
     assert(stbi_write_png(join(argv[4],name+".png").c_str(),b.width,b.height,3,rgb.data(),b.width*3));
   };
   assert(latex::expand(R"(\num[round-mode=places,round-precision=2]{9.995})")=="10.00");
-  assert(latex::expand(R"(\num[round-mode=places,round-precision=0]{-2.5})")=="-2");
+  assert(latex::expand(R"(\num[round-mode=places,round-precision=0,round-half=even]{-2.5})")=="-2");
+  assert(latex::expand(R"(\num[round-mode=places,round-precision=0]{2.5})")=="3");
   assert(latex::expand(R"(\num[round-mode=figures,round-precision=2]{0.00999})")=="0.010");
   assert(latex::expand(R"(\num[separate-uncertainty=true]{1.23(4)})")==R"(1.23\pm 0.04)");
   assert(latex::expand(R"(\sisetup{output-decimal-marker={,}}\num{1.2})")=="1{,}2");
@@ -45,19 +46,27 @@ $$\pdv[2,3]{f}{x}{y}+\matrixel{\psi}{A}{\phi}+\eval{\frac{x^2}{2}}_0^1$$
 
 $$\SI[separate-uncertainty=true,per-mode=fraction]{1.234(56)e3}{\joule\per\mole\kelvin}$$
 
-$$\num[round-mode=figures,round-precision=2]{0.00999}+\pu{75.3 J // mol K}$$)"};
+$$\num[round-mode=figures,round-precision=2]{0.00999}+\pu{75.3 J // mol K}$$)",
+    R"(化学反应与结构键
+
+$$\ce{Fe3+ + 3 OH- -> Fe(OH)3 v}$$
+
+$$\ce{A <=>>[{heat}][$x_i$] B}+\ce{CuSO4.5H2O}$$
+
+$$\ce{A\bond{~-}B\bond{=}C\bond{#}D}+\ce{^227_90Th+}$$)"};
   Json matrix=Json::array();
   for(auto mode:{theme::Mode::Dark,theme::Mode::Light})for(int scale:{75,100,125,150})for(auto screen:std::vector<std::pair<int,int>>{{960,266},{640,260},{568,1210}}){
     theme::setMode(mode);const UiMetrics metrics(100,scale);rich.setMetrics(metrics);const int size=metrics.dp(21),pad=metrics.dp(12),width=screen.first-pad*2,visible=screen.second-pad*2;
     for(size_t d=0;d<documents.size();++d){auto document=parseMarkdown(documents[d]);assert(document.formulaDiagnostics.empty());rich.prepare(document,width,size);
-      std::vector<int> ys,heights;int total=0;size_t hits=0;
-      for(size_t i=0;i<document.blocks.size();++i){const auto &block=document.blocks[i];total+=rich.blockGap(i?&document.blocks[i-1]:nullptr,block,size);ys.push_back(total);auto info=rich.layout(block,width,size,true);heights.push_back(info.height);total+=info.height;hits+=info.textHits.size();
-        for(const auto &hit:info.textHits)assert(hit.begin<=hit.end&&hit.end<=blockPlainText(block).size());}
-      for(int edge:{0,1}){
-        const int top=edge?std::max(0,total-visible):0;Bitmap image;image.width=screen.first;image.height=screen.second;image.pixels.resize(size_t(image.width)*image.height*4);
+      std::vector<int> ys,heights,widths;int total=0;size_t hits=0;
+      for(size_t i=0;i<document.blocks.size();++i){const auto &block=document.blocks[i];total+=rich.blockGap(i?&document.blocks[i-1]:nullptr,block,size);ys.push_back(total);auto info=rich.layout(block,width,size,true);heights.push_back(info.height);widths.push_back(info.width);total+=info.height;hits+=info.textHits.size();
+        size_t maths=0,atomic=0;for(const auto &run:block.runs)maths+=bool(run.style&Math);
+        for(const auto &hit:info.textHits){assert(hit.begin<=hit.end&&hit.end<=blockPlainText(block).size());atomic+=hit.atomic;}assert(atomic>=maths);}
+      for(int edge:{0,1,2,3}){
+        const int top=edge/2?std::max(0,total-visible):0;Bitmap image;image.width=screen.first;image.height=screen.second;image.pixels.resize(size_t(image.width)*image.height*4);
         auto surface=cairo_image_surface_create_for_data(image.pixels.data(),CAIRO_FORMAT_ARGB32,image.width,image.height,image.width*4);auto context=cairo_create(surface);const auto bg=theme::palette().background;
         cairo_set_source_rgb(context,((bg>>16)&255)/255.,((bg>>8)&255)/255.,(bg&255)/255.);cairo_paint(context);cairo_rectangle(context,pad,pad,width,visible);cairo_clip(context);
-        for(size_t i=0;i<document.blocks.size();++i){const int start=std::max(0,top-ys[i]),end=std::min(heights[i],top+visible-ys[i]);if(end<=start)continue;auto b=rich.paint(document.blocks[i],width,start,end-start,size);
+        for(size_t i=0;i<document.blocks.size();++i){const int start=std::max(0,top-ys[i]),end=std::min(heights[i],top+visible-ys[i]);if(end<=start)continue;const int horizontal=edge%2?std::max(0,widths[i]-width):0;auto b=rich.paint(document.blocks[i],width,start,end-start,size,false,horizontal,width);
           auto part=cairo_image_surface_create_for_data(b.pixels.data(),CAIRO_FORMAT_ARGB32,b.width,b.height,b.width*4);cairo_set_source_surface(context,part,pad,pad+ys[i]+start-top);cairo_paint(context);cairo_surface_destroy(part);}
         cairo_surface_flush(surface);cairo_destroy(context);cairo_surface_destroy(surface);
         emit(image,"matrix-"+std::to_string(screen.first)+"-"+std::to_string(scale)+"-"+theme::name(mode)+"-"+std::to_string(d)+"-"+std::to_string(edge),bg);

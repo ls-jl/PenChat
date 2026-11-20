@@ -761,6 +761,146 @@
       "source": "\\qtyrange[range-units=single]{1}{2}{\\metre}"
     },
     {
+      "category": "chemistry",
+      "id": "0",
+      "source": "\\ce{Fe3+ + 3 OH- -> Fe(OH)3 v}"
+    },
+    {
+      "category": "chemistry",
+      "id": "1",
+      "source": "\\ce{SO4^2- + Ba^2+ -> BaSO4 v}"
+    },
+    {
+      "category": "chemistry",
+      "id": "2",
+      "source": "\\ce{CuSO4.5H2O}"
+    },
+    {
+      "category": "chemistry",
+      "id": "3",
+      "source": "\\ce{^227_90Th+}"
+    },
+    {
+      "category": "chemistry",
+      "id": "4",
+      "source": "\\ce{Fe^{II}Fe^{III}2O4}"
+    },
+    {
+      "category": "chemistry",
+      "id": "5",
+      "source": "\\ce{OCO^{.-}}"
+    },
+    {
+      "category": "chemistry",
+      "id": "6",
+      "source": "\\ce{NO^*}"
+    },
+    {
+      "category": "chemistry",
+      "id": "7",
+      "source": "\\ce{NO_x + Fe^n+}"
+    },
+    {
+      "category": "chemistry",
+      "id": "8",
+      "source": "\\ce{H2(g) + O2(g) -> H2O(l)}"
+    },
+    {
+      "category": "chemistry",
+      "id": "9",
+      "source": "\\ce{A <=>>[{heat}][$x_i$] B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "10",
+      "source": "\\ce{A <<=>[H2O] B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "11",
+      "source": "\\ce{H2 + 1/2 O2 -> H2O}"
+    },
+    {
+      "category": "chemistry",
+      "id": "12",
+      "source": "\\ce{KCr(SO4)2*12H2O}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond--",
+      "source": "\\ce{A\\bond{-}B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond-1",
+      "source": "\\ce{A\\bond{1}B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond-=",
+      "source": "\\ce{A\\bond{=}B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond-2",
+      "source": "\\ce{A\\bond{2}B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond-#",
+      "source": "\\ce{A\\bond{#}B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond-3",
+      "source": "\\ce{A\\bond{3}B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond-~",
+      "source": "\\ce{A\\bond{~}B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond-~-",
+      "source": "\\ce{A\\bond{~-}B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond-~--",
+      "source": "\\ce{A\\bond{~--}B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond-~=",
+      "source": "\\ce{A\\bond{~=}B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond--~-",
+      "source": "\\ce{A\\bond{-~-}B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond-...",
+      "source": "\\ce{A\\bond{...}B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond-....",
+      "source": "\\ce{A\\bond{....}B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond-->",
+      "source": "\\ce{A\\bond{->}B}"
+    },
+    {
+      "category": "chemistry",
+      "id": "bond-<-",
+      "source": "\\ce{A\\bond{<-}B}"
+    },
+    {
       "category": "physics",
       "id": "dd-parenthesis",
       "source": "\\dd(x^2)"
@@ -829,6 +969,11 @@
       "category": "units",
       "id": "significant-carry",
       "source": "\\num[round-mode=figures,round-precision=2]{0.00999}"
+    },
+    {
+      "category": "chemistry",
+      "id": "complex-conditions",
+      "source": "\\ce{Zn^2+ <=>[+ 2OH-][+ 2H+] Zn(OH)2 v <=>[+ 2OH-][+ 2H+] [Zn(OH)4]^2-}"
     }
   ],
   "invalid": [
@@ -838,6 +983,7 @@
     "\\num[round-mode=figures,round-precision=0]{1}",
     "\\pdv[2,3,4]{f}{x}{y}",
     "\\imat{1000}",
+    "\\ce{A\\bond{wat}B}",
     "\\DeclarePairedDelimiter{bad}{(}{)}",
     "\\overbracket[-2pt]{x}",
     "\\sisetup{per-mode=bad}\\num{1}",
@@ -850,6 +996,9 @@
     "\\num{1.2 +- -0.1}",
     "\\norm[bad]{x}",
     "\\num{1.2e}",
-    "\\begin{multlined}[q]x\\end{multlined}"
+    "\\begin{multlined}[q]x\\end{multlined}",
+    "\\unit{\\metre\\tothe{-2147483648}}",
+    "\\unit{\\metre\\tothe{999999999999999999999}}",
+    "\\num[round-half=unknown]{2.5}"
   ]
 }
