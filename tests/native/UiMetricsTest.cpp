@@ -108,7 +108,9 @@ int main() {
         const auto scan=rounded.scanWorkspace();
         const auto crop=rounded.cropWorkspace(size.first,size.second);
         assert(scan.use.height>=44 && scan.cancel.height>=44);
-        assert(scan.use.y+scan.use.height<=scan.cancel.y);
+        assert(scan.use.y==scan.cancel.y);
+        assert(scan.use.x+scan.use.width<scan.cancel.x);
+        assert(std::abs(scan.use.x+scan.cancel.x+scan.cancel.width-size.first)<=1);
         assert(crop.confirm.height>=44 && crop.album.height>=44);
         assert(crop.album.y+crop.album.height<=crop.confirm.y);
       }

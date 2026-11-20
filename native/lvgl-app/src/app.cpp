@@ -737,7 +737,7 @@ void App::clear() {
   pageHeading_ = pageHeader_ = pageContent_ = nullptr;
   pageActions_.clear();
   transferProgress_ = nullptr;
-  scanWarning_ = scanHolder_ = scanImage_ = scanLabel_ = scanUse_ = scanHint_ = nullptr;
+  scanWarning_ = scanHolder_ = scanImage_ = scanLabel_ = scanUse_ = scanCancel_ = scanHint_ = nullptr;
   chatHeader_ = chatTitle_ = nullptr;
   historyRows_.clear();navigationFooter_.clear();
   historyCaptions_.clear();historyActions_.clear();
@@ -4296,6 +4296,7 @@ Json App::diagnostics() const {
         if(!scanHolder_)return Json::array();
         lv_area_t a;lv_obj_get_coords(scanHolder_,&a);return Json::array({a.x1,a.y1,a.x2,a.y2});
       }()},
+      {"scan_actions",{{"use",bounds(scanUse_)},{"cancel",bounds(scanCancel_)}}},
       {"scan_warning", scanWarning_ && !lv_obj_is_hidden(scanWarning_)?lv_label_get_text(scanWarning_):""},
       {"scan_released", scanner_.released()},
       {"send_center_x2", send.x1 + send.x2},

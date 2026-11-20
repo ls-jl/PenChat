@@ -75,13 +75,13 @@ void App::whenScannerReleased(std::function<void()> callback) {
     afterScanRelease_ = std::move(callback);
 }
 void App::scanPage() {
-  lv_obj_set_scrollable(body_, false);
   const auto workspace=layout().scanWorkspace();
+  lv_obj_set_height(body_,workspace.previewBottom);
+  lv_obj_set_scrollable(body_,true);
   scanLabel_ = label(body_, "请从左向右扫描，松开笔头后完成拼接", workspace.caption.x, workspace.caption.y, workspace.caption.width, uiMetrics_.fontSize(UiFont::FormCaption),
                      theme::palette().muted);
   lv_label_set_long_mode(scanLabel_, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(scanLabel_, font(uiMetrics_.fontSize(UiFont::FormCaption))->line_height);
-  const bool portrait=layout().portrait();
   auto holder = box(body_,workspace.preview.x,workspace.preview.y,workspace.preview.width,workspace.preview.height,theme::palette().surface);
   scanHolder_=holder;
   scanWarning_=label(body_,"",uiMetrics_.dp(10),uiMetrics_.dp(28),screen_.width-uiMetrics_.dp(120),uiMetrics_.fontSize(UiFont::FormHint),theme::palette().danger);
@@ -102,7 +102,7 @@ void App::scanPage() {
   lv_obj_center(scanImage_);
   bool usable = scanResult_.value("usable", false);
   const bool partial = scanResult_.value("status", 1) != 1;
-  scanUse_ = button(body_, !usable ? (scanResult_.empty() ? "等待扫描结果" : "无可用图像") : partial ? "使用部分图像" : "使用图片", workspace.use.x, workspace.use.y,
+  scanUse_ = button(screenObj_, !usable ? (scanResult_.empty() ? "等待扫描结果" : "无可用图像") : partial ? "使用部分图像" : "使用图片", workspace.use.x, workspace.use.y,
                     workspace.use.width, workspace.use.height, [this] {
                       if (scanConfirming_ || scanConfirmed_ == scanId_ ||
                           !scanResult_.value("usable", false))
@@ -119,7 +119,7 @@ void App::scanPage() {
     lv_obj_set_style_bg_color(scanUse_, lv_color_hex(theme::palette().surface), 0);
     lv_obj_set_style_text_color(lv_obj_get_child(scanUse_, 0), lv_color_hex(theme::palette().muted), 0);
   }
-  button(body_, "取消", workspace.cancel.x, workspace.cancel.y, workspace.cancel.width, workspace.cancel.height, [this] { show("chat"); });
+  scanCancel_=button(screenObj_, "取消", workspace.cancel.x, workspace.cancel.y, workspace.cancel.width, workspace.cancel.height, [this] { show("chat"); });
   if (!scanResult_.empty()) {
     auto c = scanResult_.value("counts", Json::object());
     std::string text;
@@ -141,7 +141,7 @@ void App::scanPage() {
              (c.value("warnings", 0u) ? "，存在光照估计回退，请核对"
                                       : "，请确认使用");
     if(partial) {
-      lv_obj_set_width(scanLabel_,portrait?screen_.width-uiMetrics_.dp(88):screen_.width-uiMetrics_.dp(330));
+      lv_obj_set_width(scanLabel_,workspace.caption.width);
       lv_label_set_long_mode(scanLabel_,LV_LABEL_LONG_MODE_WRAP);
       lv_obj_set_height(scanLabel_,LV_SIZE_CONTENT);
     }

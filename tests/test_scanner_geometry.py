@@ -41,7 +41,7 @@ def run():
                     t.wait_for(lambda:image.exists() and image.read_bytes().endswith(b'IEND\xaeB`\x82'))
                     (out/f'partial-{width}x{height}.png').write_bytes(image.read_bytes())
                     # Only explicit confirmation may attach the clear prefix.
-                    app.tap(width-100 if width>height else width//2, 54 if width>height else height-90)
+                    b=app.diag()['scan_actions']['use'];app.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
                     t.wait_for(lambda:app.diag()['view']=='chat')
                     from draft_assets import pending_images
                     images=pending_images(folder)

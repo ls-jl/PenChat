@@ -239,7 +239,7 @@ class App {
   lv_obj_t *scanWarning_ = nullptr, *scanHolder_ = nullptr;
   void updateScanWarning(const Json &);
   void viewScanResult();
-  lv_obj_t *scanImage_ = nullptr, *scanLabel_ = nullptr, *scanUse_ = nullptr,
+  lv_obj_t *scanImage_ = nullptr, *scanLabel_ = nullptr, *scanUse_ = nullptr, *scanCancel_ = nullptr,
            *scanHint_ = nullptr;
   lv_obj_t *chatHeader_ = nullptr, *chatTitle_ = nullptr;
   void refreshChatTitle();

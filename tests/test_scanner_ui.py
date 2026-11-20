@@ -17,6 +17,13 @@ def scan(app,n=33):
     app.send('scanner.test',command='test.press',pressed=False)
     wait_for(lambda:app.diag()['scan_result'].get('type')=='finished')
     return app.diag()
+def scan_action(app,name,repeat=1):
+    b=app.diag()['scan_actions'][name]
+    x,y=(b[0]+b[2])//2,(b[1]+b[3])//2
+    if repeat==1:app.tap(x,y)
+    else:
+        for _ in range(repeat):
+            app.send('touch',x=x,y=y,pressed=True);app.send('touch',x=x,y=y,pressed=False)
 def run():
     env={'PENCHAT_SCANNER_BINARY':os.environ.get('PENCHAT_SCANNER_TEST_BINARY',str(ROOT/'build/scanner-host/penchat-scanner')),
       'PENCHAT_SCAN_RESOURCES':str(BUNDLE/'resources/illumination'),'PENCHAT_SCANNER_TEST':'1',
@@ -38,13 +45,13 @@ def run():
                 assert finished['summary']['sessions']==0 and not app.read_messages()
                 output=ROOT/'.work/scanner-ui';output.mkdir(parents=True,exist_ok=True)
                 snapshot(app,'result')
-                app.tap(840,108) # discard, without creating a chat row
+                scan_action(app,'cancel') # discard, without creating a chat row
                 wait_for(lambda:app.diag()['view']=='chat')
                 wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
                 assert app.diag()['scanner']['generation']==finished['scan_result']['generation']
                 assert app.diag()['session']==original and app.diag()['summary']['sessions']==0
                 saved=scan(app);saved_generation=saved['scan_result']['generation']
-                app.tap(840,54);app.tap(840,54)
+                scan_action(app,'use',repeat=2)
                 wait_for(lambda:app.diag()['view']=='chat')
                 assert app.diag()['scanner']['generation']==saved_generation
                 rows=app.read_messages();assert not rows and app.diag()['summary']['sessions']==0,rows
@@ -53,9 +60,8 @@ def run():
                 assert pathlib.Path(asset[0]).exists() and pathlib.Path(asset[1]).exists()
                 assert asset[2]=='scan' and json.loads(asset[3])['counts']['committed']==33
                 assert pathlib.Path(asset[1]).stat().st_size<1024*1024
-                # A second confirm tap can land on the newly attached photo.
-                # Viewing retains the healthy capture lease but gates pen
-                # presses; neither tap may append the scan twice.
+                # Rapid confirmations before export finishes must append once.
+                # Viewing retains the capture lease but gates new pen presses.
                 if not app.diag()['image_viewer']['open']:
                     state=app.diag()
                     photo=next(i for i in state['chat_images'] if 0<=i['y'] and i['y']+i['height']<=state['height'])
@@ -79,7 +85,7 @@ def run():
                 app.tap(800,80)
                 scan(app,0);assert not app.diag()['scan_result']['usable']
                 snapshot(app,'empty')
-                app.tap(840,54);assert app.diag()['view']=='scan' # empty cannot confirm
+                scan_action(app,'use');assert app.diag()['view']=='scan' # empty cannot confirm
                 empty_scan=app.diag()['scan_id']
                 app.send('scanner.test',command='test.press',pressed=True)
                 wait_for(lambda:app.diag()['scan_id']!=empty_scan)
@@ -103,7 +109,7 @@ def run():
                 assert app.diag()['scan_result']['usable']
                 snapshot(app,'partial')
                 app.send('scanner.test',command='test.press',pressed=False)
-                app.tap(840,108);wait_for(lambda:app.diag()['view']=='chat')
+                scan_action(app,'cancel');wait_for(lambda:app.diag()['view']=='chat')
                 # The real worker budget path surfaces distinct resource errors.
                 for mode,reason in [(1,'system_memory_low'),(2,'system_memory_unavailable')]:
                     app.send('scanner.test',command='test.press',pressed=True)
@@ -119,7 +125,7 @@ def run():
                     app.send('scanner.test',command='test.memory',state=0)
                     time.sleep(.15)
                     app.send('scanner.test',command='test.press',pressed=False)
-                    app.tap(840,108);wait_for(lambda:app.diag()['view']=='chat')
+                    scan_action(app,'cancel');wait_for(lambda:app.diag()['view']=='chat')
                     wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
                 # Background cancels even a full pending result and never appends it.
                 scan(app,1)
@@ -153,7 +159,7 @@ def run():
                             app.edit('已有回复继续生成');app.tap(908,232)
                             wait_for(lambda:len(transport.Server.requests)==1 and app.diag()['generating'])
                         scan(app)
-                        app.tap(840,54)
+                        scan_action(app,'use')
                         wait_for(lambda:app.diag()['view']=='chat')
                         if generating:
                             # Confirmation attaches without replacing/cancelling the ongoing reply.

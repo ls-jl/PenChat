@@ -12,5 +12,6 @@ python3 tests/test_scanner_preparation.py
 python3 tests/test_scanner_y02.py
 python3 tests/test_scanner_policy_review.py
 python3 tests/test_scanner_ui.py
+python3 tests/test_scanner_footer.py
 python3 tests/test_scanner_review_ui.py
 python3 tests/test_scanner_geometry.py
