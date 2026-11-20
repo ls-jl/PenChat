@@ -1,0 +1,855 @@
+{
+  "format": 1,
+  "sources": [
+    "https://docs.mathjax.org/en/latest/input/tex/extensions/mathtools.html",
+    "https://mirrors.ctan.org/macros/latex/contrib/physics/physics.pdf",
+    "https://mirrors.ctan.org/macros/latex/contrib/siunitx/siunitx.pdf",
+    "https://mhchem.github.io/MathJax-mhchem/"
+  ],
+  "cases": [
+    {
+      "category": "math",
+      "id": "overbracket",
+      "source": "\\overbracket{x+y}^{n}"
+    },
+    {
+      "category": "math",
+      "id": "underbracket",
+      "source": "\\underbracket[1pt][3pt]{x+y}_{n}"
+    },
+    {
+      "category": "math",
+      "id": "paired",
+      "source": "\\DeclarePairedDelimiter{\\foo}{\\langle}{\\rangle}\\foo*{\\frac ab}+\\foo[\\Big]{x}+\\foo{x}"
+    },
+    {
+      "category": "math",
+      "id": "dcases",
+      "source": "\\begin{dcases}\\frac{1}{2}&x>0\\\\0&x<0\\end{dcases}"
+    },
+    {
+      "category": "math",
+      "id": "dcasesstar",
+      "source": "\\begin{dcases*}\\frac{1}{2}&x>0\\\\0&x<0\\end{dcases*}"
+    },
+    {
+      "category": "math",
+      "id": "rcases",
+      "source": "\\begin{rcases}\\frac{1}{2}&x>0\\\\0&x<0\\end{rcases}"
+    },
+    {
+      "category": "math",
+      "id": "rcasesstar",
+      "source": "\\begin{rcases*}\\frac{1}{2}&x>0\\\\0&x<0\\end{rcases*}"
+    },
+    {
+      "category": "math",
+      "id": "drcases",
+      "source": "\\begin{drcases}\\frac{1}{2}&x>0\\\\0&x<0\\end{drcases}"
+    },
+    {
+      "category": "math",
+      "id": "drcasesstar",
+      "source": "\\begin{drcases*}\\frac{1}{2}&x>0\\\\0&x<0\\end{drcases*}"
+    },
+    {
+      "category": "math",
+      "id": "casesstar",
+      "source": "\\begin{cases*}\\frac{1}{2}&x>0\\\\0&x<0\\end{cases*}"
+    },
+    {
+      "category": "math",
+      "id": "multlined",
+      "source": "\\begin{multlined}[t]a+b\\\\=c+d\\end{multlined}"
+    },
+    {
+      "category": "math",
+      "id": "flalign",
+      "source": "\\begin{flalign}a&=b&c&=d\\\\e&=f&g&=h\\end{flalign}"
+    },
+    {
+      "category": "math",
+      "id": "intertext",
+      "source": "\\begin{align}a&=b\\\\\\intertext{For all $x>0$, 根据条件}c&=d\\\\\\shortintertext{therefore}e&=f\\end{align}"
+    },
+    {
+      "category": "math",
+      "id": "subequations",
+      "source": "\\begin{subequations}\\label{group}\\begin{equation}a=b\\label{a}\\end{equation}\\begin{align}c&=d\\label{b}\\\\e&=f\\notag\\end{align}\\end{subequations}"
+    },
+    {
+      "category": "existing",
+      "id": "prescript",
+      "source": "\\prescript{14}{6}{C}"
+    },
+    {
+      "category": "existing",
+      "id": "mathllap",
+      "source": "\\mathllap{x}"
+    },
+    {
+      "category": "existing",
+      "id": "mathrlap",
+      "source": "\\mathrlap{x}"
+    },
+    {
+      "category": "existing",
+      "id": "mathclap",
+      "source": "\\mathclap{x}"
+    },
+    {
+      "category": "existing",
+      "id": "smallmatrix",
+      "source": "\\begin{smallmatrix}a&b\\\\c&d\\end{smallmatrix}"
+    },
+    {
+      "category": "existing",
+      "id": "xrightarrow",
+      "source": "A\\xrightarrow[b]{a}B"
+    },
+    {
+      "category": "existing",
+      "id": "xleftarrow",
+      "source": "A\\xleftarrow[b]{a}B"
+    },
+    {
+      "category": "existing",
+      "id": "overset",
+      "source": "\\overset{a}{b}"
+    },
+    {
+      "category": "existing",
+      "id": "underset",
+      "source": "\\underset{a}{b}"
+    },
+    {
+      "category": "existing",
+      "id": "mathbb",
+      "source": "\\mathbb{x}"
+    },
+    {
+      "category": "existing",
+      "id": "mathfrak",
+      "source": "\\mathfrak{x}"
+    },
+    {
+      "category": "existing",
+      "id": "cancel",
+      "source": "\\cancel{x}"
+    },
+    {
+      "category": "physics",
+      "id": "abs",
+      "source": "\\abs*{\\frac{a}{b}}"
+    },
+    {
+      "category": "physics",
+      "id": "norm",
+      "source": "\\norm[\\Big]{x}"
+    },
+    {
+      "category": "physics",
+      "id": "qty",
+      "source": "\\qty(\\frac ab)"
+    },
+    {
+      "category": "physics",
+      "id": "pqty",
+      "source": "\\pqty{x}"
+    },
+    {
+      "category": "physics",
+      "id": "bqty",
+      "source": "\\bqty{x}"
+    },
+    {
+      "category": "physics",
+      "id": "Bqty",
+      "source": "\\Bqty{x}"
+    },
+    {
+      "category": "physics",
+      "id": "vqty",
+      "source": "\\vqty{x}"
+    },
+    {
+      "category": "physics",
+      "id": "vb",
+      "source": "\\vb*{\\alpha}"
+    },
+    {
+      "category": "physics",
+      "id": "va",
+      "source": "\\va{x}"
+    },
+    {
+      "category": "physics",
+      "id": "vu",
+      "source": "\\vu*{\\theta}"
+    },
+    {
+      "category": "physics",
+      "id": "dd",
+      "source": "\\dd[2]{x}"
+    },
+    {
+      "category": "physics",
+      "id": "dv",
+      "source": "\\dv*[2]{f}{x}"
+    },
+    {
+      "category": "physics",
+      "id": "pdv",
+      "source": "\\pdv[2,3]{f}{x}{y}"
+    },
+    {
+      "category": "physics",
+      "id": "fdv",
+      "source": "\\fdv{F}{f}"
+    },
+    {
+      "category": "physics",
+      "id": "eval",
+      "source": "\\eval{\\frac{x^2}{2}}_0^1"
+    },
+    {
+      "category": "physics",
+      "id": "expval",
+      "source": "\\expval**{A}{\\psi}"
+    },
+    {
+      "category": "physics",
+      "id": "matrixel",
+      "source": "\\matrixel**{\\psi}{A}{\\phi}"
+    },
+    {
+      "category": "physics",
+      "id": "bra",
+      "source": "\\bra*{x}"
+    },
+    {
+      "category": "physics",
+      "id": "ket",
+      "source": "\\ket{x}"
+    },
+    {
+      "category": "physics",
+      "id": "braket",
+      "source": "\\braket{x}{y}"
+    },
+    {
+      "category": "physics",
+      "id": "ketbra",
+      "source": "\\ketbra{x}{y}"
+    },
+    {
+      "category": "physics",
+      "id": "comm",
+      "source": "\\comm{A}{B}"
+    },
+    {
+      "category": "physics",
+      "id": "acomm",
+      "source": "\\acomm{A}{B}"
+    },
+    {
+      "category": "physics",
+      "id": "pb",
+      "source": "\\pb{q}{p}"
+    },
+    {
+      "category": "physics",
+      "id": "grad",
+      "source": "\\grad(f)"
+    },
+    {
+      "category": "physics",
+      "id": "divergence",
+      "source": "\\divergence{\\vb{F}}"
+    },
+    {
+      "category": "physics",
+      "id": "curl",
+      "source": "\\curl[\\vb{F}]"
+    },
+    {
+      "category": "physics",
+      "id": "laplacian",
+      "source": "\\laplacian{f}"
+    },
+    {
+      "category": "physics",
+      "id": "dotproduct",
+      "source": "a\\dotproduct b"
+    },
+    {
+      "category": "physics",
+      "id": "crossproduct",
+      "source": "a\\crossproduct b"
+    },
+    {
+      "category": "physics",
+      "id": "vdot",
+      "source": "a\\vdot b"
+    },
+    {
+      "category": "physics",
+      "id": "order",
+      "source": "\\order{x^2}"
+    },
+    {
+      "category": "physics",
+      "id": "flatfrac",
+      "source": "\\flatfrac{a}{b}"
+    },
+    {
+      "category": "physics",
+      "id": "mqty",
+      "source": "\\mqty(a&b\\\\c&d)"
+    },
+    {
+      "category": "physics",
+      "id": "pmqty",
+      "source": "\\pmqty{a&b\\\\c&d}"
+    },
+    {
+      "category": "physics",
+      "id": "Pmqty",
+      "source": "\\Pmqty{a&b\\\\c&d}"
+    },
+    {
+      "category": "physics",
+      "id": "bmqty",
+      "source": "\\bmqty{a&b\\\\c&d}"
+    },
+    {
+      "category": "physics",
+      "id": "vmqty",
+      "source": "\\vmqty{a&b\\\\c&d}"
+    },
+    {
+      "category": "physics",
+      "id": "smqty",
+      "source": "\\smqty{a&b\\\\c&d}"
+    },
+    {
+      "category": "physics",
+      "id": "spmqty",
+      "source": "\\spmqty{a&b\\\\c&d}"
+    },
+    {
+      "category": "physics",
+      "id": "sPmqty",
+      "source": "\\sPmqty{a&b\\\\c&d}"
+    },
+    {
+      "category": "physics",
+      "id": "sbmqty",
+      "source": "\\sbmqty{a&b\\\\c&d}"
+    },
+    {
+      "category": "physics",
+      "id": "svmqty",
+      "source": "\\svmqty{a&b\\\\c&d}"
+    },
+    {
+      "category": "physics",
+      "id": "mdet",
+      "source": "\\mdet{a&b\\\\c&d}"
+    },
+    {
+      "category": "physics",
+      "id": "smdet",
+      "source": "\\smdet{a&b\\\\c&d}"
+    },
+    {
+      "category": "physics",
+      "id": "imat",
+      "source": "\\imat{3}"
+    },
+    {
+      "category": "physics",
+      "id": "zmat",
+      "source": "\\zmat{2}{3}"
+    },
+    {
+      "category": "physics",
+      "id": "dmat",
+      "source": "\\dmat[0]{a,b,c}"
+    },
+    {
+      "category": "physics",
+      "id": "admat",
+      "source": "\\admat[0]{a,b,c}"
+    },
+    {
+      "category": "physics",
+      "id": "xmat",
+      "source": "\\xmat{x}{2}{3}"
+    },
+    {
+      "category": "physics",
+      "id": "tr",
+      "source": "\\tr A"
+    },
+    {
+      "category": "physics",
+      "id": "Tr",
+      "source": "\\Tr A"
+    },
+    {
+      "category": "physics",
+      "id": "rank",
+      "source": "\\rank A"
+    },
+    {
+      "category": "physics",
+      "id": "Res",
+      "source": "\\Res f"
+    },
+    {
+      "category": "physics-alias",
+      "id": "absolutevalue",
+      "source": "\\absolutevalue*{\\frac{a}{b}}",
+      "equivalent": "\\abs*{\\frac{a}{b}}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "quantity",
+      "source": "\\quantity(\\frac ab)",
+      "equivalent": "\\qty(\\frac ab)"
+    },
+    {
+      "category": "physics-alias",
+      "id": "vectorbold",
+      "source": "\\vectorbold*{\\alpha}",
+      "equivalent": "\\vb*{\\alpha}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "vectorarrow",
+      "source": "\\vectorarrow{x}",
+      "equivalent": "\\va{x}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "vectorunit",
+      "source": "\\vectorunit*{\\theta}",
+      "equivalent": "\\vu*{\\theta}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "differential",
+      "source": "\\differential[2]{x}",
+      "equivalent": "\\dd[2]{x}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "derivative",
+      "source": "\\derivative*[2]{f}{x}",
+      "equivalent": "\\dv*[2]{f}{x}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "partialderivative",
+      "source": "\\partialderivative[2,3]{f}{x}{y}",
+      "equivalent": "\\pdv[2,3]{f}{x}{y}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "pderivative",
+      "source": "\\pderivative[2,3]{f}{x}{y}",
+      "equivalent": "\\pdv[2,3]{f}{x}{y}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "functionalderivative",
+      "source": "\\functionalderivative{F}{f}",
+      "equivalent": "\\fdv{F}{f}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "fderivative",
+      "source": "\\fderivative{F}{f}",
+      "equivalent": "\\fdv{F}{f}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "evaluated",
+      "source": "\\evaluated{\\frac{x^2}{2}}_0^1",
+      "equivalent": "\\eval{\\frac{x^2}{2}}_0^1"
+    },
+    {
+      "category": "physics-alias",
+      "id": "expectationvalue",
+      "source": "\\expectationvalue**{A}{\\psi}",
+      "equivalent": "\\expval**{A}{\\psi}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "ev",
+      "source": "\\ev**{A}{\\psi}",
+      "equivalent": "\\expval**{A}{\\psi}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "matrixelement",
+      "source": "\\matrixelement**{\\psi}{A}{\\phi}",
+      "equivalent": "\\matrixel**{\\psi}{A}{\\phi}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "mel",
+      "source": "\\mel**{\\psi}{A}{\\phi}",
+      "equivalent": "\\matrixel**{\\psi}{A}{\\phi}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "dyad",
+      "source": "\\dyad{x}{y}",
+      "equivalent": "\\ketbra{x}{y}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "outerproduct",
+      "source": "\\outerproduct{x}{y}",
+      "equivalent": "\\ketbra{x}{y}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "op",
+      "source": "\\op{x}{y}",
+      "equivalent": "\\ketbra{x}{y}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "innerproduct",
+      "source": "\\innerproduct{x}{y}",
+      "equivalent": "\\braket{x}{y}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "ip",
+      "source": "\\ip{x}{y}",
+      "equivalent": "\\braket{x}{y}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "commutator",
+      "source": "\\commutator{A}{B}",
+      "equivalent": "\\comm{A}{B}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "anticommutator",
+      "source": "\\anticommutator{A}{B}",
+      "equivalent": "\\acomm{A}{B}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "poissonbracket",
+      "source": "\\poissonbracket{q}{p}",
+      "equivalent": "\\pb{q}{p}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "gradient",
+      "source": "\\gradient(f)",
+      "equivalent": "\\grad(f)"
+    },
+    {
+      "category": "physics-alias",
+      "id": "cross",
+      "source": "a\\cross b",
+      "equivalent": "a\\crossproduct b"
+    },
+    {
+      "category": "physics-alias",
+      "id": "cp",
+      "source": "a\\cp b",
+      "equivalent": "a\\crossproduct b"
+    },
+    {
+      "category": "physics-alias",
+      "id": "matrixquantity",
+      "source": "\\matrixquantity(a&b\\\\c&d)",
+      "equivalent": "\\mqty(a&b\\\\c&d)"
+    },
+    {
+      "category": "physics-alias",
+      "id": "matrixdeterminant",
+      "source": "\\matrixdeterminant{a&b\\\\c&d}",
+      "equivalent": "\\mdet{a&b\\\\c&d}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "smallmatrixquantity",
+      "source": "\\smallmatrixquantity{a&b\\\\c&d}",
+      "equivalent": "\\smqty{a&b\\\\c&d}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "identitymatrix",
+      "source": "\\identitymatrix{3}",
+      "equivalent": "\\imat{3}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "zeromatrix",
+      "source": "\\zeromatrix{2}{3}",
+      "equivalent": "\\zmat{2}{3}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "diagonalmatrix",
+      "source": "\\diagonalmatrix[0]{a,b,c}",
+      "equivalent": "\\dmat[0]{a,b,c}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "antidiagonalmatrix",
+      "source": "\\antidiagonalmatrix[0]{a,b,c}",
+      "equivalent": "\\admat[0]{a,b,c}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "xmatrix",
+      "source": "\\xmatrix{x}{2}{3}",
+      "equivalent": "\\xmat{x}{2}{3}"
+    },
+    {
+      "category": "physics-alias",
+      "id": "trace",
+      "source": "\\trace A",
+      "equivalent": "\\tr A"
+    },
+    {
+      "category": "physics-alias",
+      "id": "Trace",
+      "source": "\\Trace A",
+      "equivalent": "\\Tr A"
+    },
+    {
+      "category": "physics-alias",
+      "id": "orderof",
+      "source": "\\orderof{x^2}",
+      "equivalent": "\\order{x^2}"
+    },
+    {
+      "category": "units",
+      "id": "num",
+      "source": "\\num{-1.234e-3}"
+    },
+    {
+      "category": "units",
+      "id": "si",
+      "source": "\\si{\\kilo\\gram\\per\\metre\\second\\squared}"
+    },
+    {
+      "category": "units",
+      "id": "unit",
+      "source": "\\unit{\\micro\\metre}"
+    },
+    {
+      "category": "units",
+      "id": "SI",
+      "source": "\\SI{9.8}{\\metre\\per\\second\\squared}"
+    },
+    {
+      "category": "units",
+      "id": "qty",
+      "source": "\\qty{3}{\\ohm}"
+    },
+    {
+      "category": "units",
+      "id": "numlist",
+      "source": "\\numlist{1;2;3.5}"
+    },
+    {
+      "category": "units",
+      "id": "numrange",
+      "source": "\\numrange{-2}{4}"
+    },
+    {
+      "category": "units",
+      "id": "qtylist",
+      "source": "\\qtylist{1;2;3}{\\metre}"
+    },
+    {
+      "category": "units",
+      "id": "qtyrange",
+      "source": "\\qtyrange{1}{2}{\\metre}"
+    },
+    {
+      "category": "units",
+      "id": "SIlist",
+      "source": "\\SIlist{1;2}{\\volt}"
+    },
+    {
+      "category": "units",
+      "id": "SIrange",
+      "source": "\\SIrange{1}{2}{\\volt}"
+    },
+    {
+      "category": "units",
+      "id": "ang",
+      "source": "\\ang{-12;30;45}"
+    },
+    {
+      "category": "units",
+      "id": "uncertain",
+      "source": "\\num{1.234(56)e-3}"
+    },
+    {
+      "category": "units",
+      "id": "uncertain-explicit",
+      "source": "\\num{1.23 +- 0.04}"
+    },
+    {
+      "category": "units",
+      "id": "uncertain-separated",
+      "source": "\\num[separate-uncertainty=true]{1.234(56)e-3}"
+    },
+    {
+      "category": "units",
+      "id": "sisetup",
+      "source": "\\sisetup{output-decimal-marker={,},group-digits=true,group-separator={\\,}}\\num{12345.6789}"
+    },
+    {
+      "category": "units",
+      "id": "round-places",
+      "source": "\\num[round-mode=places,round-precision=2]{1.235}"
+    },
+    {
+      "category": "units",
+      "id": "round-figures",
+      "source": "\\num[round-mode=figures,round-precision=3]{0.001235}"
+    },
+    {
+      "category": "units",
+      "id": "round-uncertainty",
+      "source": "\\num[round-mode=places,round-precision=2]{1.234(56)}"
+    },
+    {
+      "category": "units",
+      "id": "fraction",
+      "source": "\\SI[per-mode=fraction]{5}{\\joule\\per\\mole\\kelvin}"
+    },
+    {
+      "category": "units",
+      "id": "symbol",
+      "source": "\\SI[per-mode=symbol]{5}{\\joule\\per\\mole\\kelvin}"
+    },
+    {
+      "category": "units",
+      "id": "pu",
+      "source": "\\pu{1.23e3 kg m-2}"
+    },
+    {
+      "category": "units",
+      "id": "pu-fraction",
+      "source": "\\pu{75.3 J // mol K}"
+    },
+    {
+      "category": "units",
+      "id": "pu-power",
+      "source": "\\pu{123 mm2}"
+    },
+    {
+      "category": "units",
+      "id": "single-unit",
+      "source": "\\qtyrange[range-units=single]{1}{2}{\\metre}"
+    },
+    {
+      "category": "physics",
+      "id": "dd-parenthesis",
+      "source": "\\dd(x^2)"
+    },
+    {
+      "category": "physics",
+      "id": "dv-long",
+      "source": "\\dv{x}(x^2)"
+    },
+    {
+      "category": "physics",
+      "id": "pdv-symbolic",
+      "source": "\\pdv[n,m]{f}{x}{y}"
+    },
+    {
+      "category": "physics",
+      "id": "eval-parenthesis",
+      "source": "\\eval(x^2|_0^1"
+    },
+    {
+      "category": "physics",
+      "id": "eval-bracket",
+      "source": "\\eval[x^2|_0^1"
+    },
+    {
+      "category": "physics",
+      "id": "expval-implicit",
+      "source": "\\expval*{\\frac ab}"
+    },
+    {
+      "category": "physics",
+      "id": "matrixel-star",
+      "source": "\\matrixel*{x}{\\frac ab}{y}"
+    },
+    {
+      "category": "physics",
+      "id": "qty-star",
+      "source": "\\qty*(\\frac ab)"
+    },
+    {
+      "category": "math",
+      "id": "multlined-width",
+      "source": "\\begin{multlined}[b][64pt]a+b\\\\=c\\end{multlined}"
+    },
+    {
+      "category": "math",
+      "id": "multlined-empty-row",
+      "source": "\\begin{multlined}a\\\\\\\\b\\end{multlined}"
+    },
+    {
+      "category": "units",
+      "id": "product",
+      "source": "\\pu{3 kg*m2*s-2}"
+    },
+    {
+      "category": "units",
+      "id": "product-option",
+      "source": "\\SI[inter-unit-product={\\cdot}]{3}{\\newton\\metre}"
+    },
+    {
+      "category": "units",
+      "id": "decimal-grouping",
+      "source": "\\num[group-digits=decimal]{1.23456789}"
+    },
+    {
+      "category": "units",
+      "id": "significant-carry",
+      "source": "\\num[round-mode=figures,round-precision=2]{0.00999}"
+    }
+  ],
+  "invalid": [
+    "\\num[unknown=true]{2}",
+    "\\num{1.2.3}",
+    "\\SI{1}{\\unknownunit}",
+    "\\num[round-mode=figures,round-precision=0]{1}",
+    "\\pdv[2,3,4]{f}{x}{y}",
+    "\\imat{1000}",
+    "\\DeclarePairedDelimiter{bad}{(}{)}",
+    "\\overbracket[-2pt]{x}",
+    "\\sisetup{per-mode=bad}\\num{1}",
+    "\\num{1.2(-3)}",
+    "\\qty{1}{\\kilo}",
+    "\\begin{subequations}x\\end{subequations}",
+    "\\begin{align}a&=b\\\\\\intertext{oops\\end{align}",
+    "\\begin{multlined}a&b\\end{multlined}",
+    "\\dd*{x}",
+    "\\num{1.2 +- -0.1}",
+    "\\norm[bad]{x}",
+    "\\num{1.2e}",
+    "\\begin{multlined}[q]x\\end{multlined}"
+  ]
+}

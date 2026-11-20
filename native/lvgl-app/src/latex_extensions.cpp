@@ -1,6 +1,8 @@
 #include "latex_extensions.hpp"
 #include "markdown.hpp"
 #include "latex_syntax.hpp"
+#include "latex_units.hpp"
+#include "latex_physics.hpp"
 #include <cctype>
 #include <cmath>
 #include <map>
@@ -27,53 +29,8 @@ std::pair<size_t,size_t> environmentBody(const std::string &s,size_t p,const std
   }
   throw std::runtime_error("Unclosed LaTeX environment");
 }
-std::string number(std::string s) {
-  size_t p=0;space(s,p);const size_t start=p;if(p<s.size()&&(s[p]=='+'||s[p]=='-'))++p;
-  bool digits=false;while(p<s.size()&&(std::isdigit(static_cast<unsigned char>(s[p]))||s[p]=='.'||s[p]==',')){digits|=s[p]!='.'&&s[p]!=',';++p;}
-  if(!digits)throw std::runtime_error("Invalid numerical quantity");
-  std::string result=s.substr(start,p-start);
-  if(p<s.size()&&(s[p]=='e'||s[p]=='E')) {
-    ++p;const size_t power=p;if(p<s.size()&&(s[p]=='+'||s[p]=='-'))++p;const size_t d=p;
-    while(p<s.size()&&std::isdigit(static_cast<unsigned char>(s[p])))++p;
-    if(d==p)throw std::runtime_error("Missing numerical exponent");
-    result+="\\times 10^{"+s.substr(power,p-power)+"}";
-  }
-  space(s,p);if(p!=s.size())throw std::runtime_error("Unsupported numerical syntax");return result;
-}
-std::string unit(const std::string &s) {
-  static const std::map<std::string,std::string> names={
-    {"metre","m"},{"meter","m"},{"second","s"},{"gram","g"},{"kilogram","kg"},{"ampere","A"},{"kelvin","K"},{"mole","mol"},{"candela","cd"},
-    {"radian","rad"},{"steradian","sr"},{"hertz","Hz"},{"newton","N"},{"pascal","Pa"},{"joule","J"},{"watt","W"},{"coulomb","C"},{"volt","V"},{"farad","F"},{"siemens","S"},{"weber","Wb"},{"tesla","T"},{"henry","H"},{"lumen","lm"},{"lux","lx"},{"becquerel","Bq"},{"gray","Gy"},{"sievert","Sv"},{"katal","kat"},
-    {"litre","L"},{"liter","L"},{"minute","min"},{"hour","h"},{"day","d"},{"electronvolt","eV"},{"percent","\\%"},{"degree","{}^{\\circ}"},{"degreeCelsius","{}^{\\circ}C"},{"ohm","\\Omega"},
-    {"quecto","q"},{"ronto","r"},{"yocto","y"},{"zepto","z"},{"atto","a"},{"femto","f"},{"pico","p"},{"nano","n"},{"micro","\\mu"},{"milli","m"},{"centi","c"},{"deci","d"},{"deca","da"},{"deka","da"},{"hecto","h"},{"kilo","k"},{"mega","M"},{"giga","G"},{"tera","T"},{"peta","P"},{"exa","E"},{"zetta","Z"},{"yotta","Y"},{"ronna","R"},{"quetta","Q"}};
-  std::string out;size_t p=0;
-  while(p<s.size()) {
-    char c=s[p];
-    if(c=='\\') {
-      auto n=command(s,p);auto it=names.find(n);
-      if(it!=names.end())out+="\\mathrm{"+it->second+"}";
-      else if(n=="per")out+="/";
-      else if(n=="squared"||n=="cubed")out+=n=="squared"?"^{2}":"^{3}";
-      else if(n=="tothe"||n=="raiseto"){auto power=group(s,p);out+="^{"+number(power)+"}";}
-      else if(n==","||n==" ")out+="\\,";
-      else throw std::runtime_error("Unsupported unit command");
-    } else if(std::isalpha(static_cast<unsigned char>(c))) {
-      const auto start=p;while(p<s.size()&&std::isalpha(static_cast<unsigned char>(s[p])))++p;out+="\\mathrm{"+s.substr(start,p-start)+"}";
-    } else if(std::isspace(static_cast<unsigned char>(c))||c=='*'||c=='.'){out+="\\,";++p;}
-    else if(c=='^'||c=='_') {
-      out+=c;++p;
-      if(hasGroup(s,p)){auto power=group(s,p);out+="{"+number(power)+"}";}
-      else {const auto start=p;if(p<s.size()&&(s[p]=='-'||s[p]=='+'))++p;while(p<s.size()&&std::isdigit(static_cast<unsigned char>(s[p])))++p;out+="{"+number(s.substr(start,p-start))+"}";}
-    } else if((c=='-'||c=='+')&&p+1<s.size()&&std::isdigit(static_cast<unsigned char>(s[p+1]))) {
-      const auto start=p++;while(p<s.size()&&std::isdigit(static_cast<unsigned char>(s[p])))++p;out+="^{"+number(s.substr(start,p-start))+"}";
-    } else if(c=='/'||c=='('||c==')'||std::isdigit(static_cast<unsigned char>(c))){out+=c;++p;}
-    else throw std::runtime_error("Unsupported unit syntax");
-    bounded(out);
-  }
-  return out;
-}
 struct LocalMacro {int count=0;bool optional=false;std::string defaultArg,body,left,right;bool paired=false;};
-using Macros=std::map<std::string,LocalMacro>;
+struct Macros : std::map<std::string,LocalMacro> {UnitOptions units;};
 std::string expansion(const std::string &s,unsigned depth,Macros &macros) {
   if(depth>32)throw std::runtime_error("LaTeX nesting exceeds limit");
   std::string out;size_t p=0;
@@ -84,6 +41,10 @@ std::string expansion(const std::string &s,unsigned depth,Macros &macros) {
     static const std::set<std::string> directives={"input","include","includegraphics","usepackage","require","write","openout","read","catcode","csname","endcsname","def","gdef","edef","xdef","let","newenvironment","renewenvironment"};
     if(directives.count(name))throw std::runtime_error("External or unbounded TeX directive is unsupported");
     const auto local=macros.find(name);
+    if(local==macros.end()){
+      if(unitCommand(name,s,p,out,macros.units)){bounded(out);continue;}
+      if(physicsCommand(name,s,p,out,[&](const std::string &value){return expansion(value,depth+1,macros);})){bounded(out);continue;}
+    }
     if(name=="DeclarePairedDelimiter") {
       auto id=group(s,p);size_t q=0;if(id.empty()||id[0]!='\\')throw std::runtime_error("Invalid paired delimiter name");
       id=command(id,q);if(q!=id.size()+1||id.empty())throw std::runtime_error("Invalid paired delimiter name");
@@ -117,39 +78,6 @@ std::string expansion(const std::string &s,unsigned depth,Macros &macros) {
       }
       out+=expansion(body,depth+1,macros);
     } else if(name=="operatorname"&&p<s.size()&&s[p]=='*') {++p;out+="\\mathop{\\mathrm{"+arg()+"}}\\normal ";
-    } else if(name=="abs"||name=="norm"||name=="bra"||name=="ket"||name=="braket") {
-      auto a=arg();if(name=="abs")out+="\\left|"+a+"\\right|";
-      if(name=="norm")out+="\\left\\|"+a+"\\right\\|";
-      if(name=="bra")out+="\\left\\langle "+a+"\\right|";
-      if(name=="ket")out+="\\left|"+a+"\\right\\rangle ";
-      if(name=="braket")out+="\\left\\langle "+a+(hasGroup(s,p)?"\\middle|"+arg():"")+"\\right\\rangle ";
-    } else if(name=="vb"||name=="va") {
-      const bool star=p<s.size()&&s[p]=='*';if(star)++p;const auto a=arg();
-      out+=name=="vb"?(star?"\\boldsymbol{"+a+"}":"\\mathbf{"+a+"}"):(star?"\\vec{\\boldsymbol{"+a+"}}":"\\vec{"+a+"}");
-    } else if(name=="dv"||name=="pdv") {
-      bool star=p<s.size()&&s[p]=='*';if(star)++p;
-      std::string order=hasGroup(s,p,'[')?group(s,p,'[',']'):"";
-      if(!order.empty())order=number(order);
-      auto a=arg();bool two=hasGroup(s,p);auto b=two?arg():a;const auto d=name=="pdv"?"\\partial ":"\\mathrm{d}";
-      std::string exponent=order.empty()?"":"^{"+order+"}";
-      std::string numerator=std::string(d)+exponent+(two?a:""),denominator=std::string(d)+b+exponent;
-      if(name=="pdv"&&two&&hasGroup(s,p)){auto c=arg();numerator=std::string(d)+"^{2}"+a;denominator=std::string(d)+b+d+c;}
-      out+="\\frac{"+numerator+"}{"+denominator+"}";
-    } else if(name=="num")out+=number(group(s,p));
-    else if(name=="si"||name=="unit")out+=unit(group(s,p));
-    else if(name=="SI"){auto n=group(s,p);auto u=group(s,p);out+=number(n)+"\\,"+unit(u);}
-    else if(name=="pu") {
-      auto body=group(s,p);size_t at=0;space(body,at);if(at<body.size()&&(body[at]=='+'||body[at]=='-'))++at;
-      while(at<body.size()&&(std::isdigit(static_cast<unsigned char>(body[at]))||body[at]=='.'||body[at]==','))++at;
-      if(at<body.size()&&(body[at]=='e'||body[at]=='E')){++at;if(at<body.size()&&(body[at]=='+'||body[at]=='-'))++at;while(at<body.size()&&std::isdigit(static_cast<unsigned char>(body[at])))++at;}
-      auto n=body.substr(0,at),u=body.substr(at);out+=number(n)+(u.empty()?"":"\\,"+unit(u));
-    } else if(name=="qty") {
-      space(s,p);if(p==s.size())throw std::runtime_error("Missing quantity");
-      const char open=s[p];
-      if(open=='{') {auto a=group(s,p);if(hasGroup(s,p)){auto u=group(s,p);out+=number(a)+"\\,"+unit(u);}else out+="\\left\\{"+expansion(a,depth+1,macros)+"\\right\\}";}
-      else if(open=='('||open=='['){auto a=group(s,p,open,open=='('?')':']');out+="\\left"+std::string(1,open)+expansion(a,depth+1,macros)+"\\right"+(open=='('?')':']');}
-      else if(open=='|'){++p;const size_t start=p;while(p<s.size()&&s[p]!='|')++p;if(p==s.size())throw std::runtime_error("Unclosed quantity");auto a=expansion(s.substr(start,p-start),depth+1,macros);++p;out+="\\left|"+a+"\\right|";}
-      else throw std::runtime_error("Unsupported quantity delimiter");
     } else if(name=="overbracket"||name=="underbracket") {
       auto thickness=hasGroup(s,p,'[')?group(s,p,'[',']'):"";auto height=hasGroup(s,p,'[')?group(s,p,'[',']'):"";
       auto value=arg();out+="\\penchatbracket{"+std::string(name=="overbracket"?"over":"under")+"}{"+thickness+"}{"+height+"}{"+value+"}";
