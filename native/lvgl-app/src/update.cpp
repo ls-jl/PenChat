@@ -63,11 +63,6 @@ struct Updater::Impl {
   bool ok(const updates::Response &r)const{return r.code==0&&r.status==200;}
   updates::Transport &network(){if(!transport)transport.reset(new updates::Transport(config,cancelled));return *transport;}
   void check(bool explicitCheck) {
-#ifdef PENCHAT_CVI_PLATFORM
-    (void)explicitCheck;
-    status("unsupported","当前 S6 构建未配置对应更新源，请手动安装 ARM32 包");
-    return;
-#endif
     manual=explicitCheck;release=Json::object();notes=Json::array();++generation;value.erase("note_text");status("checking","正在检查更新…");
     auto addresses=config.nodes;
     if(addresses.empty()) {
@@ -191,7 +186,7 @@ struct Updater::Impl {
     const auto statistics=network().download(release,part,[this](Json progress){value["progress"]=std::move(progress);publish();});
     status("verifying","下载完成，正在校验安装包…");
     Json verified;
-    try{verified=updates::validatePackage(part,config.appId,release.at("version"),release.at("sha256"),cancelled);}
+    try{verified=updates::validatePackage(part,config.appId,release.at("version"),release.at("sha256"),cancelled,config.platform);}
     catch(...){unlink(part.c_str());if(!cancelled)fault(release.at("version"),"package_validation");throw;}
     if(cancelled){unlink(part.c_str());throw std::runtime_error("cancelled");}
     const auto package=join(folder,"package.amr");if(rename(part.c_str(),package.c_str()))throw std::runtime_error("无法保存已校验安装包");
@@ -215,7 +210,7 @@ struct Updater::Impl {
       value["ticket"]=ticket;status(args.value("success",false)?"installed":"install_error",args.value("success",false)?"安装已完成":"安装失败，旧数据已保留，可重试安装");
     } else if(op=="retry_install") {
       auto ticket=value.value("ticket",Json::object());if(ticket.empty())ticket=feedbackRead(join(folder,"install.json"),65536);
-      auto verified=updates::validatePackage(ticket.at("path"),config.appId,ticket.at("version"),ticket.at("sha256"),cancelled);
+      auto verified=updates::validatePackage(ticket.at("path"),config.appId,ticket.at("version"),ticket.at("sha256"),cancelled,config.platform);
       feedbackWrite(join(folder,"restore.json"),{{"appid",config.appId},{"snapshot",args.value("snapshot",Json::object())},{"target",ticket["version"]}});
       ticket["operation"]=feedbackUuid();ticket["state"]="prepared";feedbackWrite(join(folder,"install.json"),ticket);value["ticket"]=ticket;status("ready","正在准备安装…");
     }

@@ -194,7 +194,7 @@ public:
       std::lock_guard<std::mutex> lock(mutex_);
       if(installations_.count(operation)||installations_.size()>=8)throw std::runtime_error("Installation already submitted");
       std::atomic<bool> cancel{false};
-      penchat::updates::validatePackage(path,ownId_,version,ticket.at("sha256"),cancel);
+      penchat::updates::validatePackage(path,ownId_,version,ticket.at("sha256"),cancel,penchat::updates::buildPlatform());
       // Use exported Falcon methods, never object offsets, fixed addresses,
       // a forged app identity, system-policy modifications or a child command.
       using Instance=void *(*)();

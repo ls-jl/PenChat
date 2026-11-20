@@ -23,7 +23,7 @@
             <div class="rescue-control" :style="rescueButtonStyle" @click="finish"><text :style="rescueButtonTextStyle">返回</text></div>
           </div>
           <div v-if="rescueOpen" key="downgrade-content">
-            <text :style="rescueHintStyle">{{ rescuePlatformText }}</text>
+            <text v-if="!rescueEnv.platform" :style="rescueWarningStyle">无法识别当前设备，请重新启动后重试。</text>
             <text :style="rescueTextStyle">{{ rescueMessage || rescueState.message }}</text>
             <text v-if="rescueState.status === 'downloading'" :style="rescueTextStyle">{{ rescueProgressText }}</text>
             <div class="rescue-actions">
@@ -33,12 +33,13 @@
               <div v-if="!rescueBusy" class="rescue-control" :style="rescueButtonStyle" @click="closeRescue"><text :style="rescueButtonTextStyle">返回启动页</text></div>
             </div>
             <div v-for="item in rescueState.releases" :key="item.id" class="rescue-release" :style="rescueReleaseStyle" @click="selectRescue(item)">
-              <text :style="rescueTextStyle">{{ item.version }} · {{ item.channel === 'release' ? '正式版' : '历史交付候选' }}</text>
-              <text :style="rescueHintStyle">{{ item.compatible ? '数据格式兼容' : '数据格式不兼容或未知' }}{{ item.known_issues ? ' · ' + item.known_issues : '' }}</text>
+              <text :style="rescueTextStyle">{{ item.version }}</text>
+              <text :style="rescueHintStyle">{{ item.release_notes || '此版本暂无更新说明' }}</text>
             </div>
             <div v-if="rescueSelected && !rescueBusy" :key="'selected-'+rescueSelected.id" class="rescue-release" :style="rescueReleaseStyle">
               <text :style="rescueTextStyle">{{ '已选择 ' + rescueSelected.version }}</text>
               <text :style="rescueHintStyle">安装前会完整备份数据。旧版可能没有降级入口，降级后的入口以旧版自身能力为准。</text>
+              <text v-if="rescueSelected.install_warning" :style="rescueWarningStyle">{{ rescueSelected.install_warning }}</text>
               <text v-if="!rescueSelected.compatible" :style="rescueWarningStyle">此版本的数据兼容性不受保证。强制降级可能导致数据损坏或仍无法启动；备份不会自动转换数据。备份失败不会安装。</text>
               <div class="rescue-control" :style="rescueWideButtonStyle" @click="installRescue"><text :style="rescueButtonTextStyle">{{ rescueSelected.compatible ? '备份并安装' : '备份并强制降级' }}</text></div>
             </div>
@@ -101,7 +102,6 @@ export default {
     rescueButtonTextStyle() { return {fontSize:'18px',color:this.appearanceColors.primaryText} },
     rescueReleaseStyle() { return {padding:'12px',marginTop:'10px',borderRadius:'10px',backgroundColor:this.appearanceColors.surface} },
     rescueReportText() { const r=this.rescueState.report||{};return ({idle:'精简诊断待发送',pending:'精简诊断待发送',sending:'正在自动上报精简诊断…',sent:'精简诊断已上报',failed:'精简诊断暂未发送，可重试',disabled:'此构建未配置日志上报'})[r.status]||'' },
-    rescuePlatformText() { return this.rescueEnv.platform==='cv1826-s'?'当前设备：CVI / S6，使用 ARM32 降级包':this.rescueEnv.platform==='rk3562'?'当前设备：RK3562，使用 ARM64 降级包':'当前硬件未识别，暂不能选择安装包' },
     rescueProgressText() { const n=this.rescueState.downloaded||0,total=this.rescueState.total||0;return '已下载 '+Math.floor(n/1024)+' KiB'+(total?' / '+Math.floor(total/1024)+' KiB':'') },
   },
   mounted() { this.boot() },

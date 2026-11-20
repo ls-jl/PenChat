@@ -82,13 +82,15 @@ std::string fileHash(const std::string &path,std::atomic<bool> &cancel) {
   }catch(...){close(fd);throw;}
   std::string result;for(unsigned i=0;i<length;++i){result+="0123456789abcdef"[digest[i]>>4];result+="0123456789abcdef"[digest[i]&15];}return result;
 }
-Json validatePackage(const std::string &path,const std::string &appId,const std::string &version,const std::string &hash,std::atomic<bool> &cancel) {
+Json validatePackage(const std::string &path,const std::string &appId,const std::string &version,const std::string &hash,std::atomic<bool> &cancel,const std::string &platform) {
+  if(!platform.empty()&&platform!="rk3562"&&platform!="cv1826-s")throw std::runtime_error("未知的更新目标平台");
   struct stat file{};if(lstat(path.c_str(),&file)||!S_ISREG(file.st_mode)||file.st_size<=0||uint64_t(file.st_size)>PackageLimit)throw std::runtime_error("更新包大小或文件类型异常");
   const auto actual=fileHash(path,cancel);if(!hash.empty()&&hash!=actual)throw std::runtime_error("更新包 SHA-256 不匹配");
   mz_zip_archive zip{};if(!mz_zip_reader_init_file(&zip,path.c_str(),0))throw std::runtime_error("无效的 AMR 安装包");
   struct Close {mz_zip_archive *zip;~Close(){mz_zip_reader_end(zip);}} close{&zip};
   const auto count=mz_zip_reader_get_num_files(&zip);if(count==0||count>20000)throw std::runtime_error("安装包条目数量异常");
-  uint64_t total=0;std::set<std::string> names;Json manifest;
+  uint64_t total=0;std::set<std::string> names;Json manifest,descriptor;
+  std::string nativeHash;bool mainElf=false;
   for(mz_uint i=0;i<count;++i) {
     if(cancel)throw std::runtime_error("cancelled");
     mz_zip_archive_file_stat item{};if(!mz_zip_reader_file_stat(&zip,i,&item))throw std::runtime_error("安装包目录损坏");
@@ -101,19 +103,51 @@ Json validatePackage(const std::string &path,const std::string &appId,const std:
     total+=item.m_uncomp_size;
     if(mz_zip_reader_is_file_a_directory(&zip,i))continue;
     if(!mz_zip_reader_is_file_supported(&zip,i))throw std::runtime_error("安装包压缩格式不支持");
-    struct Sink {std::atomic<bool> *cancel;std::string text;bool manifest;};Sink sink{&cancel,{},value=="manifest.json"};
+    const bool main=value=="assets/bin/penchat-lvgl";
+    std::unique_ptr<EVP_MD_CTX,decltype(&EVP_MD_CTX_free)> native(main?EVP_MD_CTX_new():nullptr,EVP_MD_CTX_free);
+    if(main&&(!native||EVP_DigestInit_ex(native.get(),EVP_sha256(),nullptr)!=1))throw std::runtime_error("原生校验初始化失败");
+    struct Sink {std::atomic<bool> *cancel;std::string text,prefix;bool json;EVP_MD_CTX *hash;};
+    Sink sink{&cancel,{},{},value=="manifest.json"||value=="assets/rescue/payload.json",main?native.get():nullptr};
     auto callback=[](void *opaque,mz_uint64,const void *buffer,size_t n)->size_t {
       auto s=static_cast<Sink *>(opaque);if(*s->cancel)return 0;
-      if(s->manifest){if(s->text.size()+n>65536)return 0;s->text.append(static_cast<const char *>(buffer),n);}return n;
+      if(s->json){if(s->text.size()+n>65536)return 0;s->text.append(static_cast<const char *>(buffer),n);}
+      if(s->prefix.size()<64)s->prefix.append(static_cast<const char *>(buffer),std::min(n,64-s->prefix.size()));
+      if(s->hash&&EVP_DigestUpdate(s->hash,buffer,n)!=1)return 0;return n;
     };
     if(!mz_zip_reader_extract_to_callback(&zip,i,callback,&sink,0))throw std::runtime_error(cancel?"cancelled":"安装包 CRC 校验失败");
-    if(sink.manifest)manifest=Json::parse(sink.text,nullptr,false);
+    if(value=="manifest.json")manifest=Json::parse(sink.text,nullptr,false);
+    if(value=="assets/rescue/payload.json")descriptor=Json::parse(sink.text,nullptr,false);
+    if(!platform.empty()) {
+      const auto &h=sink.prefix;const bool elf=h.compare(0,4,"\177ELF")==0;
+      if(main&&!elf)throw std::runtime_error("更新包主程序不是有效 ELF");
+      if(elf) {
+        auto expected=platform;
+        for(const auto &abi:std::vector<std::pair<std::string,std::string>>{{"arm","cv1826-s"},{"arm64","rk3562"}}) {
+          const auto prefix="libs/"+abi.first+"/libjsapi_penchat_rescue_";
+          if(value.compare(0,prefix.size(),prefix)==0&&value.size()==prefix.size()+19&&value.substr(value.size()-3)==".so"&&
+             value.substr(prefix.size(),16).find_first_not_of("0123456789abcdef")==std::string::npos)expected=abi.second;
+        }
+        const bool wide=expected=="rk3562";
+        if(h.size()<(wide?64u:52u)||uint8_t(h[4])!=(wide?2:1)||h[5]!=1||
+           (uint8_t(h[18])|(unsigned(uint8_t(h[19]))<<8))!=(wide?183u:40u)||(!wide&&!(uint8_t(h[37])&4)))
+          throw std::runtime_error("更新包原生架构与当前设备不匹配："+value);
+        if(main)mainElf=true;
+      }
+    }
+    if(main) {
+      unsigned char sum[EVP_MAX_MD_SIZE];unsigned n=0;EVP_DigestFinal_ex(native.get(),sum,&n);
+      for(unsigned j=0;j<n;++j){nativeHash+="0123456789abcdef"[sum[j]>>4];nativeHash+="0123456789abcdef"[sum[j]&15];}
+    }
   }
   if(!names.count("app.js.bin"))throw std::runtime_error("安装包缺少应用入口");
   if(!manifest.is_object()||manifest.value("appid",Json())!=appId||manifest.value("version",Json())!=version)
     throw std::runtime_error("安装包 AppID 或版本与发布目录不一致");
+  if(!platform.empty()&&!mainElf)throw std::runtime_error("更新包缺少当前平台主程序");
+  if(!platform.empty()&&names.count("assets/rescue/payload.json")&&
+     (!descriptor.is_object()||descriptor.value("platform",Json())!=platform||descriptor.value("abi_bits",Json())!=(platform=="rk3562"?64:32)))
+    throw std::runtime_error("更新包平台描述与当前设备不匹配");
   struct statvfs space{};if(statvfs(path.c_str(),&space)||uint64_t(space.f_bavail)*space.f_frsize<total+16*1024*1024)
     throw std::runtime_error("安装剩余空间不足");
-  return {{"sha256",actual},{"bytes",file.st_size},{"expanded",total},{"appid",appId},{"version",version}};
+  return {{"sha256",actual},{"bytes",file.st_size},{"expanded",total},{"appid",appId},{"version",version},{"native_sha256",nativeHash}};
 }
 }}

@@ -68,6 +68,10 @@ class Tests(unittest.TestCase):
   self.probe.cmd('list');return self.probe.wait(lambda s:s['status'] in ['available','error'])
  def prepared(self,sha,**args):
   self.probe.cmd('prepare',id=sha,**args);return self.probe.wait(lambda s:s['status'] in ['ready_to_install','error','cancelled'])
+ def test_user_release_notes_and_selected_install_warning(self):
+  _,_,base=self.release();r=json.loads(Server.routes[base+'release.json']);r.update(release_notes='修复公式显示。\n改善菜单操作。',install_warning='旧版没有降级入口。',known_issues='legacy technical source');Server.routes[base+'release.json']=json.dumps(r).encode()
+  row=self.listed()['releases'][0];self.assertEqual(row['release_notes'],r['release_notes']);self.assertEqual(row['install_warning'],r['install_warning'])
+  r['release_notes']='x'*8193;Server.routes[base+'release.json']=json.dumps(r).encode();self.assertEqual(self.listed()['releases'],[])
  def test_list_hash_backup_and_same_version_verification(self):
   data,sha,_=self.release(version='0.3.3');self.assertEqual(len(self.listed()['releases']),1)
   (self.probe.data/'assets').mkdir();(self.probe.data/'assets/picture').write_bytes(b'private-pixels');(self.probe.public/'instructions').write_text('preserve')

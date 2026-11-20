@@ -9,11 +9,11 @@ const page = execFileSync('python3', ['-c',
 const script = page.match(/<script>([\s\S]*?)<\/script>/)[1]
   .replace(/^import .*$/gm, '').replace('export default', 'module.exports =')
 
-function fixture(mkdir) {
+function fixture(marker) {
   const timers = new Map(), calls = []
   let id = 0
   const context = vm.createContext({
-    fs: { mkdir }, module: {}, launcher: {},
+    ownedMarker: (version,event) => marker(event), loadRuntime: () => ({}), module: {},
     setTimeout: (fn, delay) => { timers.set(++id, { fn, delay }); return id },
     clearTimeout: key => timers.delete(key),
   })
@@ -23,7 +23,7 @@ function fixture(mkdir) {
   return { component, options, calls, timers }
 }
 
-for (const failure of ['reject', 'hang', 'throw']) {
+for (const failure of ['false', 'throw']) {
   test(`owned fixture finishes when mounted/finish marker ${failure}`, async () => {
     const events = []
     let instance
@@ -31,18 +31,18 @@ for (const failure of ['reject', 'hang', 'throw']) {
       // The timer must exist already at the first SDK call.
       assert.equal(instance.timers.size, 1)
       events.push(path.split('/').pop())
-      if (failure === 'reject') return Promise.reject(new Error('SDK rejected'))
-      if (failure === 'throw') throw new Error('SDK threw')
-      return new Promise(() => {})
+      if (failure === 'false') return false
+      if (failure === 'throw') throw new Error('native marker threw')
+      return true
     })
     const mounting = instance.options.mounted.call(instance.component)
     const timer = instance.timers.get(instance.component.finishTimer)
     assert.equal(timer.delay, 15000)
     timer.fn()
-    // Neither rejecting nor permanently pending promises delay the close call.
+    // A failed synchronous native marker cannot delay the close call.
     assert.deepEqual(instance.calls, ['finish'])
     assert.deepEqual(events, ['mounted', 'finish-requested'])
-    if (failure !== 'hang') {
+    {
       await mounting
       await new Promise(resolve => setImmediate(resolve))
       assert.match(instance.component.message, /FIXTURE ERROR/)
@@ -52,7 +52,7 @@ for (const failure of ['reject', 'hang', 'throw']) {
 }
 
 test('unload marker rejection is reported and does not reject lifecycle hook', async () => {
-  const instance = fixture(() => Promise.reject(new Error('SDK rejected')))
+  const instance = fixture(() => false)
   await instance.options.onUnload.call(instance.component)
   assert.equal(instance.component.fixtureError, 'unload-marker')
   assert.equal(instance.component.message, 'FIXTURE ERROR unload-marker')
@@ -60,7 +60,7 @@ test('unload marker rejection is reported and does not reject lifecycle hook', a
 
 test('successful diagnostics retain normal finish and unload', async () => {
   const events = []
-  const instance = fixture(async path => { events.push(path.split('/').pop()); return true })
+  const instance = fixture(path => { events.push(path); return true })
   await instance.options.mounted.call(instance.component)
   assert.equal(instance.component.message, 'updated')
   instance.timers.get(instance.component.finishTimer).fn()

@@ -214,40 +214,9 @@ Json environment(const std::string &workspace,const std::string &modelPath,const
 }
 Json validate(const std::string &path,const Json &release,const std::string &platform,std::atomic<bool> &cancel) {
   if(!hash(release.value("sha256",std::string()))||release.value("platform",std::string())!=platform)fail("降级包平台或校验信息无效");
-  auto result=updates::validatePackage(path,PENCHAT_APP_ID,release.at("version"),release.at("sha256"),cancel);
+  auto result=updates::validatePackage(path,PENCHAT_APP_ID,release.at("version"),release.at("sha256"),cancel,platform);
   if(result["bytes"]!=release.at("size"))fail("降级包大小与目录不一致");
-  mz_zip_archive zip{};if(!mz_zip_reader_init_file(&zip,path.c_str(),0))fail("无法检查安装包原生架构");
-  struct Close{mz_zip_archive *p;~Close(){mz_zip_reader_end(p);}} close{&zip};
-  const int index=mz_zip_reader_locate_file(&zip,"assets/bin/penchat-lvgl",nullptr,0);if(index<0)fail("安装包缺少 PenChat 主程序");
-  std::unique_ptr<EVP_MD_CTX,decltype(&EVP_MD_CTX_free)> context(EVP_MD_CTX_new(),EVP_MD_CTX_free);
-  if(!context||EVP_DigestInit_ex(context.get(),EVP_sha256(),nullptr)!=1)fail("主程序校验初始化失败");
-  struct Prefix {std::string data;EVP_MD_CTX *hash;};Prefix p{{},context.get()};
-  auto readPrefix=[](void *opaque,mz_uint64,const void *bytes,size_t n)->size_t {
-    auto &s=*static_cast<Prefix*>(opaque);if(s.data.size()<64)s.data.append(static_cast<const char *>(bytes),std::min(n,64-s.data.size()));
-    return EVP_DigestUpdate(s.hash,bytes,n)==1?n:0;
-  };
-  if(!mz_zip_reader_extract_to_callback(&zip,mz_uint(index),readPrefix,&p,0))fail("主程序解压校验失败");elfBytes(p.data,platform);
-  // Validate every ELF, including support libraries. The sole cross-ABI
-  // exception is the two standard-directory bootstrap modules.
-  for(mz_uint i=0;i<mz_zip_reader_get_num_files(&zip);++i) {
-    if(cancel)fail("cancelled");if(int(i)==index||mz_zip_reader_is_file_a_directory(&zip,i))continue;
-    char filename[4096]{};mz_zip_reader_get_filename(&zip,i,filename,sizeof(filename));const std::string name=filename;
-    struct Header {std::string bytes;std::atomic<bool> *cancel;};Header header{{},&cancel};
-    if(!mz_zip_reader_extract_to_callback(&zip,i,+[](void *opaque,mz_uint64,const void *bytes,size_t n)->size_t {
-      auto &h=*static_cast<Header*>(opaque);if(*h.cancel)return 0;
-      if(h.bytes.size()<64)h.bytes.append(static_cast<const char*>(bytes),std::min(n,64-h.bytes.size()));return n;
-    },&header,0))fail("组件解压校验失败");
-    if(header.bytes.compare(0,4,"\177ELF"))continue;
-    auto expected=platform;
-    for(const auto &abi:std::vector<std::pair<std::string,std::string>>{{"arm","cv1826-s"},{"arm64","rk3562"}}) {
-      const auto start="libs/"+abi.first+"/libjsapi_penchat_rescue_";
-      if(name.compare(0,start.size(),start)==0&&name.size()==start.size()+19&&name.substr(name.size()-3)==".so"&&
-         name.substr(start.size(),16).find_first_not_of("0123456789abcdef")==std::string::npos)expected=abi.second;
-    }
-    elfBytes(header.bytes,expected);
-  }
-  unsigned char sum[EVP_MAX_MD_SIZE];unsigned length=0;EVP_DigestFinal_ex(context.get(),sum,&length);
-  std::string sha;for(unsigned i=0;i<length;++i){sha+="0123456789abcdef"[sum[i]>>4];sha+="0123456789abcdef"[sum[i]&15];}result["native_sha256"]=sha;return result;
+  return result;
 }
 int schema(const std::string &data) {
   struct stat st{};if(lstat(join(data,"penchat.db").c_str(),&st)||!S_ISREG(st.st_mode))return -1;
@@ -331,10 +300,12 @@ struct Service::Impl {
         if(updates::checksum(get(folder+file+".sha256").text,file)!=sha)continue;
         if(!complete(folder+file,r["size"].get<uint64_t>()))continue;
         const auto issues=r.value("known_issues",std::string()),build=r.value("build",std::string());
-        if(issues.size()>2048||build.size()>1024)continue;
+        const auto notes=r.value("release_notes",std::string()),warning=r.value("install_warning",std::string());
+        if(issues.size()>2048||build.size()>1024||notes.size()>8192||warning.size()>2048)continue;
         releases.push_back({{"format",1},{"version",link.name},{"platform",env["platform"]},{"file",file},{"size",r["size"]},
           {"sha256",sha},{"url",folder+file},{"id",sha},{"channel",r.value("channel",std::string())=="release"?"release":"candidate"},
-          {"schema",r.value("schema",Json())},{"known_issues",issues},{"build",build}});
+          {"schema",r.value("schema",Json())},{"known_issues",issues},{"build",build},
+          {"release_notes",notes},{"install_warning",warning}});
       }catch(...){if(cancelled||closing)throw;}
     }
     std::sort(releases.begin(),releases.end(),[](const Json &a,const Json &b){updates::Version x,y;updates::Version::parse(a.at("version"),x);updates::Version::parse(b.at("version"),y);return y<x;});

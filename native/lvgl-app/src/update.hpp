@@ -14,9 +14,25 @@ std::vector<Link> directoryLinks(const std::string &html,const std::string &base
 std::string checksum(const std::string &text,const std::string &filename);
 std::string fileHash(const std::string &,std::atomic<bool> &);
 Json validatePackage(const std::string &,const std::string &appId,const std::string &version,
-                     const std::string &hash,std::atomic<bool> &);
+                     const std::string &hash,std::atomic<bool> &,const std::string &platform="");
+inline std::string buildPlatform() {
+#ifdef PENCHAT_CVI_PLATFORM
+  return "cv1826-s";
+#else
+  return "rk3562";
+#endif
+}
+inline std::string buildUpdateRoot() {
+#ifdef PENCHAT_CVI_PLATFORM
+  return "https://cdn.ls-jl.cn/penchat-cvi-s/";
+#else
+  return "https://cdn.ls-jl.cn/penchat-rk/";
+#endif
+}
 struct Config {
-  std::string root="https://cdn.ls-jl.cn/penchat-rk/",appId=PENCHAT_APP_ID,current=PENCHAT_VERSION;
+  std::string platform=buildPlatform();
+  std::string root=buildUpdateRoot();
+  std::string appId=PENCHAT_APP_ID,current=PENCHAT_VERSION;
   std::vector<std::string> nodes;
   bool autoCheck=true;
   static Config build();
