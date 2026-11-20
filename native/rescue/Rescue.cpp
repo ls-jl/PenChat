@@ -479,7 +479,7 @@ Json Service::state()const {
      (disk.value("state",std::string())=="failed"||disk.value("state",std::string())=="unknown")) {
     p_->published["ticket"]=disk;p_->published["status"]=disk.at("state");
   }
-  auto result=p_->published;result["report"]=p_->reportState;return result;
+  auto result=p_->published;result["report"]=p_->reportState;result["busy"]=p_->busy;return result;
 }
 Json Service::request(const std::string &op,const Json &args) {
   if(op!="list"&&op!="prepare")fail("未知版本回退操作");

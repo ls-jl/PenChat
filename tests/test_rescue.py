@@ -65,9 +65,9 @@ class Tests(unittest.TestCase):
   Server.routes[base+'release.json']=json.dumps(metadata).encode();Server.routes[base+'package.amr']=data;Server.routes[base+'package.amr.sha256']=(sha+'  package.amr\n').encode()
   return data,sha,base
  def listed(self):
-  self.probe.cmd('list');return self.probe.wait(lambda s:s['status'] in ['available','error'])
+  self.probe.cmd('list');return self.probe.wait(lambda s:not s['busy'] and s['status'] in ['available','error'])
  def prepared(self,sha,**args):
-  self.probe.cmd('prepare',id=sha,**args);return self.probe.wait(lambda s:s['status'] in ['ready_to_install','error','cancelled'])
+  self.probe.cmd('prepare',id=sha,**args);return self.probe.wait(lambda s:not s['busy'] and s['status'] in ['ready_to_install','error','cancelled'])
  def test_unsupported_host_abi_blocks_catalog_prepare_and_install(self):
   self.probe.close();self.probe=Probe(self.root,self.url,abi_bits=32)
   self.probe.cmd('list');state=self.probe.wait(lambda s:s['status']=='error')
