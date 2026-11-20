@@ -144,6 +144,14 @@ released scanner at keyboard frequency.
 
 ## Builds and checks
 
+Build caches and intermediate artifacts must stay on disk, normally under
+`build/` or `.work/build-cache/`. Do not relocate builds into `/tmp`/tmpfs to
+avoid disk pressure: tmpfs may spill into swap. At build/task completion, clean
+obsolete, reproducible object/archive/test binaries and duplicate staging trees;
+retain source, pinned dependencies/model originals, logs, acceptance evidence,
+user-data backups and delivered packages. Never clean an active build or another
+task's runtime files.
+
 Read README.md for toolchain prerequisites. `npm run build:host` builds host tests;
 `npm run build:native` cross-builds the executable and launcher; `npm test` runs
 bridge, native and actual-process integration tests. During development, run only
