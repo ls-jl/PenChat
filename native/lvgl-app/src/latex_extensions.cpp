@@ -289,7 +289,7 @@ void prepare(Document &doc) {
       const int previousCounter=counter;std::vector<std::string> inserted;
       try {
         if(run.text.size()>8192)throw std::runtime_error("Formula too large");
-        std::string body=run.text,kind;bool numbered=false;
+        std::string body=run.text,kind;bool numbered=false;int alignatPairs=0;
         size_t at=0;space(body,at);
         if(body.compare(at,6,"\\begin")==0) {
           size_t p=at+6;auto env=group(body,p);
@@ -297,7 +297,12 @@ void prepare(Document &doc) {
           if(environments.count(env)&&environmentEnd(body,at)==tail) {
             kind=env;numbered=env.back()!='*';if(!numbered)kind.pop_back();
             const auto end=body.rfind("\\end");body=body.substr(p,end-p);
-            if(kind=="alignat"){size_t n=0;group(body,n);body=body.substr(n);}
+            if(kind=="alignat") {
+              size_t n=0;auto count=group(body,n);size_t begin=0;space(count,begin);auto last=count.size();while(last>begin&&std::isspace(static_cast<unsigned char>(count[last-1])))--last;count=count.substr(begin,last-begin);
+              size_t used=0;alignatPairs=std::stoi(count,&used);
+              if(used!=count.size()||alignatPairs<1||alignatPairs>8192)throw std::runtime_error("Invalid alignat pair count");
+              body=body.substr(n);
+            }
           }
         }
         // Expand once for the whole formula, so local definitions also work
@@ -324,6 +329,7 @@ void prepare(Document &doc) {
             if(!doc.formulaLabels.emplace(label,row.tag).second)doc.formulaDiagnostics.push_back("duplicate_label");else inserted.push_back(label);
           }
           row.cells=(kind=="align"||kind=="alignat")?split(clean,true):std::vector<std::string>{clean};
+          if(alignatPairs&&row.cells.size()>size_t(alignatPairs)*2)throw std::runtime_error("Too many alignat cells");
           prepared.push_back(std::move(row));
         }
         run.formulaRows=std::move(prepared);run.mathKind=kind;formulas.push_back(&run);
