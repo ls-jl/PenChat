@@ -389,7 +389,7 @@ void targetSafe(const std::string &path){
 }
 void replaceFile(const std::string &source,const std::string &target,const std::string &hash,uint64_t size,const std::string &op,const std::atomic<bool> &cancel){
   targetSafe(target);dir(parent(target));const auto leaf=".penchat-restore-"+shaText(target+op)+".part";const auto temporary=join(parent(target),leaf);need(!exists(temporary),"还原临时文件已存在");
-  copyFile(source,temporary,hash,size,cancel);const int fd=openSafe(parent(target),O_RDONLY|O_DIRECTORY);
+  copyFile(source,temporary,hash,size,cancel);testFault("before_file_rename");const int fd=openSafe(parent(target),O_RDONLY|O_DIRECTORY);
   const bool ok=renameat(fd,leaf.c_str(),fd,target.substr(target.find_last_of('/')+1).c_str())==0;const bool sync=ok&&fsync(fd)==0;close(fd);if(!ok)unlink(temporary.c_str());need(ok&&sync,"还原文件替换或同步失败");
 }
 Json journalRead(const std::string &data,const std::string &publicRoot){
@@ -416,6 +416,7 @@ void fileRollback(const Json &j,const std::string &data,const std::string &publi
       need(hashFile(target,cancel)==f.at("new_hash"),"新文件被其他操作修改，已保留事务记录");const int fd=openSafe(parent(target),O_RDONLY|O_DIRECTORY);const bool removed=unlinkat(fd,target.substr(target.find_last_of('/')+1).c_str(),0)==0;const bool synced=fsync(fd)==0;close(fd);need(removed&&synced,"无法回滚新增文件");
     }
   }
+  for(const auto &f:j["files"]){const std::string target=f.at("target");const auto temporary=join(parent(target),".penchat-restore-"+shaText(target+j.at("operation").get<std::string>())+".part");if(exists(temporary)){safe(temporary,true);need(unlink(temporary.c_str())==0,"无法清理中断的还原临时文件");syncDir(parent(temporary));}}
   // New asset names are never replacements. Keep any externally referenced
   // files; normal GC can collect otherwise unreferenced files after recovery.
   (void)data;(void)publicRoot;
@@ -452,7 +453,7 @@ Json BackupRestore::Impl::commit(const Json &choices,const std::function<void(co
     if(old.empty())return old;
     const auto found=paths.find(old);if(found!=paths.end())return found->second;const auto rel=sourceFile(old);const auto &f=fresh.files.at(rel);
     std::string ext="img";const auto dot=old.find_last_of('.');if(dot!=std::string::npos){auto suffix=old.substr(dot+1);if(!suffix.empty()&&suffix.size()<=8&&suffix.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")==std::string::npos)ext=suffix;}
-    const auto target=join(join(data,"assets"),uid("asset")+"."+ext);journal["assets"].push_back({{"path",target},{"hash",f.hash}});saveJournal();fresh.copy(rel,target,cancel);paths[old]=target;return target;
+    const auto target=join(join(data,"assets"),uid("asset")+"."+ext);journal["assets"].push_back({{"path",target},{"hash",f.hash}});fresh.copy(rel,target,cancel);paths[old]=target;return target;
   };
   std::function<void(Json&,unsigned)> rewrite=[&](Json &value,unsigned depth){
     need(depth<=64,"图片或配置引用层次过深");
@@ -535,7 +536,7 @@ Json BackupRestore::Impl::commit(const Json &choices,const std::function<void(co
         db.execute("DELETE FROM draft_attachments WHERE draft_key=?",{key});db.execute("DELETE FROM chat_drafts WHERE draft_key=?",{key});insert(db,"chat_drafts",row);
         source.each("SELECT * FROM draft_attachments WHERE draft_key=? ORDER BY position",{key},[&](Json a){auto image=parse(a["image_json"]);const auto folder=join(join(data,"assets-drafts"),uid("image"));
           for(const auto &field:{"path","previewPath"})if(image.value(field,Json()).is_string()){
-            const std::string oldPath=image[field];const auto rel=sourceFile(oldPath);const auto &f=fresh.files.at(rel);const auto target=join(folder,std::string(field)+".img");journal["assets"].push_back({{"path",target},{"hash",f.hash}});saveJournal();fresh.copy(rel,target,cancel);image[field]=target;
+            const std::string oldPath=image[field];const auto rel=sourceFile(oldPath);const auto &f=fresh.files.at(rel);const auto target=join(folder,std::string(field)+".img");journal["assets"].push_back({{"path",target},{"hash",f.hash}});fresh.copy(rel,target,cancel);image[field]=target;
           }
           a["id"]=uid("draft-image");image.erase("id");a["image_json"]=image.dump();insert(db,"draft_attachments",a);
         });
@@ -549,6 +550,10 @@ Json BackupRestore::Impl::commit(const Json &choices,const std::function<void(co
         else if(u.kind=="default"){const auto table=u.id;std::string id=u.extra.at("id");if(table=="model_configs")id=models.at(id);need(!db.query("SELECT id FROM "+table+" WHERE id=?",{id}).empty(),"默认配置目标缺失");db.execute("UPDATE "+table+" SET is_default=0");db.execute("UPDATE "+table+" SET is_default=1 WHERE id=?",{id});}
       }
       if(changedPresets)db.setting("chat_presets",presets);
+      // Private images are immutable new files: an earlier crash leaves only
+      // collectible orphans. Publish their complete ledger once, before any
+      // public/IME replacement or SQLite COMMIT, rather than fsync per image.
+      saveJournal();
       for(const auto &f:journal["files"]){const std::string target=f["target"];targetSafe(target);if(f.value("had_old",false))need(exists(target)&&hashFile(target,cancel)==f.at("old_hash"),"当前文件已变化，已取消还原");else need(!exists(target),"出现了新的文件冲突，已取消还原");replaceFile(f.at("new_path"),target,f.at("new_hash"),f.at("new_size"),op,cancel);testFault("file_error");}
       db.setting("_restore_operation",op);
       testFault("before_commit");
