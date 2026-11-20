@@ -97,6 +97,31 @@ class Tests(unittest.TestCase):
  def test_force_only_bypasses_schema(self):
   _,sha,_=self.release(compatible=False);self.assertFalse(self.listed()['releases'][0]['compatible'])
   self.assertEqual(self.prepared(sha)['status'],'error');self.assertEqual(self.prepared(sha,force=True)['status'],'ready_to_install')
+ def test_direct_rollback_requires_explicit_second_confirmation(self):
+  _,sha,_=self.release();self.listed()
+  for options in [dict(backup=False),dict(backup=False,skip_backup_confirmed=False),dict(backup='false',skip_backup_confirmed=True)]:
+   self.assertEqual(self.prepared(sha,**options)['status'],'error')
+  self.assertNotIn('ticket',self.probe.cmd('state'))
+ def test_direct_rollback_skips_only_backup_and_records_the_choice(self):
+  _,sha,_=self.release();self.listed();s=self.prepared(sha,backup=False,skip_backup_confirmed=True)
+  self.assertEqual(s['status'],'ready_to_install',s);self.assertIsNone(s['ticket']['backup']);self.assertTrue(s['ticket']['backup_skipped'])
+  self.assertFalse((self.probe.data/'.rescue/backups').exists())
+  self.assertNotIn('error',self.probe.cmd('authorize',ticket=s['ticket']))
+ def test_direct_rollback_keeps_schema_and_package_validation(self):
+  _,sha,_=self.release(compatible=False);self.listed()
+  options=dict(backup=False,skip_backup_confirmed=True)
+  self.assertEqual(self.prepared(sha,**options)['status'],'error')
+  self.assertEqual(self.prepared(sha,force=True,**options)['status'],'ready_to_install')
+ def test_direct_wrong_arch_and_unsafe_package_are_still_rejected(self):
+  for options in [dict(machine=40),dict(extra=('../outside',b'bad'))]:
+   _,sha,_=self.release(**options);self.listed();state=self.prepared(sha,backup=False,skip_backup_confirmed=True,force=True)
+   self.assertEqual(state['status'],'error');self.assertNotIn('ticket',state)
+ def test_backup_failure_does_not_implicitly_skip_but_direct_choice_can(self):
+  _,sha,_=self.release();self.listed();external=self.root/'external';external.mkdir()
+  (self.probe.data/'.rescue/backups').symlink_to(external,target_is_directory=True)
+  self.assertEqual(self.prepared(sha)['status'],'error')
+  s=self.prepared(sha,backup=False,skip_backup_confirmed=True);self.assertEqual(s['status'],'ready_to_install',s)
+  self.assertEqual(list(external.iterdir()),[])
  def test_wrong_arch_cannot_be_forced(self):
   _,sha,_=self.release(machine=40,compatible=False);self.listed();state=self.prepared(sha,force=True)
   self.assertEqual(state['status'],'error');self.assertNotIn('ticket',state)
@@ -125,7 +150,7 @@ class Tests(unittest.TestCase):
   for path in ['ime/empty','assets/empty']:(self.probe.data/path).mkdir(parents=True)
   (self.probe.data/'penchat.db-wal').write_bytes(b'wal');(self.probe.data/'penchat.db-shm').write_bytes(b'shm')
   (self.probe.public/'empty').mkdir();s=self.prepared(sha);self.assertEqual(s['status'],'ready_to_install',s)
-  backup=pathlib.Path(s['ticket']['backup']['path']);self.assertTrue((backup/'data/ime/empty').is_dir());self.assertTrue((backup/'public/empty').is_dir())
+  backup=pathlib.Path(s['ticket']['backup']['path']);manifest=json.loads((backup/'manifest.json').read_text());self.assertEqual(manifest['source_version'],APP['version']);self.assertEqual(manifest['source_schema'],3);self.assertEqual(manifest['appid'],APP['appid']);self.assertTrue((backup/'data/ime/empty').is_dir());self.assertTrue((backup/'public/empty').is_dir())
   self.assertEqual((backup/'data/penchat.db-wal').read_bytes(),b'wal');self.assertEqual((backup/'data/penchat.db-shm').read_bytes(),b'shm')
   self.assertFalse((backup/'data/.rescue').exists())
  def test_corrupt_database_requires_explicit_force(self):
@@ -164,7 +189,9 @@ class Tests(unittest.TestCase):
   source.write_text('#include <sys/statvfs.h>\n#include <string.h>\nint statvfs(const char *p,struct statvfs *s){(void)p;memset(s,0,sizeof(*s));s->f_frsize=4096;return 0;}\n')
   subprocess.run(['cc','-shared','-fPIC',str(source),'-o',str(library)],check=True)
   self.probe.close();self.probe=Probe(self.root,self.url,extra_env=dict(LD_PRELOAD=str(library)))
-  _,sha,_=self.release();self.listed();state=self.prepared(sha);self.assertEqual(state['status'],'error');self.assertNotIn('ticket',state)
+  _,sha,_=self.release();self.listed()
+  for options in [dict(),dict(backup=False,skip_backup_confirmed=True)]:
+   state=self.prepared(sha,**options);self.assertEqual(state['status'],'error');self.assertNotIn('ticket',state)
  def test_supporting_rescue_pair_is_only_cross_abi_exception(self):
   wrong=bytearray(64);wrong[:6]=b'\x7fELF\x01\x01';wrong[18]=40;wrong[37]=4
   _,sha,_=self.release(extra=('libs/arm/libjsapi_penchat_rescue_'+'a'*16+'.so',wrong));self.listed();self.assertEqual(self.prepared(sha)['status'],'ready_to_install')

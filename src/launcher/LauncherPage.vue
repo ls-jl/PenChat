@@ -36,18 +36,30 @@
               <text :style="rescueTextStyle">{{ item.version }}</text>
               <text :style="rescueHintStyle">{{ rollbackText(item.release_notes) || '此版本暂无更新说明' }}</text>
             </div>
-            <div v-if="rescueSelected && !rescueBusy" :key="'selected-'+rescueSelected.id" class="rescue-release" :style="rescueReleaseStyle">
-              <text :style="rescueTextStyle">{{ '已选择 ' + rescueSelected.version }}</text>
-              <text :style="rescueHintStyle">安装前会完整备份数据。旧版可能没有版本回退入口，回退后的入口以旧版自身能力为准。</text>
-              <text v-if="rescueSelected.install_warning" :style="rescueWarningStyle">{{ rollbackText(rescueSelected.install_warning) }}</text>
-              <text v-if="!rescueSelected.compatible" :style="rescueWarningStyle">此版本的数据兼容性不受保证。强制回退可能导致数据损坏或仍无法启动；备份不会自动转换数据。备份失败不会安装。</text>
-              <div class="rescue-control" :style="rescueWideButtonStyle" @click="installRescue"><text :style="rescueButtonTextStyle">{{ rescueSelected.compatible ? '备份并安装' : '备份并强制回退' }}</text></div>
-            </div>
+            <text v-if="rescueState.ticket && rescueState.ticket.backup_skipped" :style="rescueWarningStyle">本次回退未创建备份</text>
             <text v-if="rescueState.ticket && rescueState.ticket.backup" :style="rescueHintStyle">{{ '备份位置：' + rescueState.ticket.backup.path }}</text>
           </div>
           <div v-if="!rescueFromUpdate && rescueState.report && rescueState.report.status === 'failed'" class="rescue-control" :style="rescueWideButtonStyle" @click="retryRescueReport"><text :style="rescueButtonTextStyle">重试精简诊断</text></div>
         </div>
       </scroller>
+    </div>
+    <div v-if="rescueOpen && rescueDialog && rescueSelected" :key="rescueSelected.id+'-'+rescueDialog" class="rescue-dialog" :style="appearanceStyles.panel" @click="holdRescueDialog">
+      <scroller class="rescue-dialog-reader">
+        <div :style="rescueContentStyle">
+          <div class="rescue-dialog-heading">
+            <text class="rescue-dialog-title" :style="appearanceStyles.title">{{ rescueDialog === 'direct' ? '确认不备份回退？' : '回退到 ' + rescueSelected.version }}</text>
+            <div class="rescue-control" :style="rescueDialogCloseStyle" @click="dismissRescueDialog"><text :style="rescueButtonTextStyle">关闭</text></div>
+          </div>
+          <text :style="rescueWarningStyle">{{ rescueDialog === 'direct' ? '本次不会创建数据备份。旧版本可能导致聊天、图片和设置丢失或损坏，无法依靠本次操作恢复。' : '老版本可能与现有聊天数据不兼容，导致数据丢失。请选择是否先备份。' }}</text>
+          <text v-if="rescueSelected.install_warning" :style="rescueWarningStyle">{{ rollbackText(rescueSelected.install_warning) }}</text>
+          <text v-if="!rescueSelected.compatible" :style="rescueHintStyle">此版本的数据兼容性未知或不兼容，继续将强制回退。包身份、架构及完整性仍会校验。</text>
+          <text :style="rescueHintStyle">{{ rescueDialog === 'direct' ? '将回退到 ' + rescueSelected.version + '，确定仍要继续吗？' : '备份仅保存在设备内，包含聊天、图片、设置及公共传输文件。备份失败不会安装。旧版的回退入口以旧版自身能力为准。' }}</text>
+        </div>
+      </scroller>
+      <div class="rescue-dialog-actions" :style="rescueDialogFooterStyle">
+        <div class="rescue-control rescue-dialog-gap" :style="rescueDialogButtonStyle" @click="rescueDialog === 'direct' ? backRescueDialog() : installRescue(true)"><text :style="rescueButtonTextStyle">{{ rescueDialog === 'direct' ? '返回' : (rescueSelected.compatible ? '备份并安装' : '备份并强制回退') }}</text></div>
+        <div class="rescue-control" :style="rescueDangerButtonStyle" @click="rescueDialog === 'direct' ? installRescue(false) : confirmDirectRescue()"><text :style="rescueDangerTextStyle">{{ rescueDialog === 'direct' ? '仍然回退，不备份' : '不备份，直接继续' }}</text></div>
+      </div>
     </div>
   </div>
 </template>
@@ -90,7 +102,7 @@ function resolvedAppearance(c, m) {
   }
 }
 export default {
-  data() { return { rescueOpen: false, rescueFromUpdate: false, rescueForeground: true, rescueEnv: {}, rescueState: { status: 'idle', releases: [], report: {} }, rescueSelected: null, rescueMessage: '', appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialHoleStyle: {}, officialBackingStyle: {}, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
+  data() { return { rescueOpen: false, rescueFromUpdate: false, rescueForeground: true, rescueEnv: {}, rescueState: { status: 'idle', releases: [], report: {} }, rescueSelected: null, rescueDialog: '', rescueMessage: '', appName: appConfig.name, errorText: '', running: false, visible: true, keyboardOpen: false, nativeReady: false, startupText: '正在打开…', nativeAreaStyle: {}, pageStyle: {}, appearanceStyles: resolvedAppearance(startupColors, startupDesign), appearanceColors: startupColors, officialControlKey: '', officialInputHandlers: {}, officialInline: false, officialHoleStyle: {}, officialBackingStyle: {}, officialInitialText: '', officialSingleLine: false, officialSensitive: false, officialInputType: 'ZhCNPreferred', officialLimit: 4096, officialInputStyle: {} } },
   computed: {
     rescueBusy() { return ['queued','listing','downloading','validating','backing_up','ready_to_install','installing'].includes(this.rescueState.status) },
     rescueContentStyle() { return {padding:(this.rescueEnv.rescue_inset||16)+'px',paddingBottom:Math.max(24,this.rescueEnv.rescue_inset||0)+'px'} },
@@ -100,6 +112,11 @@ export default {
     rescueButtonStyle() { const w=this._screen&&this._screen.width,inset=this.rescueEnv.rescue_inset||16;return {width:w?Math.max(92,Math.min(170,(w-inset*2-24)/3))+'px':'auto',height:'48px',marginRight:'8px',marginTop:'12px',borderRadius:'10px',backgroundColor:this.appearanceColors.text} },
     rescueWideButtonStyle() { return {height:'48px',marginTop:'12px',paddingLeft:'12px',paddingRight:'12px',borderRadius:'10px',backgroundColor:this.appearanceColors.text} },
     rescueButtonTextStyle() { return {fontSize:'18px',color:this.appearanceColors.primaryText} },
+    rescueDialogButtonStyle() { return {flex:1,height:'48px',borderRadius:'10px',backgroundColor:this.appearanceColors.text} },
+    rescueDangerButtonStyle() { return Object.assign({},this.rescueDialogButtonStyle,{backgroundColor:'#b42318'}) },
+    rescueDangerTextStyle() { return {fontSize:'18px',color:'#ffffff'} },
+    rescueDialogCloseStyle() { return {width:'72px',height:'44px',borderRadius:'10px',backgroundColor:this.appearanceColors.text} },
+    rescueDialogFooterStyle() { const inset=this.rescueEnv.rescue_inset||16;return {paddingLeft:inset+'px',paddingRight:inset+'px',paddingTop:'8px',paddingBottom:Math.max(12,inset)+'px'} },
     rescueReleaseStyle() { return {padding:'12px',marginTop:'10px',borderRadius:'10px',backgroundColor:this.appearanceColors.surface} },
     rescueReportText() { const r=this.rescueState.report||{};return ({idle:'精简诊断待发送',pending:'精简诊断待发送',sending:'正在自动上报精简诊断…',sent:'精简诊断已上报',failed:'精简诊断暂未发送，可重试',disabled:'此构建未配置日志上报'})[r.status]||'' },
     rescueProgressText() { const n=this.rescueState.downloaded||0,total=this.rescueState.total||0;return '已下载 '+Math.floor(n/1024)+' KiB'+(total?' / '+Math.floor(total/1024)+' KiB':'') },
@@ -142,12 +159,24 @@ export default {
         if(!this._disposed&&generation===this._generation&&generation===generationSeed)this.send('rescue.open.result',{operation:event.operation,ok:false})
       } finally {this._openingRescue=false}
     },
-    refreshRescue() { if(this.rescueBusy)return;this.rescueSelected=null;this.rescueMessage='';try{rescue.request('list',{});this.pollRescue()}catch(e){this.rescueMessage=e.message||'版本列表读取失败'} },
-    selectRescue(item) { if(!this.rescueBusy)this.rescueSelected=item },
-    installRescue() { if(this.rescueBusy||!this.rescueSelected)return;this.rescueMessage='正在停止原生程序…';this.rescueState=Object.assign({},this.rescueState,{status:'queued'});this.ensureRescueController().prepare(this.rescueSelected) },
+    refreshRescue() { if(this.rescueBusy||this.rescueDialog)return;this.rescueSelected=null;this.rescueDialog='';this.rescueMessage='';try{rescue.request('list',{});this.pollRescue()}catch(e){this.rescueMessage=e.message||'版本列表读取失败'} },
+    holdRescueDialog() { /* Keep blank dialog taps on this overlay. */ },
+    selectRescue(item) { if(!this.rescueBusy&&!this.rescueDialog){this.rescueSelected=item;this.rescueDialog='version'} },
+    dismissRescueDialog() { if(!this.rescueBusy){this.rescueDialog='';this.rescueSelected=null} },
+    confirmDirectRescue() { if(!this.rescueBusy&&this.rescueDialog==='version'&&this.rescueSelected)this.rescueDialog='direct' },
+    backRescueDialog() { if(!this.rescueBusy&&this.rescueDialog==='direct')this.rescueDialog='version' },
+    installRescue(backup = true) {
+      if(this.rescueBusy||!this.rescueSelected||!this.rescueDialog)return
+      if(backup?this.rescueDialog!=='version':this.rescueDialog!=='direct')return
+      const selected=this.rescueSelected
+      this.rescueDialog='';this.rescueSelected=null
+      this.rescueMessage=backup?'正在准备备份并安装…':'正在准备回退，本次不创建备份…'
+      this.rescueState=Object.assign({},this.rescueState,{status:'queued'})
+      this.ensureRescueController().prepare(selected,{backup,skipBackupConfirmed:!backup})
+    },
     cancelRescue() { this.ensureRescueController().cancel();this.rescueMessage='操作已取消' },
-    async closeRescue() { if(this.rescueBusy)return;this.ensureRescueController().cancel();this.rescueOpen=false;this.rescueSelected=null;if(this.rescueFromUpdate){this.rescueFromUpdate=false;this._returnToUpdate=true;await this.boot()} },
-    checkRescueInstall() { this.ensureRescueController().check() },
+    async closeRescue() { if(this.rescueBusy||this.rescueDialog)return;this.ensureRescueController().cancel();this.rescueOpen=false;this.rescueSelected=null;this.rescueDialog='';if(this.rescueFromUpdate){this.rescueFromUpdate=false;this._returnToUpdate=true;await this.boot()} },
+    checkRescueInstall() { if(!this.rescueDialog)this.ensureRescueController().check() },
     retryRescueReport() { rescue.report({code:this._rescueFailureCode||'startup',retry:true});this.watchRescue() },
     hidePage() {
       if (!this.visible) return
@@ -958,6 +987,12 @@ export default {
 .rescue-actions { flex-direction: row; flex-wrap: wrap; }
 .rescue-control { justify-content: center; align-items: center; }
 .rescue-release { }
+.rescue-dialog { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
+.rescue-dialog-reader { flex: 1; width: 100%; }
+.rescue-dialog-heading { flex-direction: row; align-items: center; }
+.rescue-dialog-title { flex: 1; margin-right: 12px; }
+.rescue-dialog-actions { flex-direction: row; }
+.rescue-dialog-gap { margin-right: 8px; }
 .failure-title { }
 .failure-text { }
 .retry { position: absolute; justify-content: center; align-items: center; }

@@ -257,7 +257,7 @@ struct Service::Impl {
 #ifndef PENCHAT_NATIVE_DEVICE
     if(config.fixture.is_object())env=config.fixture;
 #endif
-    try {privateDir(root);privateDir(join(root,"backups"));privateDir(join(root,"reports"));}
+    try {privateDir(root);privateDir(join(root,"reports"));}
     catch(...){published["storage_error"]="版本回退存储不可写，请检查可用空间和权限";}
     auto old=privateDirectory(root)?readJson(join(root,"install.json")):Json();
     if(old.is_object()&&old.value("operation",Json()).is_string()&&old.value("state",Json()).is_string())published["ticket"]=old;
@@ -278,7 +278,7 @@ struct Service::Impl {
   ~Impl(){closing=true;cancelled=true;cv.notify_all();if(worker.joinable())worker.join();if(reporter.joinable())reporter.join();}
   void status(const std::string &state,const std::string &message="") {
     Json snapshot;{std::lock_guard<std::mutex> lock(mutex);published["status"]=state;published["message"]=message;snapshot=published;}
-    try{privateDir(root);durable(join(root,"state.json"),snapshot);}catch(...){} // Best-effort diagnostic; tickets/backup manifests are mandatory.
+    try{privateDir(root);durable(join(root,"state.json"),snapshot);}catch(...){} // Best-effort diagnostic; tickets/selected backup manifests are mandatory.
   }
   std::vector<std::string> routes()const{auto n=config.nodes;n.push_back("");return n;}
   HttpResult get(const std::string &url) {
@@ -328,7 +328,10 @@ struct Service::Impl {
     const auto target=join(join(root,"backups"),operation);privateDir(target);
     std::vector<Entry> files,shared;uint64_t bytes=0;entries(data,"",files,bytes,0,true);entries(publicRoot,"",shared,bytes);
     struct statvfs available{};if(statvfs(root.c_str(),&available)||uint64_t(available.f_bavail)*available.f_frsize<bytes+32*1024*1024)fail("完整备份空间不足，未安装");
-    Json manifest={{"format",1},{"operation",operation},{"time_ms",nowMs()},{"files",Json::array()}};
+    // A new SQLite WAL reader can rewrite SHM; use the list's cached schema.
+    int sourceSchema=-1;{std::lock_guard<std::mutex> lock(mutex);sourceSchema=published.value("schema",-1);}
+    Json manifest={{"format",1},{"operation",operation},{"time_ms",nowMs()},{"appid",PENCHAT_APP_ID},
+      {"source_version",PENCHAT_VERSION},{"source_schema",sourceSchema},{"platform",env.at("platform")},{"files",Json::array()}};
     std::vector<std::string> directories{target};
     for(const auto &source:std::vector<std::pair<std::string,std::vector<Entry>>>{{data,files},{publicRoot,shared}}) {
       const auto group=source.first==data?"data":"public";privateDir(join(target,group));
@@ -345,12 +348,15 @@ struct Service::Impl {
   }
   void prepare(const Json &args) {
     requireHostAbi();
-    privateDir(root);privateDir(join(root,"backups"));
+    privateDir(root);
+    if(args.contains("backup")&&!args["backup"].is_boolean())fail("备份选项无效");
+    const bool withBackup=args.value("backup",true);
+    if(!withBackup&&(!args.value("skip_backup_confirmed",Json()).is_boolean()||!args["skip_backup_confirmed"].get<bool>()))fail("不备份回退需要再次确认数据丢失风险");
     Json release;
     {std::lock_guard<std::mutex> lock(mutex);for(const auto &r:published["releases"])if(r["id"]==args.value("id",std::string()))release=r;}
     if(release.is_null())fail("版本列表已变化，请重新选择");
     {std::lock_guard<std::mutex> lock(mutex);published["selected"]=release;published["total"]=release.at("size");published["downloaded"]=0;}
-    if(!release.value("compatible",false)&&!args.value("force",false))fail("此版本不兼容或兼容性未知，需要先确认完整备份并强制回退");
+    if(!release.value("compatible",false)&&!args.value("force",false))fail("此版本不兼容或兼容性未知，需要先确认数据风险并强制回退");
     if(nativeAlive(data))fail("请先停止 PenChat 原生程序再进行版本回退安装");
     const auto operation=uuid(),temporary=join(root,operation+".part");
     status("downloading","正在下载版本回退安装包…");bool downloaded=false;
@@ -361,15 +367,16 @@ struct Service::Impl {
     if(!downloaded)fail("版本回退包下载失败，请重试");
     try {
       status("validating","正在校验包身份及架构…");const auto validated=validate(temporary,release,env.at("platform"),cancelled);
-      status("backing_up","正在完整备份，备份失败不会安装…");const auto saved=backup(operation);
+      Json saved;
+      if(withBackup){privateDir(join(root,"backups"));status("backing_up","正在完整备份，备份失败不会安装…");saved=backup(operation);}
       if(cancelled||closing)fail("cancelled");
       const auto path=join(root,"package.amr");if(rename(temporary.c_str(),path.c_str()))fail("版本回退包无法暂存");
       Json ticket={{"operation",operation},{"appid",PENCHAT_APP_ID},{"version",release.at("version")},{"platform",env.at("platform")},
         {"sha256",release.at("sha256")},{"size",release.at("size")},{"native_sha256",validated.at("native_sha256")},
-        {"path",path},{"backup",saved},{"state","prepared"},{"force",args.value("force",false)}};
+        {"path",path},{"backup",saved},{"backup_skipped",!withBackup},{"state","prepared"},{"force",args.value("force",false)}};
       durable(join(root,"install.json"),ticket);
       {std::lock_guard<std::mutex> lock(mutex);published["ticket"]=ticket;}
-      status("ready_to_install","备份和校验完成，正在准备安装…");
+      status("ready_to_install",withBackup?"备份和校验完成，正在准备安装…":"校验完成，正在准备安装；本次未创建备份");
     }catch(...){unlink(temporary.c_str());throw;}
   }
   void run() {

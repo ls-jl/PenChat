@@ -1198,3 +1198,24 @@ test('rollback UI uses version rollback wording and hides failure-only diagnosti
  const f=fixture();assert.equal(f.page.rollbackText('旧版没有降级入口。'),'旧版没有版本回退入口。')
  assert(source.includes('v-if="errorText || rescueOpen"'));assert(source.includes('v-if="!rescueFromUpdate" :style="rescueHintStyle">{{ rescueReportText }}'))
 })
+
+test('selecting a rollback version opens a full dialog and direct install needs its second warning',async()=>{
+ const f=fixture();f.page.rescueOpen=true
+ const release={id:'selected',version:'0.3.2',compatible:false};let prepared=[]
+ f.page._rescueController={disposed:false,cancel:()=>{},prepare:(...args)=>prepared.push(args)}
+ f.page.selectRescue(release);assert.equal(f.page.rescueDialog,'version');assert.equal(prepared.length,0)
+ f.page.installRescue(false);assert.equal(prepared.length,0)
+ f.page.confirmDirectRescue();assert.equal(f.page.rescueDialog,'direct');assert.equal(prepared.length,0)
+ f.page.backRescueDialog();assert.equal(f.page.rescueDialog,'version')
+ f.page.confirmDirectRescue();f.page.installRescue(false);f.page.installRescue(false)
+ assert.equal(prepared.length,1);assert.equal(prepared[0][1].backup,false);assert.equal(prepared[0][1].skipBackupConfirmed,true)
+ assert.equal(f.page.rescueDialog,'');assert.equal(f.page.rescueState.status,'queued')
+})
+test('closing the version dialog cancels selection and the backup choice remains the default',()=>{
+ const f=fixture();f.page.rescueOpen=true;let prepared=[]
+ f.page._rescueController={disposed:false,prepare:(...args)=>prepared.push(args)}
+ const release={id:'chosen',version:'0.3.3',compatible:true}
+ f.page.selectRescue(release);f.page.dismissRescueDialog();assert.equal(f.page.rescueSelected,null);assert.equal(f.page.rescueDialog,'');assert.equal(prepared.length,0)
+ f.page.selectRescue(release);f.page.installRescue();assert.equal(prepared.length,1);assert.equal(prepared[0][1].backup,true)
+ const source=fs.readFileSync('src/launcher/LauncherPage.vue','utf8');assert(source.includes('class="rescue-dialog"'));assert(!source.includes("rescueSelected && !rescueBusy"));assert.equal(f.page.rescueDangerButtonStyle.backgroundColor,'#b42318')
+})
