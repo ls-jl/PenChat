@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <fstream>
 namespace penchat {
 struct MenusMotionTest {
   static uint32_t clock;
@@ -43,6 +44,33 @@ struct MenusMotionTest {
       assert(cancelled==count-1&&effortSliderData(slider)->index==count-1);
       pointer.state=LV_INDEV_STATE_RELEASED;lv_indev_read(input);lv_obj_delete(slider);
     }
+    // Continuous movement is independent of discrete preview; click and release
+    // must paint intermediate frames, and cancellation restores the commitment.
+    int commit=-1;
+    auto slider=createEffortSlider(root,10,10,a.screen_.width-20,4,0,a.uiMetrics_,
+        [&](int index,EffortSliderEvent event){if(event==EffortSliderEvent::Commit)commit=index;});
+    lv_obj_update_layout(root);lv_area_t area;lv_obj_get_coords(slider,&area);
+    auto data=effortSliderData(slider);
+    const int first=effortSliderCenter(area,4,0),last=effortSliderCenter(area,4,3),cy=(area.y1+area.y2)/2;
+    pointer.point={first,cy};pointer.state=LV_INDEV_STATE_PRESSED;lv_indev_read(input);
+    pointer.point={first+(last-first)/2,cy};lv_indev_read(input);
+    assert(data->position>4500&&data->position<5500&&commit==-1);
+    Json frames=Json::array();
+    auto frame=[&](const char *name){a.display_.screenshot(join(a.dataDir_,std::string(name)+".png"));frames.push_back({{"name",name},{"position",data->position}});};
+    frame("slider-drag");
+    pointer.state=LV_INDEV_STATE_RELEASED;lv_indev_read(input);
+    const int released=data->position;frame("slider-release");advance(45);assert(data->position!=released);frame("slider-snap-mid");advance(100);frame("slider-snap-end");
+    assert(commit==data->index&&data->position==data->index*10000/3);
+    {std::ofstream output(join(a.dataDir_,"slider-frames.json"));output<<Json{{"area",{area.x1,area.y1,area.x2,area.y2}},{"frames",frames},{"color",theme::palette().text}}.dump(2);}
+    const int original=commit;
+    pointer.point={first,cy};pointer.state=LV_INDEV_STATE_PRESSED;lv_indev_read(input);
+    advance(65);assert(data->position>0&&data->position<10000);
+    lv_obj_send_event(slider,LV_EVENT_PRESS_LOST,nullptr);advance(120);
+    assert(commit==original&&data->index==original&&data->position==original*10000/3);
+    pointer.state=LV_INDEV_STATE_RELEASED;lv_indev_read(input);
+    pointer.point={last,cy};pointer.state=LV_INDEV_STATE_PRESSED;lv_indev_read(input);advance(35);
+    lv_obj_delete(slider);advance(200); // No animation may retain the freed data.
+    pointer.state=LV_INDEV_STATE_RELEASED;lv_indev_read(input);
     lv_indev_delete(input);
     auto gauge=lv_obj_create(root);lv_obj_remove_style_all(gauge);lv_obj_set_size(gauge,44,44);
     attachIcon(gauge,"gauge",theme::palette().text,1.f,a.uiMetrics_);
@@ -115,7 +143,8 @@ struct MenusMotionTest {
     lv_area_t panelArea,newArea,settingsArea;
     lv_obj_get_coords(panel,&panelArea);lv_obj_get_coords(newChat,&newArea);
     lv_obj_get_coords(settings,&settingsArea);
-    assert(newArea.x1<settingsArea.x1&&newArea.y1==settingsArea.y1);
+    if(a.layout().portrait()&&newArea.y1!=settingsArea.y1)assert(newArea.y2<settingsArea.y1);
+    else assert(newArea.x1<settingsArea.x1&&newArea.y1==settingsArea.y1);
     for(auto control:{newChat,settings}) {
       lv_area_t area;lv_obj_get_coords(control,&area);
       assert(area.x1>=0&&area.y1>=0&&area.x2<a.screen_.width&&area.y2<a.screen_.height);
@@ -127,7 +156,7 @@ struct MenusMotionTest {
       assert(lv_obj_check_type(caption,&lv_label_class));
       const std::string text=lv_label_get_text(caption);
       assert(!text.empty());
-      if(!a.layout().portrait())assert(text==(control==newChat?"新建聊天":"设置"));
+      if(!a.layout().portrait())assert(text==(control==newChat?"新聊天":"设置"));
       assert(lv_label_get_long_mode(caption)==LV_LABEL_LONG_MODE_DOTS);
       for(auto child:{caption,glyph}) {
         assert(!lv_obj_has_flag(child,LV_OBJ_FLAG_CLICKABLE));
@@ -160,6 +189,7 @@ struct MenusMotionTest {
     const auto provider=a.db_.providers().front().at("id");
     a.db_.query("INSERT INTO model_configs(id,provider_id,name,display_name,model_type,is_default,created_at,updated_at) VALUES(?,?,?,?, 'chat',1,1,1)",
                {"centered-effort",provider,"fixture","Fixture"});
+    a.db_.query("UPDATE model_configs SET capabilities_json=? WHERE id=?",{Json{{"reasoning",{{"mode","effort"},{"levels",{{"low","low"},{"high","high"}}}}}}.dump(),"centered-effort"});
     a.sessionPreferences_["model_id"]="centered-effort";
     a.view_="chat";a.build();a.effortPicker();motion::finishAll();
     lv_obj_update_layout(a.attachments_);
@@ -170,7 +200,7 @@ struct MenusMotionTest {
     auto title=lv_obj_get_child(a.attachmentPanel_,0);
     auto capsule=lv_obj_get_child(a.attachmentPanel_,1);
     auto slider=lv_obj_get_child(capsule,0);
-    assert(std::string(lv_label_get_text(title))=="默认 · 推理强度");
+    assert(std::string(lv_label_get_text(title))=="跟随服务商默认 · 推理强度");
     assert(lv_obj_get_height(capsule)==a.uiMetrics_.dp(60));
     assert(lv_obj_get_y(slider)>=0&&lv_obj_get_y(slider)+lv_obj_get_height(slider)<=lv_obj_get_height(capsule));
     a.closeAttachments();motion::finishAll();a.clear();
@@ -200,13 +230,14 @@ struct MenusMotionTest {
 uint32_t MenusMotionTest::clock=1000;
 }
 int main(int argc,char **argv) {
-  using namespace penchat;assert(argc==6);lv_init();
+  using namespace penchat;assert(argc==6||argc==7);lv_init();
   lv_tick_set_cb([]()->uint32_t{return MenusMotionTest::clock;});
   initializeFonts(join(argv[1],".deps/chinese.ttf"),join(argv[1],"assets/fonts/DejaVuSans.ttf"));
   {
     Screen screen;screen.width=std::stoi(argv[4]);screen.height=std::stoi(argv[5]);
     Display display(screen,true);Input input;Bridge bridge(-1);
     ensureDirectory(argv[2]);Database db(join(argv[2],"penchat.db"));
+    if(argc==7)db.setting("theme_mode",argv[6]);
     App app(db,bridge,display,input,screen,argv[1],argv[2],join(argv[1],".deps/chinese.ttf"),
         join(argv[1],".deps/microtex/res"),false,Json::object(),UiMetrics(100,std::stoi(argv[3])));
     MenusMotionTest::run(app);
