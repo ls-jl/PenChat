@@ -136,7 +136,11 @@ def guard_cases():
             if a.diag()['editor']['chinese']:
                 k=next(k for k in a.diag()['editor']['keys'] if k['key']=='language');a.tap(k['x'],k['y'])
             k=next(k for k in a.diag()['editor']['keys'] if k['key']=='a');before=a.diag()['editor']['length']
-            start(a);send(a,[(1,k['x'],k['y']),(2,k['x']+50,k['y'])]);send(a,[(1,k['x'],k['y'])]);send(a,[])
+            # Two key contacts support ordered rollover. Three contacts must
+            # cancel the sequence and leave the following fresh key usable.
+            second=next(key for key in a.diag()['editor']['keys'] if key['key']=='s')
+            third=next(key for key in a.diag()['editor']['keys'] if key['key']=='d')
+            start(a);send(a,[(1,k['x'],k['y']),(2,second['x'],second['y']),(3,third['x'],third['y'])]);send(a,[(1,k['x'],k['y'])]);send(a,[])
             assert a.diag()['editor']['length']==before
             a.tap(k['x'],k['y']);assert a.diag()['editor']['length']==before+1
         finally:a.close()

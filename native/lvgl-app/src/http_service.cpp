@@ -240,7 +240,7 @@ class HttpService {
     }
     SET(CURLOPT_MAXAGE_CONN,long(idle_.load()));SET(CURLOPT_SSL_SESSIONID_CACHE,1L);
     if(j->options.http1)SET(CURLOPT_HTTP_VERSION,CURL_HTTP_VERSION_1_1);
-#if !defined(__aarch64__) || defined(PENCHAT_HTTP_TESTING)
+#if !defined(PENCHAT_NATIVE_DEVICE) || defined(PENCHAT_HTTP_TESTING)
     if(const char *ca=getenv("PENCHAT_TEST_CA"))SET(CURLOPT_CAINFO,ca);
 #endif
     SET(CURLOPT_WRITEFUNCTION,receive);SET(CURLOPT_WRITEDATA,j.get());SET(CURLOPT_HEADERFUNCTION,header);SET(CURLOPT_HEADERDATA,j.get());

@@ -35,6 +35,7 @@ void App::messageLongPress(lv_obj_t *object, const std::string &id) {
     auto p=static_cast<Press *>(lv_event_get_user_data(e));
     const auto code=lv_event_get_code(e);
     if(code==LV_EVENT_DELETE) {
+      if(lv_event_get_target_obj(e)!=lv_event_get_current_target_obj(e))return;
       auto &rows=p->app->userBubbles_;auto i=rows.find(p->id);
       if(i!=rows.end()&&i->second==lv_event_get_target_obj(e))rows.erase(i);
       delete p;return;
@@ -45,26 +46,24 @@ void App::messageLongPress(lv_obj_t *object, const std::string &id) {
     if(code==LV_EVENT_PRESSED){p->start=point;p->distance=0;}
     int dx=point.x-p->start.x,dy=point.y-p->start.y;
     p->distance=std::max(p->distance,dx*dx+dy*dy);
-    if(code==LV_EVENT_LONG_PRESSED&&p->distance<=144)
+    if(code==LV_EVENT_LONG_PRESSED&&p->distance<=p->app->uiMetrics_.gestures().tapSquared())
       p->app->events_.push("message_menu",{{"session",p->session},{"id",p->id}});
   },LV_EVENT_ALL,state);
 }
 void App::messageMenu(const std::string &id) {
-  auto rows=db_.query("SELECT output_text FROM chat_messages WHERE session_id=? AND id=? AND role='user'",{session_,id});
+  auto rows=db_.query("SELECT output_text,role FROM chat_messages WHERE session_id=? AND id=? AND role IN ('user','assistant')",{session_,id});
   if(rows.empty())return;
-  closeAttachments();resetPull();input_.cancel();
-  modal("消息","");messageContextId_=id;
-  auto layer=modal_;messageActions_.clear();
-  lv_obj_add_event_cb(layer,[](lv_event_t *e){auto app=static_cast<App *>(lv_event_get_user_data(e));app->messageActions_.clear();app->messageContextId_.clear();},LV_EVENT_DELETE,this);
-  // One action per row. The close control stays visible in the right column.
-  auto list=box(layer,12,42,screen_.width-238,screen_.height-54,theme::surface);
-  lv_obj_set_scroll_dir(list,LV_DIR_VER);
-  const auto text=messageText(rows[0]);
-  const std::vector<std::pair<std::string,std::string>> actions={{"copy","复制"},{"select","选择文本"},{"edit","编辑消息"}};
+  const bool assistant=rows[0].value("role",std::string())=="assistant";
+  const auto text=assistant&&id==assistant_?output_:messageText(rows[0]);
+  auto list=contextMenu("message",assistant?2:3);
+  messageContextId_=id;messageContextText_=text;messageActions_.clear();
+  const int width=lv_obj_get_width(list),rowHeight=layout().portrait()?uiMetrics_.popup().portraitRow:uiMetrics_.popup().row;
+  std::vector<std::pair<std::string,std::string>> actions={{"copy",assistant?"复制全文":"复制"},{"select","选择文本"}};
+  if(!assistant)actions.push_back({"edit","编辑消息"});
   int y=0;
   for(const auto &a:actions) {
-    auto b=button(list,a.second,0,y,screen_.width-254,48,[this,id,key=a.first]{events_.push("message_action",{{"session",session_},{"id",id},{"action",key}});},theme::background,LV_TEXT_ALIGN_LEFT);
-    messageActions_[a.first]=b;y+=54;
+    auto b=button(list,a.second,0,y,width,rowHeight-uiMetrics_.dp(4),[this,id,key=a.first]{events_.push("message_action",{{"session",session_},{"id",id},{"action",key}});},theme::palette().popup,LV_TEXT_ALIGN_LEFT);
+    stylePopupRow(b);messageActions_[a.first]=b;y+=rowHeight;
     if((a.first!="edit"&&text.empty())||(a.first=="edit"&&(generating_||contextBusy_||saveInFlight_||!messageEdit_.empty())))lv_obj_add_state(b,LV_STATE_DISABLED);
   }
 }
@@ -79,24 +78,20 @@ void App::messageEditWarning(const std::string &id) {
   if(mode=="archive"||mode=="overwrite"){beginMessageEdit(id,mode=="archive");return;}
   modal("从这条消息继续", "发送修改后的消息时，这条消息及后续对话将被覆盖。发送前可随时取消；也可以先保留一份归档。");
   auto close=lv_obj_get_child(modal_,-1);lv_label_set_text(lv_obj_get_child(close,0),"取消");
-  const int width=(screen_.width-262)/2;
-  button(modal_,"归档当前聊天并继续",14,screen_.height-66,width,44,[this,id]{events_.push("message_begin",{{"session",session_},{"id",id},{"archive",true}});});
-  button(modal_,"继续",26+width,screen_.height-66,width,44,[this,id]{events_.push("message_begin",{{"session",session_},{"id",id},{"archive",false}});});
+  const int width=(screen_.width-uiMetrics_.dp(262))/2;
+  button(modal_,"归档当前聊天并继续",uiMetrics_.dp(14),screen_.height-uiMetrics_.dp(66),width,uiMetrics_.dp(44),[this,id]{events_.push("message_begin",{{"session",session_},{"id",id},{"archive",true}});});
+  button(modal_,"继续",uiMetrics_.dp(26)+width,screen_.height-uiMetrics_.dp(66),width,uiMetrics_.dp(44),[this,id]{events_.push("message_begin",{{"session",session_},{"id",id},{"archive",false}});});
 }
 void App::messageEditDefaultPicker() {
-  modal("编辑消息", "仅在点击发送时覆盖后续对话。取消编辑不会修改原记录。选择默认处理方式后，编辑前不再询问。");
-  auto selected=db_.settings().value("message_edit_default",std::string("ask"));
-  const std::vector<std::pair<std::string,std::string>> modes={{"ask","每次询问"},{"archive","发送时先归档"},{"overwrite","发送时直接覆盖"}};
-  const int w=(screen_.width-162)/3;
-  for(size_t i=0;i<modes.size();++i) {
-    auto b=button(modal_,modes[i].second,16+i*(w+12),screen_.height-120,w,44,[this,key=modes[i].first]{db_.setting("message_edit_default",key);build();});
-    if(modes[i].first==selected)primary(b);
-  }
+  choiceMenu("message_edit", {{"ask","每次询问"},{"archive","发送时先归档"},{"overwrite","发送时直接覆盖"}},
+    db_.settings().value("message_edit_default",std::string("ask")),
+    [this](const std::string &key){db_.setting("message_edit_default",key);build();});
 }
 void App::beginMessageEdit(const std::string &id, bool archive) {
   if(generating_||contextBusy_||imageStoreBusy_||messageEditBusy_||!messageEdit_.empty())return;
   messageEditArchive_=archive;messageEditToken_=uid("message-edit");
   messageEditOffset_=messageOffset_;messageEditScroll_=chatScroll_;messageEditFollowing_=chatFollowing_;
+  saveDraft();db_.flush();
   messageEditPreferences_=sessionPreferences_;messageEditMemory_=effortMemory_;
   messageEditBusy_=true;
   modal("准备编辑", "正在读取原消息和图片…");
@@ -118,7 +113,7 @@ void App::cancelMessageEdit(bool restore) {
   messageEdit_=Json::object();messageEditImages_=Json::array();messageEditCursors_.clear();
   for(const auto &path:messageEditFiles_) {unlink(path.c_str());unlink((path+".part").c_str());}
   messageEditFiles_.clear();messageEditToken_.clear();
-  sessionPreferences_=messageEditPreferences_;effortMemory_=messageEditMemory_;draft_.clear();
+  sessionPreferences_=messageEditPreferences_;effortMemory_=messageEditMemory_;loadDraft(session_);
   if(restore){messageOffset_=messageEditOffset_;chatScroll_=messageEditScroll_;chatFollowing_=messageEditFollowing_;show("chat");}
 }
 void App::commitMessageEdit() {
@@ -176,7 +171,7 @@ bool App::messageEvent(const Event &e) {
     cancelMessageEdit(false);sessionPreferences_=prefs;effortMemory_=memory;
     if(prefs.value("model_id",std::string())!=messageEditPreferences_.value("model_id",std::string()))db_.selectModel(prefs.value("model_id",std::string()));
     assistant_.clear();output_.clear();reasoning_.clear();reasoningOverrides_.clear();tableScrolls_.clear();
-    messageOffset_=0;chatFollowing_=true;draft_.clear();show("chat");startContext(false);return true;
+    messageOffset_=0;chatFollowing_=true;show("chat");startContext(false,"",false,Json(),true);return true;
   }
   if(e.type=="message_menu") {
     if(view_=="chat"&&visible_&&!keyboard_&&!editor_.active&&!modal_&&!navigationOpen_&&!imageViewer_&&!messageEditBusy_&&e.data.value("session",std::string())==session_)
@@ -186,18 +181,18 @@ bool App::messageEvent(const Event &e) {
   if(e.type=="message_action") {
     const auto id=e.data.value("id",std::string());
     if(!modal_||id!=messageContextId_||e.data.value("session",std::string())!=session_)return true;
-    auto rows=db_.query("SELECT output_text FROM chat_messages WHERE session_id=? AND id=? AND role='user'",{session_,id});
+    auto rows=db_.query("SELECT role FROM chat_messages WHERE session_id=? AND id=? AND role IN ('user','assistant')",{session_,id});
     if(rows.empty())return true;
-    const auto text=messageText(rows[0]),action=e.data.value("action",std::string());
+    const auto text=messageContextText_,action=e.data.value("action",std::string());
     input_.cancel();auto layer=modal_;lv_obj_delete(layer);
     if(action=="copy"){if(editorClipboard_.copy(text)) {
-      auto toast=box(screenObj_,screen_.width/2-70,screen_.height-116,140,44,theme::surface);
-      lv_obj_set_scrollable(toast,false);lv_obj_set_clickable(toast,false);lv_obj_set_style_radius(toast,16,0);
-      auto caption=label(toast,"已复制",8,8,124,20);lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);
+      auto toast=box(screenObj_,screen_.width/2-uiMetrics_.dp(70),screen_.height-uiMetrics_.dp(116),uiMetrics_.dp(140),uiMetrics_.dp(44),theme::palette().surface);
+      lv_obj_set_scrollable(toast,false);lv_obj_set_clickable(toast,false);lv_obj_set_style_radius(toast,uiMetrics_.dp(16),0);
+      auto caption=label(toast,"已复制",uiMetrics_.dp(8),uiMetrics_.dp(8),uiMetrics_.dp(124),uiMetrics_.fontSize(UiFont::SettingsTitle));lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);
       lv_obj_delete_delayed(toast,1200);
     }else modal("无法复制","消息过长，请选择需要的部分复制。");}
     else if(action=="select")selectMessageText(text);
-    else if(action=="edit")messageEditWarning(id);
+    else if(action=="edit"&&rows[0].value("role",std::string())=="user")messageEditWarning(id);
     return true;
   }
   if(e.type=="message_begin") {

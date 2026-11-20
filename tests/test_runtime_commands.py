@@ -7,7 +7,7 @@ from runtime_policy import FORBIDDEN, check_native_payload
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 pattern = re.compile(r'\b(' + '|'.join(sorted(FORBIDDEN)) + r')\s*\(')
 roots = ['native/lvgl-app/src', 'native/camera/src', 'native/scanner/src',
-         'native/launcher/src', 'tests/native']
+         'native/launcher/src', 'native/rescue', 'native/compositor', 'native/web-search', 'tests/native']
 launches = {}
 for root in roots:
     for path in (ROOT/root).rglob('*'):
@@ -24,8 +24,10 @@ for root in roots:
             launches[str(path.relative_to(ROOT))] = sorted(calls)
 assert launches == {
     'native/camera/src/accelerometer.cpp': ['posix_spawn'],
+    'native/compositor/composite_wire.cpp': ['posix_spawn'],
     'native/launcher/src/Launcher.cpp': ['execl', 'fork'],
     'native/lvgl-app/src/scanner.cpp': ['execve', 'fork'],
+    'native/lvgl-app/src/tools.cpp': ['execl', 'fork'],  # Existing isolated web-search executable; fixed path, no shell.
     'tests/native/FeedbackKeysTest.cpp': ['fork'],  # Kill an isolated capture child to verify kernel release; no exec.
     'tests/native/StorageTest.cpp': ['fork', 'fork'],  # Startup-failure and crash-recovery children; no exec.
 }, launches
@@ -39,4 +41,4 @@ for name in ('penchat-lvgl', 'penchat-sensor-guard'):
     check_native_payload((ROOT/'build/host'/name).read_bytes(), name)
 check_native_payload((ROOT/'build/scanner-host/penchat-scanner').read_bytes(), 'scanner')
 check_native_payload((ROOT/'build/host/libjsapi_penchat_launcher.so').read_bytes(), 'launcher')
-print('Runtime command policy: no shell evaluation; only three reviewed native child launch sites.')
+print('Runtime command policy: no shell evaluation; five reviewed application child launch sites.')

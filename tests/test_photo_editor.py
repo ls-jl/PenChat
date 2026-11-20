@@ -2,6 +2,7 @@
 """Fixed crop frame, original-pixel output and rotation-aware multi-pointer editing."""
 import os,pathlib,sqlite3,struct,tempfile,zlib
 from test_lvgl_app import Native,ROOT,wait_for
+from draft_assets import pending_images
 from test_chat_style import snapshot
 from image_gestures import action,drag,pinch,send,start
 import test_lvgl_app as transport
@@ -27,7 +28,18 @@ def run(w,h,angle):
             begin(a,p,angle,iw,ih);s=a.diag();frame=s['crop_selection'];x,y,fw,fh=frame
             assert s['crop_source_rect']==[0,0,iw,ih]
             assert set(s['crop_actions'])=={'cancel','reset','album','confirm'}
-            assert s['crop_viewport'][0]==(h if angle%180 else w)-16
+            if h>w:
+                left,top,right,bottom=s['crop_viewport_bounds'];safe=s['safe_insets']
+                assert left>=safe[0] and top>=safe[1] and right<w-safe[2]
+                for key in ('cancel','reset','confirm'):
+                    b=s['crop_actions'][key]
+                    assert b[0]>=safe[0] and b[2]<w-safe[2] and b[3]<h-safe[3]-12
+                assert bottom<s['crop_actions']['album'][1]
+                assert s['crop_actions']['album'][3]<s['crop_actions']['cancel'][1]
+            else:
+                assert s['crop_viewport'][0]==(h if angle%180 else w)-16
+            transforms=s['camera_transforms']
+            assert transforms=={'preview':angle if w>=h else 0,'workspace':(360-angle)%360 if w>=h else 0,'saved':angle}
             assert abs(fw/fh-iw/ih)<.001
             snapshot(a,f'photo-fit-{w}-{angle}')
             pan=s['crop_pan'];drag(a,x+2,y+2,45,35,True)
@@ -45,7 +57,8 @@ def run(w,h,angle):
             s=a.diag();assert s['crop_pan']==before and s['crop_selection'][2]<fw
             snapshot(a,f'photo-pinch-pan-resize-{w}-{angle}')
             expected=s['crop_source_rect'];action(a,'confirm');wait_for(lambda:a.diag()['view']=='chat')
-            with sqlite3.connect(p/'penchat.db') as db:actual=db.execute('select width,height from message_assets').fetchone()
+            saved=pending_images(p)[-1];actual=(saved['width'],saved['height'])
+            assert pathlib.Path(saved['path']).exists() and not a.read_messages()
             assert actual==tuple(expected[2:]),(actual,expected)
             begin(a,p,angle,iw,ih);s=a.diag();x,y,fw,fh=s['crop_selection']
             drag(a,x+2,y+2,35,25,True);pinch(a,x+fw/2,y+fh/2,distance=40,scale=2,crop=True)
@@ -60,6 +73,6 @@ def run(w,h,angle):
         finally:a.close()
 
 if __name__=='__main__':
-    for w,h in [(960,266),(936,280)]:
+    for w,h in [(960,266),(936,280),(568,1210)]:
         for angle in (0,90,180,270):run(w,h,angle)
-    print('Photo gestures: two screens/four poses, fixed frame, edge resize, pinch IDs, pan, reset, black content and original-pixel crop output passed.')
+    print('Photo gestures: three screens/four poses, fixed frame, edge resize, pinch IDs, pan, reset, black content and original-pixel crop output passed.')

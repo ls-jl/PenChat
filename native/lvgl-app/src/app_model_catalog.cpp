@@ -1,14 +1,17 @@
 #include "app.hpp"
 #include "context.hpp"
+#include "chat_text.hpp"
 #include "icons.hpp"
 #include "model_catalog.hpp"
 #include <stdexcept>
 namespace penchat {
 void App::saveModelForm() {
+  if(modelForm_==modelEditOriginal_)return;
   auto caps = objectField(modelForm_, "capabilities_json");
   const auto previous = caps;
   caps["reasoning"] = modelForm_.at("reasoning");
-  for (const auto &key : {"context_budget", "input_modalities", "vision", "max_input_tokens"})
+  for (const auto &key : {"context_budget", "input_modalities", "vision", "max_input_tokens",
+                          "tool_support", "tool_conditions"})
     if (modelForm_.contains(key)) caps[key] = modelForm_[key];
   if (!caps.contains("context_budget")) caps["context_budget"] = contextBudget(modelForm_);
   if (anthropicProtocol(modelForm_)) {
@@ -33,10 +36,21 @@ void App::saveModelForm() {
       overrides.push_back(key);
   }
   origin["overrides"] = overrides; caps["catalog"] = origin;
-  db_.saveModelSettings(modelForm_.at("id"), caps);
+  const auto name=modelForm_.value("name",std::string());
+  if(!hasChatText(name) || name.find_first_of("\r\n")!=std::string::npos)
+    throw std::runtime_error("请填写有效的模型 ID，不能包含换行");
+  bool found=false;
+  for(const auto &model:providerDraftModels_)if(model.at("id")!=modelForm_.at("id") &&
+      model.at("name")==name)throw std::runtime_error("该服务商下已存在相同的模型 ID");
+  for(auto &model:providerDraftModels_)if(model.at("id")==modelForm_.at("id")) {
+    model["name"]=name;model["display_name"]=modelForm_.value("display_name",name);
+    const bool edited=model.value("workspace_caps_edited",false)||caps!=previous;
+    model["workspace_caps_edited"]=edited;model["capabilities_json"]=caps;found=true;break;
+  }
+  if(!found)throw std::runtime_error("模型草稿已失效，请返回服务商重试");
 }
 void App::modelCapabilityRows(int y) {
-  const int width = layout().contentWidth(), col = (width - 36) / 2, right = col + 26;
+  const int width = layout().contentWidth(), col = (width - uiMetrics_.dp(36)) / 2, right = col + uiMetrics_.dp(26);
   const auto recommendation = modelRecommendation(modelForm_);
   const auto match = recommendation.at("match"), fields = recommendation.at("fields");
   const auto stored = objectField(modelForm_, "capabilities_json");
@@ -62,12 +76,12 @@ void App::modelCapabilityRows(int y) {
   };
   auto row = [&](const std::string &key, const std::string &title, const std::string &detail,
                  int x, int at, std::function<void()> action) {
-    settingsRow("model_" + key, title, detail, x, at, col - 52, std::move(action));
+    settingsRow("model_" + key, title, detail, x, at, col - uiMetrics_.dp(52), std::move(action));
     auto held = std::make_shared<bool>(false);
-    auto object = button(pageContent_, "", x + col - 44, at + 6, 44, 44,
+    auto object = button(pageContent_, "", x + col - uiMetrics_.dp(44), at + uiMetrics_.dp(6), uiMetrics_.dp(44), uiMetrics_.dp(44),
                          [fill, held, key] { if (*held) { *held = false; return; } fill(key); });
-    attachIcon(object, "autofill", theme::text);
-    if(layout().portrait()) {
+    attachIcon(object, "autofill", theme::palette().text, 1.f, uiMetrics_);
+    if(layout().portrait()||layout().compact()) {
       lv_obj_set_user_data(object,settingsControls_.at("model_"+key).row);
       lv_obj_set_floating(object,true);
     }
@@ -86,7 +100,7 @@ void App::modelCapabilityRows(int y) {
       if (code == LV_EVENT_PRESSED) { *h->held = false; h->start = point; h->distance = 0; }
       const int64_t dx = point.x - h->start.x, dy = point.y - h->start.y;
       h->distance = std::max(h->distance, dx * dx + dy * dy);
-      if (code == LV_EVENT_LONG_PRESSED && h->distance <= 144) {
+      if (code == LV_EVENT_LONG_PRESSED && h->distance <= h->app->uiMetrics_.gestures().tapSquared()) {
         *h->held = true;
         h->app->events_.push("catalog_help", {{"id", h->app->modelForm_.value("id", std::string())}});
       }
@@ -94,7 +108,7 @@ void App::modelCapabilityRows(int y) {
     lv_obj_add_event_cb(object, [](lv_event_t *e) { delete static_cast<Help *>(lv_event_get_user_data(e)); }, LV_EVENT_DELETE, help);
   };
   row("context_budget", "最大上下文", std::to_string(value("context_budget").is_number_integer() ? value("context_budget").get<int>() : contextBudget(modelForm_)) + " token · 用于压缩判断",
-      10, y, [this, value] {
+      uiMetrics_.dp(10), y, [this, value] {
     const auto current = value("context_budget");
     edit(current.is_number_integer() ? std::to_string(current.get<int>()) : std::to_string(contextBudget(modelForm_)),
          "最大上下文（1024～2097152）", [this](const std::string &text) {
@@ -117,18 +131,18 @@ void App::modelCapabilityRows(int y) {
     int at = 0;
     for (const auto &choice : {std::make_pair("unknown", "未知"), {"yes", "支持图片"}, {"no", "仅文本"}}) {
       const std::string key = choice.first;
-      button(list, choice.second, 4, at, screen_.width - 145, 44, [this, key, inputs] {
+      button(list, choice.second, uiMetrics_.dp(4), at, screen_.width - uiMetrics_.dp(145), uiMetrics_.dp(44), [this, key, inputs] {
         auto next = inputs.is_array() ? inputs : Json::array({"text"});
         next.erase(std::remove(next.begin(), next.end(), "image"), next.end());
         if (key == "yes") next.push_back("image");
         modelForm_["input_modalities"] = key == "unknown" ? Json() : next;
         modelForm_["vision"] = key == "unknown" ? Json() : Json(key == "yes"); build();
       });
-      at += 48;
+      at += uiMetrics_.dp(48);
     }
   });
   row("max_input_tokens", "最大输入", value("max_input_tokens").is_number_integer() ? value("max_input_tokens").dump() + " token" : "未知 · 可手填",
-      10, y + 64, [this, value] {
+      uiMetrics_.dp(10), y + uiMetrics_.dp(64), [this, value] {
     edit(value("max_input_tokens").is_number_integer() ? value("max_input_tokens").dump() : "", "最大输入 token（留空为未知）", [this](const std::string &text) {
       try {
         if (text.empty()) modelForm_["max_input_tokens"] = nullptr;
@@ -143,7 +157,7 @@ void App::modelCapabilityRows(int y) {
   });
   const auto mode = modelForm_.at("reasoning").value("mode", std::string("off"));
   row("reasoning.mode", "思考模式", mode == "adaptive" ? "自适应" : mode == "budget" ? "固定预算" : mode == "toggle" ? "思考开关 · 无强度档位" : "强度档位 · 手动配置优先",
-      right, y + 64, [this, match] {
+      right, y + uiMetrics_.dp(64), [this, match] {
     std::string detail = match.value("status", std::string()) == "matched" ? "命中：" + match.value("rule", std::string()) : "没有唯一可靠的匹配结果";
     detail += "\n点击右侧填充图标，仅替换对应字段。";
     if (match.contains("sources")) for (const auto &s : match["sources"]) detail += "\n" + s.get<std::string>();
@@ -157,24 +171,35 @@ void App::modelCapabilityRows(int y) {
   for (const auto &key : supportedEfforts(editedModel))
     levels += (levels.empty() ? "" : "、") + effortLabel(key);
   row("reasoning.levels", "支持的强度", levels.empty() ? "无已配置档位" : levels,
-      10, y + 128, [this, levels] { modal("支持的强度", levels.empty() ? "未配置强度档位，可在上方手动选择。" : levels); });
+      uiMetrics_.dp(10), y + uiMetrics_.dp(128), [this, levels] { modal("支持的强度", levels.empty() ? "未配置强度档位，可在上方手动选择。" : levels); });
   row("reasoning.summary", "公开思考总结", modelForm_["reasoning"].value("summary", false) ? "请求总结" : "不请求总结",
-      right, y + 128, [this] { auto &r = modelForm_["reasoning"]; r["summary"] = !r.value("summary", false); build(); });
+      right, y + uiMetrics_.dp(128), [this] { auto &r = modelForm_["reasoning"]; r["summary"] = !r.value("summary", false); build(); });
   row("reasoning.disable", "支持关闭思考", modelForm_["reasoning"].value("disable", false) ? "支持" : "未声明支持",
-      10, y + 192, [this] { auto &r = modelForm_["reasoning"]; r["disable"] = !r.value("disable", false); build(); });
+      uiMetrics_.dp(10), y + uiMetrics_.dp(192), [this] { auto &r = modelForm_["reasoning"]; r["disable"] = !r.value("disable", false); build(); });
+  const auto tools = value("tool_support");
+  settingsRow("model_tools", "工具调用",
+              tools == "supported"     ? "明确支持"
+              : tools == "unsupported" ? "不支持"
+                                       : "自动 · 使用能力匹配",
+              right, y + uiMetrics_.dp(192), col, [this, tools] {
+                modelForm_["tool_support"] = tools == "supported"     ? "unsupported"
+                                             : tools == "unsupported" ? "auto"
+                                                                      : "supported";
+                build();
+              });
   auto &reasoning = modelForm_["reasoning"];
   const auto required = reasoning.value("adapter", std::string("standard"));
   if (required != "standard" && modelAdapter(modelForm_) == required && !anthropicProtocol(modelForm_)) {
     const auto request = reasoning.value("request_mode", std::string());
     settingsRow("thinking_request", "思考开关", request == "enabled" ? "明确开启" : request == "disabled" ? "明确关闭" : "API 默认 · 不发送开关",
-                10, y + 256, col, [this, request] {
+                uiMetrics_.dp(10), y + uiMetrics_.dp(256), col, [this, request] {
       auto &r = modelForm_["reasoning"];
       r["request_mode"] = request.empty() ? "enabled" : request == "enabled" && r.value("disable", false) ? "disabled" : "";
       build();
     });
     if (reasoning.value("budget_supported", false)) {
       settingsRow("thinking_budget", "思考 token 预算", reasoning.contains("token_budget") ? reasoning["token_budget"].dump() : "API 默认 · 不发送预算",
-                  right, y + 256, col, [this] {
+                  right, y + uiMetrics_.dp(256), col, [this] {
         const auto &r = modelForm_["reasoning"];
         edit(r.contains("token_budget") ? r["token_budget"].dump() : "", "思考预算（留空为API默认）", [this](const std::string &text) {
           try {
@@ -188,17 +213,10 @@ void App::modelCapabilityRows(int y) {
   }
 }
 void App::modelAdapterPicker() {
-  modal("厂商参数适配", "自定义中转默认只发标准字段；明确选厂商后才发送它的扩展。不自动重试或切换协议。");
-  auto list = lv_obj_get_child(modal_, 1);
-  lv_obj_clean(list);
-  int y = 0;
-  const auto current = providerForm_.value("model_adapter", std::string("auto"));
-  for (const auto &entry : {std::make_pair("auto", "自动 · 仅信任官方地址"), {"standard", "仅标准参数"}, {"deepseek", "DeepSeek"}, {"qwen", "Qwen"}, {"glm", "GLM"}, {"kimi", "Kimi"}, {"minimax", "MiniMax"}}) {
-    const std::string key = entry.first;
-    button(list, std::string(current == key ? "● " : "○ ") + entry.second, 4, y, screen_.width - 145, 44,
-           [this, key] { providerForm_["model_adapter"] = key; build(); }, theme::surface, LV_TEXT_ALIGN_LEFT);
-    y += 48;
-  }
+  choiceMenu("model_adapter", {{"auto","自动 · 仅信任官方地址"},{"standard","仅标准参数"},
+      {"deepseek","DeepSeek"},{"qwen","Qwen"},{"glm","GLM"},{"kimi","Kimi"},{"minimax","MiniMax"}},
+    providerForm_.value("model_adapter",std::string("auto")),
+    [this](const std::string &key){providerForm_["model_adapter"]=key;build();});
 }
 void App::compressionSettings() {
   const int percent = compressionPercent(db_.settings());

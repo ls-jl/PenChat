@@ -1,0 +1,14 @@
+{
+  system;
+  ioctl;
+  v4l2_dev_open;
+  v4l2_dev_close;
+  init_isp_device;
+  init_vpss_device;
+  init_disp_device;
+  init_dwa_device;
+  CVI_SYS_SetVIVPSSMode;
+  CVI_SYS_SetVPSSModeEx;
+  CVI_SYS_TraceBegin;
+  CVI_SYS_TraceEnd;
+};

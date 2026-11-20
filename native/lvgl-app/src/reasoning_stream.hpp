@@ -25,7 +25,8 @@ class ReasoningStream {
   void item(const Json &value, int index, bool done, int64_t now) {
     if (!value.is_object()) throw std::runtime_error("Invalid output item");
     const auto type = value.value("type", std::string());
-    if (done && (type == "reasoning" || type == "message")) outputItems_[index] = value;
+    if (done && (type == "reasoning" || type == "message" || type == "function_call"))
+      outputItems_[index] = value;
     if (type == "reasoning") {
       if (value.contains("encrypted_content") &&
           value["encrypted_content"].is_string() &&

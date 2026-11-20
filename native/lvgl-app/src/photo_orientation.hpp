@@ -2,11 +2,48 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <string>
 #include <vector>
 namespace penchat {
+// Sensor pose normalizes the saved photo, not the live view. A fixed portrait
+// workspace uses a fixed optical correction, never a changing pose rotation.
+// Landscape workspaces retain their inverse UI transform. Display/touch
+// rotation and optical mounting calibration are separate from these transforms.
+struct PhotoTransforms {
+  int preview = 0, workspace = 0, saved = 0;
+};
+struct PhotoCalibration {
+  int preview, accelerometer, editorImage;
+};
+inline PhotoCalibration photoCalibration(const std::string &boardModel) {
+  const bool y07=boardModel.compare(0, 20, "Rockchip RK3562 Y07 ") == 0 ||
+                 boardModel.compare(0, 11, "RK3562 Y07 ") == 0;
+  // Independent Y07 corrections: preview and editor image anticlockwise 90,
+  // accelerometer clockwise 90. None follows Falcon's rotation fields.
+  return {y07?270:0,y07?90:0,y07?270:0};
+}
+inline int photoPreviewCorrection(const std::string &boardModel) {
+  return photoCalibration(boardModel).preview;
+}
+inline int photoAccelerometerCorrection(const std::string &boardModel) {
+  return photoCalibration(boardModel).accelerometer;
+}
+inline int photoEditorRotation(int pose,int correction) {
+  return (((pose%360)+360)%360+((correction%360)+360)%360)%360;
+}
+inline PhotoTransforms photoTransforms(int pose, bool fixedWorkspace,
+                                       int previewCorrection = 0) {
+  const int angle = ((pose % 360) + 360) % 360;
+  const int correction = ((previewCorrection % 360) + 360) % 360;
+  return {fixedWorkspace ? correction : angle,
+          fixedWorkspace ? 0 : (360 - angle) % 360, angle};
+}
 // Ported from Camera's auto-orientation.js: projected gravity, smoothing and
 // 600 ms stability avoid changing pose on flat placement or a transient shake.
 struct PhotoOrientation {
+  const int angleOffset;
+  explicit PhotoOrientation(int correction=0)
+      : angleOffset(((correction%360)+360)%360) {}
   double x = 0, y = 0, z = 0;
   int candidate = -1;
   int64_t since = 0, last = 0;
@@ -44,6 +81,7 @@ struct PhotoOrientation {
       z += (sz - z) * .45;
     }
     int next = classify(x, y, z);
+    if(next>=0)next=(next+angleOffset)%360;
     if (next < 0 || next == current) {
       candidate = -1;
       return current;

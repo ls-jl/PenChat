@@ -1,6 +1,9 @@
 #pragma once
 
+#include "display_surface.h"
 #include <cstdint>
+#include <array>
+#include <chrono>
 #include <pthread.h>
 #include <string>
 #include <vector>
@@ -34,9 +37,13 @@ public:
     bool ready() const { return fd_ >= 0 && planeId_ != 0; }
     uint32_t planeId() const { return planeId_; }
     uint32_t zpos() const { return zpos_; }
+    std::array<uint64_t,4> stacking();
+    DisplayInfo information() const { return info_; }
+    bool upperOverlay() const { return info_.mode==CompositionMode::UpperOverlay; }
     int crtcWidth() const { return crtcW_; }
     int crtcHeight() const { return crtcH_; }
     std::string lastError() const { return error_; }
+    bool temporarilyUnavailable() const { return temporarilyUnavailable_; }
 
     void setHole(const HoleRect& hole);
     HoleRect hole() const { return hole_; }
@@ -60,14 +67,22 @@ private:
         void* map;
     };
 
+    DisplayInfo info_;
+    bool allowUpper_=false;
+    uint32_t nativeFormat_=0,crtcIndex_=0;
+    uint64_t nativeOriginalZ_=0;
+    std::chrono::steady_clock::time_point probeDeadline_;
+    bool queueVblank();
     bool loadDrm();
     bool pickResources();
     bool allocBuf(DrmBuf* buf, int width, int height);
     void freeBuf(DrmBuf* buf);
-    bool commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int srcH);
+    bool commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int srcH, bool testOnly = false);
     uint32_t findProp(uint32_t objId, uint32_t objType, const char* name, uint64_t* value = 0);
     bool addProp(void* req, uint32_t objId, uint32_t propId, uint64_t value);
     bool ownsCurrentPlane() const;
+    bool finishPendingFlip(bool wait = false, int waitMs = 100);
+    static void flipComplete(int, unsigned, unsigned, unsigned, void* context);
 
     int fd_;
     void* drm_;
@@ -81,6 +96,9 @@ private:
     bool useNv12_;
     bool atomic_;
     bool presented_ = false;
+    bool flipPending_ = false;
+    bool completionFailed_ = false;
+    bool temporarilyUnavailable_ = false;
     HoleRect hole_;
     DrmBuf bufs_[2];
     int cur_;
@@ -98,6 +116,11 @@ private:
     uint32_t propCrtcW_;
     uint32_t propCrtcH_;
     uint32_t propZpos_;
+    uint32_t propOutFence_ = 0;
+    uint32_t hostPlane_ = 0, hostZprop_ = 0;
+    uint64_t hostOriginalZ_ = 0, hostDesiredZ_ = 0;
+    bool hostAdjusted_ = false;
+    bool restoreHostOrder();
 };
 
 void nv12ToBgra(const uint8_t* yPlane, const uint8_t* uvPlane, int width, int height,

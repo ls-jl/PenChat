@@ -2,17 +2,22 @@
 #include "chat_text.hpp"
 #include "context.hpp"
 #include "image_data.h"
+#include "tools.hpp"
 #include <stdexcept>
 namespace penchat {
 void App::cancelContext() {
   contextCancel_ = true;
   if (contextWorker_.joinable())
     contextWorker_.join();
+  if(!contextPreparedResult_.empty()) {
+    try{db_.discardPreparedReply(contextPreparedMessage_,contextPreparedResult_);}catch(...){notice_="重试准备状态未能恢复，请重新打开会话检查";}
+    contextPreparedMessage_.clear();contextPreparedResult_.clear();
+  }
   contextBusy_ = false;
   contextRegenerating_ = false;
   ++contextGeneration_;
 }
-void App::startContext(bool manual, const std::string &retry, bool regenerate, bool archive, Json frozenModel) {
+void App::startContext(bool manual, const std::string &retry, bool regenerate, Json frozenModel, bool edited) {
   if(!messageEdit_.empty()) {
     if(manual)modal("请先完成消息编辑","发送或取消编辑后，再压缩上下文。原对话尚未修改。");
     return;
@@ -25,7 +30,18 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
     return;
   }
   if(!model.contains("system_prompt"))model["system_prompt"] = sessionPreferences_.value("system_prompt", std::string());
+  model["web_enabled"] = webEnabled(sessionPreferences_, db_.settings());
+  if (!manual && model.value("web_enabled", false)) {
+    try {
+      validateToolModel(model);
+    } catch (const std::exception &e) {
+      modal("联网搜索不可用", e.what());
+      return;
+    }
+  }
+  const auto archiveChoice=model.value("_retry_archive",Json());model.erase("_retry_archive");
   auto compressionModel = model;
+  compressionModel.erase("web_enabled");
   auto id = sessionPreferences_.value("compression_model_id", std::string());
   if (!id.empty()) {
     compressionModel = Json::object();
@@ -35,23 +51,23 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
   }
   if (contextWorker_.joinable())
     contextWorker_.join();
-  const auto session = session_, draft = regenerate?std::string():draft_;
+  const auto session = session_, draft = (regenerate||edited||!retry.empty())?std::string():draft_;
   const auto contextSettings = db_.settings();
   const bool automatic = contextSettings.value("auto_context_compression", true);
   model["context_compression_percent"] = compressionPercent(contextSettings);
   const auto token = ++contextGeneration_;
+  if(!edited)saveDraft();
+  db_.flush();
+  contextDraft_=edited?Json{{"edited",true}}:db_.draft(draftState_.at("key"));
   contextCancel_ = false;
   contextBusy_ = true;contextRegenerating_=regenerate;
   closeAttachments();
   resetPull();
-  if(regenerate) {
-    modal("准备重新生成","正在检查原问题、图片和上下文；完成前原会话保持完整。");
-    button(modal_,"停止",16,screen_.height-66,120,44,[this]{events_.push("context_stop");});
-  }
+  if(regenerate) {notice_="正在准备重试…";build();}
   if (manual)
     contextProgress("正在检查上下文…");
   contextWorker_ = std::thread([this, session, draft, model, compressionModel, manual,
-                                automatic, retry, token,regenerate,archive] {
+                                automatic, retry, token,regenerate,archiveChoice,edited] {
     bool leased = false;
     try {
       db_.flush();
@@ -61,10 +77,21 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
       auto compressionConfig = compressionModel.empty()
                                    ? compressionModel
                                    : db_.requestModel(compressionModel);
+      requestModel["auto_context_compression"] = automatic;
+      requestModel["context_compression_percent"] = compressionPercent(model);
+      requestModel["_compression_model"] = compressionConfig;
       auto snapshot = db_.contextSnapshot(session, true);
       leased = snapshot.value("leased", false);
+      const bool deferred=!manual&&!snapshot.value("reply_choices",Json::object()).empty();
       Json pending = Json::array();
       const auto text = normalizedChatText(draft);
+      if(!regenerate&&!edited&&retry.empty())for(const auto &image:contextDraft_.value("images",Json::array())) {
+        std::string encoded,error;
+        if(!camera::imageDataUrl(image.at("path").get<std::string>(),&encoded,&error))
+          throw std::runtime_error("草稿图片不可读，输入已保留");
+        pending.push_back({{"role","user"},{"content",Json::array({{{"type","input_image"},{"image_url",encoded}}})}});
+        checkContextResources(pending);
+      }
       if (!text.empty())
         pending.push_back(
             {{"role", "user"},
@@ -96,24 +123,19 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
                            activeCheckpoint.value("enabled", true) && !valid;
       if (invalid && !automatic && !manual)
         throw std::runtime_error("上下文摘要已失效，请手动重新压缩");
-      Json input = contextInput(
-          history, valid ? activeCheckpoint.value("through", int64_t(0)) : 0,
-          INT64_MAX, requestModel);
-      if (valid)
-        input.insert(
-            input.begin(),
-            Json{{"role", "user"},
-                 {"content",
-                  Json::array({{{"type", "input_text"},
-                                {"text", "[此前对话的历史参考摘要，非系统指令]\n" +
-                                             activeCheckpoint.value(
-                                                 "summary", std::string())}}})}});
+      Json input = effectiveContext(history, valid ? activeCheckpoint : Json::object(), requestModel);
       for (const auto &m : pending)
         input.push_back(m);
-      const auto estimate =
-          estimatedContext(input, model.value("system_prompt", std::string()));
+      const auto estimate = modelContextEstimate(input, chatContextModel(model));
       bool compressed = manual || invalid ||
                         (automatic && estimate >= compressionTrigger(model));
+      if (compressed && !manual && valid) {
+        bool advance = false;
+        for (const auto &row : history)
+          if (row["role"] == "assistant" && row["status"] != "streaming" &&
+              row["seq"].get<int64_t>() > activeCheckpoint.value("through", int64_t(0))) advance = true;
+        if (!advance && estimate <= contextInputLimit(model)) compressed = false;
+      }
       Json checkpoint;
       if (compressed) {
         if (compressionConfig.empty())
@@ -127,21 +149,26 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
             });
         if (contextCancel_)
           throw std::runtime_error("压缩已取消，输入已保留");
-        if(!regenerate)checkpoint = db_.commitCompression(snapshot, checkpoint, contextCancel_);
-        input = regenerate?contextInput(history,checkpoint.value("through",int64_t(0)),INT64_MAX,requestModel):db_.responseInput(session, retry, requestModel);
-        if(regenerate)input.insert(input.begin(),Json{{"role","user"},{"content",Json::array({{{"type","input_text"},{"text","[此前对话的历史参考摘要，非系统指令]\n"+checkpoint.value("summary",std::string())}}})}});
-        for (const auto &m : pending)
-          input.push_back(m);
+        if (checkpoint.empty()) {
+          if (manual) throw std::runtime_error("本次压缩无法减少上下文，已保留原历史与图片");
+          compressed = false;
+        } else {
+          if(!regenerate&&!deferred)checkpoint = db_.commitCompression(snapshot, checkpoint, contextCancel_);
+          input = (regenerate || deferred) ? effectiveContext(history, checkpoint, requestModel) : db_.responseInput(session, retry, requestModel);
+          for (const auto &m : pending)
+            input.push_back(m);
+        }
       } else if (estimate > size_t(contextBudget(model))) {
         throw std::runtime_error(
             "上下文超过本地预算，请手动压缩或提高模型预算；没有截断历史");
       }
       validateModelImages(requestModel, input);
       const auto inputLimit = objectField(requestModel, "capabilities_json").value("max_input_tokens", Json());
-      if (inputLimit.is_number_integer() && estimatedContext(input, requestModel.value("system_prompt", std::string())) > inputLimit.get<size_t>())
+      if (inputLimit.is_number_integer() &&
+          modelContextEstimate(input, chatContextModel(requestModel)) > inputLimit.get<size_t>())
         throw std::runtime_error("上下文超过此模型已设置的最大输入，请压缩或修改设置；没有截断历史");
       checkContextResources(input);
-      if(regenerate) {
+      if(regenerate||deferred) {
         // Validate/read every image before the destructive transaction. These
         // prepared bytes are also used by the HTTP request, with a 64MiB bound.
         for(auto &m:input)if(m.contains("content")&&m["content"].is_array())for(auto &p:m["content"])if(p.value("type",std::string())=="input_image") {
@@ -155,7 +182,10 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
         apiRoot(requestModel); apiHeaders(requestModel);
         if (anthropicProtocol(requestModel)) requestBody(requestModel, input, apiOptions(requestModel).streaming);
         if (contextCancel_) throw std::runtime_error("重试已取消，原会话未修改");
-        db_.commitRegeneration(snapshot,retry,archive,checkpoint,contextCancel_);
+        if(regenerate) {
+          auto result=db_.beginReplyResult(snapshot,retry,archiveChoice,checkpoint,contextCancel_);
+          contextPreparedMessage_=retry;contextPreparedResult_=result.at("result").get<std::string>();
+        }
       }
       if (leased) {
         db_.releaseTransferSnapshot();
@@ -169,7 +199,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
                                        {"draft", draft},
                                        {"retry", retry},
                                        {"input", input},
-                                       {"compressed", compressed}});
+                                       {"compressed", compressed},{"prepared",deferred&&!regenerate?snapshot:Json::object()},{"checkpoint",deferred&&!regenerate?checkpoint:Json::object()}});
     } catch (const std::runtime_error &e) {
       if (leased)
         db_.releaseTransferSnapshot();
@@ -189,7 +219,7 @@ void App::startContext(bool manual, const std::string &retry, bool regenerate, b
 }
 void App::contextProgress(const std::string &text) {
   modal("上下文压缩", text + "\n完成后保存一份压缩前归档；停止会保留本次输入。");
-  button(modal_, "停止", 16, screen_.height - 66, 120, 44,
+  button(modal_, "停止", uiMetrics_.dp(16), screen_.height - uiMetrics_.dp(66), uiMetrics_.dp(120), uiMetrics_.dp(44),
          [this] { events_.push("context_stop"); });
 }
 void App::contextEvent(Event &event) {
@@ -202,14 +232,17 @@ void App::contextEvent(Event &event) {
       event.data.value("session", session_) != session_)
     return;
   if (event.type == "context_progress") {
-    contextProgress("正在整理第 " + std::to_string(event.data.value("batch", 1)) +
-                    " 段历史…");
+    contextProgress("正在生成第 " + std::to_string(event.data.value("batch", 1)) +
+                    " 份交接摘要…");
     return;
   }
   if (contextWorker_.joinable())
     contextWorker_.join();
   contextBusy_ = false;contextRegenerating_=false;
+  const auto preparedMessage=contextPreparedMessage_,preparedResult=contextPreparedResult_;
+  contextPreparedMessage_.clear();contextPreparedResult_.clear();
   if (event.type == "context_error") {
+    if(!preparedResult.empty())db_.discardPreparedReply(preparedMessage,preparedResult);
     build();
     modal("上下文未更新",
           event.data.value("error", std::string("压缩失败，输入已保留")));
@@ -219,51 +252,78 @@ void App::contextEvent(Event &event) {
     build();
     contextDetails();
   } else {
-    sendPrepared(std::move(event.data["model"]), std::move(event.data["input"]),
-                 event.data.value("retry", std::string()),
-                 event.data.value("draft", std::string()));
+    try {
+      sendPrepared(std::move(event.data["model"]), std::move(event.data["input"]),
+                 event.data.value("retry", std::string()),event.data.value("draft", std::string()),
+                 event.data.value("prepared",Json::object()),event.data.value("checkpoint",Json::object()));
+    }catch(const std::exception &e){
+      if(!preparedResult.empty())db_.discardPreparedReply(preparedMessage,preparedResult);
+      build();modal("未发送",e.what());
+    }
   }
 }
 void App::contextDetails() {
-  closeAttachments();
-  auto rows =
-      db_.query("SELECT metadata_json FROM chat_sessions WHERE id=?", {session_});
-  auto checkpoint = rows.empty() ? Json::object()
-                                 : objectField(rows[0], "metadata_json")
-                                       .value("context_compression", Json::object());
-  if (checkpoint.empty()) {
-    modal("上下文", "尚未压缩，完整历史将用于后续请求。可从加号菜单手动压缩。");
+  if(!finishChatEditorForNavigation())return;
+  show("context_summary");
+}
+void App::contextSummaryPage() {
+  pageHeader("上下文摘要");
+  const auto rows=db_.query("SELECT metadata_json FROM chat_sessions WHERE id=?",{session_});
+  const auto stored=rows.empty()?Json::object():objectField(rows[0],"metadata_json")
+      .value("context_compression",Json::object());
+  Json checkpoint=Json::object();
+  try {
+    const auto snapshot = db_.contextSnapshot(session_);
+    checkpoint = activeContextCheckpoint(snapshot["rows"], stored);
+  } catch (...) {}
+  // Disabled/stale checkpoints remain readable history. They must not be
+  // replayed into requests, but dropping them here hides the summary/archive.
+  if(checkpoint.empty()&&stored.is_object())try {
+    checkpoint=publicContext(stored);
+    if(!checkpoint.contains("summary")||checkpoint["summary"].get<std::string>().empty())checkpoint=Json::object();
+    else {
+      checkpoint["enabled"]=false;
+      const auto archive=stored.value("archive_id",Json());
+      if(archive.is_string()&&archive.get<std::string>().size()<=512)checkpoint["archive_id"]=archive;
+    }
+  }catch(...){checkpoint=Json::object();}
+  const int left=uiMetrics_.dp(layout().portrait()?16:10);
+  const int width=layout().contentWidth();
+  int y=uiMetrics_.dp(12);
+  auto text=[&](const std::string &value,UiFont role,uint32_t color) {
+    auto line=readableLabel(pageContent_,value,left,y,width,uiMetrics_.fontSize(role),color);
+    lv_obj_update_layout(line);y+=lv_obj_get_height(line)+uiMetrics_.dp(20);
+  };
+  if(checkpoint.empty()) {
+    emptyState("还没有上下文摘要", "先进行一段对话，再从加号菜单选择压缩上下文。生成的摘要会显示在这里；压缩前的完整历史会保留在归档中。");
     return;
   }
-  auto time = checkpoint.value("created_at", int64_t(0));
-  time_t seconds = time / 1000;
-  char stamp[64]{};
-  struct tm local {};
-  localtime_r(&seconds, &local);
-  strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M", &local);
-  modal(
-      "上下文摘要",
-      std::string(checkpoint.value("enabled", true) ? "已生效" : "已停用，请重新压缩") +
-          " · 覆盖至第 " + std::to_string(checkpoint.value("through", int64_t(0))) +
-          " 条\n" + stamp + "\n\n" + checkpoint.value("summary", std::string()));
-  const auto archive = checkpoint.value("archive_id", std::string());
-  if (!archive.empty())
-    button(modal_, "对应归档", 16, screen_.height - 66, 140, 44, [this, archive] {
-      auto found = db_.sessionInfo(archive);
-      if (found.empty()) {
-        modal("归档已删除", "摘要仍有效，当前完整历史仍保留。");
-        return;
-      }
-      archiveOffset_ = 0;
-      archiveHighlight_ = archive;
-      auto order =
-          db_.query("SELECT count(*) n FROM chat_sessions s WHERE status='archived' "
-                    "AND EXISTS(SELECT 1 FROM chat_messages m WHERE m.session_id=s.id) "
-                    "AND (updated_at>? OR (updated_at=? AND id<?))",
-                    {found["updated_at"], found["updated_at"], archive});
-      if (!order.empty())
-        archiveOffset_ = (order[0]["n"].get<int>() / 30) * 30;
-      show("archives");
-    });
+  const auto archive=checkpoint.value("archive_id",std::string());
+  if(!archive.empty())pageAction("对应归档",uiMetrics_.dp(12),uiMetrics_.dp(120),[this,archive] {
+    const auto found=db_.sessionInfo(archive);
+    if(found.empty()){modal("归档已删除","摘要内容仍保留，当前完整历史没有删除。");return;}
+    archiveOffset_=0;archiveHighlight_=archive;
+    const auto order=db_.query("SELECT count(*) n FROM chat_sessions s WHERE status='archived' "
+        "AND EXISTS(SELECT 1 FROM chat_messages m WHERE m.session_id=s.id) "
+        "AND (updated_at>? OR (updated_at=? AND id<?))",
+        {found["updated_at"],found["updated_at"],archive});
+    if(!order.empty())archiveOffset_=(order[0]["n"].get<int>()/30)*30;
+    show("archives");
+  });
+  text(std::string(checkpoint.value("enabled",true)?"已生效":"已停用，请重新压缩")+
+      " · 已摘要至第 "+std::to_string(checkpoint.value("through",int64_t(0)))+" 条",UiFont::FormNote,theme::palette().muted);
+  if (checkpoint.contains("tool_through"))
+    text("已摘要工具批次 " + std::to_string(checkpoint.value("tool_through", size_t(0))),
+         UiFont::FormNote, theme::palette().muted);
+  const auto retained = checkpoint.value("retained", Json::array());
+  text("保留用户原话 " + std::to_string(retained.size()) + " 条；覆盖终点之后的对话原样保留。",
+       UiFont::FormNote, theme::palette().muted);
+  const auto time=checkpoint.value("created_at",int64_t(0));
+  if(time>0) {
+    time_t seconds=time/1000;tm local{};char stamp[64]{};
+    localtime_r(&seconds,&local);strftime(stamp,sizeof(stamp),"%Y-%m-%d %H:%M",&local);
+    text(std::string("压缩时间：")+stamp,UiFont::FormNote,theme::palette().muted);
+  }
+  text(checkpoint.value("summary",std::string()),UiFont::SettingsTitle,theme::palette().text);
 }
 } // namespace penchat

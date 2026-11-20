@@ -1,11 +1,12 @@
 # Repository Guidelines
 
-PenChat is a native LVGL app for explicit ORANGE, Y02 and Y07 RK3562/AArch64 profiles.
+PenChat shares native LVGL UI/business components across explicit Rockchip/AArch64
+and S6/CV1826/ARMv7 profiles. Hardware backends and payloads are target-isolated.
 Read display geometry/rotation from Falcon, never a device-specific screen fallback.
 The Falcon AMR is a thin launcher with a full-screen hole, system IME and
 lifecycle forwarding. Do not put business UI or networking back into Vue.
 Scanning uses the source-pinned Stream32 backend in native/scanner, with a
-separate C++17 process and explicit ORANGE/Y02/Y07 capture leases. Keep 32/24/8 windowing,
+separate C++17 process and explicit Y01/Y02/Y07/MELON capture leases. Keep 32/24/8 windowing,
 per-frame photometric estimates and bounded memory. Always review scan results
 before appending messages. API Key entry still uses the system pen-tip OCR bridge.
 Do not import legacy stitching engines or research data. The first release supports
@@ -13,11 +14,41 @@ forward paper scans only; reverse motion and dark-screen scans are not validated
 Canvas preview reads run outside the capture loop; keep only bounded latest
 previews and join/cancel readers before releasing scan results.
 
+## RK display compatibility
+
+For every device using the RK DRM backend, prefer the verified ARGB
+native-under-Falcon mode. If its actual capabilities cannot establish that mode,
+try the shared upper RGB path; this is not an X6-only or old-model allowlist.
+Select by primary format/query, order and submission/completion capabilities,
+never by model or resolution. See [docs/DISPLAY-COMPAT.md](docs/DISPLAY-COMPAT.md).
+Only idle planes with verifiable stacking and completion may be used. Legacy
+SetPlane requires vblank retirement before buffer reuse; never silently switch
+submission paths after a failed frame or overwrite another owner's framebuffer.
+Upper overlays require a fresh foreground bootstrap lease and valid window
+focus reporting. They release their display client while system UI covers them,
+retaining the CPU frame and business/model state. Their official IME is full-screen;
+partial official editing remains available on the underlay and existing CVI path.
+Expose the selected mode and probe stage/format/errno in diagnostics. Do not infer
+that an unknown primary is ARGB or replace a concrete failure with exit status 0.
+
+## Device naming
+
+Use **Y01** for the device previously called **ORANGE**; its authorized serial
+remains `MEB0400008900794`. Existing firmware/board IDs or source identifiers may
+retain the old technical name; this naming convention does not change hardware
+profiles or device identity checks.
+
+**Y03WG** is an earlier model that looks similar to **Y07**, but is a separate
+model. Do not infer matching sensors, rotation, rounded-screen geometry or
+hardware backends from their appearance; verify its own configuration before
+reusing an adaptation.
+
 ## Structure
 
 - `native/lvgl-app/`: native UI, Markdown/math, HTTP/SSE, SQLite, images/camera.
 - `native/scanner/`: Stream32 source, isolated worker, hardware lease and row PNG encoding.
 - `native/launcher/`: source-built Falcon launch/IPC bridge.
+- `native/compositor/`: S6 verified Falcon shared-memory/alpha backend.
 - `native/pinyin/`: locked libpinyinime source overlay and resource provenance.
 - `native/camera/`: reused V4L2/DRM/image primitives; no opaque camera libraries.
 - `src/launcher/`: thin AMR page; `assets/images/`: product icons.
@@ -60,7 +91,7 @@ release/cancellation does not rearm the wait. Guarded pulls still translate and
 retract the viewport, with smooth handoff into a 160ms return. Disable LVGL elastic
 overscroll so it cannot compete with that controlled visual movement.
 Freshly entered conversations with content bypass this guard. Empty conversations
-and unsent drafts never enter pull-to-create. The ORANGE pull uses 12px slop plus
+and unsent drafts never enter pull-to-create. The Y01 pull uses 12px slop plus
 155px fill distance (167px total), with 0% sensitivity offset. The new baseline
 is 85% of the prior sensitivity; app-global offsets range from -25% to +25%,
 positive means more responsive. Freeze the offset with geometry at pointer-down. Pulls may start in the composer text entry,
@@ -70,7 +101,12 @@ height relative to 208px. Freeze geometry at pointer-down, excluding resting
 composer space, clipping and viewport translations. Native evdev frames apply tp_direction and touch offsets exactly once; never scale
 spatial gesture thresholds a second time using physical/raw touch dimensions.
 Blank new chats are transient; persist the conversation and active selection
-atomically with the first message. Do not add history rows for unsent drafts.
+atomically with the first message. Chat drafts use independent chat_drafts and
+draft_attachments records: one per existing session and one shared new-chat draft.
+Coalesce confirmed editor text on the DB worker, retain private draft pictures,
+and invalidate old write epochs when a send transaction clears a draft. Every
+new user send also clears the shared new-chat draft. Drafts never create history
+rows or enter chat exports; legacy pending image messages remain readable.
 Chat model selection is per session and also updates the global new-chat default.
 Resolve effort centrally: session override, process-only memory, Provider default,
 then omit the API parameter. Skip unsupported levels, never silently approximate.
@@ -81,9 +117,10 @@ send time. Preserve public reasoning separately from opaque Responses items;
 opaque items may only replay to the same Provider/model, never appear in UI or
 logs. Reasoning headers precede answers, with in-place public-summary expansion.
 No returned reasoning means no header; legacy text without timing stays untimed.
-Explicit api_default effort is a separate slider stop after none; it bypasses
-all inherited defaults and never sends an effort field. Empty effort still means
-inherit settings. Auto-title requests run once after the first assistant completes,
+The effort slider contains only supported explicit levels. The neutral gray gauge
+follows Provider defaults until the user chooses a level. Legacy explicit api_default
+bypasses inherited defaults and never sends an effort field. Empty effort follows
+the Provider default; gauge visibility alone never changes request parameters. Auto-title requests run once after the first assistant completes,
 using its model unless Settings specifies one. Bound titles by both character count
 and 80% of the measured row width. Keep auxiliary work off the UI thread and
 coalesce its stream snapshots. Apply results only to the original session/token;
@@ -93,16 +130,37 @@ an LVGL long-press callback: enqueue an event and handle it on the next UI tick.
 Provider edits must update the existing row and retain model IDs/history links.
 OCR results require user review and explicit Provider save; never log raw keys.
 Unregister system OCR on cancel, timeout, background, bridge failure and unload.
+Y07 docked editing returns camera/light/guardian ownership to system OCR and
+keeps a nonexclusive scanner pen-key reader. Before releasing its exclusive grab,
+the launcher snapshots and filters only KEY134 on its own led_control evdev
+clients using EVIOCGMASK/EVIOCSMASK; never mask CaptureFrame, Home or other keys.
+CaptureFrame must still receive real pen edges to drive lamp and frame acquisition.
+Forward matched edges to the current OCR session through named, already loaded
+engine entry points, then reassert text mode (the vendor press forces image mode).
+Restore every original host-client mask and close retained fds on editor close,
+official IME, background, IPC EOF or native exit. Unsupported masking must reject
+handoff rather than expose the home image-preview handler. Do not poll an idle
+released scanner at keyboard frequency.
 
 ## Builds and checks
 
 Read README.md for toolchain prerequisites. `npm run build:host` builds host tests;
 `npm run build:native` cross-builds the executable and launcher; `npm test` runs
-bridge, native and actual-process integration tests. Run `npm run check` and
-`npm run build:prod` before delivery. `check` currently reports optional cnpm.
-For runtime/camera/display changes test on ORANGE serial MEB0400008900794.
-Device test helpers use real touchscreen events. Authorized targets are ORANGE
-MEB0400008900794, Y02 MEA2300009007113 and Y07 7G12000010905426; do not target other devices.
+bridge, native and actual-process integration tests. During development, run only
+checks relevant to the change; do not run the full regression/sanitizer suite or
+production packaging for every request. Run `npm run check`, full release checks
+and `npm run build:prod` when the user explicitly requests a new release.
+`check` currently reports optional cnpm. For runtime/camera/display changes,
+use targeted Y01 verification when necessary; do not automatically run device
+test flows for each change. Automatic development installation follows the policy below.
+Device test helpers use real touchscreen events. Authorized targets are Y01
+MEB0400008900794, Y02 MEA2300009007113, Y07 7G12000010905426 and S6
+JDA0700006552216. Do not target unlisted devices.
+The user has resumed Y02/113 access. After application changes, build the relevant
+development payloads and automatically install to online Y02 MEA2300009007113,
+Y07 7G12000010905426 and S6 JDA0700006552216 without asking again. Preserve user
+data and pending input where possible; report offline targets as not installed.
+This installation policy does not authorize automatic full tests or releases.
 Do not restart the system MiniApp host or overwrite user data to bypass failures.
 Device chat acceptance snapshots/restores the DB and uses only fake local keys.
 
@@ -110,16 +168,62 @@ Keep credentials, data, screenshots, research, downloads, toolchains and build
 artifacts out of Git. `.deps`, `build`, `.work`, `libs`, `.falcon_`, `dist`,
 `assets/bin`, `assets/microtex`, `assets/licenses` are generated/ignored. Record
 source hashes in the dependency lock and preserve license notices. Runtime native
-changes must regenerate/stage their binaries; never hand-edit generated files.
+changes must regenerate/stage their binaries before packaging or installation;
+source-only development does not require rebuilding all binaries. Never hand-edit generated files.
 HaaS UI shell/IME reference: /persistent/home/ls-jl/dictpen/haasui-docs.
 
 PenChat is an independent application. Never read external application databases or Storage. The album may read the shared system photo directory /userdisk/Pictures; never modify its originals. Identity comes from package.json. New installs start without providers or messages.
 
-Every delivered fix increments the package patch version (0.1.0 → 0.1.1 → 0.1.2). Keep package-lock root metadata in sync; build identity and AMR filename derive from package.json.
+## Downgrade bootstrap
 
-Commit every completed change to Git after validation. Each delivered fix also increments the patch version; never claim uncommitted work is committed.
+Read [docs/DOWNGRADE.md](docs/DOWNGRADE.md) for the independent Falcon failure page.
+Every AMR carries exactly one rescue SO in each standard `libs/arm/` and `libs/arm64/`
+directory. This is the sole dual-ABI exception; normal binaries and hardware payloads
+remain target-isolated. Never restore a root or SKU auto-loaded main launcher.
+The main runtime is a verified lazy-loaded asset with a versioned factory. Rescue
+backup/install/report work stays off the JS/UI thread and must not depend on LVGL,
+media, NPU or a working DB. Server mutations only affect the authorized downgrade
+catalog; historical candidates retain their provenance and candidate labels.
 
-The user authorizes future ORANGE package installation and device testing without asking again. Preserve user data and pending input where possible; never restart the system MiniApp host.
+## Development and release workflow
+
+For server-side application files, update/downgrade packages, synchronization checks
+and feedback logs, read [docs/LOCAL-RELAY.md](docs/LOCAL-RELAY.md) and prefer the local
+relay at `http://localhost:17865/`. Local calls require no SSH password, shared key
+or `Authorization`; the relay owns upstream credentials. `/app/` is authoritative
+on the primary server and asynchronously syncs to the read-only `/standby/app/`.
+Primary and Hong Kong logs are separate at `/logs/primary/` and `/logs/hk/`.
+Ordinary RK updates at `/srv/files/penchat-rk/` use `/penchat-rk/`
+(or `/files/penchat-rk/`); `/standby/penchat-rk/` is read-only. Do not put
+ordinary updates under `/app/penchat-rk/`. The dedicated mapped root cannot
+be overwritten/deleted; child file/directory operations retain the relay guards.
+Perform remote mutations only within the current task's authorization; relay access
+does not grant standing release or deletion permission. Keep fetched logs, backups
+and packages in ignored directories.
+
+- Keep ongoing and temporary changes on the local `dev` branch. `main` contains
+  released work; do not merge development into it for each user request.
+- Ordinary development device acceptance is performed by the user. Do not automatically
+  run device test flows, screenshots or performance benchmarks unless the user asks
+  for testing or a Release. Necessary compilation/package identity checks and already
+  authorized installation remain allowed; never describe pending manual checks as passed.
+- Commit completed logical changes locally on `dev` after appropriate targeted
+  verification. Do not automatically push commits, create releases, bump the app
+  version or run the full test suite for ordinary development requests.
+- Only when the user explicitly requests a new release: increment the version once
+  for the accumulated release (or use the user-specified version), keep package-lock
+  root metadata in sync, run full regression/sanitizer/build/package checks and the
+  applicable authorized-device acceptance, then merge `dev` into `main` and push.
+  Do not merge or publish a release with unresolved required checks.
+- Return to `dev` for subsequent development. A release request is not standing
+  authorization to publish each later change. An explicit separate push/test
+  request applies only to its stated scope.
+- Build identity and AMR filename continue to derive from package.json. Report
+  targeted validation and remaining release checks accurately; never claim an
+  uncommitted change is committed or an unpushed commit is pushed.
+
+The user authorizes future Y01 package installation and device testing without asking again. Preserve user data and pending input where possible; never restart the system MiniApp host.
+For authorized device tests, the user explicitly permits discarding unsent editor text, draft and preedit; do not block or ask again merely because characters are present. Continue isolating and restoring saved user data, settings, assets and public transfer files. This does not authorize sending pending input or accessing a device the user has declared unavailable.
 
 Camera captures stay in camera-tmp until crop confirmation. Confirm attaches without auto-send. Persist saveCameraToAlbum; only explicit opt-in creates a new PenChat photo in /userdisk/Pictures. Never alter existing system photos; cancellation and exit discard temporary captures.
 
@@ -134,11 +238,18 @@ sample grants dynamic allocation headroom above max(32MiB, MemTotal/20); allocat
 since the sample spend that headroom. Invalid samples expire after one second.
 Keep allocation/geometry/overflow checks and explicit partial results on pressure.
 Reclaim allocator pages only once processing is quiescent; retain the healthy model.
-Y02 alone continues through 1-7 consecutive missing frames and stops at 8 or more
-(sequence distance >=9); cumulative losses are not this threshold. ORANGE/Y07
-recover only an isolated one-frame forward gap within 35ms and after 16 continuous
-frames. Keep timestamp reset, capture failure and stall guards explicit. Count every
-lost frame, preserve the real stop reason, and never synthesize image pixels.
+All supported boards continue through 1–8 consecutive missing frames and stop at
+9 or more (sequence distance >=10); cumulative losses are not this threshold.
+Keep timestamp reset, capture failure and stall guards explicit. Count every
+lost frame and show a wrapping review warning, preserving the real stop reason;
+never synthesize pixels. MELON requires RK3562 MELON + OV7251 identity, configured
+IR GPIO and discovered led_control key, native 640x480 NV12 via ISP self/main path.
+Use its standard-stream-first startup; only zero frames permits one quick-stream
+retry. Never apply SC2356 quick-only/repeated controls or another board's gain map.
+Scan-result viewing prepares/caches original row-PNG asynchronously and retains
+that result; it never confirms, sends, or disarms through the ordinary viewer path.
+Join/cancel the reader before releasing results on background/disconnect/exit.
+
 
 Reserve the scan guardian/key lease before preparing a cold model, but start
 V4L2 only after asynchronous model open plus one fixed32 warmup has succeeded.
@@ -159,6 +270,17 @@ silently drop a tail. Stable image-supported rotation must remain usable.
 
 Normalize bounded HTTP error text to valid UTF-8 before saving or displaying it; byte truncation can split a multibyte character. Manual retry reuses the latest failed/cancelled/interrupted assistant row, excludes its partial output and reasoning from input, and resets its reasoning metadata. Never retry automatically or duplicate user/image rows.
 
+Schema v3 keeps reply_groups/results/asset_refs separately from the current
+canonical assistant rows. Use effective messages/context snapshots for readers,
+requests, compression, branching and export: later physical rows can be hidden
+but must survive until continuation. Result 1 restores the original tail; new
+results hide it. Only a successfully committed new message fixes choices and
+collects discarded alternatives. The continuation transaction also writes the
+new assistant/request snapshot and any chosen retry/compression archive. Keep
+candidate assets pinned, opaque state identity-scoped, and discarded usage as
+bounded counters. Retry archive prompts default off and only apply to older
+replies; the latest reply always retries directly. See docs/REPLY-CHOICES.md.
+
 Camera/crop surfaces may be quarter-turned without changing the 960×266 bridge/display coordinates. Map custom crop touches through photoPoint exactly once; freeze pose at the shutter and rotate saved RGB pixels once. Crop zoom (1–16×) only changes the view, never the saved pixel geometry; keep preview decoding bounded. The source-built penchat-sensor-guard shares Camera's sensor lock and restores only reporting it enabled, including parent EOF; never modify wake/calibration/frequency settings.
 
 Schema v2 migrations must validate ownership/uniqueness before any data change and
@@ -173,8 +295,10 @@ Private asset deletion is queued transactionally, then collected after commit;
 respect shared references and never follow symlinks or delete system album originals.
 Device tests that swap databases must isolate assets/backup files as well and use
 SQLite backup snapshots for online reads. Shared icon geometry lives in icons.cpp;
-use it for keyboard symbols too. History long-press actions occupy one horizontal
-row with 50px touch height. Nonempty chat content has 8px top padding.
+use it for keyboard symbols too. History long-press actions use a content-sized vertical popup with at least
+44px touch targets; overflow scrolls inside that popup. Highlight the target
+history row while its menu is open; the menu has no title/time header.
+Text-selection actions retain their horizontal row. Nonempty chat content has 8px top padding.
 
 Transfer jobs run outside LVGL. Production transfer root is /userdisk/Favorite/PenChat;
 host tests use a private data directory (PENCHAT_TRANSFER_ROOT is host-only).
@@ -185,10 +309,20 @@ archive paths, actual size/CRC, duplicates and symlinks before preview/commit. D
 preset replacement requires a separate confirmation, both in UI and service. Device
 transfer tests must isolate/restore the public transfer folder as well as DB/assets.
 
-Export persistence defaults to enabled. When disabled, normal native shutdown
+Export persistence defaults to disabled. Preserve explicit saved user choices. When disabled, normal native shutdown
 retires only the public 导出 subtree into private transfer staging before removal;
 keep 导入 and instructions. Background/IME transitions never trigger cleanup. Do not
 restart or access the device while the user says it is unavailable.
+
+Context compression uses the Codex client text-checkpoint algorithm pinned in
+native/lvgl-app/codex-compaction-source.json. Reconstruct requests with the shared
+effectiveContext view: budgeted recent user originals, reference summary, uncovered
+whole turns/tool batches and pending input. Move excess recent turns out of the
+compactor input and retain them verbatim; never discard an old prefix on overflow.
+Only explicit input-window rejection may retry with a smaller complete prefix.
+Tool compaction runs only after a whole batch has returned, protects the current
+question/latest exchange, tracks physical history and tool coverage separately,
+and commits its archive/checkpoint before the next model request. See docs/CONTEXT-COMPRESSION.md.
 
 Context compression is an auxiliary background job. Freeze both model configurations and pending
 input; never truncate history silently. Use ordinary historical reference summaries, never promote
@@ -203,21 +337,74 @@ Never add a device-specific width/height fallback or resolution gate. The native
 message supplies the same dimensions to the AMR. NativeTouch owns all foreground input,
 commits complete type-B SYN_REPORT frames and maps touch rotation/offsets once.
 Do not reintroduce Falcon page touch forwarding, system backpressed completion or
-a touch fallback. Use read-only, nonexclusive fds; close them on background, official
-IME and shutdown. Native left-edge back handles child pages and root exit.
+a touch fallback. Use read-only, nonexclusive fds; close them on background and shutdown.
+Official IME keeps normal native input disabled. A valid foreground portrait IME
+lease may open a read-only channel for the retained reader and current native field: freeze the
+visible native area at pointer-down, exclude composer-origin touches and the
+system top edge, and accept only single-contact vertical scrolling. Captured
+drags may cross the old reader bounds. Bounded release inertia must stop on
+retouch, geometry change, panel/background, cancellation or keyboard exit;
+never dispatch system keys, reject keyboard-origin and multi-contact gestures,
+and close/reset the fd before returning to normal native input. A stationary single-contact
+release may activate a visible composer control: plus opens a locally scrolling popup
+above the official keyboard without closing editing. Route only popup-origin contacts
+in the visible native region; system-keyboard contacts never dismiss/activate it.
+Send/effort and popup choices that leave editing require the current proxy commit
+acknowledgement with matching request/action/session identities before queued UI
+dispatch; Stop and return-to-bottom preserve official editing. Docked official editing
+is live: dismissal keeps the latest proxy text; errors recover that text into the
+native editor. Never restore the pre-opening snapshot on docked dismissal. Legacy
+full-screen official editors retain explicit confirm/cancel semantics. Reject moved,
+cancelled, duplicate and stale actions. Unacknowledged system-key contacts must retain
+official input and request candidate selection/confirmation, never silently discard
+preedit or borrow the vendor decoder. Kernel contact timestamps and actual proxy input
+events order acknowledgement; cursor heartbeats do not acknowledge text.
+Docked official text gestures belong to the native editor: retain the focused Falcon
+connection at a noninteractive edge point, never give both fields the same touch area.
+Use existing grapheme/selection geometry, and synchronize explicit cursor/text edits
+through request and monotonic edit identities. Reject stale base text. Clipboard data
+stays in PenChat; do not read a system clipboard or vendor decoder. Native selections
+replace only actual committed system input, never unconfirmed phonetics. A single tap
+at the current collapsed caret opens the shared edit menu, including empty fields,
+on every native keyboard layout. Keep UTF-16
+bridge offsets separate from native codepoint/grapheme indices.
+Native left-edge back handles child pages and root exit.
+Use shared BackGeometry with an origin edge of at least the common 44 logical-pixel
+touch target; preserve existing slop, travel, timing and focus cancellation rules.
+Y07's system panel can open without page onHide or loss of window focus. Observe
+both $am focus and the existing Falcon panel's exported read-only visibility;
+yield the DRM plane and native touch fd through window.focus, without pretending
+the page has exited. Preserve drawers, composition, reading position and owned
+scan results. Only native touch messages enter top-edge gesture arbitration;
+interleaved panel/lifecycle/exit packets must always pass. See docs/SYSTEM-OVERLAYS.md.
 Use EditorLayout for keyboard controls, decorations and touch bounds. Test fixtures may
 specify explicit resolutions; camera sensor capture sizes are independent of display sizes.
+Caret hit testing resolves the nearest grapheme insertion boundary, including after
+the rightmost glyph. Captured horizontal drags may leave the field. Clamp only the
+magnifier bubble to visible editor sides and screen safe bounds; never use its
+clamped coordinates to restrict caret movement.
+At a soft wrap, retain the visual upstream/downstream affinity of the finger's
+row. A horizontal drag beyond a full line must stay drawn at that line end,
+including after release; moving vertically selects another visual row. Keep the
+rendered caret, magnifier and selection handles on that same visual boundary.
 `tests/device/display_config.py --serial <explicit serial>` covers the user-authorized Y02
-and ORANGE display targets using their config and discovered input device. Keep ORANGE
+and Y01 display targets using their config and discovered input device. Keep Y01
 scanner calibration guards even when display/input support expands to another board.
-Y02 is an explicit SC035GS 640×480 profile, not an ORANGE alias. Its neutral
+Y02 is an explicit SC035GS 640×480 profile, not a Y01 alias. Its neutral
 flat-field is separately identified; never substitute the SC2356 gain map. Restore
 the previous V4L2 format before resuming the system capture guardian. Use the shared dynamic system-memory admission for the native-size frame pages;
 no temporary frame spill files are permitted.
 
+Native keyboard key caps accept two-contact rollover by tracking ID, preserving
+press order while each pointer releases or cancels independently. Keep text,
+candidate/control mixed touches and three-contact cancellation separate; never
+route keyboard rollover into LVGL's single-pointer or page-back handling. Preserve
+key objects during typing/results and active touches; repaint only changed text
+and candidate subtrees. Pending space/Done selection must retain subsequent keys
+in bounded order, not reject them because a dictionary query is still pending.
 The native editor owns libpinyinime on one background worker. Never reintroduce the Falcon
 shared decoder, system pinyin imports, symbol borrowing or a fallback bridge for candidates.
-The official text editor remains a manually selected fallback; OCR is independent. Keep
+The official text editor has a direct keyboard action and is also available as 有道输入法 inside the globe long-press menu; ordinary globe taps never cycle into it. The opt-in 默认使用官方键盘 setting routes new editable fields to it and defaults off. Retain the proxy InputConnection during edits; seed its value once, mirror changes to native, and match vendor confirmation by request UUID. OCR is independent. Keep
 26-key Chinese, English and nine-key main layouts separate from number/symbol pages.
 Ordinary globe taps toggle preferred Chinese/English; rapid unedited taps under 2s cycle
 Chinese26/English/Chinese9. Only actual Chinese typing changes the persisted preference.
@@ -235,9 +422,65 @@ Coalesced stream states must also flush while the peer is idle, not only on new 
 
 Anthropic Messages is a separate protocol, never an OpenAI payload fallback. Keep signed/redacted blocks private and replay only completed same-identity messages; include API version and credential revision in that identity. Preserve cumulative usage without double counting and account for uncached/cache-read/cache-write input separately. Auxiliary compaction material is user reference data with original role/status labels, never assistant prefill or elevated system instructions. Unknown model thinking capabilities must remain opt-in.
 
-Y07 portrait uses shared AppLayout and EditorLayout: full-width reader, upper
-editing text and bottom keyboard. Portrait pull distance is based on
-min(unobstructed reader height, reader width/2), frozen at pointer-down.
+Y07 portrait uses shared AppLayout and EditorLayout: full-width reader and a
+docked bottom keyboard retaining the original page. Apply their shared rounded-
+corner safe insets to composer and edge navigation. Portrait letter keys use the
+full width with 4px cap margins; bottom globe/hide controls keep safe insets. Landscape
+geometry stays unchanged. Portrait editing attaches the native textarea directly
+inside the focused original control; never add a second bottom editor. Chat raises
+its existing composer above composition/candidates/actions; form fields retain
+their original location, with long multiline fields expanding in the form. The
+function row stays directly above the keys; globe and hide/finish sit in the lower
+utility row. Chat has only hide (retains draft), while form Cancel still restores
+the original field. The empty portrait composer with keyboard hidden is one 94px row. With text or
+an open keyboard, give text its own full-width region above attachment/gauge/send;
+grow upward to 3x the original height, then scroll. Expanded portrait composers use a
+12px inner inset and bottom-aligned tool row; landscape keeps text between its
+controls, one row for short drafts and at most three complete text lines measured
+from the final font metrics, with local text scrolling for overflow. Overflowing
+composer text gestures never become a chat pull-to-create gesture.
+Its corner radius stays at the single-row radius when growing. Landscape reader
+direction never automatically reveals the composer away from the latest bottom.
+Use the explicit composer shortcut according to its saved automatic/manual/off
+mode; opening it preserves the reading anchor and following state. Compact
+landscape retains the actual-bottom policy with its existing 10px tolerance; an
+explicit shortcut is separate from direction reversal. All composer placement
+paths share this policy. Portrait keeps
+the composer visible. A page-origin downward drag that crosses
+the docked keyboard panel may push it down; release beyond the frozen threshold
+closes editing without sending, otherwise return over 160ms. Key/caret/selection
+drags never dismiss. Lifecycle and multi-touch cancel the push and reset transforms.
+All attachment menus align exactly with the actual composer capsule left edge;
+their bottom extends at least 10px below the capsule bottom. Use natural measured
+width/row height, maximize visible content within the logical screen, and choose
+the feasible vertical position nearest screen center without artificial blank
+height. Overflow scrolls locally. They may cover the composer/keyboard and must
+remain above the retained editor root without committing input. The collapsed portrait
+pill alone keeps 25px around the 44px send circle. Chinese
+composition uses the same row as the official/OCR/clipboard actions; never add
+a separate candidate row in portrait. The borderless globe is 1.5x, below and
+slightly left of comma, centered 3px above the midpoint between the comma key bottom edge and screen bottom.
+Keep the existing grid: latitude ends overlap the outer stroke centre and
+meridians reach its poles without extending beyond the circle.
+The portrait finish and globe pixel centres mirror around the screen centre and
+share a vertical baseline. Portrait finish uses a compact
+borderless 90-degree downward chevron. Docked form content height follows the
+visible reader instead of retaining a full-screen minimum spacer. Switching fields commits the prior
+field (including raw unfinished preedit) once before focusing the next. Retain the
+keyboard root, viewport and top-panel policy during that transfer; compatible
+fields reuse key caps and layout. Replace field-scoped OCR registration without
+releasing scanner ownership; new field IDs reject old OCR/pinyin results. Undo and
+secret visibility stay isolated per field. A non-input action must close a retained
+transfer and clear all pointers/actions into the keyboard it deletes. Cancel
+restores the original value; Provider edits still require explicit Save.
+Native preedit placement follows the actual keyboard view, not the device: Wide and CompactExpanded float composition below candidates, Portrait floats it above candidates, and the dedicated Compact full-width keyboard retains its inline strip with a 4px gap. Reserve the floating band without moving keys or candidate controls; clear composition hides it and restores portrait function controls. Global font size applies to every native UI text role through UiMetrics::sp(), independently of dp geometry and combined with UI scale only once. Key-cap text may shrink only when measured ink cannot fit the complete existing key/hit grid; candidate, composition and menu roles retain the selected text factor. Use native down/up chevrons at one fixed target for candidate expand/collapse. Portrait candidate expansion temporarily replaces the main key area; keep the expand/collapse button at the same candidate-row position and leave the original page visible. Wide landscape expands over its editor; compact full-width expands over keys. Never move the key geometry. Portrait clipboard
+replaces only the keyboard panel; landscape clipboard stays in the right editor. Ordinary
+page scrolling and field focus remain available above the keyboard. Rebind focused
+controls by stable page/field identity after a rebuild; cancel a missing target on
+the next UI tick, never dereference a deleted LVGL control. Portrait pull distance is based on
+min(unobstructed reader height, reader width/2), frozen at pointer-down. Double the
+computed total trigger travel for portrait only; keep its slop/guards/stretch and
+all landscape thresholds unchanged.
 Preserve existing landscape geometry. Model fill buttons stay anchored to their
 field; album grids/archive readers keep their own layout rather than form reflow.
 Y07 SC2356 is an independent 752x440 profile using the driver LED class, never
@@ -249,9 +492,122 @@ quality acceptance. The Y07 GC08A8 main path captures 3264x2448, separately from
 frame; never silently save preview pixels. Camera generation IDs reject late results.
 Do not treat Falcon video_direction as optical camera mounting calibration.
 
-Y07's system RKNN 1.4.0 aborts on the model MaxPool dilations; use only its locked
-private 1.6.0 runtime. Other boards keep system RKNN. Keep the scanner's exported
+Y07's system RKNN 1.4.0 aborts on the model MaxPool dilations. Y01, Y02 and Y07
+use the same hash-locked private RKNN 1.6.0 runtime, librknnrt-rk3562.so, after
+their fixed-input and capture/handoff checks. MELON retains system RKNN pending
+authorized device validation; CVI retains its own device runtime. Keep the scanner's exported
 no-execution system blocker and dynamic-binding test: the vendor import must never
 reach libc's command launcher. Do not remove the blocker or broaden package policy
 beyond the exact runtime hash and the scanner-defined stub. Do not claim seccomp:
 this Y07 kernel does not support the required filter.
+
+Globe holds open the selector for three internal layouts plus the explicit 有道输入法 fallback at 500ms while the finger is
+still down. Cancel the opening key before rebuilding and absorb its release;
+never defer the menu to pointer-up or turn that release into a short tap. Keep
+450ms caret/delete timing unchanged. The list floats just above the globe, with
+one highlighted current layout; never add unavailable reference-image features.
+
+Portrait official IME uses a real Falcon input connection aligned to the existing
+LVGL field, with only the native plane's upper logical region presented while the
+system keyboard occupies the bottom. Mirror reviewed text/caret by request ID;
+keep an edit snapshot for cancellation, never persist previews. Do not hide an IME
+window from inside its own completion callback; defer completion to the next turn.
+Only dismiss the system panel while our app owns the foreground. Do not restore
+system pinyin borrowing or copy its dictionary.
+S6 adaptation is integrated on dev. S6
+JDA0700006552216 is an explicit CV1826/ARMv7 target; reuse the accepted CVI INT8
+bundle and public runtime in place, never load RKNN or copy device libraries into
+the system. Follow docs/S6-ARMV7-DEV.md. Keep the independent s6-armv7 worktree unchanged.
+
+S6 uses the same LVGL pages and keyboard state machine. CompactLandscape defaults
+to a full-width keyboard in Falcon logical coordinates with a 44px input/candidate
+strip; only its optional split editor retains the old local design scaling.
+Keep input, undo, selection, pinyin and OCR in the same session across view changes. Physical panel dimensions and rotation come from Falcon;
+S6 uses native/compositor shared-memory output through Falcon's verified original
+post_fb. Never initialize the old CVI VO display backend or fall back to it on
+an unknown firmware. Rotation occurs once in Falcon; never use touch offsets to
+shift display pixels. The main UI process holds no CVI display descriptors/VMAs;
+scanner mediaHandoff must retain this shared surface. Keep the exact ELF hash and
+slot-ownership gate, bounded ready/release slots, focus epochs and 300ms expiry.
+On app/IPC exit restore the original function and release frames/threads; retain
+only the pinned relay for in-flight calls until the host naturally exits.
+Retain the public-API 4KiB process ION anchor until final exit: the verified libsys
+otherwise frees its last-entry hashmap without resetting its open ION fd.
+S6 capture must start the VPSS consumer before enabling VI output; use full native
+320x240 PAG7920 frames, never the stock downscaled/cropped outputs. CVI media DSOs
+remain on the device, with hash-locked ABI references; do not redistribute them.
+S6's fixed optical paper region is [112,8,160,192] inside that native frame.
+Exclude its stationary white housing and lower dark aperture from BOTH model
+matching and canvas painting. The hardware still captures/validates 320x240;
+copy native pixels from this region without downsampling or colour-based trimming.
+Do not restore whole-frame matching/painting: it registers stationary housing and
+overwrites previously stitched text with white. Other boards keep their full field.
+Use `docs/S6-ARMV7-DEV.md` for target builds and current acceptance limits.
+
+Shared UI uses LayoutClass (portrait, >=3:1 wide landscape, compact landscape). Classify only interpreted Falcon logical geometry; never select hardware by aspect ratio. Compact editor design scaling is isolated in EditorLayout. DisplaySurface false means temporary busy/retry; preserve latest pixels. DRM topRegion retains portrait official IME clipping. S6 SYS, ION anchor and NN stay process-scoped; VB config/init/exit is capture-lease-scoped and exits after VI/ISP/VPSS before stock handback. Failed VB cleanup poisons reuse before pausing the guardian. Keep evidence and remaining paper-quality acceptance in docs/S6-SCAN-RECOVERY.md; merge or ready alone is not proof of recovery.
+
+## Y07 rounded-screen safety: provisional photo estimate
+
+The user's 2026-11-13 photograph shows a strongly rounded active display, not
+just a rounded housing. Approximate perspective correction and four-corner fits
+put the circle-equivalent radius near 18% of the logical short edge (about 100px
+at the observed 568x1210 geometry; allow roughly 95–115px for photographic error).
+This is a visual design estimate, not a measured panel specification, physical
+millimetres, or a device-resolution fallback. Keep the photograph and measurement
+artifacts outside Git.
+
+- For Y07 layout work, use `S = min(logicalWidth, logicalHeight)` from interpreted
+  Falcon configuration. Treat `R = ceil(0.20*S)` as a conservative provisional
+  corner envelope, with an additional content margin `M = ceil(0.015*S)`.
+  At 568x1210 these are R=114px and M=9px, examples only. Do not infer the Y07
+  hardware mask solely from portrait aspect ratio or apply it to other models.
+- Near a top/bottom corner, let `t` be distance from that logical screen edge.
+  For `0 <= t < R`, the left/right content inset is at least
+  `ceil(R - sqrt(R*R - (R-t)*(R-t)) + M)`; outside the corner band use M.
+  Keep content at least M from the top/bottom edge as well. Evaluate the nearest
+  corner of the actual visible content/target, not only its centre. Example
+  insets at t=24/44/72px are 54/34/18px respectively. Existing 24px side/top
+  padding alone is not proof that a control clears the Y07 corner.
+- If a component cannot yet use the curved envelope, use a conservative
+  `ceil(0.08*S)` inset from both adjoining edges for its corner content (46px
+  in the example). This is a corner fallback, not a full-page gutter: retain
+  full-width middle keyboard rows and avoid shrinking all content by R.
+- Apply this check to edge navigation, composer tools, bottom keyboard globe/
+  hide controls, camera/crop/scan confirmation actions, and floating menus or
+  magnifiers. Keep text/icons and at least a 44x44 effective visible touch target
+  inside the safe shape; page backgrounds and image canvases may remain full bleed.
+  Preserve the existing exception allowing selection handles partly off-screen,
+  and never clamp caret movement using the magnifier's safe position.
+- Use logical coordinates after Falcon geometry interpretation; do not apply a
+  second display/touch rotation or raw-resolution scale. Retain this estimate as
+  provisional until a verified panel mask or a physical corner-pattern check is
+  available; a rectangular host screenshot cannot validate physical clipping.
+
+`ScreenSafety` in the shared layout implements this provisional envelope. Pass
+the explicit Y07 capability into page, editor, guide and popup geometry; never
+derive it from portrait dimensions. The keyboard's main grid intentionally keeps
+its original geometry; only edge utilities/floating feedback use the mask.
+Host masked screenshots are QA artifacts, not an additional device display layer.
+
+
+## Shared native colour and popup roles
+
+All business page canvases use pure black. Keep cards/fields separate from the
+page canvas; never infer an arbitrary nested widget's colour from its current
+page name. `theme.hpp` owns page, surface, popup, primary, disabled, selection,
+text and semantic colours. The keyboard canvas retains its independent #212121
+composition role and #111111 base; page black must not change keyboard rendering.
+Long-press operation menus share the globe selector's popup shell and vertical
+rows. Selection/copy/paste menus share its colours/border but retain horizontal
+commands and existing placement. Dialogs and ordinary pickers keep their structure.
+Selected non-keyboard choices use a blue native check, not the white primary role.
+Block code has one code background; only inline code gets a per-span background.
+On Y07, opening Plus retains the exact chat editor, unfinished composition, OCR,
+undo and keyboard. Its first outside touch dismisses the popup and consumes the
+whole contact sequence; it never becomes a keypress or a Send. Model/effort/preset
+choices retain editing; entering another business page completes the old editor
+normally. Do not rebuild keyboard caps or restart OCR just to show/hide a popup.
+
+Provider management lists only Providers, with connection fields above an independent model section in one detail page. Keep a process-local workspace across child editors; all connection/model changes commit together on the DB worker only on explicit whole-page Save. Model management has no default/use selector; preserve preset/session selection. Horizontal balance access is bottom-left on chat, mirrored from History; portrait retains the drawer entry. All balance views use one scrollable popup with one all-provider Refresh and no separate channel labels.
+
+Reasoning disclosure titles are plain text; only the 44px native arrow toggles, rotating with the in-place 180ms content reveal. History footer icons/captions share one hit target and pressed background. Account balance details use a header arrow, never a full-width details action row.

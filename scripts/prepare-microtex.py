@@ -24,4 +24,12 @@ for path in root.rglob('*'):
                                 'if (_raw == nullptr || _rows == 0) return nullptr;')
         updated=updated.replace('int     l = 0, h = _rows;',
                                 'int     l = 0, h = static_cast<int>(_rows) - 1;')
+    if path == root/'core/macro.cpp':
+        updated=updated.replace('for (const auto& i : _commands) delete i.second;\n}',
+                                'for (const auto& i : _commands) delete i.second;\n  _commands.clear();\n}')
+    if path == root/'core/macro_def.cpp' and 'PenchatMacroCleanup' not in updated:
+        # The registry allocates before main, including when startup fails before
+        # RichText exists. Construct its owner in the same TU after the registry
+        # so teardown precedes map destruction. Normal LaTeX release clears it.
+        updated+='\nnamespace {\nstruct PenchatMacroCleanup {\n  ~PenchatMacroCleanup() { tex::MacroInfo::_free_(); }\n};\nstatic PenchatMacroCleanup penchatMacroCleanup;\n}\n'
     if updated != text: path.write_text(updated)

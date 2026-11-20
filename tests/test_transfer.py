@@ -146,7 +146,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-transfer-ui-') as directory:
 shutil.rmtree(fixture['root'])
 print('Transfer: chat/preset roundtrip, credentials exclusion, Markdown, hostile archives, rollback, directory and LVGL flows passed.')
 
-# Persistence is opt-out, survives restart, and never cleans on background/IME.
+# Persistence defaults off; explicit preferences survive restart. Background/IME never cleans.
 with tempfile.TemporaryDirectory(prefix='penchat-transfer-policy-') as directory:
     data=pathlib.Path(directory)
     app=Native(binary,data)
@@ -154,17 +154,29 @@ with tempfile.TemporaryDirectory(prefix='penchat-transfer-policy-') as directory
     wait_for(lambda:(root/'导出/聊天').is_dir())
     exported=root/'导出/聊天/keep.txt';incoming=root/'导入/聊天/keep.md'
     exported.write_text('exported');incoming.write_text('incoming')
+    app.open_settings();assert not app.diag()['settings']['rows']['persistent_exports']['checked']
     app.send('visibility',visible=False);time.sleep(.1)
     assert exported.exists()
     app.send('visibility',visible=True);app.close()
+    assert not (root/'导出').exists() and incoming.exists()
+    app=Native(binary,data)
+    try:
+        wait_for(lambda:(root/'导出/聊天').is_dir())
+        app.open_settings();assert not app.diag()['settings']['rows']['persistent_exports']['checked']
+        app.setting('persistent_exports')
+        with sqlite3.connect(data/'penchat.db') as db:
+            assert json.loads(db.execute("select value_json from app_settings where key='persistent_export_directory'").fetchone()[0]) is True
+        exported.write_text('explicitly retained')
+    finally:app.close()
     assert exported.exists() and incoming.exists()
     app=Native(binary,data)
     try:
-        app.open_settings()
+        app.open_settings();assert app.diag()['settings']['rows']['persistent_exports']['checked']
         app.setting('persistent_exports')
         with sqlite3.connect(data/'penchat.db') as db:
             assert json.loads(db.execute("select value_json from app_settings where key='persistent_export_directory'").fetchone()[0]) is False
-        shot_dir=ROOT/'.work/transfer-ui';time.sleep(.25);app.process.send_signal(signal.SIGUSR1);time.sleep(.25)
+        shot_dir=ROOT/'.work/transfer-ui';shot_dir.mkdir(parents=True,exist_ok=True)
+        time.sleep(.25);app.process.send_signal(signal.SIGUSR1);time.sleep(.25)
         shutil.copy2(data/'lvgl-diagnostic.png',shot_dir/'persistence-off.png')
         app.send('visibility',visible=False);time.sleep(.1)
         assert exported.exists() and incoming.exists()
@@ -179,4 +191,4 @@ with tempfile.TemporaryDirectory(prefix='penchat-transfer-policy-') as directory
         (root/'导出/聊天/again.txt').write_text('again')
     finally:app.close()
     assert not (root/'导出').exists() and incoming.exists()
-print('Export persistence: default on, UI toggle, background retention, clean exit, recreation and import-file preservation passed.')
+print('Export persistence: default off, explicit on/off preserved, background retention, clean exit and import-file preservation passed.')

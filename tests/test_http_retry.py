@@ -41,10 +41,10 @@ with tempfile.TemporaryDirectory(prefix='penchat-retry-') as directory:
             raise
         assert app.process.poll() is None
     def confirm_retry(app):
-        wait_for(lambda:bool(app.diag()['reply_actions']['confirm']))
-        count=len(Handler.requests);s=app.diag();width=(s['width']-262)//2
-        app.tap(84+26+width+width//2,s['height']-44)
-        wait_for(lambda:len(Handler.requests)>count)
+        expected=getattr(confirm_retry,'expected',2)
+        wait_for(lambda:len(Handler.requests)>=expected)
+        confirm_retry.expected=expected+1
+        assert not app.diag()['reply_actions']['confirm']
     app=Native(binary,p)
     try:
         app.tap(908,232);status(app,'error');time.sleep(.15)

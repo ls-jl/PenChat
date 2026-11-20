@@ -4,6 +4,10 @@ import http.server,json,os,pathlib,subprocess,threading
 from anthropic_fixture import Handler,SIGNATURE,REDACTED
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 BINARY=pathlib.Path(os.environ.get('PENCHAT_NETWORK_PROBE',ROOT/'build/host/penchat-network-probe'))
+# streamChat applies the fixed application rules before the Messages encoder
+# appends explicit system-role input. Auxiliary title requests bypass this wrapper.
+from chat_instruction_checks import assert_chat_prompt
+
 def run_suite():
  with http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler) as server:
   threading.Thread(target=server.serve_forever,daemon=True).start();results=[]
@@ -66,12 +70,14 @@ def run_suite():
   img='data:image/png;base64,iVBORw0KGgo='
   inputs=[{'role':'system','content':[{'type':'input_text','text':'TASK-SYSTEM'}]},
           {'role':'user','content':[{'type':'input_text','text':'picture'},{'type':'input_image','image_url':img}]}]
-  end,_,body=run(inputs=inputs);assert end['type']=='done' and body['system']=='CHAT-ONLY\n\nTASK-SYSTEM'
+  end,_,body=run(inputs=inputs);assert end['type']=='done' and body['system'].endswith('\n\nTASK-SYSTEM'),(end,body)
+  assert_chat_prompt(body['system'][:-len('\n\nTASK-SYSTEM')],'CHAT-ONLY')
   assert body['messages'][0]['content'][1]['source']=={'type':'base64','media_type':'image/png','data':'iVBORw0KGgo='}
   replay=[{'role':'assistant','content':[{'type':'thinking','thinking':'public','signature':SIGNATURE}]},{'role':'user','content':'next'}]
   end,_,_=run('401',inputs=replay);assert SIGNATURE not in end['data']['error']
   end,_,_=run(task='title');assert end['type']=='title' and end['data']['text']=='Messages 标题'
   body=Handler.requests[-1][2];assert 'CHAT-ONLY' not in json.dumps(body) and 'thinking' not in body
+  assert body['system'].startswith('[penchat-title]') and 'PenChat_APPLICATION_RULES_V1' not in body['system'],body
   end,_,_=run(model_patch={'provider_metadata':{'api':'anthropic','anthropic':{'auth':'bearer','version':'2026-10-21'}}});assert end['type']=='done'
   end,_,_=run(task='models_pages');assert end['type']=='models_list' and len(end['data']['body']['data'])==2
   print('Anthropic Messages:',len(results),'native protocol/compatibility cases passed; one request per operation (model pagination excepted).')

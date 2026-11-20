@@ -46,3 +46,12 @@ assets/pinyin/
 
 # Native updater packages, tickets, cached notes and unpublished release staging.
 .updates/
+
+# Local prototype delivery archives; source and archive index remain tracked.
+/docs/archives/*.zip
+
+# Target-specific generated Edge Search worker runtime and notices
+/assets/web-search/
+
+# Generated downgrade bootstrap package descriptor
+/assets/rescue/

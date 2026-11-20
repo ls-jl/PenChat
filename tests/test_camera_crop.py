@@ -3,6 +3,7 @@
 import json,os,pathlib,sqlite3,tempfile
 from test_lvgl_app import Native,ROOT,wait_for
 from test_photo_editor import begin
+from draft_assets import pending_images
 from image_gestures import action,drag
 import test_lvgl_app as transport
 transport.port=1
@@ -18,8 +19,9 @@ with tempfile.TemporaryDirectory(prefix='penchat-crop-') as directory:
         x,y,w,h=s['crop_selection'];drag(app,x+2,y+2,45,35,True)
         expected=app.diag()['crop_source_rect'];action(app,'confirm');wait_for(lambda:app.diag()['view']=='chat')
         assert not app.diag()['generating'] and not list(album.iterdir())
-        with sqlite3.connect(p/'penchat.db') as db:row=db.execute('select width,height,stored_path,original_path from message_assets').fetchone()
-        assert row[:2]==tuple(expected[2:]) and pathlib.Path(row[2]).exists() and row[2]==row[3]
+        image=pending_images(p)[-1]
+        assert (image['width'],image['height'])==tuple(expected[2:]) and pathlib.Path(image['path']).exists()
+        assert not app.read_messages() and app.diag()['summary']['sessions']==0
         assert not list((p/'camera-tmp').iterdir())
         app.tap(500,232);request=app.receive('keyboard.open');assert request['text']=='照片说明'
         app.send('keyboard.result',requestId=request['requestId'],confirmed=False,text='');wait_for(lambda:not app.diag()['keyboard'])
@@ -36,6 +38,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-crop-') as directory:
         drag(app,x+2,y+h/2,30,0,True)
         assert app.diag()['crop_source_rect'][0]>0 and app.diag()['view']=='crop'
         action(app,'reset');action(app,'confirm');wait_for(lambda:app.diag()['view']=='chat')
-        with sqlite3.connect(p/'penchat.db') as db:assert db.execute('select width,height from message_assets order by created_at desc limit 1').fetchone()==(2400,32)
+        image=pending_images(p)[-1];assert (image['width'],image['height'])==(2400,32)
+        assert not app.read_messages()
     finally:app.close()
 print('Camera crop: pending-only, full-resolution/long-image output, draft, album opt-in persistence and exit cleanup passed.')

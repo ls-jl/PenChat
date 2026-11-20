@@ -1,0 +1,46 @@
+Edge Search is a native C++ implementation inspired by:
+
+DDGS (deedy5/ddgs), source commit 8e74959
+https://github.com/deedy5/ddgs
+Copyright (c) 2022 deedy5, MIT License.
+The engine request and XPath parsing rules were adapted in part from DDGS.
+The complete upstream license is preserved in licenses/DDGS-MIT.txt.
+
+webserp (PaperBoardOfficial/webserp), source commit e131483
+https://github.com/PaperBoardOfficial/webserp
+Copyright (c) 2026 PaperBoardOfficial, MIT License.
+The asynchronous aggregation interface and some engine parsing rules were
+informed by webserp. The complete upstream license is preserved in
+licenses/webserp-MIT.txt.
+
+Runtime dependencies, supplied by the system rather than vendored here:
+- libcurl (curl license): https://curl.se/docs/copyright.html
+- libxml2 (MIT license): https://gitlab.gnome.org/GNOME/libxml2
+- C++ standard library and the selected TLS/compression dependencies.
+Optional native impersonation backend:
+- curl-impersonate v2.3.2: https://github.com/lexiforest/curl-impersonate
+  Its binary distribution carries curl, BoringSSL, c-ares, compression, IDN
+  and other dependency license texts; preserve those when redistributing it.
+  The optional prepared Buildroot source bundle contains the original upstream
+  archive and nine pinned dependency source archives. Its source inventory and
+  license locations are recorded in tools/impersonate-sources.json; Buildroot
+  legal-info collects the complete bundle, ten upstream license texts and the
+  MIT license for this project's private-namespace build utility (eleven total).
+
+SERP regression fixtures contain brief sanitized result/disclosure excerpts.
+Their source, hashes and review scope are recorded in tests/fixtures/*labels.json.
+Original third-party titles/content retain their authors' ownership; the project
+MIT license applies to the authored implementation and test machinery.
+Redistributors must also comply with the licenses of their chosen system
+libraries and toolchain. Buildroot legal-info tracks those dependencies.
+
+Experimental Bing RSS replay fixtures (bing-rss-musl.xml and
+bing-rss-wrong-br2.xml) retain the upstream copyright and usage text.
+Capture endpoints and scope are recorded in tests/fixtures/bing-rss-captures.txt.
+They are diagnostic third-party data, not content licensed under the project's
+MIT license. HTML remains the default search format; RSS is explicit opt-in.
+
+SQLite WAL HTML regression fixture (tests/fixtures/sqlite-wal-struck.html)
+was captured from https://sqlite.org/wal.html; provenance is in the adjacent
+.txt file. Original site content retains its source ownership/terms; this is
+regression data, not an assertion of project MIT ownership of third-party text.

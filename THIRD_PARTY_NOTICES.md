@@ -87,7 +87,7 @@ SQLite主项目为公有领域，glibc有LGPL义务；设备提供者的分发�
 
 - `native/scanner/engine/include/rknn/rknn_api.h` 原文明确声明专有、保密，要求
   Rockchip 明确书面许可。保留该原文不是获得授权；Git 可见也不等于可自由使用。
-- ORANGE/Y02 使用设备 RKNN 运行库。Y07 从0.2.26起使用包内独立 RKNN 1.6.0（官方提交和SHA-256见扫描依赖锁），以避免固件1.4.0在模型MaxPool算子上中止。该库不覆盖系统文件、不进入Git；本项目仍未取得其使用/再分发授权，不能将可下载或设备已安装视为获授权。
+- ORANGE、Y02、Y07 使用包内独立 RKNN 1.6.0，统一文件名为 `librknnrt-rk3562.so`（官方提交和SHA-256见扫描依赖锁）。该文件与Y07从0.2.26起为规避固件1.4.0 MaxPool中止而使用的运行库内容相同；ORANGE和Y02在固定输入对照及采集交接验证后切换。MELON仍使用设备运行库，等待授权实机验证。该库不覆盖系统文件、不进入Git；本项目仍未取得其使用/再分发授权，不能将可下载或设备已安装视为获授权。
 - `pintu_32.rknn`、`demo_gain.json`、`demo_gain_160x288.f32` 从本地外部资源包准备，
   只记录来源路径和校验值，未取得开源或再分发授权。它们不进入 Git。
 - 本地生产构建仍会包含扫描模型与校准资源。**这样的 AMR 不应作为已获授权的公开
@@ -129,3 +129,25 @@ Android Open Source Project PinyinIME as its origin. PenChat converts spelling/w
 read-only runtime format without adding test-specific frequency weights. Source and generated
 resource hashes are in `native/pinyin/dictionary-lock.json`. No Rime engine or system word library
 is loaded; these are data resources used by the source-built native adapter.
+
+## Edge Search and private web transport
+
+The separately built `penchat-web-search` worker includes Edge Search 0.14.0
+(MIT), including the preserved DDGS and webserp notices; libxml2 2.15.4 (MIT);
+and the source-built, privately namespaced curl-impersonate 2.3.2-edge2 transport.
+Its pinned BoringSSL, curl, c-ares, nghttp2/nghttp3/ngtcp2, zlib, Brotli and Zstd
+source/license inventory is in `native/web-search/upstream/tools/impersonate-sources.json`.
+Full notices are shipped in `assets/web-search/licenses/`. Source and integration
+patch locks live under `native/web-search/`; the component does not change the
+license or unresolved authorization status of any scanning material.
+
+The search worker explicitly uses a bundled Mozilla public root certificate store,
+converted to PEM by curl (MPL-2.0), rather than a build-host or firmware default.
+The unchanged source bundle, dated URL, SHA-256 and source attribution are in
+`native/web-search/trust/`; the full MPL-2.0 text and provenance ship alongside it
+in `assets/web-search/`. Source: https://curl.se/docs/caextract.html.
+This data license does not change the license of PenChat's application code.
+
+## Codex context compaction
+
+The native text checkpoint algorithm is adapted from OpenAI Codex commit `4389a526d51a5a7600e0648436a7142a304f0188`, under Apache-2.0. See `licenses/codex-LICENSE.txt`, `licenses/codex-NOTICE.txt` and `native/lvgl-app/codex-compaction-source.json`. PenChat preserves excluded recent turns, supports its three API protocols, and commits checkpoints with SQLite archives.

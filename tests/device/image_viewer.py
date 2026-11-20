@@ -3,6 +3,7 @@
 import json,shutil,sqlite3,sys,time
 import settings_acceptance as isolated
 import acceptance as d
+from release_lifecycle import background_env
 from chat_acceptance import push
 sys.path.insert(0,str(d.ROOT/'tests'))
 from test_image_viewer import fixture as seed
@@ -55,7 +56,7 @@ def exercise():
     d.adb('for i in 1 2; do /tmp/penchat-ui-tap 243 559 2>/dev/null; done')
     assert d.state()['image_viewer']['zoom']==2
     native=d.pid()
-    d.adb('miniapp_cli start 8080222437664451')
+    background_env(d)
     d.wait(lambda:not d.state()['visible'])
     assert 'allocated by = penchat-lvgl' not in d.adb('cat /sys/kernel/debug/dri/0/state')
     d.adb('miniapp_cli start '+d.APP_ID);d.wait(lambda:d.state()['visible']);time.sleep(.6)

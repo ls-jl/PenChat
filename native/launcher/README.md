@@ -23,6 +23,7 @@ Keyboard IDs are opaque strings; ordinary messages use monotonically increasing 
 | shell → native | `keyboard.result` | matching request ID, confirmed/cancelled, text |
 | native → shell | `ocr.start` / `ocr.cancel` | scoped pen-tip OCR registration / release |
 | shell → native | `ocr.status` / `ocr.result` | matching request ID, completion or generic error; no logging |
+| shell → native | `ocr.capabilities` | read-only interface detection, scoped to the current OCR request and edit session |
 | either | `exit` / `finish` | close native process / request Falcon page finish |
 | native → shell | `booted`, `ready`, `fatal` | startup progress and actionable failure |
 | native → shell | `navigation.state` | ordered sequence, native root and image-workspace state |
@@ -39,11 +40,33 @@ once. Falcon page touch callbacks are not registered. System IME hides the nativ
 plane and releases touch; confirm/cancel restores the view and scroll position.
 SQLite is exclusively written by the native process. The shell does not read external Storage. No API key is included in diagnostic output.
 
-`src/launcher/ocr.js` adapts the system Global OCR signals, registers single-line
-scanMethod=0, and unregisters on completion, cancellation, timeout or page exit.
-It forwards text only into the native editor for review. The standalone native
+`src/launcher/ocr.js` adapts the system Global OCR signals and registers
+scanMethod=0 (single) or 1 (multi). Continuous editor sessions stay registered
+between strokes; cancellation and page exit unregister them. It forwards text
+only into the native editor for review. The standalone native
 pinyin engine owns composition and learning; the official editor is a manual fallback. No image stitching code, OCR models, or extra OCR network service
 are bundled. The Provider database remains native-owned and changes only on Save.
+
+The launcher supplies `init.ocrCapabilities` before the first keyboard opens,
+then rechecks and sends `ocr.capabilities` before each OCR prepare/start. Detection
+only inspects methods and subscribable signals; it never registers or enables a
+scan. Single-line availability requires registration/unregistration, either scan
+open or current-app control, a start signal and a result/completion signal.
+Multiline switching additionally requires `startAlmondMultiScan` and the native
+platform's `multiLineOcr` allowance. S6 remains single-line even if a generic
+bridge happens to expose that method. Missing, malformed or unknown capabilities
+default to a hidden multiline switch in wide, compact/split and portrait layouts.
+On compact full-width keyboards this keeps the existing direct clipboard button.
+
+This is conservative interface detection, not proof that a firmware's OCR engine
+implements multiline recognition: registration-only multiline firmware without
+that setter stays single-line in the UI until an explicit capability is verified.
+Runtime registration/recognition errors do not change the capability decision.
+Late reports must match bridge generation, OCR request and edit session. Withdrawing
+multiline while it is active cancels that registration and waits for its cleanup
+ACK before rearming single-line; editor contents are retained and held key objects
+are not rebuilt. Host coverage: `node --test tests/js/ocr.test.cjs tests/js/launcher.test.cjs`
+and `python3 tests/test_ocr_capabilities.py`.
 
 All foreground pages use one read-only, nonexclusive evdev reader. It discovers a
 DIRECT type-B device, reconstructs slots at SYN_REPORT and preserves release
@@ -98,3 +121,35 @@ leak suppression. Screenshots and device data remain ignored local artifacts.
 
 Full `npm test`, 14 host CTests, AArch64 build and production AMR checks pass.
 The existing `aiot-cli check` advisory recommends optional cnpm; it is unchanged.
+
+Portrait keyboard handoff additionally uses `ocr.prepare` / `ocr.prepared`
+before the existing `ocr.start`. Preparation binds and registers the page route
+without enabling capture. Native switches its Y07 scan child to a key-only lease and enables system OCR only after a
+matching successful acknowledgement. Camera/light/guardian ownership returns to
+the system. Before releasing the scanner's exclusive pen grab, `ocrRoute(true)`
+snapshots and masks only KEY134 on the host process's own led_control clients.
+The scanner keeps a nonexclusive reader; CaptureFrame still receives physical
+edges to light and acquire frames. Matching pen edges call the already loaded
+vendor OCR engine by exported symbol name, then restore text mode using the
+public setter (the vendor press entry forces image mode). This bypasses the
+Y07 home page’s unconditional physical-key image preview without blocking capture.
+`ocrRoute(false)`, native exit and IPC EOF restore original masks and close
+retained descriptors. Unsupported per-client masks reject the handoff. Missing symbols fail
+explicitly with manual/official input available. Keyboard close, background and
+bridge shutdown release the key; healthy scan models remain resident. Continuous replacement retains routing,
+while cancelling old subscriptions/results. Failed preparation temporarily blocks
+pen capture and retains original flags for cancellation/lifecycle restoration.
+S6共享内存合成把输入焦点和底图显示分开：`input.focus.active`只授权原生触摸及
+采集，`displayActive`是仍附着页面的显示租约。控制中心等系统窗口在LVGL之上
+按Alpha合成，失去输入焦点不隐藏LVGL底图。后台、官方键盘、退出及300ms显示
+心跳过期仍回到系统提交路径。该策略仅由支持系统上层合成的DisplaySurface启用，
+直接硬件图层继续沿用失焦隐藏规则。
+
+
+Resident runtime lifecycle: Page detach revokes visibility/input and closes its system editor/OCR
+connections, while the app-scoped native module retains the child. Repeated start with the same
+workspace/data returns reused plus the cached ready/screen descriptor; a different identity is
+rejected. Explicit stop/context destruction still reaps the child. Reattach init resets bridge
+focus sequences and replays metadata without rebuilding the native editor or replaying requests.
+The internal pen.observe/requestId handshake filters only this host's KEY134 clients before a
+nonexclusive observer is enabled. OCR/observer filter leases compose and restore on handback.

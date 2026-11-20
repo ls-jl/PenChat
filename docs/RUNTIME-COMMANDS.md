@@ -75,3 +75,26 @@ never launches a process. A dynamically loaded test library verifies symbol bind
 Real Y07 NPU inference is also checked with this blocker. The firmware does not support
 the attempted seccomp filter; no seccomp protection is claimed. Package symbol policy
 permits only the exact locked vendor artifact and the scanner's defined blocker.
+
+## 0.3.2 发布复核
+
+复核范围扩大到 S6 合成器、随包 Web 搜索代码和 ELF32；两种架构使用同一套
+`tests/runtime_policy.py` 禁止调用策略。安装包不允许带 shell 脚本或 shell 解释器路径，
+拒绝 `popen`、`wordexp`、`execvp`、`execlp`、`posix_spawnp` 等求值／PATH 搜索入口。
+新增合成 ELF32／ELF64 的拒绝测试，覆盖禁止符号、解释器路径和越界节表。
+
+当前自有程序保留五处已审查的直接子进程启动位置：启动桥接、扫描器、Web 搜索、
+传感器守护以及 S6 合成器。它们传递固定程序路径和独立参数，不经 `sh -c` 或 shell。
+S6 合成器两个名为 `system` 的局部互斥锁变量已改为 `systemLock`，避免与 C 的
+`system()` 混淆；锁的作用域与行为不变，适配器来源哈希同步更新。
+
+不能将“无 shell 执行”误写成“没有 system 符号”：
+
+- AArch64 包中的精确哈希锁定 RKNN 库导入 `system`；只允许这个指定产物的该导入。
+- 两种架构的扫描器导出拒绝执行的 `system` 实现；非空请求返回 `-1/ENOTSUP`，
+  不读取或记录命令参数、不启动程序。`scanner-vendor-command-block` 验证动态绑定。
+- 包级检查要求该拒绝实现存在，并仍禁止其他未列入规则的 shell API。
+- 这些结论针对应用自有代码和随包 ELF，不替系统 Falcon、驱动或固件自带 SDK 的内部实现作承诺。
+
+构建脚本、ADB 验收、隔离 HTTP 转发与 DRM 读回工具均为电脑端／测试工具，不进入正式 AMR。
+最终上传包的哈希与逐包复核日志记录在 0.3.2 发布验收记录及忽略的验收目录中。

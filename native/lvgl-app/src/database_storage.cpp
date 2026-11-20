@@ -17,8 +17,8 @@ void Database::detachSharedAssets(const std::string &column, const std::string &
   if (column != "session_id" && column != "message_id")
     throw std::invalid_argument("Invalid asset owner column");
   auto rows = query("SELECT id,metadata_json FROM message_assets WHERE " + column +
-                        "=? AND EXISTS(SELECT 1 FROM message_parts p WHERE "
-                        "p.asset_id=message_assets.id)",
+                        "=? AND (EXISTS(SELECT 1 FROM message_parts p WHERE "
+                        "p.asset_id=message_assets.id) OR EXISTS(SELECT 1 FROM reply_asset_refs r WHERE r.asset_id=message_assets.id))",
                     {id});
   for (const auto &row : rows) {
     auto metadata = objectField(row, "metadata_json");
@@ -33,7 +33,7 @@ void Database::migrate(const std::string &path) {
     return queryOnWorker(sql, Json::array());
   };
   auto version = run("SELECT value FROM schema_meta WHERE key='schema_version'");
-  if (!version.empty() && version[0]["value"] == "2")
+  if (!version.empty() && (version[0]["value"] == "2" || version[0]["value"] == "3"))
     return;
   if (!version.empty() && version[0]["value"] != "1")
     throw std::runtime_error("Unsupported database schema version");
@@ -162,7 +162,7 @@ void Database::migrate(const std::string &path) {
       run("INSERT INTO " + entry.first + "_v2 SELECT * FROM " + entry.first);
       run("DROP TABLE " + entry.first);
       run("ALTER TABLE " + entry.first + "_v2 RENAME TO " + entry.first);
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
       if (entry.first == "chat_messages" && std::getenv("PENCHAT_TEST_PAUSE_MIGRATION"))
         raise(SIGSTOP);
 #endif
@@ -226,7 +226,7 @@ void Database::deferAssetCollection() {
 void Database::collectAssets(bool discover) {
   if (assetLeases_) return;
   // Only immediate, generated children of the private assets directory qualify.
-  const std::regex owned("asset_[0-9]+_[0-9]+\\.[A-Za-z0-9.]+(\\.part)?");
+  const std::regex owned("(asset_[0-9]+_[0-9]+\\.[A-Za-z0-9.]+|web-[a-f0-9]{64}\\.img)(\\.part)?");
   const auto prefix = assetDirectory_ + "/";
   auto safe = [&](const std::string &path) {
     if (path.compare(0, prefix.size(), prefix) != 0)
@@ -263,6 +263,10 @@ void Database::collectAssets(bool discover) {
           break;
         }
         auto path = prefix + entry->d_name;
+        struct stat age{};
+        if (std::string(entry->d_name).compare(0, 4, "web-") == 0 && !lstat(path.c_str(), &age) &&
+            nowMs() / 1000 - age.st_mtime < 600)
+          continue;
         if (std::regex_match(std::string(entry->d_name), owned) && safe(path) &&
             !referenced(path))
           execute("INSERT OR IGNORE INTO asset_gc VALUES(?,?)", {path, nowMs()});
@@ -277,7 +281,7 @@ void Database::collectAssets(bool discover) {
       "SELECT id,stored_path,display_src FROM message_assets a WHERE session_id "
       "IS NULL AND message_id IS NULL AND metadata_json LIKE '%\"_gc_detached\":true%' "
       "AND NOT EXISTS(SELECT 1 FROM message_parts "
-      "p WHERE p.asset_id=a.id) LIMIT 128");
+      "p WHERE p.asset_id=a.id) AND NOT EXISTS(SELECT 1 FROM reply_asset_refs r WHERE r.asset_id=a.id) LIMIT 128");
   if (!detached.empty()) {
     execute("BEGIN IMMEDIATE");
     try {
@@ -443,7 +447,7 @@ Json Database::requestModel(const Json &model) {
     result["api_key"] = rows[0]["api_key"];
     result["base_url"] = rows[0]["base_url"];
     result["headers_json"] = rows[0]["headers_json"];
-    if (anthropicProtocol(result)) {
+    {
       auto metadata = objectField(result, "provider_metadata");
       metadata["credential_revision"] = objectField(rows[0], "metadata_json").value("credential_revision", std::string());
       result["provider_metadata"] = metadata;
@@ -483,8 +487,8 @@ Json Database::messagesBefore(const std::string &session, int64_t before, int li
       query("SELECT m.*,a.stored_path,a.original_path,a.display_src,a.width,a.height "
             "FROM chat_messages m LEFT JOIN message_parts p ON p.message_id=m.id AND "
             "p.part_index=0 LEFT JOIN message_assets a ON a.id=p.asset_id WHERE "
-            "m.session_id=? AND m.seq<? ORDER BY m.seq DESC LIMIT ?",
-            {session, before, std::max(1, std::min(100, limit))});
+            "m.session_id=? AND m.seq<? AND (m.seq<=? OR (m.role='user' AND m.message_type='image' AND coalesce(m.output_text,'')='' AND m.seq>(SELECT coalesce(max(seq),0) FROM chat_messages WHERE session_id=? AND role='assistant'))) ORDER BY m.seq DESC LIMIT ?",
+            {session, before, replyCut(session),session,std::max(1, std::min(100, limit))});
   std::reverse(rows.begin(), rows.end());
   return rows;
 }

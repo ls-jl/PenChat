@@ -5,25 +5,29 @@ TARGET=${1:-host}
 PREFIX="$ROOT/.deps/$TARGET-prefix"
 BUILD="$ROOT/build/http-$TARGET-8.17.0"
 ARGS=()
-if [ "$TARGET" = orange ]; then
-  SDK=${RK_SDK_ROOT:-/home/ls-jl/dictpen/x7pro/android13_sdk/RK3562_Android13.0_SDK}
-  GCC=${JSAPI_TOOLCHAIN_ROOT:-$SDK/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu}
-  SYS="$ROOT/.deps/http-system"
+source "$ROOT/scripts/native-target.sh" "$TARGET"
+if [ "$TARGET" != host ]; then
+  SYS="$ROOT/.deps/http-system-$TARGET"
   mkdir -p "$SYS/include" "$SYS/lib"
   for lib in libssl.so.1.1 libcrypto.so.1.1 libz.so.1; do
-    [ -f "$SYS/lib/$lib" ] || adb -s "${PENCHAT_ADB_SERIAL:-MEB0400008900794}" pull "/usr/lib/$lib" "$SYS/lib/$lib"
+    [ -f "$SYS/lib/$lib" ] || adb -s "$PENCHAT_BUILD_SERIAL" pull "/usr/lib/$lib" "$SYS/lib/$lib"
   done
   cp /usr/include/zlib.h /usr/include/zconf.h "$SYS/include/"
-  if [ ! -f "$ROOT/.deps/openssl-headers/include/openssl/opensslconf.h" ]; then
-    (cd "$ROOT/.deps/openssl-headers"; perl Configure linux-aarch64 no-shared no-tests; make build_generated)
+  OPENSSL_PLATFORM=linux-aarch64
+  [ "$TARGET" != cv1826-s ] || OPENSSL_PLATFORM=linux-armv4
+  if [ ! -f "$ROOT/.deps/openssl-headers-$TARGET/include/openssl/opensslconf.h" ]; then
+    mkdir -p "$ROOT/.deps/openssl-headers-$TARGET"
+    cp -a "$ROOT/.deps/openssl-headers/." "$ROOT/.deps/openssl-headers-$TARGET/"
+
+    (cd "$ROOT/.deps/openssl-headers-$TARGET"; perl Configure "$OPENSSL_PLATFORM" no-shared no-tests; make build_generated)
   fi
-  ARGS=(-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64
-    -DCMAKE_C_COMPILER="$GCC/bin/aarch64-linux-gnu-gcc"
-    -DOPENSSL_INCLUDE_DIR="$ROOT/.deps/openssl-headers/include"
+  ARGS=(-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR="$PENCHAT_BUILD_CPU"
+    -DCMAKE_C_COMPILER="$PENCHAT_BUILD_CC"
+    -DOPENSSL_INCLUDE_DIR="$ROOT/.deps/openssl-headers-$TARGET/include"
     -DOPENSSL_SSL_LIBRARY="$SYS/lib/libssl.so.1.1" -DOPENSSL_CRYPTO_LIBRARY="$SYS/lib/libcrypto.so.1.1"
     -DZLIB_INCLUDE_DIR="$SYS/include" -DZLIB_LIBRARY="$SYS/lib/libz.so.1")
 fi
-cmake -S "$ROOT/.deps/curl" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+cmake -S "$ROOT/.deps/curl" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_INSTALL_PREFIX="$PREFIX" \
   -DBUILD_CURL_EXE=OFF -DBUILD_SHARED_LIBS=OFF -DBUILD_STATIC_LIBS=ON -DBUILD_TESTING=OFF \
   -DCURL_USE_OPENSSL=ON -DCURL_USE_PKGCONFIG=OFF -DCURL_USE_LIBPSL=OFF -DCURL_USE_LIBSSH2=OFF \
   -DUSE_LIBIDN2=OFF -DUSE_NGHTTP2=OFF -DUSE_NGTCP2=OFF -DUSE_QUICHE=OFF \

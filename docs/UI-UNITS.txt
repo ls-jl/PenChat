@@ -1,0 +1,219 @@
+PenChat UI单位与主题审计（开发分支）
+
+单位契约
+- 设计尺寸、视觉位移、留白、边框及空间手势阈值由UiMetrics::dp解析一次。
+- 字号优先使用UiFont角色，原始设计字号用UiMetrics::sp；density、界面和
+  全应用字体倍率组合后取整一次。dp/identity保留几何语义。富文本的相对
+  字号/段距以最终字号计算一次，不对已解析em值再次调用dp或sp。
+- Falcon提供的屏幕尺寸、旋转/offset、NativeTouch坐标、LVGL实际测量坐标、
+  字形命中区、图像固有像素和裁剪源矩形直接传递；禁止再次dp或按raw触摸尺寸缩放。
+- 比率、角度、毫秒、透明度、枚举、字节/像素存储预算、分页数量均不是设计尺寸。
+- UiMetrics::minimumTouchTarget()是44个logical像素的独立无障碍下限；
+  touchTarget(designSize)把设计尺寸和该下限分开表达。不能把minimumTouchTarget
+  再送入dp，也不能把普通文本最小宽度误标为触摸下限。
+- round/alignLogical作用于已解析的浮点logical测量，只完成像素对齐。
+
+本次定向人工复核
+native/lvgl-app/src/ui_metrics.hpp
+native/lvgl-app/src/layout.hpp
+native/lvgl-app/src/editor_layout.hpp
+native/lvgl-app/src/app.cpp（富文本/回复渲染由对应模块审计并集成）
+native/lvgl-app/src/app_ui_scale.cpp
+native/lvgl-app/src/app_crop.cpp
+native/lvgl-app/src/app_image_viewer.cpp
+native/lvgl-app/src/app_image_touch.cpp
+native/lvgl-app/src/keyboard_design.hpp
+native/lvgl-app/src/app_text_selection.cpp
+native/lvgl-app/src/app_messages.cpp
+native/lvgl-app/src/app_replies.cpp
+native/lvgl-app/src/app_context.cpp
+native/lvgl-app/src/platform.cpp
+src/launcher/LauncherPage.vue
+
+具体消除的裸设计值
+- 相册列宽160、缩略图高105及尾部15，与列数/行进距统一使用已解析尺寸。
+- 相机辅助标题的2像素设计缩进、失败/重试/删除弹窗按钮的设计位置与尺寸。
+- 文字选择的边缘留白、手柄中心/大小、选择菜单高度、自动滚动边距与步长。
+- 回复操作的144平方像素点击距离改由gestures().tapSquared()表达。
+- 裁剪边缘命中22的视觉尺寸；保留实际照片和预览坐标原样。
+- 图片查看器的边缘关闭控件使用命名44 logical下限，并同步其位置。
+- pull进度环和裁剪遮罩颜色改为palette语义色；不在业务页嵌入十六进制颜色。
+- 启动页CSS只保留结构；startupDesign是桥建立前100%启动设计，
+  resolvedAppearance统一输出样式。native appearance包已解析的metrics直接进入px，
+  officialInput矩形仍原样使用Falcon logical坐标。启动页不保存业务偏好。
+
+允许保留的数字及理由（审计白名单类别）
+1. 原始设计源：ui_metrics.hpp、keyboard_design.hpp中的设计表定义保留数字。
+   EditorLayout接收resolveKeyboardDesign结果；这些表不直接传到LVGL。
+   LauncherPage.vue的startupDesign只供尚无native appearance包时使用。
+2. 几何比例：ScreenSafety圆角比例、图标icon24坐标/向量、分栏比例、
+   行列数量、图像缩放及256定点倍率；它们按实际边界推导，不是dp常量。
+3. pull_geometry.hpp以实际未遮挡reader高度/208作为冻结的专项手势度量；
+   12/155/18等随该度量统一解析。再套dp会双重改变既定触发距离。
+4. LVGL真实测量：坐标差、line_height、字形rect、inclusive端点的+1/-1、
+   裁剪/纹理tile的128x512块和像素接缝容差不做设计缩放。
+   128x512是缓存/分块粒度，不能因界面缩放改变处理或存储单位。
+5. chat实际bottom容差10 logical保留既有语义；scroll/follow使用实际测量，
+   不把它混入设计留白。输入几何和传感器分辨率不作为界面缩放来源。
+6. 时间/状态：160ms动画、500ms静默、350/450/500ms手势时间、透明度0..255、
+   角度及进度0..100/1000、ID/数量/文件与网络限制都不调用dp。
+7. app.cpp的debugicon固定画布是开发图标检查夹具；tests中的显式屏幕尺寸、
+   触摸像素、图像fixture尺寸是测试数据，不属于生产设计尺寸。
+8. native/camera、native/scanner、native/compositor中的传感器/帧/plane/编码
+   坐标和图像处理参数属于硬件/媒体单位，不参与本次UI尺寸转换。
+
+触摸下限范围与限制
+- 历史长按动作/弹出菜单和已适配的圆角边缘路径使用命名44 logical floor。
+- 低比例时的边缘关闭和选择手柄与菜单在布局中为真实44 logical，未通过
+  全局ext_click_area透明扩张button/icon，避免相邻控件命中重叠。
+- 普通非边缘dp(44)视觉按钮（例如回复工具条、相册翻页和部分表单动作）
+  在75%时仍可能只有33 logical。现有44 logical要求限定于历史动作与圆角边缘；
+  若后续扩展到所有控件，应同时重排bar/row间距和容器高度，不能仅扩大透明命中。
+- 键盘字母键保持既有网格和双触控契约；功能键/圆角边缘下限由解析后的
+  KeyboardDesign与EditorLayout处理，不依赖App通用按钮命中补丁。
+
+后续维护的实际检查项
+- 本文不把运行时raw尺寸、raster缓存尺寸或测试夹具当作未转换设计值。
+- app_image_touch裁剪最小框已解析dp(44)，pinch测量稳定性下限8 logical
+  已命名minimumPinchDistanceLogical；keyboard_design的两处触摸floor已使用
+  touchTarget，富文本最小宽度44已明确为dp设计宽度。
+- 静态复核、C++14独立头文件语法检查及43项launcher测试用于单位契约；
+  完整host矩阵、100%基线及四台隔离设备结果另见.work/ui-unification/validation.json。
+  系统IME只验证打开协议与存活，native缓冲截图不代表系统合成面板。
+
+全目录检索覆盖清单
+以下文件检查UI调用、尺寸运算、颜色入口和手势常量；业务/协议文件即使没有
+视觉尺寸也列出，以区分“已检索无UI项”和“未检查”。人工复核范围见上文。
+native/lvgl-app/src/anthropic.cpp
+native/lvgl-app/src/anthropic_config.hpp
+native/lvgl-app/src/anthropic_stream.hpp
+native/lvgl-app/src/api_config.hpp
+native/lvgl-app/src/api_protocol.hpp
+native/lvgl-app/src/app.cpp
+native/lvgl-app/src/app.hpp
+native/lvgl-app/src/app_anthropic.cpp
+native/lvgl-app/src/app_api.cpp
+native/lvgl-app/src/app_balance.cpp
+native/lvgl-app/src/app_context.cpp
+native/lvgl-app/src/app_context_menu.cpp
+native/lvgl-app/src/app_crop.cpp
+native/lvgl-app/src/app_feedback.cpp
+native/lvgl-app/src/app_history.cpp
+native/lvgl-app/src/app_image_touch.cpp
+native/lvgl-app/src/app_image_viewer.cpp
+native/lvgl-app/src/app_input_target.cpp
+native/lvgl-app/src/app_keyboard.cpp
+native/lvgl-app/src/app_layout.cpp
+native/lvgl-app/src/app_menus.cpp
+native/lvgl-app/src/app_messages.cpp
+native/lvgl-app/src/app_model_catalog.cpp
+native/lvgl-app/src/app_navigation.cpp
+native/lvgl-app/src/app_onboarding.cpp
+native/lvgl-app/src/app_presets.cpp
+native/lvgl-app/src/app_providers.cpp
+native/lvgl-app/src/app_replies.cpp
+native/lvgl-app/src/app_session_info.cpp
+native/lvgl-app/src/app_settings.cpp
+native/lvgl-app/src/app_text_selection.cpp
+native/lvgl-app/src/app_theme.cpp
+native/lvgl-app/src/app_transfer.cpp
+native/lvgl-app/src/app_ui_scale.cpp
+native/lvgl-app/src/app_update.cpp
+native/lvgl-app/src/app_web.cpp
+native/lvgl-app/src/attachment_layout.hpp
+native/lvgl-app/src/balance.cpp
+native/lvgl-app/src/balance.hpp
+native/lvgl-app/src/candidate_rows.hpp
+native/lvgl-app/src/chat_instructions.hpp
+native/lvgl-app/src/chat_text.hpp
+native/lvgl-app/src/chat_time.hpp
+native/lvgl-app/src/common.cpp
+native/lvgl-app/src/common.hpp
+native/lvgl-app/src/composer_shortcut.hpp
+native/lvgl-app/src/context.cpp
+native/lvgl-app/src/context.hpp
+native/lvgl-app/src/database.cpp
+native/lvgl-app/src/database.hpp
+native/lvgl-app/src/database_context.cpp
+native/lvgl-app/src/database_messages.cpp
+native/lvgl-app/src/database_replies.cpp
+native/lvgl-app/src/database_reply_choices.cpp
+native/lvgl-app/src/database_storage.cpp
+native/lvgl-app/src/database_transfer.cpp
+native/lvgl-app/src/editor.hpp
+native/lvgl-app/src/editor_layout.hpp
+native/lvgl-app/src/effort_slider.hpp
+native/lvgl-app/src/empty_state.cpp
+native/lvgl-app/src/empty_state.hpp
+native/lvgl-app/src/feedback.cpp
+native/lvgl-app/src/feedback.hpp
+native/lvgl-app/src/feedback_collect.cpp
+native/lvgl-app/src/feedback_keys.cpp
+native/lvgl-app/src/http_service.cpp
+native/lvgl-app/src/icons.cpp
+native/lvgl-app/src/icons.hpp
+native/lvgl-app/src/images.cpp
+native/lvgl-app/src/images.hpp
+native/lvgl-app/src/input_focus.hpp
+native/lvgl-app/src/keyboard_design.hpp
+native/lvgl-app/src/keyboard_keys.hpp
+native/lvgl-app/src/keyboard_style.hpp
+native/lvgl-app/src/layout.hpp
+native/lvgl-app/src/main.cpp
+native/lvgl-app/src/markdown.cpp
+native/lvgl-app/src/markdown.hpp
+native/lvgl-app/src/markdown_tables.hpp
+native/lvgl-app/src/menu_action.hpp
+native/lvgl-app/src/model_catalog.cpp
+native/lvgl-app/src/model_catalog.hpp
+native/lvgl-app/src/native_touch.cpp
+native/lvgl-app/src/native_touch.hpp
+native/lvgl-app/src/network.cpp
+native/lvgl-app/src/network.hpp
+native/lvgl-app/src/onboarding.cpp
+native/lvgl-app/src/onboarding.hpp
+native/lvgl-app/src/onboarding_3d.cpp
+native/lvgl-app/src/onboarding_3d.hpp
+native/lvgl-app/src/photo_orientation.hpp
+native/lvgl-app/src/pinyin.cpp
+native/lvgl-app/src/pinyin.hpp
+native/lvgl-app/src/platform.cpp
+native/lvgl-app/src/platform.hpp
+native/lvgl-app/src/popup_style.hpp
+native/lvgl-app/src/presets.hpp
+native/lvgl-app/src/pull_geometry.hpp
+native/lvgl-app/src/reasoning.hpp
+native/lvgl-app/src/reasoning_stream.hpp
+native/lvgl-app/src/scanner.cpp
+native/lvgl-app/src/scanner.hpp
+native/lvgl-app/src/scanner_lease.hpp
+native/lvgl-app/src/scanner_ui.cpp
+native/lvgl-app/src/schema.hpp
+native/lvgl-app/src/selection_menu.hpp
+native/lvgl-app/src/tex_cairo.cpp
+native/lvgl-app/src/tex_cairo.hpp
+native/lvgl-app/src/text_gesture.hpp
+native/lvgl-app/src/text_selection_geometry.hpp
+native/lvgl-app/src/theme.hpp
+native/lvgl-app/src/titles.hpp
+native/lvgl-app/src/tool_registry.hpp
+native/lvgl-app/src/tools.cpp
+native/lvgl-app/src/tools.hpp
+native/lvgl-app/src/transfer.cpp
+native/lvgl-app/src/transfer.hpp
+native/lvgl-app/src/transfer_format.cpp
+native/lvgl-app/src/transfer_format.hpp
+native/lvgl-app/src/ui_metrics.hpp
+native/lvgl-app/src/ui_motion.hpp
+native/lvgl-app/src/ui_scale_settings.hpp
+native/lvgl-app/src/update.cpp
+native/lvgl-app/src/update.hpp
+native/lvgl-app/src/update_package.cpp
+native/lvgl-app/src/update_transport.cpp
+native/lvgl-app/src/usage.cpp
+native/lvgl-app/src/usage.hpp
+
+Launcher范围
+src/launcher/LauncherPage.vue
+src/launcher/ocr.js
+src/launcher/update.js

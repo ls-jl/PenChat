@@ -1,14 +1,29 @@
 #include "app.hpp"
-#include "titles.hpp"
 #include "chat_time.hpp"
+#include "titles.hpp"
+#include "tools.hpp"
+#include "ui_motion.hpp"
 #include <algorithm>
 namespace penchat {
+namespace {
+int historyHeight(const UiMetrics &metrics) {
+  return std::max(metrics.dp(44),std::max(
+    int(font(metrics.fontSize(UiFont::SettingsTitle))->line_height)+metrics.dp(18),
+    int(font(metrics.fontSize(UiFont::Detail))->line_height)+metrics.dp(22)));
+}
+}
+void App::refreshChatTitle() {
+  if (!chatTitle_) return;
+  const auto info = db_.sessionInfo(session_);
+  const auto title = info.value("title", std::string());
+  lv_label_set_text(chatTitle_, title.empty()?"新聊天":title.c_str());
+}
 int App::titleWidth() const {
-  return (screen_.width * 2 / 3 - 24 - 48) * 4 / 5;
+  return (screen_.width * 2 / 3 - uiMetrics_.dp(24) - uiMetrics_.dp(48)) * 4 / 5;
 }
 int App::titleLimit() const {
   lv_point_t size;
-  lv_text_get_size(&size, "汉", font(20), 0, 0, LV_COORD_MAX,
+  lv_text_get_size(&size, "汉", font(uiMetrics_.fontSize(UiFont::SettingsTitle)), 0, 0, LV_COORD_MAX,
                    LV_TEXT_FLAG_NONE);
   return std::max(1, titleWidth() / std::max(1, int(size.x)));
 }
@@ -17,7 +32,7 @@ std::string App::fitTitle(const std::string &raw) const {
   auto parts = characters(title);
   while (!parts.empty()) {
     lv_point_t size;
-    lv_text_get_size(&size, title.c_str(), font(20), 0, 0, LV_COORD_MAX,
+    lv_text_get_size(&size, title.c_str(), font(uiMetrics_.fontSize(UiFont::SettingsTitle)), 0, 0, LV_COORD_MAX,
                      LV_TEXT_FLAG_NONE);
     if (size.x <= titleWidth())
       break;
@@ -82,14 +97,26 @@ void App::tickTitles() {
     return;
   }
   std::string question;
+  bool hasImages = false, hasQuestionText = false;
   for (const auto &row :
        db_.query("SELECT output_text,message_type FROM chat_messages WHERE "
                  "session_id=? AND role='user' AND seq<? ORDER BY seq",
                  {id, rows[0]["seq"]})) {
-    if (row["message_type"] == "image")
+    if (row["message_type"] == "image") {
+      hasImages = true;
       question += "[图片提问] ";
-    if (row["output_text"].is_string())
-      question += row["output_text"].get<std::string>();
+    }
+    if (row["output_text"].is_string()) {
+      const auto &text = row["output_text"].get_ref<const std::string &>();
+      const auto first = text.find_first_not_of(" \t\r\n");
+      bool meaningful = first != std::string::npos;
+      if (meaningful && row["message_type"] == "image") {
+        const auto last = text.find_last_not_of(" \t\r\n");
+        if (last - first < 64) meaningful = !genericImageTitle(text.substr(first, last - first + 1));
+      }
+      hasQuestionText = hasQuestionText || meaningful;
+      question += text;
+    }
     question += '\n';
   }
   const auto answer = rows[0]["output_text"].is_string()
@@ -103,11 +130,12 @@ void App::tickTitles() {
   titleBusy_ = true;
   titleCancel_ = false;
   const int limit = titleLimit();
-  titleWorker_ = std::thread([this, job, model, question, answer, limit] {
+  const bool imageOnly = hasImages && !hasQuestionText;
+  titleWorker_ = std::thread([this, job, model, question, answer, limit, imageOnly] {
     std::string title;
     try {
       title =
-          generateTitle(db_.requestModel(model), question, answer, limit, titleCancel_);
+          generateTitle(db_.requestModel(model), question, answer, limit, titleCancel_, imageOnly);
     } catch (...) {
     }
     events_.push("title_result", {{"session", job["session"]},
@@ -117,32 +145,24 @@ void App::tickTitles() {
   });
 }
 void App::historyTimePicker() {
-  modal("历史时间显示","");
-  const auto selected=db_.settings().value("history_time_display",std::string("time"));
-  const char *keys[]={"time","title","off"};
-  const char *names[]={"时间显示优先","会话标题优先","关闭时间显示"};
-  const int width=(screen_.width-162)/3;
-  for(int i=0;i<3;++i) {
-    const std::string key=keys[i];
-    button(modal_,(selected==key?"● ":"○ ")+std::string(names[i]),16+i*(width+12),65,width,52,
-           [this,key]{events_.push("history_time_display",{{"mode",key}});});
-  }
-  label(modal_,"仅影响显示；发送与回复完成时间始终记录",16,130,screen_.width-135,16,theme::muted);
+  choiceMenu("history_time", {{"time","时间显示优先"},{"title","会话标题优先"},{"off","关闭时间显示"}},
+    historyTimeDisplay(db_.settings(),layout().portrait()),
+    [this](const std::string &key){events_.push("history_time_display",{{"mode",key}});});
 }
 void App::historyCaption(lv_obj_t *parent,const Json &session,int x,int y,int width) {
   const auto text=session.value("title",std::string("对话"));
-  const auto mode=db_.settings().value("history_time_display",std::string("time"));
+  const auto mode=historyTimeDisplay(db_.settings(),layout().portrait());
   const auto stamp=mode=="off"?std::string():historyTime(sessionChatTime(session));
   lv_point_t titleSize{},timeSize{};
-  lv_text_get_size(&titleSize,text.c_str(),font(20),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
-  lv_text_get_size(&timeSize,stamp.c_str(),font(16),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
-  const bool show=!stamp.empty() && (mode!="title" || titleSize.x+12+timeSize.x<=width);
-  const int titleWidth=std::max(1,width-(show?timeSize.x+12:0));
-  auto caption=label(parent,text,x,y,titleWidth,20);
-  lv_obj_set_height(caption,26);
+  lv_text_get_size(&titleSize,text.c_str(),font(uiMetrics_.fontSize(UiFont::SettingsTitle)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+  lv_text_get_size(&timeSize,stamp.c_str(),font(uiMetrics_.fontSize(UiFont::Detail)),0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+  const bool show=!stamp.empty() && (mode!="title" || titleSize.x+uiMetrics_.dp(12)+timeSize.x<=width);
+  const int titleWidth=std::max(1,width-(show?timeSize.x+uiMetrics_.dp(12):0));
+  auto caption=label(parent,text,x,y,titleWidth,uiMetrics_.fontSize(UiFont::SettingsTitle));
+  lv_obj_set_height(caption,std::max(uiMetrics_.dp(26),int(font(uiMetrics_.fontSize(UiFont::SettingsTitle))->line_height)));
   lv_label_set_long_mode(caption,mode=="time"?LV_LABEL_LONG_MODE_SCROLL_CIRCULAR:LV_LABEL_LONG_MODE_DOTS);
   lv_obj_t *time=nullptr;
-  if(show) {time=label(parent,stamp,x+width-timeSize.x,y+2,timeSize.x,16,theme::muted);lv_obj_set_height(time,23);}
+  if(show) {time=label(parent,stamp,x+width-timeSize.x,y+uiMetrics_.dp(2),timeSize.x,uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);lv_obj_set_height(time,std::max(uiMetrics_.dp(23),int(font(uiMetrics_.fontSize(UiFont::Detail))->line_height)));}
   historyCaptions_[session["id"].get<std::string>()]={caption,time};
   auto owner=new std::pair<App *,std::string>(this,session["id"].get<std::string>());
   lv_obj_add_event_cb(caption,[](lv_event_t *e) {
@@ -155,7 +175,7 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
   const auto id = session["id"].get<std::string>();
   auto row = button(
       parent, "", 0, y,
-      width, 44,
+      width, historyHeight(uiMetrics_),
       [this, id] {
         if(replyBusy_||contextRegenerating_)return;
         if (longPressedSession_ == id)
@@ -165,6 +185,7 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
           stopNetwork();
           session_ = id;
           sessionPreferences_ = db_.sessionPreferences(id);
+          sessionPreferences_["web_enabled"] = webEnabled(sessionPreferences_, db_.settings());
           expandedReasoning_.clear();
           reasoningOverrides_.clear();
           tableScrolls_.clear();
@@ -176,14 +197,16 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
         }
         show("chat");
       },
-      id == session_ ? theme::surface : theme::sidebar, LV_TEXT_ALIGN_LEFT);
+      id == session_ ? theme::palette().surface : theme::palette().sidebar, LV_TEXT_ALIGN_LEFT);
   auto caption = lv_obj_get_child(row, 0);
+  if(id==session_)lv_obj_add_state(row,LV_STATE_CHECKED);
   lv_obj_set_hidden(caption,true);
   const bool pinned=objectField(session,"metadata_json").value("pinned_at",int64_t(0))>0;
-  historyCaption(row,session,24,9,width-48-(pinned?28:0));
+  historyCaption(row,session,uiMetrics_.dp(24),uiMetrics_.dp(9),width-uiMetrics_.dp(48)-(pinned?uiMetrics_.dp(28):0));
   if (pinned) {
-    icon(row, "pin", width - 34, 8, 28, 28, {},
-         id == session_ ? theme::surface : theme::sidebar, theme::muted);
+    auto pin=icon(row, "pin", width - uiMetrics_.dp(34), uiMetrics_.dp(8), uiMetrics_.dp(28), uiMetrics_.dp(28), {},
+         id == session_ ? theme::palette().surface : theme::palette().sidebar, theme::palette().muted);
+    lv_obj_set_style_bg_opa(pin,LV_OPA_TRANSP,0);
   }
   historyRows_.push_back({id, row});
   struct Press {
@@ -217,7 +240,7 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
         }
         int dx = point.x - data->start.x, dy = point.y - data->start.y;
         data->distance = std::max(data->distance, dx * dx + dy * dy);
-        if (code == LV_EVENT_LONG_PRESSED && data->distance <= 144) {
+        if (code == LV_EVENT_LONG_PRESSED && data->distance <= data->app->uiMetrics_.dp(12)*data->app->uiMetrics_.dp(12)) {
           data->app->longPressedSession_ = data->id;
           data->app->events_.push("history_context", {{"id", data->id}});
         }
@@ -225,68 +248,74 @@ lv_obj_t *App::historyRow(lv_obj_t *parent, const Json &session, int y,
       LV_EVENT_ALL, data);
   return row;
 }
+void App::refreshHistoryHighlight() {
+  if(!navigationOpen_)return;
+  const auto &selected=historyContextId_.empty()?session_:historyContextId_;
+  for(const auto &entry:historyRows_) {
+    const bool active=entry.first==selected;
+    lv_obj_set_style_bg_color(entry.second,lv_color_hex(active?theme::palette().surface:theme::palette().sidebar),0);
+    if(active)lv_obj_add_state(entry.second,LV_STATE_CHECKED);
+    else lv_obj_remove_state(entry.second,LV_STATE_CHECKED);
+  }
+}
 void App::closeHistoryContext() {
-  auto object = modal_;
-  modal_ = nullptr;
-  historyFullTitle_=historyFullTime_=nullptr;historyActions_.clear();
-  historyContextId_.clear();
-  navigationPointerDown_ = navigationBackdrop_ = false;
-  if (object)
-    lv_obj_delete(object);
+  auto object=modal_,panel=contextMenuPanel_;
+  if(contextMenuKind_=="balances"){readReset();cancelBalances();}
+  modal_=modalScroll_=contextMenuPanel_=contextMenuList_=nullptr;
+  balanceRefresh_=nullptr;balanceDetailActions_.clear();
+  contextMenuKind_.clear();contextMenuOpening_=false;choiceActions_.clear();
+  imageDeleteId_.clear();imageDeleteRequest_.clear();
+  historyActions_.clear();historyContextId_.clear();refreshHistoryHighlight();
+  messageActions_.clear();messageContextId_.clear();messageContextText_.clear();
+  navigationPointerDown_=navigationBackdrop_=false;
+  // Clear ownership before retiring the layer, so its delayed delete callback
+  // cannot affect a replacement. Restore the composer here for the same reason:
+  // a modal's ownership-checked delete callback will intentionally do nothing.
+  if(object&&view_=="chat"&&chatControls_) {
+    lv_obj_set_hidden(chatControls_,false);
+    updateChatControls(true);
+  }
+  if(object)motion::dismiss(object,panel);
 }
 void App::historyContext(const std::string &id) {
   auto session = db_.sessionInfo(id);
   if (session.empty())
     return;
   closeHistoryContext();
-  historyContextId_ = id;
-  modal_ = box(screenObj_, 0, 0, screen_.width, screen_.height, 0x000000);
-  lv_obj_set_style_bg_opa(modal_, 100, 0);
-  lv_obj_set_scrollable(modal_, false);
-  lv_obj_set_clickable(modal_, true);
-  lv_obj_add_event_cb(
-      modal_,
-      [](lv_event_t *e) {
-        auto app = static_cast<App *>(lv_event_get_user_data(e));
-        if (lv_event_get_code(e) == LV_EVENT_DELETE) {
-          app->modal_ = nullptr;
-          app->historyContextId_.clear();
-          app->historyFullTitle_=app->historyFullTime_=nullptr;app->historyActions_.clear();
-        } else if (lv_event_get_code(e)==LV_EVENT_CLICKED && lv_event_get_target(e) == app->modal_)
-          app->closeHistoryContext();
-      },
-      LV_EVENT_ALL, this);
-  const int panelWidth=screen_.width-64,panelHeight=screen_.height-32;
-  auto panel = box(modal_, 32, 16, panelWidth, panelHeight, theme::surface);
-  lv_obj_set_scrollable(panel, false);
-  lv_obj_set_style_radius(panel, 16, 0);
-  auto reader=box(panel,16,10,panelWidth-32,panelHeight-94,theme::surface);
-  lv_obj_set_scroll_dir(reader,LV_DIR_VER);
-  historyFullTitle_=label(reader,session.value("title",std::string()),0,0,panelWidth-32,21);
-  lv_obj_set_height(historyFullTitle_,LV_SIZE_CONTENT);
-  const auto stamp=historyTime(sessionChatTime(session),nowMs(),true);
-  historyFullTime_=label(panel,stamp.empty()?"没有已记录的聊天时间":"最后聊天："+stamp,16,panelHeight-80,panelWidth-32,16,theme::muted);
-  const int actionWidth=std::max(100,(panelWidth-56)/5),actionY=panelHeight-60;
-  auto actionRail=box(panel,0,actionY,panelWidth,50,theme::surface);
-  lv_obj_set_scroll_dir(actionRail,LV_DIR_HOR);lv_obj_set_scroll_elastic(actionRail,false);
-  historyActions_["rename"]=button(actionRail, "重命名", 12, 0, actionWidth, 50, [this, id, session] {
+  auto actionRail=contextMenu("history",5);
+  historyContextId_=id;
+  refreshHistoryHighlight();
+  const int actionWidth=lv_obj_get_width(actionRail);
+  const int rowHeight=layout().portrait()?uiMetrics_.popup().portraitRow:uiMetrics_.popup().row;
+  historyActions_["rename"]=button(actionRail, "重命名", 0, 0, actionWidth, rowHeight-uiMetrics_.dp(4), [this, id, session] {
     closeHistoryContext();
+    if(layout().portrait()) {
+      // Editing is a separate form, not a tall operation menu. Keep its field
+      // above the docked keyboard even when the source row was near the bottom.
+      modal("重命名会话", "");
+      auto field=fieldButton(modalScroll_,"会话标题",session.value("title",std::string()),
+                             uiMetrics_.dp(4),0,lv_obj_get_width(modalScroll_)-uiMetrics_.dp(8),[]{});
+      inputTarget(field,"history-title:"+id,1);
+      inputSource_=field;inputSourcePoint_={10,10};
+    }
     edit(
         session.value("title", std::string()), "重命名会话",
         [this, id](const std::string &value) {
+          if(layout().portrait())closeHistoryContext();
           auto title = plainTitle(value,256);
           if (!title.empty()) {
             if (titleSession_ == id)
               titleCancel_ = true;
             db_.renameSession(id, title);
+            if (id == session_) refreshChatTitle();
           }
           toggleNavigation();
         },
-        256, "ZhCNPreferred", [this] { toggleNavigation(); });
+        256, "ZhCNPreferred", [this] { if(layout().portrait())closeHistoryContext();toggleNavigation(); });
   });
   bool pinned =
       objectField(session, "metadata_json").value("pinned_at", int64_t(0)) > 0;
-  historyActions_["pin"]=button(actionRail, pinned ? "取消置顶" : "置顶", 12+(actionWidth+8), 0, actionWidth, 50,
+  historyActions_["pin"]=button(actionRail, pinned ? "取消置顶" : "置顶", 0, rowHeight, actionWidth, rowHeight-uiMetrics_.dp(4),
          [this, id, pinned] {
            closeHistoryContext();
            db_.pinSession(id, !pinned);
@@ -296,23 +325,24 @@ void App::historyContext(const std::string &id) {
              lv_obj_scroll_to_y(navigationList_, 0, LV_ANIM_OFF);
            historyDrawer();
          });
-  historyActions_["archive"]=button(actionRail, "归档", 12+2*(actionWidth+8), 0, actionWidth, 50, [this, id] {
+  historyActions_["archive"]=button(actionRail, "归档", 0, 2*rowHeight, actionWidth, rowHeight-uiMetrics_.dp(4), [this, id] {
     closeHistoryContext();
     retireSession(id, true);
   });
-  auto remove = button(actionRail, "删除", 12+3*(actionWidth+8), 0, actionWidth, 50, [this, id] {
+  auto remove = button(actionRail, "删除", 0, 3*rowHeight, actionWidth, rowHeight-uiMetrics_.dp(4), [this, id] {
     closeHistoryContext();
     retireSession(id, false);
   });
   historyActions_["delete"]=remove;
   lv_obj_set_style_text_color(lv_obj_get_child(remove, 0),
-                              lv_color_hex(theme::danger), 0);
-  historyActions_["export"]=button(actionRail, "导出", 12+4*(actionWidth+8), 0, actionWidth, 50, [this, id] {
+                              lv_color_hex(theme::palette().danger), 0);
+  historyActions_["export"]=button(actionRail, "导出", 0, 4*rowHeight, actionWidth, rowHeight-uiMetrics_.dp(4), [this, id] {
     events_.push("transfer_open_session", {{"id", id}});
   });
+  for(const auto &entry:historyActions_)stylePopupRow(entry.second);
 }
 void App::retireSession(const std::string &id, bool archive) {
-  if(!archive)sessionDrafts_.erase(id);
+
   if (id == session_)
     stopNetwork();
   if (archive)
@@ -328,7 +358,7 @@ void App::retireSession(const std::string &id, bool archive) {
     expandedReasoning_.clear();
     reasoningOverrides_.clear();
     tableScrolls_.clear();
-    draft_.clear();
+    loadDraft(session_);
     db_.setting("active_session_id", nullptr);
     pullNeedsPause_ = pullTrackActivity_ = false;
     messageOffset_ = 0;
@@ -348,14 +378,17 @@ void App::archivesPage() {
   auto sessions = db_.sessions(archiveOffset_, true);
   if (sessions.empty())
     emptyState("没有归档会话", "长按历史对话可归档，在这里还原或删除。");
-  const bool portrait=layout().portrait();
-  int y = 6;
+  // Keep archive titles above their actions on short landscape as well.
+  const bool portrait=layout().category()!=LayoutClass::WideLandscape;
+  int y = uiMetrics_.dp(6);
   for (const auto &session : sessions) {
     auto id = session["id"].get<std::string>();
     const int width=layout().contentWidth();
-    auto holder=box(pageContent_,10,y,portrait?width:width-350,44);
+    const int captionHeight=historyHeight(uiMetrics_);
+    const int actionsY=portrait?y+captionHeight+uiMetrics_.dp(4):y;
+    auto holder=box(pageContent_,uiMetrics_.dp(10),y,portrait?width:width-uiMetrics_.dp(350),captionHeight);
     lv_obj_set_scrollable(holder,false);lv_obj_set_clickable(holder,true);
-    historyCaption(holder,session,0,9,portrait?width:width-350);
+    historyCaption(holder,session,0,uiMetrics_.dp(9),portrait?width:width-uiMetrics_.dp(350));
     auto title=historyCaptions_[id].title;
     struct Press {App *app;std::string id;lv_point_t start{};int distance=0;bool held=false;};
     auto data=new Press{this,id};
@@ -366,31 +399,32 @@ void App::archivesPage() {
       auto indev=lv_indev_active();if(!indev)return;lv_point_t point;lv_indev_get_point(indev,&point);
       if(code==LV_EVENT_PRESSED){p->start=point;p->distance=0;p->held=false;}
       const int dx=point.x-p->start.x,dy=point.y-p->start.y;p->distance=std::max(p->distance,dx*dx+dy*dy);
-      if(code==LV_EVENT_LONG_PRESSED&&!p->held&&p->distance<=144){p->held=true;p->app->events_.push("history_details",{{"id",p->id}});}
-      if(code==LV_EVENT_CLICKED&&!p->held&&p->distance<=144)p->app->events_.push("archive_open",{{"id",p->id}});
+      if(code==LV_EVENT_LONG_PRESSED&&!p->held&&p->distance<=p->app->uiMetrics_.dp(12)*p->app->uiMetrics_.dp(12)){p->held=true;p->app->events_.push("history_details",{{"id",p->id}});}
+      if(code==LV_EVENT_CLICKED&&!p->held&&p->distance<=p->app->uiMetrics_.dp(12)*p->app->uiMetrics_.dp(12))p->app->events_.push("archive_open",{{"id",p->id}});
     },LV_EVENT_ALL,data);
-    archiveViewButtons_[id]=button(pageContent_,"查看",portrait?10:width-330,portrait?y+48:y,portrait?(width-16)/3:100,44,[this,id]{events_.push("archive_open",{{"id",id}});});
+    archiveViewButtons_[id]=button(pageContent_,"查看",portrait?uiMetrics_.dp(10):width-uiMetrics_.dp(330),actionsY,portrait?(width-uiMetrics_.dp(16))/3:uiMetrics_.dp(100),uiMetrics_.dp(44),[this,id]{events_.push("archive_open",{{"id",id}});});
     if (id == archiveHighlight_)
-      lv_obj_set_style_text_color(title, lv_color_hex(theme::link), 0);
+      lv_obj_set_style_text_color(title, lv_color_hex(theme::palette().link), 0);
     historyRows_.push_back({id, title});
-    button(pageContent_, "还原", portrait?18+(width-16)/3:width-220, portrait?y+48:y, portrait?(width-16)/3:100, 44, [this, id] {
+    button(pageContent_, "还原", portrait?uiMetrics_.dp(18)+(width-uiMetrics_.dp(16))/3:width-uiMetrics_.dp(220), actionsY, portrait?(width-uiMetrics_.dp(16))/3:uiMetrics_.dp(100), uiMetrics_.dp(44), [this, id] {
       db_.archiveSession(id, false);
       if (archiveOffset_ && db_.sessions(archiveOffset_, true).empty())
         archiveOffset_ = std::max(0, archiveOffset_ - 30);
       build();
     });
-    auto remove = button(pageContent_, "删除", portrait?26+2*((width-16)/3):width-110, portrait?y+48:y, portrait?(width-16)/3:100, 44,
+    auto remove = button(pageContent_, "删除", portrait?uiMetrics_.dp(26)+2*((width-uiMetrics_.dp(16))/3):width-uiMetrics_.dp(110), actionsY, portrait?(width-uiMetrics_.dp(16))/3:uiMetrics_.dp(100), uiMetrics_.dp(44),
            [this, id] { retireSession(id, false); });
-    lv_obj_set_style_text_color(lv_obj_get_child(remove, 0), lv_color_hex(theme::danger), 0);
-    y += portrait?106:52;
+    lv_obj_set_style_text_color(lv_obj_get_child(remove, 0), lv_color_hex(theme::palette().danger), 0);
+    const int actionHeight=lv_obj_get_style_height(remove,LV_PART_MAIN);
+    y += portrait?captionHeight+actionHeight+uiMetrics_.dp(18):std::max(captionHeight,actionHeight)+uiMetrics_.dp(8);
   }
   if (archiveOffset_)
-    button(pageContent_, "上一页", 10, y, 180, 44, [this] {
+    button(pageContent_, "上一页", uiMetrics_.dp(10), y, uiMetrics_.dp(180), uiMetrics_.dp(44), [this] {
       archiveOffset_ = std::max(0, archiveOffset_ - 30);
       build();
     });
   if (sessions.size() == 30)
-    button(pageContent_, "下一页", 220, y, 180, 44, [this] {
+    button(pageContent_, "下一页", uiMetrics_.dp(220), y, uiMetrics_.dp(180), uiMetrics_.dp(44), [this] {
       archiveOffset_ += 30;
       build();
     });
@@ -407,24 +441,24 @@ void App::openArchiveReader(const std::string &id) {
 void App::archiveReaderPage() {
   auto session=db_.sessionInfo(archiveReaderId_);
   pageHeader(session.empty()?"归档会话":session.value("title",std::string("归档会话")));
-  reasoningHeaders_.clear();expandedReasoning_.clear();archiveReaderMessages_.clear();
+  reasoningHeaders_.clear();reasoningControls_.clear();expandedReasoning_.clear();archiveReaderMessages_.clear();
   lv_obj_set_flex_flow(pageContent_,LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_all(pageContent_,8,0);
-  lv_obj_set_style_pad_row(pageContent_,8,0);
-  const int width=layout().portrait()?layout().contentWidth()-16:screen_.width-112;
-  label(pageContent_,"已归档 · 仅浏览",0,0,width,17,theme::muted);
+  lv_obj_set_style_pad_all(pageContent_,uiMetrics_.dp(8),0);
+  lv_obj_set_style_pad_row(pageContent_,uiMetrics_.dp(8),0);
+  const int width=layout().portrait()?layout().contentWidth()-uiMetrics_.dp(16):screen_.width-uiMetrics_.dp(112);
+  label(pageContent_,"已归档 · 仅浏览",0,0,width,uiMetrics_.fontSize(UiFont::FormHint),theme::palette().muted);
   if(session.empty()||session.value("status",std::string())!="archived") {
-    label(pageContent_,"归档会话已不存在",0,0,width,21);return;
+    label(pageContent_,"归档会话已不存在",0,0,width,uiMetrics_.fontSize(UiFont::Body));return;
   }
   const auto messages=db_.messages(archiveReaderId_,archiveReaderOffset_,30);
   for(const auto &m:messages)archiveReaderMessages_.push_back(m["id"].get<std::string>());
   reasoningDisplay_=db_.settings().value("reasoning_display",std::string("collapsed"));
   if(!messages.empty()&&!db_.query("SELECT id FROM chat_messages WHERE session_id=? AND seq<? LIMIT 1",{archiveReaderId_,messages.front()["seq"]}).empty())
-    pageActions_["加载更早消息"]=button(pageContent_,"加载更早消息",0,0,width,44,[this]{events_.push("archive_page",{{"id",archiveReaderId_},{"offset",archiveReaderOffset_+30}});});
-  if(messages.empty())label(pageContent_,"没有聊天内容",0,0,width,21,theme::muted);
+    pageActions_["加载更早消息"]=button(pageContent_,"加载更早消息",0,0,width,uiMetrics_.dp(44),[this]{events_.push("archive_page",{{"id",archiveReaderId_},{"offset",archiveReaderOffset_+30}});});
+  if(messages.empty())emptyState("此归档没有可显示的消息", "可返回归档列表查看其他记录。要保存一段新对话，请先发送消息，再长按历史会话选择归档。");
   renderMessageRows(pageContent_,messages,archiveReaderId_,width,true,0,INT64_MAX);
   if(archiveReaderOffset_>0)
-    pageActions_["加载较新消息"]=button(pageContent_,"加载较新消息",0,0,width,44,[this]{events_.push("archive_page",{{"id",archiveReaderId_},{"offset",std::max(0,archiveReaderOffset_-30)}});});
+    pageActions_["加载较新消息"]=button(pageContent_,"加载较新消息",0,0,width,uiMetrics_.dp(44),[this]{events_.push("archive_page",{{"id",archiveReaderId_},{"offset",std::max(0,archiveReaderOffset_-30)}});});
   lv_obj_add_event_cb(body_,[](lv_event_t *e){static_cast<App *>(lv_event_get_user_data(e))->paintVisible();},LV_EVENT_SCROLL,this);
   lv_obj_update_layout(body_);paintVisible();
 }

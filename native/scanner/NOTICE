@@ -44,3 +44,11 @@ Its original BSD-3-Clause notice is reproduced below.
  * or tort (including negligence or otherwise) arising in any way out of
  * the use of this software, even if advised of the possibility of such damage.
  */
+
+The CVI adapter uses independently declared public runtime ABI contracts from:
+https://raw.githubusercontent.com/sophgo/tpu-mlir/v1.8/third_party/CV18xx/include/cviruntime.h
+The matching header's original notice is: Copyright (C) Cvitek Co., Ltd.
+2019-2020. All rights reserved. The upstream header and runtime binary are not
+redistributed in this source tree. The S6 loads its existing device runtime;
+PenChat's Apache-2.0 license grants no additional rights to that runtime or the
+converted model. CV1826 model/provenance hashes are in cvi-dependencies.lock.json.

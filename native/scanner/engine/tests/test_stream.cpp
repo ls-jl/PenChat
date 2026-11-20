@@ -221,7 +221,8 @@ static ModelPreparation prepared(Engine &engine) {
 static void preparation() {
     auto probe = std::make_shared<Probe>();
     probe->delay = 50;
-    Limits limits; limits.idleModelMs = 0;
+    Limits limits;
+    require(limits.idleModelMs == 0, "healthy model residency is the default");
     Engine engine(std::make_unique<Fake>(probe), limits);
     require(engine.modelPreparation().state == ModelState::Cold, "initially cold");
     require(engine.prepareModel() == Code::Ok, "request warmup");

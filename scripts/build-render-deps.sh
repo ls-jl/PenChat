@@ -8,22 +8,21 @@ mkdir -p "$BUILD" "$PREFIX"
 JOBS=${JOBS:-6}
 ARGS=()
 MESON_ARGS=()
-if [ "$TARGET" = orange ]; then
-  SDK=${RK_SDK_ROOT:-/home/ls-jl/dictpen/x7pro/android13_sdk/RK3562_Android13.0_SDK}
-  GCC=${JSAPI_TOOLCHAIN_ROOT:-$SDK/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu}
-  CC="$GCC/bin/aarch64-linux-gnu-gcc"
-  CXX="$GCC/bin/aarch64-linux-gnu-g++"
+source "$ROOT/scripts/native-target.sh" "$TARGET"
+if [ "$TARGET" != host ]; then
+  CC="$PENCHAT_BUILD_CC"
+  CXX="$PENCHAT_BUILD_CXX"
   cat > "$BUILD/cross.ini" <<EOF
 [binaries]
 c = '$CC'
 cpp = '$CXX'
-ar = '$GCC/bin/aarch64-linux-gnu-ar'
-strip = '$GCC/bin/aarch64-linux-gnu-strip'
+ar = '$PENCHAT_BUILD_AR'
+strip = '$PENCHAT_BUILD_STRIP'
 pkg-config = 'pkg-config'
 [host_machine]
 system = 'linux'
-cpu_family = 'aarch64'
-cpu = 'aarch64'
+cpu_family = '$PENCHAT_BUILD_CPU'
+cpu = '$PENCHAT_BUILD_CPU'
 endian = 'little'
 [properties]
 needs_exe_wrapper = true
@@ -31,7 +30,7 @@ needs_exe_wrapper = true
 c_args = ['-fPIC']
 cpp_args = ['-fPIC']
 EOF
-  ARGS=(-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX")
+  ARGS=(-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR="$PENCHAT_BUILD_CPU" -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX")
   MESON_ARGS=(--cross-file "$BUILD/cross.ini")
 fi
 if [ ! -f "$PREFIX/lib/libfreetype.a" ]; then

@@ -14,7 +14,8 @@ def run(w,h):
         a=t.Native(BINARY,pathlib.Path(tmp),official_adapter=False,screen={'width':w,'height':h,'direction':0})
         def shot(name):capture(a,OUT/f'{w}-{name}.png')
         def collapsed():
-            s=editor(a);assert not s['expanded'] and 'expand' not in s['actions'],s
+            s=editor(a);assert not s['expanded'],s
+            assert ('expand' in s['actions'])==bool(s['preedit_length'] and s['chinese'] and not s['mode'] and not s['secret']),s
         def settle():t.wait_for(lambda:not editor(a)['pending'])
         def empty():
             while editor(a)['preedit_length']:key(a,'delete')
@@ -36,8 +37,8 @@ def run(w,h):
             deadline=time.monotonic()+3
             while time.monotonic()<deadline:
                 s=editor(a)
-                if s['pending'] and not s['candidate_count']:
-                    assert 'expand' not in s['actions'] and not s['expanded'];pending_seen=True
+                if s['pending'] and s['preedit_length'] and not s['candidate_count']:
+                    assert not s['expanded'];pending_seen=True
                 if s['candidate_count'] and not s['pending']:break
             ready(a);shot('candidates');expand();assert editor(a)['text_bounds']==baseline;shot('expanded')
             # Queue Delete followed by the old disclosure click before one UI tick.

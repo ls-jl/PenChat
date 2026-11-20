@@ -18,13 +18,8 @@ def pull(remote,local):
     if str(local).endswith('.db'):pathlib.Path(local).chmod(0o600)
 def push(local,remote):subprocess.run(['adb','-s',SERIAL,'push',str(local),remote],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 def close_app():
-    device.adb('miniapp_cli start 8080222437664451');time.sleep(.15)
-    p=device.pid()
-    if p:
-        assert device.APP_ID in device.adb('tr \'\\0\' \' \' < /proc/'+p+'/cmdline')
-        device.adb('kill -TERM '+p)
-    device.wait(lambda:not device.pid())
-    time.sleep(.1)
+    from release_lifecycle import close_app as own_close
+    own_close(SERIAL, device.APP_ID, device.adb, device.pid, device.state)
 def isolate_fixture_assets():
     # A disposable database must never make the user's real photos look orphaned.
     assert not device.pid()
@@ -104,7 +99,7 @@ def seed(path,api):
 if __name__=='__main__':
     assert 'ORANGE' in device.adb('cat /proc/device-tree/model')
     close_app();pull(DATA+'/penchat.db',OUT/'before.db')
-    push(ROOT/'build/orange/penchat-db-probe','/tmp/penchat-db-probe');device.adb('chmod 755 /tmp/penchat-db-probe')
+    push(ROOT/'build/rk3562/penchat-db-probe','/tmp/penchat-db-probe');device.adb('chmod 755 /tmp/penchat-db-probe')
     before_files=set(device.adb('find '+DATA+'/DCIM '+DATA+'/assets -type f 2>/dev/null || true').splitlines())
     before_album=set(device.adb('find /userdisk/Pictures -maxdepth 1 -name \"PenChat*.jpg\" -type f 2>/dev/null || true').splitlines())
     parent=device.adb('pidof miniapp')

@@ -32,7 +32,7 @@ def main():
     # This directory only contains executable/model/runtime resources, never frames.
     adb('shell','mkdir -p '+shlex.quote(remote))
     adb('push',str(ROOT/'assets/scanner')+'/.',remote,stderr=subprocess.DEVNULL)
-    adb('push',str(ROOT/'build/scanner-orange/scanner-replay'),remote+'/scanner-replay',stderr=subprocess.DEVNULL)
+    adb('push',str(ROOT/'build/scanner-rk3562/scanner-replay'),remote+'/scanner-replay',stderr=subprocess.DEVNULL)
     adb('shell','chmod 755 '+shlex.quote(remote+'/scanner-replay'))
     forwarded=int(adb('forward','tcp:0','tcp:'+str(a.port),text=True).strip())
     log=(run/'runtime.log').open('wb')

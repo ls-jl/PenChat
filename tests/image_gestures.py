@@ -5,12 +5,12 @@ def mapped(a,x,y,crop=False):
     if not crop:return round(x),round(y)
     s=a.diag();left,top,_,_=s['crop_viewport_bounds'];x+=left;y+=top
     cx,cy=s['width']/2,s['height']/2;dx,dy=x-cx,y-cy
-    angle=s['camera_angle']
+    angle=s['camera_angle'] if s['width']>=s['height'] else 0
     return tuple(round(v) for v in ((cx+dy,cy-dx) if angle==90 else (cx-dx,cy-dy) if angle==180 else (cx-dy,cy+dx) if angle==270 else (x,y)))
 
 def action(a,key):
     b=a.diag()['crop_actions'][key];s=a.diag();cx,cy=s['width']/2,s['height']/2
-    x,y=(b[0]+b[2])/2,(b[1]+b[3])/2;dx,dy=x-cx,y-cy;angle=s['camera_angle']
+    x,y=(b[0]+b[2])/2,(b[1]+b[3])/2;dx,dy=x-cx,y-cy;angle=s['camera_angle'] if s['width']>=s['height'] else 0
     x,y=(cx+dy,cy-dx) if angle==90 else (cx-dx,cy-dy) if angle==180 else (cx-dy,cy+dx) if angle==270 else (x,y)
     a.tap(round(x),round(y))
 

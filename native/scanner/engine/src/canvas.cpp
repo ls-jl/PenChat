@@ -1,3 +1,4 @@
+#include "bounded.hpp"
 #include "internal.hpp"
 #include <algorithm>
 #include <cmath>
@@ -11,9 +12,12 @@ std::uint32_t word(const std::uint8_t *p) {
     std::memcpy(&v, p, 4);
     return v;
 }
-void unpack(const std::uint8_t *src, std::size_t length, std::uint8_t *dst) {
-    std::size_t p = 0, i = 0;
-    while (p < length) {
+// Cold tiles retain exact float/mask values. Row offsets avoid expanding all
+// 128 rows for every single PNG/preview row; the index lives in budgeted pages.
+void unpackRow(const std::uint8_t *src, std::size_t length, int row, std::uint8_t *dst) {
+    std::size_t p = word(src + row * sizeof(std::uint32_t)), i = row * 128;
+    const std::size_t end = row == 127 ? length : word(src + (row + 1) * sizeof(std::uint32_t));
+    while (p < end) {
         unsigned n = unsigned(src[p]) | (unsigned(src[p + 1]) << 8);
         p += 2;
         for (unsigned k = 0; k < n; ++k, ++i) {
@@ -23,18 +27,25 @@ void unpack(const std::uint8_t *src, std::size_t length, std::uint8_t *dst) {
         p += 5;
     }
 }
+void unpack(const std::uint8_t *src, std::size_t length, std::uint8_t *dst) {
+    for(int row=0;row<128;++row)unpackRow(src,length,row,dst);
+}
 } // namespace
 bool MemoryCanvas::compress(Tile &t) {
     std::lock_guard<std::recursive_mutex> guard(budget_->admission);
     if (!t.hot.size())
         return false;
     const auto *p = t.hot.bytes();
-    std::size_t out = 0;
+    std::size_t out = T * sizeof(std::uint32_t);
     for (unsigned i = 0; i < N;) {
+        if(i % T == 0) {
+            const auto offset=static_cast<std::uint32_t>(out);
+            std::memcpy(scratch_.data()+(i/T)*sizeof(offset),&offset,sizeof(offset));
+        }
         unsigned j = i + 1;
         auto v = word(p + i * 4);
         auto mask = p[N * 4 + i];
-        while (j < N && j - i < 65535 && word(p + j * 4) == v && p[N * 4 + j] == mask)
+        while (j < N && j % T != 0 && word(p + j * 4) == v && p[N * 4 + j] == mask)
             ++j;
         scratch_[out++] = std::uint8_t(j - i);
         scratch_[out++] = std::uint8_t((j - i) >> 8);
@@ -198,8 +209,8 @@ bool MemoryCanvas::draw(const cv::Mat &gray, const cv::Matx33d &h, const cv::Mat
                     double reciprocal = 1. / den, qx = nx * reciprocal, qy = ny * reciprocal;
                     if (qx < -.5 || qy < -.5 || qx >= gray.cols - .5 || qy >= gray.rows - .5)
                         continue;
-                    double sx = std::clamp(qx, 0., double(gray.cols - 1)),
-                           sy = std::clamp(qy, 0., double(gray.rows - 1));
+                    double sx = bounded(qx, 0., double(gray.cols - 1)),
+                           sy = bounded(qy, 0., double(gray.rows - 1));
                     int ix = int(sx), iy = int(sy), jx = std::min(ix + 1, gray.cols - 1),
                         jy = std::min(iy + 1, gray.rows - 1);
                     float ax = float(sx - ix), ay = float(sy - iy);
@@ -211,7 +222,7 @@ bool MemoryCanvas::draw(const cv::Mat &gray, const cv::Matx33d &h, const cv::Mat
                     // and general matrix product at every output pixel.
                     double smallX = toSmall(0, 0) * qx + toSmall(0, 1) * qy + toSmall(0, 2),
                            smallY = toSmall(1, 0) * qx + toSmall(1, 1) * qy + toSmall(1, 2);
-                    float alpha = first ? 1.f : std::clamp(float((smallX - 32.) / 7.), 0.f, 1.f);
+                    float alpha = first ? 1.f : bounded(float((smallX - 32.) / 7.), 0.f, 1.f);
                     if (smallX < 0 || smallX >= 159 || smallY < 0 || smallY >= 287)
                         alpha = 0;
                     int k = (y - ty * T) * T + (x - tx * T);
@@ -259,7 +270,7 @@ Code MemoryCanvas::row(int row, std::uint8_t *gray, std::uint8_t *mask, std::siz
         auto &t = *it->second;
         const std::uint8_t *p = t.hot.bytes();
         if (!p) {
-            unpack(t.cold.bytes(), t.coldSize, scratch_.data());
+            unpackRow(t.cold.bytes(), t.coldSize, y - ty * T, scratch_.data());
             p = scratch_.data();
         }
         auto *values = reinterpret_cast<const float *>(p);
@@ -269,7 +280,7 @@ Code MemoryCanvas::row(int row, std::uint8_t *gray, std::uint8_t *mask, std::siz
             int k = (y - ty * T) * T + x - tx * T, j = x - bounds_.x;
             if (valid[k]) {
                 mask[j] = 255;
-                gray[j] = std::uint8_t(std::clamp(values[k] + .5f, 0.f, 255.f));
+                gray[j] = std::uint8_t(bounded(values[k] + .5f, 0.f, 255.f));
             }
         }
     }
@@ -298,7 +309,7 @@ Code MemoryCanvas::preview(int w, int h, std::uint8_t *gray, std::uint8_t *mask,
                     auto &t = *it->second;
                     p = t.hot.bytes();
                     if (!p) {
-                        unpack(t.cold.bytes(), t.coldSize, scratch_.data());
+                        unpackRow(t.cold.bytes(), t.coldSize, wy - key.second * T, scratch_.data());
                         p = scratch_.data();
                     }
                 }
@@ -309,7 +320,7 @@ Code MemoryCanvas::preview(int w, int h, std::uint8_t *gray, std::uint8_t *mask,
             if (mask[out]) {
                 float v;
                 std::memcpy(&v, p + k * 4, 4);
-                gray[out] = std::uint8_t(std::clamp(v + .5f, 0.f, 255.f));
+                gray[out] = std::uint8_t(bounded(v + .5f, 0.f, 255.f));
             } else
                 gray[out] = 255;
         }

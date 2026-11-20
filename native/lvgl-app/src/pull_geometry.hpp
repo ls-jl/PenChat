@@ -36,7 +36,9 @@ inline PullGeometry pullGeometry(PullRect body, int width, int height,
   // Slop/direction/slow-pull guards keep their existing spatial behavior.
   const double sensitivity = .85 * (1.0 + g.sensitivityOffset / 100.0);
   g.start = scaled(12);
-  g.fill = std::max(1, scaled(142 / sensitivity) - g.start);
+  // Portrait doubles total trigger travel only, retaining the original slop,
+  // direction, quiet/slow guards and visual stretch.
+  g.fill = std::max(1, scaled(142 / sensitivity) * (height>width?2:1) - g.start);
   g.sideways = scaled(18);
   g.slowDistance = scaled(40);
   g.slowSpeed = scaled(260);

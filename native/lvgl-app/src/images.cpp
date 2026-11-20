@@ -1,3 +1,4 @@
+#include "device_profile.h"
 #include "images.hpp"
 #include "accelerometer.h"
 #include "photo_orientation.hpp"
@@ -8,6 +9,7 @@
 #include "stb_image_write.h"
 #include "util.h"
 #include <cstring>
+#include <array>
 #include <cmath>
 #include <stdexcept>
 #include <unistd.h>
@@ -65,6 +67,17 @@ bool Images::failed(const std::string &key) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = cache_.find(key);
   return it != cache_.end() && !it->second;
+}
+void Images::retry(const std::string &path) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto prefix = path + ":";
+  for (auto it = cache_.begin(); it != cache_.end();) {
+    if (it->first.compare(0, prefix.size(), prefix) == 0 && !it->second) {
+      order_.erase(std::remove(order_.begin(), order_.end(), it->first), order_.end());
+      it = cache_.erase(it);
+    } else
+      ++it;
+  }
 }
 void Images::work() {
   for (;;) {
@@ -186,6 +199,12 @@ void Images::work() {
     }
   }
 }
+PhotoTransforms Camera::transforms(int pose) const {
+  static const auto calibration = photoCalibration(fileText("/proc/device-tree/model", 4096));
+  auto result=photoTransforms(pose,fixedWorkspace_,calibration.preview);
+  result.saved=photoEditorRotation(pose,calibration.editorImage);
+  return result;
+}
 void Camera::start() {
   stop();
   stop_ = false;
@@ -210,14 +229,21 @@ void Camera::work() {
   auto event=[this,generation](const std::string &name,Json data){data["generation"]=generation;events_.push(name,std::move(data));};
   camera::Capture capture;
   int sensorSession = 0;
-  PhotoOrientation orientationFilter;
   bool highResolution=false;
   int64_t nextSensor = 0;
+  int64_t nextPreview = 0;
+  // Latest frame, displayed frame and one writable frame; reuse only an owner
+  // not published to either reader. The pool dies when the camera worker exits.
+  std::array<std::shared_ptr<ImageFrame>,3> previews;
   try {
-    highResolution=fileText("/proc/device-tree/model",4096).find("RK3562 Y07 ")!=std::string::npos;
+    if(!camera::deviceCapabilities().photoCamera)
+      throw std::runtime_error("此机型没有独立拍照设备，可使用笔头扫描或相册");
+    const auto boardModel=fileText("/proc/device-tree/model",4096);
+    PhotoOrientation orientationFilter(photoAccelerometerCorrection(boardModel));
+    highResolution=boardModel.find("RK3562 Y07 ")!=std::string::npos;
     if(highResolution&&fileText("/sys/class/video4linux/v4l-subdev7/name",4096).find("gc08a8")==std::string::npos)
       throw std::runtime_error("Y07相机传感器与高清配置不匹配");
-#ifdef __aarch64__
+#ifdef PENCHAT_NATIVE_DEVICE
     if (manualOrientation_ < 0) {
       const auto sensor = camera::startAccelerometer(workspace_);
       if (sensor.ok) sensorSession = sensor.session;
@@ -261,6 +287,20 @@ void Camera::work() {
         if(!received||f.width!=3264||f.height!=2448)throw std::runtime_error("高清照片采集失败，请重试");
         source=&high;
       } else if (!capture.grab(&f, 200))continue;
+      if(source==&capture) {
+        // Capture requests four V4L2 buffers. Drain at most the other three:
+        // preview freshness matters more than replaying already stale frames.
+        // This is not the scanner's ordered/no-drop capture path.
+        for(int queued=0;queued<3&&!stop_;++queued) {
+          camera::CaptureFrame newer;
+          if(!capture.grab(&newer,0))break;
+          if(!capture.release(f.index)) {
+            capture.release(newer.index);
+            throw std::runtime_error("Cannot release camera preview buffer");
+          }
+          f=newer;
+        }
+      }
       if (f.width < 2 || f.height < 2 || f.width > 4096 || f.height > 4096 ||
           f.yStride < f.width || f.uvStride < f.width ||
           f.size < size_t(f.yStride) * f.height ||
@@ -268,6 +308,49 @@ void Camera::work() {
                 : f.size < size_t(f.yStride) * f.height +
                                size_t(f.uvStride) * f.height / 2)) {
         source->release(f.index);
+        continue;
+      }
+      if(stop_){source->release(f.index);break;}
+      // A shutter arriving during preview conversion remains pending for the
+      // next frame. Y07 can only consume it after receiving the true HD frame.
+      const bool takePhoto=(!highResolution||source==&high)&&save_.exchange(false);
+      if(!takePhoto) {
+        const auto now=ticks();
+        if(now<nextPreview){source->release(f.index);continue;}
+        // Allow the small timestamp jitter of a 30fps sensor; an exact 33ms
+        // gate can otherwise reject alternate frames that arrive 32ms apart.
+        nextPreview=now+30;
+        std::shared_ptr<ImageFrame> frame;
+        for(auto &slot:previews) {
+          if(!slot)slot=std::make_shared<ImageFrame>();
+          if(slot.use_count()==1){frame=slot;break;}
+        }
+        if(!frame){source->release(f.index);continue;}
+        frame->cameraPose=orientation_.load();
+        frame->rotation=transforms(frame->cameraPose).preview;
+        const int rotatedW=frame->rotation%180?f.height:f.width;
+        const int rotatedH=frame->rotation%180?f.width:f.height;
+        // Every photo-capable board fits once to its actual viewport. A fixed
+        // 240px/720px intermediary only makes LVGL resample the preview again.
+        float scale=1.f;
+        const int targetW=previewWidth_.load(),targetH=previewHeight_.load();
+        if(targetW>0&&targetH>0)
+          scale=std::min(scale,std::min(float(targetW)/rotatedW,float(targetH)/rotatedH));
+        frame->width=std::max(1,int(rotatedW*scale));
+        frame->height=std::max(1,int(rotatedH*scale));
+        frame->opaque=true;
+        frame->pixels.resize(size_t(frame->width)*frame->height*4);
+        // Convert directly from the mapped sensor planes. No packed NV12 copy
+        // or full-size intermediate is needed for a disposable preview.
+        camera::nv12ToBgra(f.data,f.uv?f.uv:f.data+size_t(f.yStride)*f.height,
+          f.width,f.height,f.yStride,f.uvStride,frame->pixels.data(),
+          frame->width,frame->height,frame->rotation);
+        if(!source->release(f.index))throw std::runtime_error("Cannot release camera preview buffer");
+        if(stop_)break;
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          frame_=std::move(frame);
+        }
         continue;
       }
       std::vector<uint8_t> bytes(size_t(f.width) * f.height * 3 / 2);
@@ -283,24 +366,7 @@ void Camera::work() {
       source->release(f.index);
       if(source==&high)high.close();
       if(stop_)break;
-      auto frame = std::make_shared<ImageFrame>();
-      float scale = std::min(1.f, (highResolution?720.f:240.f) / f.height);
-      frame->width = int(f.width * scale);
-      frame->height = int(f.height * scale);
-      frame->rotation = orientation_;
-      if (frame->rotation % 180) std::swap(frame->width,frame->height);
-      frame->pixels.resize(size_t(frame->width) * frame->height * 4);
-      camera::nv12ToBgra(bytes.data(),
-                         bytes.data() + size_t(f.width) * f.height, f.width,
-                         f.height, f.width, f.width, frame->pixels.data(),
-                         frame->width, frame->height, frame->rotation);
-      {
-        std::lock_guard<std::mutex> lock(mutex_);
-        frame_ = frame;
-      }
-      // A shutter arriving during preview conversion stays pending until the
-      // next high-resolution frame; never save that in-flight preview as a photo.
-      if ((!highResolution || source==&high) && save_.exchange(false)) {
+      if (takePhoto) {
         ensureDirectory(directory_);
         struct ReservedPhoto {
           std::string final,part;
@@ -328,7 +394,10 @@ void Camera::work() {
             out[2] = clamp((298 * Y + 516 * U + 128) >> 8);
           }
         if(stop_)break;
-        const int angle = captureOrientation_;
+        const int pose = captureOrientation_;
+        // Normalize the photo once before the first JPEG encode. Crop then
+        // displays and saves the same pixels without any UI-only rotation.
+        const int angle = transforms(pose).saved;
         const int photoW = angle % 180 ? f.height : f.width;
         const int photoH = angle % 180 ? f.width : f.height;
         if (angle) rgb = rotatePhoto(rgb,f.width,f.height,angle);
@@ -343,7 +412,8 @@ void Camera::work() {
         event("photo", {{"path", final},
                                {"width", photoW},
                                {"height", photoH},
-                               {"orientation",angle},
+                               {"orientation",pose},
+                               {"pixel_rotation",angle},
                                {"source", "camera"}});
         reserved.published=true;
       }

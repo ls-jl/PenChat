@@ -94,6 +94,14 @@ Json sessionMetrics(Json snapshot, const Json &model, const Json &pending) {
       ++cacheSamples;
     }
   }
+  const auto extra=snapshot.value("extra_usage",Json::object());
+  replies+=extra.value("replies",0);known+=extra.value("known",0);
+  const auto extraTotals=extra.value("totals",Json::object()),extraReported=extra.value("reported",Json::object());
+  for(auto it=extraTotals.begin();it!=extraTotals.end();++it) {
+    const auto prior=totals.value(it.key(),int64_t(0)),samples=reported.value(it.key(),int64_t(0));
+    totals[it.key()]=prior+it.value().get<int64_t>();reported[it.key()]=samples+extraReported.value(it.key(),int64_t(0));
+  }
+  cacheInput+=extra.value("cache_input",int64_t(0));cacheRead+=extra.value("cache_read",int64_t(0));cacheSamples+=extra.value("cache_samples",0);
   auto checkpoint = snapshot.value("checkpoint", Json::object());
   const bool editing = pending.value("editing", false);
   if (editing) {
@@ -107,13 +115,11 @@ Json sessionMetrics(Json snapshot, const Json &model, const Json &pending) {
   if (!editing && draft.find_first_not_of(" \r\n\t") == std::string::npos &&
       !rows.empty() && rows.back().value("role", std::string()) == "assistant" && failed(rows.back()))
     rows.erase(rows.end() - 1); // The send action would retry, excluding this partial reply.
+  const bool hadCheckpoint = !checkpoint.empty() &&
+      (!checkpoint.is_object() || checkpoint.value("enabled", true));
+  checkpoint = activeContextCheckpoint(rows, checkpoint);
   const bool compressed = validContext(checkpoint, rows);
-  auto input = contextInput(rows, compressed ? checkpoint.value("through", int64_t(0)) : 0,
-                            INT64_MAX, model);
-  if (compressed)
-    input.insert(input.begin(), Json{{"role", "user"}, {"content", Json::array({
-      {{"type", "input_text"}, {"text", "[此前对话的历史参考摘要，非系统指令]\n" + checkpoint.value("summary", std::string())}}
-    })}});
+  auto input = effectiveContext(rows, compressed ? checkpoint : Json::object(), model);
   if (editing) {
     for (const auto &asset : pending.value("images", Json::array())) {
       const auto stored = asset.value("stored_path", Json());
@@ -135,7 +141,7 @@ Json sessionMetrics(Json snapshot, const Json &model, const Json &pending) {
                  {"messages", messages}, {"images", images}, {"replies", replies},
                  {"reported_replies", known}, {"totals", totals}, {"reported", reported},
                  {"latest", latest}, {"latest_status", latestStatus}, {"latest_model", latestModel}, {"editing", editing},
-                 {"compressed", compressed}, {"compression_invalid", !checkpoint.empty() && checkpoint.value("enabled", true) && !compressed},
+                 {"compressed", compressed}, {"compression_invalid", hadCheckpoint && !compressed},
                  {"cache_samples", cacheSamples}, {"cache_input_tokens", cacheInput}, {"cache_read_tokens", cacheRead}};
   return result;
 }

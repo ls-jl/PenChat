@@ -5,27 +5,56 @@ std::string replyText(const Json &row) {
   auto i=row.find("output_text");return i!=row.end()&&i->is_string()?i->get<std::string>():std::string();
 }
 }
+void App::loadDraft(const std::string &session) {
+  const auto key=db_.sessionInfo(session).empty()?std::string("new"):session;
+  draftState_=db_.draft(key);draft_=draftState_.at("text").get<std::string>();
+}
+void App::saveDraft() {
+  if(draftState_.empty()||!messageEdit_.empty())return;
+  const auto text=editor_.active&&editorChat_?editor_.text:draft_;
+  if(text==draftState_.value("text",std::string()))return;
+  const auto revision=draftState_.value("revision",uint64_t(0))+1;
+  draftState_["revision"]=revision;draftState_["text"]=text;
+  db_.queueDraft(draftState_,text);
+}
+bool App::draftImage(const std::string &id) const {
+  for(const auto &image:draftState_.value("images",Json::array()))if(image.at("id")==id)return true;
+  return false;
+}
+Json App::draftRows() const {
+  Json rows=Json::array();
+  for(const auto &image:draftState_.value("images",Json::array())) {
+    rows.push_back({{"id",image.at("id")},{"role","user"},{"status","complete"},
+      {"seq",INT_MAX},{"output_text",""},{"stored_path",image.at("path")},
+      {"display_src",image.value("previewPath",image.at("path"))},{"draft_virtual",true},{"edit_virtual",true}});
+  }
+  return rows;
+}
 bool App::switchDraft(const std::string &next) {
   if(next==session_)return true;
-  size_t bytes=draft_.size();
-  for(const auto &d:sessionDrafts_)if(d.first!=next&&d.first!=session_)bytes+=d.second.size();
-  if(bytes>1024*1024){modal("草稿暂存已满","请先发送或清空部分草稿，再切换会话；当前输入仍保留。");return false;}
-  if(draft_.empty())sessionDrafts_.erase(session_);else sessionDrafts_[session_]=draft_;
-  auto found=sessionDrafts_.find(next);
-  draft_=found==sessionDrafts_.end()?std::string():std::move(found->second);
-  if(found!=sessionDrafts_.end())sessionDrafts_.erase(found);
+  saveDraft();
+  loadDraft(next);
+  composerShortcut_.reset();
   return true;
 }
 void App::replyToast(const std::string &text) {
-  const int width=std::min(screen_.width-120,std::max(140,int(editLength(text))*20+32));
-  auto toast=box(screenObj_,(screen_.width-width)/2,screen_.height-116,width,44,theme::surface);
-  lv_obj_set_scrollable(toast,false);lv_obj_set_clickable(toast,false);lv_obj_set_style_radius(toast,16,0);
-  auto caption=label(toast,text,8,10,width-16,18);lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(caption,24);lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);lv_obj_delete_delayed(toast,1600);
+  const int width=std::min(screen_.width-uiMetrics_.dp(120),std::max(uiMetrics_.dp(140),int(editLength(text))*uiMetrics_.dp(20)+uiMetrics_.dp(32)));
+  const int captionHeight=std::max(uiMetrics_.dp(24),int(font(uiMetrics_.fontSize(UiFont::FormNote))->line_height));
+  const int height=std::max(uiMetrics_.dp(44),captionHeight+uiMetrics_.dp(20));
+  auto toast=box(screenObj_,(screen_.width-width)/2,screen_.height-uiMetrics_.dp(72)-height,width,height,theme::palette().surface);
+  lv_obj_set_scrollable(toast,false);lv_obj_set_clickable(toast,false);lv_obj_set_style_radius(toast,uiMetrics_.dp(16),0);
+  auto caption=label(toast,text,uiMetrics_.dp(8),uiMetrics_.dp(10),width-uiMetrics_.dp(16),uiMetrics_.fontSize(UiFont::FormNote));lv_label_set_long_mode(caption,LV_LABEL_LONG_MODE_DOTS);
+  lv_obj_set_height(caption,captionHeight);lv_obj_set_style_text_align(caption,LV_TEXT_ALIGN_CENTER,0);lv_obj_delete_delayed(toast,1600);
 }
 void App::replyBar(lv_obj_t *parent,const Json &message,int width,bool question) {
   const auto id=message.at("id").get<std::string>(),session=session_;
-  auto bar=box(parent,0,0,width,48,theme::background);lv_obj_set_scrollable(bar,false);
+  const auto choice=replyChoiceRows_.value(id,Json::object());
+  const int ordinal=choice.value("ordinal",1),total=choice.value("total",1);
+  if(ordinal>1) {
+    auto hint=label(parent,choice.value("archive",0)?"将从这条回复继续 · 发送时先归档":"将从这条回复继续",0,0,width,uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);
+    lv_label_set_long_mode(hint,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(hint,font(uiMetrics_.fontSize(UiFont::Detail))->line_height);
+  }
+  auto bar=box(parent,0,0,width,uiMetrics_.dp(48),theme::palette().background);lv_obj_set_scrollable(bar,false);
   lv_obj_t *buttons[3]{};
   const char *names[]={"copy","retry","branch"};
   const char *titles[]={"复制","重试","创建分支"};
@@ -33,9 +62,9 @@ void App::replyBar(lv_obj_t *parent,const Json &message,int width,bool question)
     struct Press {lv_point_t start{};int distance=0;bool held=false;};
     auto state=std::make_shared<Press>();
     const std::string action=names[i],title=titles[i];
-    buttons[i]=icon(bar,action,i*48,4,44,44,[this,state,session,id,action]{
-      if(!state->held&&state->distance<=144)events_.push("reply_action",{{"session",session},{"id",id},{"action",action}});
-    },theme::background,theme::muted);
+    buttons[i]=icon(bar,action,i*uiMetrics_.dp(48),uiMetrics_.dp(4),uiMetrics_.dp(44),uiMetrics_.dp(44),[this,state,session,id,action]{
+      if(!state->held&&state->distance<=uiMetrics_.gestures().tapSquared())events_.push("reply_action",{{"session",session},{"id",id},{"action",action}});
+    },theme::palette().background,theme::palette().muted);
     struct Handler {App *app;std::shared_ptr<Press> press;std::string session,id,title;};
     auto handler=new Handler{this,state,session,id,title};
     lv_obj_add_event_cb(buttons[i],[](lv_event_t *e){
@@ -46,13 +75,21 @@ void App::replyBar(lv_obj_t *parent,const Json &message,int width,bool question)
       if(code==LV_EVENT_PRESSED){h->press->start=p;h->press->distance=0;h->press->held=false;}
       const int dx=p.x-h->press->start.x,dy=p.y-h->press->start.y;
       h->press->distance=std::max(h->press->distance,dx*dx+dy*dy);
-      if(code==LV_EVENT_LONG_PRESSED&&h->press->distance<=144) {
+      if(code==LV_EVENT_LONG_PRESSED&&h->press->distance<=h->app->uiMetrics_.gestures().tapSquared()) {
         h->press->held=true;h->app->events_.push("reply_hint",{{"session",h->session},{"id",h->id},{"text",h->title}});
       }
     },LV_EVENT_ALL,handler);
   }
-  if(!question)label(bar,"无对应问题，无法重试",152,15,width-156,17,theme::muted);
-  replyControls_[id]={bar,buttons[0],buttons[1],buttons[2],!replyText(message).empty(),question};
+  if(!question)label(bar,"无对应问题，无法重试",uiMetrics_.dp(152),uiMetrics_.dp(15),width-uiMetrics_.dp(156),uiMetrics_.fontSize(UiFont::FormHint),theme::palette().muted);
+  lv_obj_t *previous=nullptr,*next=nullptr;
+  if(total>1) {
+    auto change=[this,id,session](const char *action){events_.push("reply_action",{{"session",session},{"id",id},{"action",action}});};
+    previous=icon(bar,"chevron-left",width-uiMetrics_.dp(148),uiMetrics_.dp(4),uiMetrics_.dp(44),uiMetrics_.dp(44),[change]{change("previous");},theme::palette().background,theme::palette().muted);
+    auto count=label(bar,std::to_string(ordinal)+" / "+std::to_string(total),width-uiMetrics_.dp(104),uiMetrics_.dp(16),uiMetrics_.dp(60),uiMetrics_.fontSize(UiFont::Detail),theme::palette().muted);
+    lv_label_set_long_mode(count,LV_LABEL_LONG_MODE_DOTS);lv_obj_set_height(count,font(uiMetrics_.fontSize(UiFont::Detail))->line_height);lv_obj_set_style_text_align(count,LV_TEXT_ALIGN_CENTER,0);
+    next=icon(bar,"chevron-right",width-uiMetrics_.dp(44),uiMetrics_.dp(4),uiMetrics_.dp(44),uiMetrics_.dp(44),[change]{change("next");},theme::palette().background,theme::palette().muted);
+  }
+  replyControls_[id]={bar,buttons[0],buttons[1],buttons[2],previous,next,!replyText(message).empty(),question,ordinal,total};
   auto owner=new std::pair<App *,std::string>(this,id);
   lv_obj_add_event_cb(bar,[](lv_event_t *e){
     auto p=static_cast<std::pair<App *,std::string> *>(lv_event_get_user_data(e));auto &map=p->first->replyControls_;
@@ -75,6 +112,8 @@ void App::syncReplyControls() {
     const bool visible = !lv_obj_is_hidden(c.bar);
     enable(c.copy,visible&&(entry.first==assistant_? !output_.empty():c.body));
     enable(c.retry,visible&&!busy&&c.question);enable(c.branch,visible&&!busy);
+    if(c.previous)enable(c.previous,visible&&!busy&&c.ordinal>1);
+    if(c.next)enable(c.next,visible&&!busy&&c.ordinal<c.total);
   }
   if (changed && !previousLayout && body_ && messageContent_) {
     lv_obj_update_layout(messageContent_);
@@ -93,18 +132,41 @@ void App::retryWarning(const std::string &id) {
   auto model=currentModel();
   if(model.empty()){modal("请选择可用模型","请先选择聊天模型，再重新生成回复。");return;}
   model["system_prompt"]=sessionPreferences_.value("system_prompt",std::string());
-  modal("重新生成这条回复", "这条回复及后续已发送对话将被覆盖，使用当前会话配置重新回答。草稿和待发送图片会保留，不加入本次请求。");
+  if(!db_.settings().value("retry_archive_prompt",false)||!db_.replyHasLater(session_,id)) {
+    sendActionAt_=nowMs();startContext(false,id,true,model);return;
+  }
+  auto list=contextMenu("retry",3);
   replyConfirmId_=id;replyConfirmModel_=model;
-  lv_obj_add_event_cb(modal_,[](lv_event_t *e){auto self=static_cast<App *>(lv_event_get_user_data(e));self->replyConfirmId_.clear();self->replyConfirmModel_=Json::object();},LV_EVENT_DELETE,this);
-  auto close=lv_obj_get_child(modal_,-1);lv_label_set_text(lv_obj_get_child(close,0),"取消");
-  const int width=(screen_.width-262)/2;
-  for(int i=0;i<2;++i)button(modal_,i?"直接重试":"归档当前聊天并重试",14+i*(width+12),screen_.height-66,width,44,[this,id,archive=i==0]{events_.push("reply_retry_confirm",{{"session",session_},{"id",id},{"archive",archive}});});
+  lv_obj_add_event_cb(modal_,[](lv_event_t *e){
+    if(lv_event_get_target_obj(e)!=lv_event_get_current_target_obj(e))return;
+    auto self=static_cast<App *>(lv_event_get_user_data(e));self->replyConfirmId_.clear();self->replyConfirmModel_=Json::object();
+  },LV_EVENT_DELETE,this);
+  const int row=layout().portrait()?uiMetrics_.popup().portraitRow:uiMetrics_.popup().row;
+  const char *labels[]={"取消","归档当前聊天并重试","直接重试"};
+  for(int i=0;i<3;++i) {
+    auto item=button(list,labels[i],0,i*row,lv_obj_get_width(list),row-uiMetrics_.dp(4),[this,id,i]{
+      if(!i){closeHistoryContext();return;}
+      events_.push("reply_retry_confirm",{{"session",session_},{"id",id},{"archive",i==1}});
+    },theme::palette().popup,LV_TEXT_ALIGN_LEFT);stylePopupRow(item);
+  }
+}
+void App::selectReply(const std::string &id,int ordinal) {
+  if(generating_||contextBusy_||replyBusy_||saveInFlight_||messageEditBusy_||!messageEdit_.empty())return;
+  auto control=replyControls_.find(id);if(control==replyControls_.end())return;
+  lv_area_t area;lv_obj_get_coords(lv_obj_get_parent(control->second.bar),&area);
+  replyAnchorY_=area.y1;replyAnchorScroll_=std::max(0,int(lv_obj_get_scroll_y(body_)));
+  replyBusy_=true;replyToken_=uid("reply-select");const auto token=replyToken_,session=session_;
+  if(replyWorker_.joinable())replyWorker_.join();
+  replyWorker_=std::thread([this,id,ordinal,token,session]{
+    try{db_.flush();db_.selectReplyResult(session,id,ordinal);events_.push("reply_select_done",{{"token",token},{"session",session},{"id",id}});}
+    catch(...){events_.push("reply_select_done",{{"token",token},{"session",session},{"error",true}});}
+  });
 }
 void App::branchReply(const std::string &id) {
   if(generating_||contextBusy_||replyBusy_||imageStoreBusy_||saveInFlight_||messageEditBusy_||!messageEdit_.empty())return;
   auto preferences=sessionPreferences_,model=currentModel();
   if(!model.empty()) {
-    preferences["model_id"]=model["id"];const auto effort=model.value("effective_effort",std::string());preferences["effort"]=effort.empty()?"api_default":effort;
+    preferences["model_id"]=model["id"];
   }
   closeAttachments();resetPull();replyCancel_=false;replyBusy_=true;replyToken_=uid("branch");
   modal("正在创建分支","正在复制到所选回复，并移动草稿和待发送图片…");
@@ -124,14 +186,32 @@ void App::branchReply(const std::string &id) {
   });
 }
 bool App::replyEvent(const Event &e) {
+  if(e.type=="reply_select_done") {
+    if(e.data.value("token",std::string())!=replyToken_)return true;
+    if(replyWorker_.joinable())replyWorker_.join();replyBusy_=false;
+    if(e.data.value("session",std::string())!=session_)return true;
+    if(e.data.contains("error")){replyToast("结果切换失败，原选择仍保留");return true;}
+    assistant_.clear();output_.clear();reasoning_.clear();reasoningMetadata_=Json::object();
+    expandedReasoning_.clear();reasoningOverrides_.clear();tableScrolls_.clear();
+    chatFollowing_=false;chatScroll_=replyAnchorScroll_;renderMessages(false);
+    const auto id=e.data.value("id",std::string());auto found=replyControls_.find(id);
+    if(found!=replyControls_.end()) {
+      lv_obj_update_layout(messageContent_);lv_area_t area;lv_obj_get_coords(lv_obj_get_parent(found->second.bar),&area);
+      lv_obj_scroll_to_y(body_,std::max(0,replyAnchorScroll_+area.y1-replyAnchorY_),LV_ANIM_OFF);
+      chatScroll_=std::max(0,int(lv_obj_get_scroll_y(body_)));updateChatControls(true);paintVisible();
+    }
+    return true;
+  }
   if(e.type=="reply_branch_done") {
     if(e.data.value("token",std::string())!=replyToken_)return true;
     if (replyWorker_.joinable()) replyWorker_.join();
     replyBusy_ = false;
     if(e.data.value("session",std::string())!=session_)return true;
     if(e.data.contains("error")){build();if(!e.data.value("cancelled",false))modal("无法创建分支",e.data["error"]);return true;}
-    sessionDrafts_.erase(session_);
+    saveDraft();db_.flush();
+    db_.moveDraft(draftState_.at("key"),e.data.at("result").at("id"));
     session_=e.data.at("result").at("id").get<std::string>();sessionPreferences_=db_.sessionPreferences(session_);
+    loadDraft(session_);
     // draft_ deliberately moves with the active page; no attach()/auto-send path.
     assistant_.clear();output_.clear();reasoning_.clear();reasoningMetadata_=Json::object();
     expandedReasoning_.clear();reasoningOverrides_.clear();tableScrolls_.clear();
@@ -140,8 +220,9 @@ bool App::replyEvent(const Event &e) {
   }
   if(e.type=="reply_retry_confirm") {
     if(visible_&&modal_&&e.data.value("session",std::string())==session_&&e.data.value("id",std::string())==replyConfirmId_) {
-      const auto model=replyConfirmModel_;const auto id=replyConfirmId_;
-      sendActionAt_=nowMs();startContext(false,id,true,e.data.value("archive",false),model);
+      auto model=replyConfirmModel_;const auto id=replyConfirmId_;
+      model["_retry_archive"]=e.data.value("archive",false);closeHistoryContext();
+      sendActionAt_=nowMs();startContext(false,id,true,model);
     }
     return true;
   }
@@ -157,6 +238,8 @@ bool App::replyEvent(const Event &e) {
       if (rows.empty()) return true;
       auto text=id==assistant_?output_:replyText(rows[0]);
       if(!text.empty()){if(editorClipboard_.copy(text))replyToast("已复制");else modal("无法复制","回复超过剪贴板容量，可通过导出聊天保存完整内容。");}
+    }else if(action=="previous"||action=="next") {
+      auto row=replyChoiceRows_.value(id,Json::object());selectReply(id,row.value("ordinal",1)+(action=="next"?1:-1));
     }else if(action=="retry")retryWarning(id);
     else if(action=="branch")branchReply(id);
     return true;
@@ -167,7 +250,7 @@ Json App::replyDiagnostic() const {
   Json rows=Json::object();
   auto bounds=[](lv_obj_t *o){lv_area_t a;lv_obj_get_coords(o,&a);return Json::array({a.x1,a.y1,a.x2,a.y2});};
   for(const auto &p:replyControls_)rows[p.first]={{"bar",bounds(p.second.bar)},{"copy",bounds(p.second.copy)},{"retry",bounds(p.second.retry)},{"branch",bounds(p.second.branch)},
-    {"visible",!lv_obj_is_hidden(p.second.bar)},{"message",bounds(lv_obj_get_parent(p.second.bar))},
+    {"ordinal",p.second.ordinal},{"total",p.second.total},{"previous",p.second.previous?bounds(p.second.previous):Json()},{"next",p.second.next?bounds(p.second.next):Json()},{"visible",!lv_obj_is_hidden(p.second.bar)},{"message",bounds(lv_obj_get_parent(p.second.bar))},
     {"copy_enabled",!lv_obj_has_state(p.second.copy,LV_STATE_DISABLED)},{"retry_enabled",!lv_obj_has_state(p.second.retry,LV_STATE_DISABLED)},{"branch_enabled",!lv_obj_has_state(p.second.branch,LV_STATE_DISABLED)}};
   return {{"rows",rows},{"busy",replyBusy_},{"confirm",replyConfirmId_},{"regenerating",contextRegenerating_}};
 }

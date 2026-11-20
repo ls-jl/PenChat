@@ -12,9 +12,11 @@ def key(a,name):
     k=next(k for k in editor(a)['keys'] if k['key']==name);a.tap(k['x'],k['y'])
 def open_editor(a):
     s=a.diag();a.tap(s['width']//2,s['height']-34);t.wait_for(lambda:editor(a)['active'])
+    t.wait_for(lambda:not a.diag().get('surface_motion',False))
 def layout(a,name):
+    t.wait_for(lambda:not a.diag().get('surface_motion',False))
     k=next(k for k in editor(a)['keys'] if k['key']=='language')
-    a.send('touch',x=k['x'],y=k['y'],pressed=True);time.sleep(.55)
+    a.send('touch',x=k['x'],y=k['y'],pressed=True);time.sleep(.82)
     a.send('touch',x=k['x'],y=k['y'],pressed=False)
     t.wait_for(lambda:editor(a)['layout_menu'])
     a.editor_action('layout:'+str({'zh26':0,'en26':1,'zh9':2}[name]));t.wait_for(lambda:editor(a)['layout']==name)
@@ -22,7 +24,10 @@ def ready(a):return t.wait_for(lambda:editor(a)['candidate_count']>0 and not edi
 def selected(a):return t.wait_for(lambda:not editor(a)['preedit_length'] and not editor(a)['pending'])
 def official(a,confirmed=False,text=''):
     a.editor_action('official');request=a.receive('keyboard.open')
-    a.send('keyboard.result',requestId=request['requestId'],confirmed=confirmed,text=text)
+    # This helper inspects the exported text without finishing the native edit.
+    # Normal system-keyboard dismissal now finishes editing by design.
+    if confirmed:a.send('keyboard.result',requestId=request['requestId'],confirmed=True,text=text)
+    else:a.send('keyboard.result',requestId=request['requestId'],confirmed=False,error='fixture inspection',text=request['text'])
     t.wait_for(lambda:not a.diag()['keyboard']);return request
 
 def run(w,h):
@@ -89,8 +94,8 @@ def run(w,h):
             for c in 'nihao':key(a,c)
             ready(a);key(a,'space');selected(a)
             layout(a,'en26');a.editor_action('clipboard');assert editor(a)['clipboard_open']
-            length=editor(a)['length'];key(a,'x');assert editor(a)['length']==length+1
-            a.tap(w-30,28);assert not editor(a)['clipboard_open']
+            length=editor(a)['length'];key(a,'x');assert editor(a)['length']==length+(0 if h>w else 1)
+            a.editor_action('clip-close');assert not editor(a)['clipboard_open']
             a.editor_action('done');time.sleep(.12);assert profile.read_bytes()==old
             a.open_settings();a.setting('keyboard')
             row=a.diag()['settings']['rows']['clear_pinyin']['bounds'];a.tap((row[0]+row[2])//2,(row[1]+row[3])//2)

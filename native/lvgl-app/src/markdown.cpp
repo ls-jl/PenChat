@@ -1,7 +1,9 @@
 #include "markdown.hpp"
 #include "latex.h"
 #include "md4c.h"
+#include "markdown_tables.hpp"
 #include "theme.hpp"
+#include "chemistry.hpp"
 extern "C" {
 #include "entity.h"
 }
@@ -12,6 +14,8 @@ extern "C" {
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <functional>
+#include <unordered_map>
 #include <list>
 #include <stdexcept>
 namespace penchat {
@@ -20,7 +24,8 @@ struct Parser {
   Document doc;
   Block *block = nullptr;
   int indent = 0, quote = 0, style = 0, tableId = 0;
-  std::vector<int> styles, ordered;
+  std::vector<int> styles, ordered, listGroups, listItems;
+  int nextListGroup = 0, nextListItem = 0;
   std::vector<std::string> links;
   bool cell = false;
   std::string marker;
@@ -31,6 +36,8 @@ struct Parser {
     b.indent = indent;
     b.quote = quote;
     b.marker = marker;
+    b.listGroups = listGroups;
+    b.listItemId = listItems.empty() ? 0 : listItems.back();
     marker.clear();
     doc.blocks.push_back(std::move(b));
     block = &doc.blocks.back();
@@ -49,14 +56,19 @@ int enterBlock(MD_BLOCKTYPE type, void *detail, void *ctx) {
     break;
   case MD_BLOCK_UL:
     p.ordered.push_back(0);
+    p.listGroups.push_back(++p.nextListGroup);
+    p.listItems.push_back(0);
     ++p.indent;
     break;
   case MD_BLOCK_OL:
     p.ordered.push_back(static_cast<MD_BLOCK_OL_DETAIL *>(detail)->start);
+    p.listGroups.push_back(++p.nextListGroup);
+    p.listItems.push_back(0);
     ++p.indent;
     break;
   case MD_BLOCK_LI: {
     auto d = static_cast<MD_BLOCK_LI_DETAIL *>(detail);
+    p.listItems.back() = ++p.nextListItem;
     int &n = p.ordered.back();
     p.marker = d->is_task ? (d->task_mark == ' ' ? "☐ " : "☑ ")
                           : (n ? std::to_string(n++) + ". " : "• ");
@@ -104,6 +116,8 @@ int leaveBlock(MD_BLOCKTYPE type, void *, void *ctx) {
   else if (type == MD_BLOCK_UL || type == MD_BLOCK_OL) {
     --p.indent;
     p.ordered.pop_back();
+    p.listGroups.pop_back();
+    p.listItems.pop_back();
   } else if (type == MD_BLOCK_TH || type == MD_BLOCK_TD)
     p.cell = false;
   else if (type == MD_BLOCK_P || type == MD_BLOCK_H || type == MD_BLOCK_CODE ||
@@ -195,6 +209,7 @@ std::string normalizeMath(const std::string &input) {
   size_t i = 0;
   char fence = 0;
   size_t fenceCount = 0;
+  size_t mathDelimiter = 0;
   while (i < input.size()) {
     bool lineStart = i == 0 || input[i - 1] == '\n';
     if (lineStart) {
@@ -239,6 +254,24 @@ std::string normalizeMath(const std::string &input) {
       out += input.substr(i, close + ticks.size() - i);
       i = close + ticks.size();
       continue;
+    }
+    if (input[i] == '$') {
+      const size_t count = i + 1 < input.size() && input[i + 1] == '$' ? 2 : 1;
+      if (!mathDelimiter) mathDelimiter = count;
+      else if (mathDelimiter == count) mathDelimiter = 0;
+      out += input.substr(i, count); i += count; continue;
+    }
+    if (!mathDelimiter && input.compare(i, 3, "\\ce") == 0) {
+      size_t at = i + 3;
+      while (at < input.size() && std::isspace(static_cast<unsigned char>(input[at]))) ++at;
+      if (at < input.size() && input[at] == '{') {
+        try {
+          std::string body;
+          if (chemistry::group(input, at, '{', '}', body)) {
+            out += "$" + input.substr(i, at - i) + "$"; i = at; continue;
+          }
+        } catch (const std::exception &) { /* Preserve unfinished streaming text. */ }
+      }
     }
     if (input[i] == '\\' && i + 1 < input.size()) {
       char open = input[i + 1];
@@ -334,7 +367,7 @@ Document parseMarkdown(const std::string &source, bool streaming) {
     p.doc.blocks.push_back(std::move(raw));
     return std::move(p.doc);
   }
-  auto input = normalizeMath(source);
+  auto input = detail::normalizeTableBoundaries(normalizeMath(source));
   MD_PARSER parser{};
   parser.flags = MD_DIALECT_GITHUB | MD_FLAG_LATEXMATHSPANS | MD_FLAG_NOHTML;
   parser.enter_block = enterBlock;
@@ -358,20 +391,27 @@ struct Piece {
   std::string text, target;
   int style = 0;
   float x = 0, y = 0, width = 0, height = 0, baseline = 0;
-  std::shared_ptr<Bitmap> math;
+  std::shared_ptr<const Bitmap> math;
+  size_t begin = 0, end = 0;
 };
 struct RichText::Impl {
+  UiMetrics metrics;
+  std::string cacheIdentity;
   FT_Library library = nullptr;
-  FT_Face face = nullptr, monoFace = nullptr, fallbackFace = nullptr;
-  cairo_font_face_t *cairoFace = nullptr, *monoCairo = nullptr, *fallbackCairo = nullptr;
-  std::map<std::string, std::shared_ptr<Bitmap>> cache;
+  FT_Face face = nullptr, boldFace = nullptr, monoFace = nullptr, fallbackFace = nullptr;
+  cairo_font_face_t *cairoFace = nullptr, *boldCairo = nullptr, *monoCairo = nullptr, *fallbackCairo = nullptr;
+  std::map<std::string, std::shared_ptr<const Bitmap>> cache;
   std::deque<std::string> order;
   size_t cacheBytes = 0;
+#ifndef PENCHAT_NATIVE_DEVICE
+  RichWorkStats work;
+#endif
   std::vector<Piece> pieces;
   void select(cairo_t *c, int size, int style, uint32_t cp = 0) {
-    const bool mono = (style & Mono) && cp < 128 && monoCairo;
-    auto selected = mono ? monoFace : face;
-    auto cairoSelected = mono ? monoCairo : cairoFace;
+    const bool mono = (style & Mono) && !(style & Bold) && cp < 128 && monoCairo;
+    const bool bold = (style & Bold) && boldCairo && !mono;
+    auto selected = mono ? monoFace : bold ? boldFace : face;
+    auto cairoSelected = mono ? monoCairo : bold ? boldCairo : cairoFace;
     if (cp && !FT_Get_Char_Index(selected, cp) && fallbackCairo)
       cairoSelected = fallbackCairo;
     cairo_set_font_face(c, cairoSelected);
@@ -382,12 +422,31 @@ struct RichText::Impl {
     cairo_set_font_matrix(c, &matrix);
   }
 };
-RichText::RichText(const std::string &fontPath, const std::string &res, const std::string &fallbackPath)
+RichText::RichText(const std::string &fontPath, const std::string &res, const std::string &fallbackPath, const UiMetrics &metrics)
     : p_(new Impl) {
+  p_->metrics=metrics;
+  p_->cacheIdentity=std::to_string(metrics.densityPercent())+":"+std::to_string(metrics.scalePercent())+":"+std::to_string(metrics.textPercent())+":";
   if (FT_Init_FreeType(&p_->library) ||
       FT_New_Face(p_->library, fontPath.c_str(), 0, &p_->face))
     throw std::runtime_error("Cannot initialize text renderer");
   p_->cairoFace = cairo_ft_font_face_create_for_ft_face(p_->face, 0);
+  // Use the sibling system face; device fonts remain system-owned resources.
+  const auto slash = fontPath.find_last_of('/');
+  const auto directory = slash == std::string::npos ? std::string() : fontPath.substr(0, slash + 1);
+  const std::vector<std::string> boldPaths = {
+      directory + "HarmonyOS_Sans_SC_Bold.ttf", directory + "chinese-bold.ttf"};
+  for (const auto &path : boldPaths) {
+    if (!FT_New_Face(p_->library, path.c_str(), 0, &p_->boldFace)) {
+      if ((p_->boldFace->style_flags & FT_STYLE_FLAG_BOLD) &&
+          p_->face->family_name && p_->boldFace->family_name &&
+          !std::strcmp(p_->face->family_name, p_->boldFace->family_name)) {
+        p_->boldCairo = cairo_ft_font_face_create_for_ft_face(p_->boldFace, 0);
+        break;
+      }
+      FT_Done_Face(p_->boldFace);
+      p_->boldFace = nullptr;
+    }
+  }
   if (!FT_New_Face(p_->library,
                    join(res, "fonts/latin/optional/cmtt10.ttf").c_str(), 0,
                    &p_->monoFace))
@@ -402,6 +461,8 @@ RichText::RichText(const std::string &fontPath, const std::string &res, const st
 }
 RichText::~RichText() {
   tex::LaTeX::release();
+  if (p_->boldCairo) cairo_font_face_destroy(p_->boldCairo);
+  if (p_->boldFace) FT_Done_Face(p_->boldFace);
   if (p_->monoCairo)
     cairo_font_face_destroy(p_->monoCairo);
   if (p_->monoFace)
@@ -412,26 +473,60 @@ RichText::~RichText() {
   FT_Done_Face(p_->face);
   FT_Done_FreeType(p_->library);
 }
+void RichText::setMetrics(const UiMetrics &metrics) {
+  if(p_->metrics.densityPercent()==metrics.densityPercent() && p_->metrics.scalePercent()==metrics.scalePercent() &&
+      p_->metrics.textPercent()==metrics.textPercent())return;
+  clearCache();p_->pieces.clear();p_->metrics=metrics;
+  p_->cacheIdentity=std::to_string(metrics.densityPercent())+":"+std::to_string(metrics.scalePercent())+":"+std::to_string(metrics.textPercent())+":";
+}
 void RichText::clearCache() {
   p_->cache.clear();
   p_->order.clear();
   p_->cacheBytes = 0;
+  p_->pieces.clear();
 }
-Bitmap RichText::formula(const std::string &source, int size) {
-  auto key = std::to_string(size) + ":" + source;
+bool RichText::hasTrueBold() const { return p_->boldCairo != nullptr; }
+static std::string formulaKey(const std::string &identity, const std::string &source,
+                              int size, uint32_t foreground) {
+  return identity + "typography2:" + theme::name(theme::mode()) + ":" +
+      std::to_string(foreground) + ":" + std::to_string(size) + ":" + source;
+}
+#ifndef PENCHAT_NATIVE_DEVICE
+RichWorkStats RichText::workStats() const { return p_->work; }
+void RichText::resetWorkStats() { p_->work = {}; }
+#endif
+Bitmap RichText::formula(const std::string &source, int size, uint32_t foreground) {
+  const auto bitmap = formulaShared(source, size, foreground);
+#ifndef PENCHAT_NATIVE_DEVICE
+  ++p_->work.formulaCopies;
+#endif
+  return *bitmap;
+}
+std::shared_ptr<const Bitmap> RichText::formulaShared(const std::string &source,
+                                                     int size, uint32_t foreground) {
+  if (!foreground) foreground = theme::palette().richBody;
+  auto key = formulaKey(p_->cacheIdentity, source, size, foreground);
   auto it = p_->cache.find(key);
-  if (it != p_->cache.end())
-    return *it->second;
+  if (it != p_->cache.end()) {
+#ifndef PENCHAT_NATIVE_DEVICE
+    ++p_->work.formulaHits;
+#endif
+    return it->second;
+  }
   if (source.size() > 8192)
     throw std::runtime_error("Formula too large");
+#ifndef PENCHAT_NATIVE_DEVICE
+  ++p_->work.formulaRenders;
+#endif
   const float formulaSize = size * 1.5f;
   std::unique_ptr<tex::TeXRender> r(
-      tex::LaTeX::parse(tex::utf82wide(source), 4096, formulaSize,
-                        formulaSize * .2, (0xff000000u | theme::text)));
-  Bitmap b;
-  b.width = std::max(1, r->getWidth() + 4);
-  b.height = std::max(1, r->getHeight() + 4);
-  b.baseline = std::round(r->getBaseline() * r->getHeight()) + 2;
+      tex::LaTeX::parse(tex::utf82wide(chemistryTex(source)), 4096, formulaSize,
+                        formulaSize * .2, (0xff000000u | foreground)));
+  auto bitmap = std::make_shared<Bitmap>();
+  auto &b = *bitmap;
+  b.width = std::max(1, r->getWidth() + p_->metrics.dp(4));
+  b.height = std::max(1, r->getHeight() + p_->metrics.dp(4));
+  b.baseline = std::round(r->getBaseline() * r->getHeight()) + p_->metrics.dp(2);
   if (b.width > 4096 || b.height > 2048)
     throw std::runtime_error("Formula dimensions exceed limits");
   b.pixels.resize(size_t(b.width) * b.height * 4);
@@ -439,7 +534,7 @@ Bitmap RichText::formula(const std::string &source, int size) {
       b.pixels.data(), CAIRO_FORMAT_ARGB32, b.width, b.height, b.width * 4);
   auto c = cairo_create(s);
   CairoGraphics g(c);
-  r->draw(g, 2, 2);
+  r->draw(g, p_->metrics.dp(2), p_->metrics.dp(2));
   cairo_surface_flush(s);
   cairo_destroy(c);
   cairo_surface_destroy(s);
@@ -451,13 +546,36 @@ Bitmap RichText::formula(const std::string &source, int size) {
     p_->cache.erase(old);
   }
   if (n <= 8 * 1024 * 1024) {
-    p_->cache[key] = std::make_shared<Bitmap>(b);
+    p_->cache[key] = bitmap;
     p_->order.push_back(key);
     p_->cacheBytes += n;
   }
-  return b;
+  return bitmap;
 }
 void RichText::prepare(Document &document, int width, int size) {
+  std::map<int, int> listColumns;
+  auto surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
+  auto context = cairo_create(surface);
+  p_->select(context, size, 0);
+  for (const auto &block : document.blocks) {
+    if (block.marker.empty() || block.listGroups.empty()) continue;
+    double advance = 0;
+    for (const auto &ch : characters(block.marker)) {
+      p_->select(context, size, 0, codepoint(ch));
+      cairo_text_extents_t extents;
+      cairo_text_extents(context, ch.c_str(), &extents);
+      advance += extents.x_advance;
+    }
+    const int group = block.listGroups.back();
+    listColumns[group] = std::max(listColumns[group], int(std::ceil(advance)) + std::max(1, size / 4));
+  }
+  cairo_destroy(context);
+  cairo_surface_destroy(surface);
+  for (auto &block : document.blocks) {
+    block.listColumns.clear();
+    for (int group : block.listGroups)
+      block.listColumns.push_back(std::max(size, listColumns[group]));
+  }
   for (size_t i = 0; i < document.blocks.size();) {
     if (document.blocks[i].kind != "table") {
       ++i;
@@ -469,7 +587,7 @@ void RichText::prepare(Document &document, int width, int size) {
            document.blocks[end].kind == "table" &&
            document.blocks[end].tableId == document.blocks[i].tableId) {
       auto &row = document.blocks[end];
-      widths.resize(std::max(widths.size(), row.cells.size()), 140);
+      widths.resize(std::max(widths.size(), row.cells.size()), p_->metrics.dp(140));
       for (size_t column = 0; column < row.cells.size(); ++column) {
         Block cell;
         cell.kind = "code";
@@ -478,7 +596,7 @@ void RichText::prepare(Document &document, int width, int size) {
           for (auto &run : cell.runs)
             run.style |= Bold;
         widths[column] =
-            std::max(widths[column], layout(cell, 1, size).width + 14);
+            std::max(widths[column], layout(cell, 1, size).width + p_->metrics.dp(14));
       }
       ++end;
     }
@@ -489,7 +607,50 @@ void RichText::prepare(Document &document, int width, int size) {
       document.blocks[i++].columnWidths = widths;
   }
 }
-RichLayout RichText::layout(const Block &block, int width, int size) {
+static std::string runPlainText(const Run &run) {
+  if (run.style & Math) return (run.style & DisplayMath ? "$$" : "$") + run.text +
+                               (run.style & DisplayMath ? "$$" : "$");
+  return run.style & Image ? "[图片] " + run.text : run.text;
+}
+std::string blockPlainText(const Block &block) {
+  std::string text = block.marker;
+  if (block.kind == "table") {
+    for (size_t i = 0; i < std::max(block.cells.size(),block.columnWidths.size()); ++i) {
+      if (i) text += '\t';
+      if(i<block.cells.size())for (const auto &run : block.cells[i]) text += runPlainText(run);
+    }
+  } else for (const auto &run : block.runs) text += runPlainText(run);
+  return text;
+}
+RichTypography RichText::typography(const Block &block, int size) const {
+  RichTypography result;
+  result.fontSize = size;
+  if (block.kind == "h") {
+    static const int sizes[] = {29, 27, 25, 23, 22, 21};
+    static const double spaces[] = {1.2, 1.0, .9, .8, .7, .6};
+    const int index = std::max(0, std::min(5, block.level - 1));
+    result.fontSize = std::max(1, int(std::lround(sizes[index] * size / 21.0)));
+    result.lineHeight = std::ceil(result.fontSize * 1.3);
+    result.before = std::lround(result.fontSize * spaces[index]);
+    result.after = std::lround(result.fontSize * .4);
+  } else {
+    result.lineHeight = std::ceil(size * (block.kind == "code" || block.kind == "table" ? 1.45 : 1.6));
+    result.before = result.after = std::lround(size * (block.listItemId ? .6 : .7));
+  }
+  return result;
+}
+int RichText::blockGap(const Block *previous, const Block &current, int size) const {
+  if (!previous) return 0;
+  if (previous->tableId && previous->tableId == current.tableId) return 0;
+  int gap = std::max(typography(*previous, size).after, typography(current, size).before);
+  if (previous->listItemId && previous->listItemId == current.listItemId)
+    gap = std::max(gap, int(std::lround(size * .7)));
+  return gap;
+}
+RichLayout RichText::layout(const Block &block, int width, int size, bool textHits, bool subdued) {
+#ifndef PENCHAT_NATIVE_DEVICE
+  ++p_->work.layoutCalls;
+#endif
   p_->pieces.clear();
   if (block.kind == "table") {
     std::vector<Piece> pieces;
@@ -498,10 +659,11 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
       int height;
     };
     std::vector<CellSpan> spans;
-    int cellX = block.quote * 12 + std::max(0, block.indent - 1) * 20,
-        rowHeight = 20;
+    int cellX = block.quote * p_->metrics.dp(12) + std::max(0, block.indent - 1) * p_->metrics.dp(20),
+        rowHeight = p_->metrics.dp(20);
     const size_t count =
         std::max(block.cells.size(), block.columnWidths.size());
+    size_t textOffset = 0;
     for (size_t column = 0; column < count; ++column) {
       Block cell;
       cell.kind = "code";
@@ -510,10 +672,10 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
       if (block.header)
         for (auto &run : cell.runs)
           run.style |= Bold;
-      auto cellLayout = layout(cell, 1, size);
+      auto cellLayout = layout(cell, 1, size, false, subdued);
       const int cellWidth = column < block.columnWidths.size()
                                 ? block.columnWidths[column]
-                                : std::max(140, cellLayout.width + 14);
+                                : std::max(p_->metrics.dp(140), cellLayout.width + p_->metrics.dp(14));
       const int alignment = column < block.cellAlignments.size()
                                 ? block.cellAlignments[column]
                                 : MD_ALIGN_DEFAULT;
@@ -524,8 +686,10 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
       const size_t begin = pieces.size();
       for (auto piece : p_->pieces) {
         piece.x += cellX + offset;
+        piece.begin += textOffset; piece.end += textOffset;
         pieces.push_back(std::move(piece));
       }
+      textOffset += blockPlainText(cell).size() + (column + 1 < count ? 1 : 0);
       spans.push_back({begin, pieces.size(), cellLayout.height});
       rowHeight = std::max(rowHeight, cellLayout.height);
       cellX += cellWidth;
@@ -537,40 +701,103 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
     RichLayout result;
     result.width = std::max(width, cellX);
     result.height = rowHeight;
-    for (const auto &piece : p_->pieces)
+    for (const auto &piece : p_->pieces) {
+      if (textHits && piece.end > piece.begin)
+        result.textHits.push_back({int(piece.x),int(piece.y),std::max(1,int(std::ceil(piece.width))),
+                                  std::max(1,int(std::ceil(piece.height))),piece.begin,piece.end,bool(piece.style & Math)});
       if (!piece.target.empty())
         result.links.push_back({int(piece.x), int(piece.y), int(piece.width),
                                 int(piece.height), piece.target});
+    }
     return result;
   }
-  int actualSize =
-      block.kind == "h" ? std::max(size, ((31 - block.level * 2) * size + 10) / 21) : size;
+  const auto type = typography(block, size);
+  const int actualSize = type.fontSize;
+  const int baseStyle = block.kind == "h" || block.header ? Bold : 0;
+  const uint32_t foreground = subdued ? theme::palette().reasoning :
+      block.kind == "h" ? theme::palette().richHeading : theme::palette().richBody;
   auto surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
   auto c = cairo_create(surf);
-  float left = block.quote * 12 + std::max(0, block.indent - 1) * 20 + 6;
-  float x = left, y = 5, lineTop = 0, ascent = actualSize, descent = 5,
+  const float inset = block.quote * p_->metrics.dp(12) + p_->metrics.dp(6);
+  float markerWidth = 0;
+  for (const auto &ch : characters(block.marker)) {
+    p_->select(c, actualSize, 0, codepoint(ch));
+    cairo_text_extents_t extents;
+    cairo_text_extents(c, ch.c_str(), &extents);
+    markerWidth += extents.x_advance;
+  }
+  float ownColumn = 0, parents = 0;
+  if (!block.listGroups.empty()) {
+    for (size_t i = 0; i < block.listGroups.size(); ++i) {
+      const float column = i < block.listColumns.size() ? block.listColumns[i] : actualSize * 1.25f;
+      if (i + 1 == block.listGroups.size()) ownColumn = std::max(column, markerWidth + actualSize * .25f);
+      else parents += column + actualSize * .35f;
+    }
+    // Compress ancestral indentation before sacrificing readable body width.
+    parents = std::min(parents, std::max(0.f, width - inset - p_->metrics.dp(6) - 6.f * size - ownColumn));
+  } else if (block.indent || !block.marker.empty()) {
+    parents = std::min(float(std::max(0, block.indent - 1) * p_->metrics.dp(20)),
+                       std::max(0.f, width - inset - 6.f * size - markerWidth));
+    ownColumn = markerWidth;
+  }
+  const float left = inset + parents + ownColumn;
+  p_->select(c, actualSize, baseStyle);
+  cairo_font_extents_t defaultFont;
+  cairo_font_extents(c, &defaultFont);
+  const float defaultAscent = defaultFont.ascent, defaultDescent = defaultFont.descent;
+  const float padding = block.kind == "code" ? p_->metrics.dp(4) : 0;
+  float x = left, y = padding, ascent = defaultAscent, descent = defaultDescent,
         maxWidth = width;
   size_t lineStart = 0;
   auto newline = [&]() {
+    const float lineHeight = std::max(float(type.lineHeight), ascent + descent);
+    const float leading = (lineHeight - ascent - descent) / 2;
     for (size_t i = lineStart; i < p_->pieces.size(); ++i)
-      p_->pieces[i].y = y + ascent - p_->pieces[i].baseline;
-    y += ascent + descent + 5;
+      p_->pieces[i].y = y + leading + ascent - p_->pieces[i].baseline;
+    y += lineHeight;
     x = left;
     lineStart = p_->pieces.size();
-    ascent = actualSize;
-    descent = 5;
-    lineTop = y;
+    ascent = defaultAscent;
+    descent = defaultDescent;
   };
-  (void)lineTop;
+  // The lookahead and placement passes share glyph metrics. Bound this local
+  // cache so long replies do not retain an additional unbounded text index.
+  struct GlyphMetrics {
+    float advance, baseline, below;
+  };
+  std::unordered_map<uint64_t, GlyphMetrics> glyphs;
+  auto metricsOf = [&](const std::string &ch, uint32_t cp, int style) {
+    const uint64_t key = (uint64_t(uint32_t(style)) << 32) | cp;
+    const auto found = glyphs.find(key);
+    if (found != glyphs.end()) return found->second;
+    p_->select(c, actualSize, style, cp);
+    cairo_text_extents_t extents;
+    cairo_text_extents(c, ch.c_str(), &extents);
+    const float advance = (style & Mono) && !(style & Bold)
+        ? float(actualSize * .62) * (cp >= 128 ? 2 : 1) : extents.x_advance;
+    // Tabs retain their dynamic advance but are painted as spaces.
+    if (ch == "\t") cairo_text_extents(c, " ", &extents);
+    cairo_font_extents_t font;
+    cairo_font_extents(c, &font);
+    const GlyphMetrics result{advance, float(std::max(font.ascent, -extents.y_bearing)),
+                              float(std::max(font.descent, extents.y_bearing + extents.height))};
+#ifndef PENCHAT_NATIVE_DEVICE
+    ++p_->work.glyphMeasurements;
+#endif
+    if (glyphs.size() < 256) glyphs.emplace(key, result);
+    return result;
+  };
+  size_t textOffset = 0;
   auto add = [&](const Run &run, int forceWidth) {
     if ((run.style & DisplayMath) && x > left)
       newline();
     if (run.style & Math) {
       try {
-        auto bitmap = std::make_shared<Bitmap>(formula(run.text, actualSize));
+        auto bitmap = formulaShared(run.text, actualSize, foreground);
         if (!forceWidth && block.kind != "code" && x + bitmap->width > width && x > left)
           newline();
         Piece p;
+        p.begin = textOffset; textOffset += runPlainText(run).size(); p.end = textOffset;
         p.math = bitmap;
         p.x = x;
         p.width = bitmap->width;
@@ -580,7 +807,7 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
         ascent = std::max(ascent, p.baseline);
         descent = std::max(descent, p.height - p.baseline);
         x += p.width;
-        maxWidth = std::max(maxWidth, x + 6);
+        maxWidth = std::max(maxWidth, x + p_->metrics.dp(6));
         p_->pieces.push_back(std::move(p));
         if (run.style & DisplayMath)
           newline();
@@ -588,109 +815,200 @@ RichLayout RichText::layout(const Block &block, int width, int size) {
       } catch (...) {
       }
     }
-    p_->select(c, actualSize, run.style);
+    p_->select(c, actualSize, run.style | baseStyle);
+    const size_t formulaBegin=textOffset,formulaEnd=textOffset+runPlainText(run).size();
+    if(run.style&Math)textOffset+=(run.style&DisplayMath)?2:1;
     for (auto &ch :
          characters(run.style & Image ? ("[图片] " + run.text) : run.text)) {
+      const size_t textBegin = textOffset;
+      textOffset += ch.size();
       if (ch == "\n") {
         newline();
         continue;
       }
       const auto cp = codepoint(ch);
       if ((cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0xe0100 && cp <= 0xe01ef) || cp == 0x200d || cp == 0x200c || cp == 0x200b) continue;
-      p_->select(c, actualSize, run.style, cp);
-      cairo_text_extents_t e;
-      cairo_text_extents(c, ch.c_str(), &e);
-      float advance =
-          (run.style & Mono)
-              ? float(actualSize * .62) *
-                    (static_cast<unsigned char>(ch[0]) >= 128 ? 2 : 1)
-              : e.x_advance;
+      const auto metrics = metricsOf(ch, cp, run.style | baseStyle);
+      float advance = metrics.advance;
       if (block.kind != "code" && (ch == " " || ch == "\t") &&
-          (x == left || x + advance > width - 6)) {
+          (x == left || x + advance > width - p_->metrics.dp(6))) {
         if (x > left) newline();
         continue;
       }
-      if (!forceWidth && block.kind != "code" && x + advance > width - 6 &&
+      if (!forceWidth && block.kind != "code" && x + advance > width - p_->metrics.dp(6) &&
           x > left)
         newline();
       Piece p;
+      p.begin = textBegin; p.end = textOffset;
+      if(run.style&Math){p.begin=formulaBegin;p.end=formulaEnd;}
       p.text = ch == "\t" ? " " : ch;
       if (ch == "\t")
         advance =
             actualSize * .62 * (4 - int((x - left) / (actualSize * .62)) % 4);
       p.x = x;
-      p.baseline = actualSize;
-      p.height = actualSize + 5;
+      p.baseline = metrics.baseline;
+      p.height = p.baseline + metrics.below;
+      ascent = std::max(ascent, p.baseline);
+      descent = std::max(descent, metrics.below);
       p.width = advance;
-      p.style = run.style | (block.header ? Bold : 0);
+      p.style = run.style | baseStyle;
       p.target = run.link;
       p_->pieces.push_back(std::move(p));
       x += advance;
-      maxWidth = std::max(maxWidth, x + 6);
+      maxWidth = std::max(maxWidth, x + p_->metrics.dp(6));
     }
+    if(run.style&Math)textOffset=formulaEnd;
   };
-  if (!block.marker.empty())
-    add({block.marker, "", 0}, 0);
-  // Keep word fragments together even when Markdown changes style/link midway.
-  // CJK characters remain independent wrapping units; oversized words retain
-  // character wrapping so an identifier or URL can never overflow the reader.
-  std::vector<Run> word;
-  float wordWidth = 0;
-  auto flushWord = [&]() {
-    if (word.empty()) return;
-    const bool wrap = block.kind != "code";
-    if (wrap && x > left && x + wordWidth > width - 6) newline();
-    const bool fits = wordWidth <= width - 6 - left;
-    for (const auto &part : word) add(part, wrap && fits ? 1 : 0);
-    word.clear();
-    wordWidth = 0;
-  };
+  if (!block.marker.empty()) {
+    x = left - markerWidth - (block.listGroups.empty() ? 0 : actualSize * .25f);
+    add({block.marker, "", 0}, 1);
+    x = left;
+  }
   auto wordCharacter = [](uint32_t cp) {
     return (cp < 128 && (std::isalnum(static_cast<unsigned char>(cp)) ||
                          cp == '_' || cp == '\'')) ||
            (cp >= 0xc0 && cp <= 0x52f && cp != 0xd7 && cp != 0xf7) ||
            (cp >= 0x1e00 && cp <= 0x1eff) || cp == 0x2019;
   };
-  for (const auto &run : block.runs) {
-    if (run.style & (Math | Image)) {
-      flushWord();
-      add(run, 0);
-      continue;
+  auto closingPunctuation = [](uint32_t cp) {
+    switch (cp) {
+    case ',': case '.': case '!': case '?': case ':': case ';':
+    case ')': case ']': case '}': case '%':
+    case 0x00b0: case 0x2030: case 0x2031: case 0x2103: case 0x2109:
+    case 0x2019: case 0x201d: case 0x2026:
+    case 0x3001: case 0x3002: case 0x3009: case 0x300b: case 0x300d:
+    case 0x300f: case 0x3011: case 0x3015: case 0x3017: case 0x3019:
+    case 0x301b: case 0xff01: case 0xff05: case 0xff09: case 0xff0c:
+    case 0xff0e: case 0xff1a: case 0xff1b: case 0xff1f: case 0xff3d:
+    case 0xff5d: case 0xff60: case 0xff63: case 0xff64:
+      return true;
+    default: return false;
     }
-    for (const auto &ch : characters(run.text)) {
-      const auto cp = codepoint(ch);
-      if (wordCharacter(cp)) {
-        p_->select(c, actualSize, run.style, cp);
-        cairo_text_extents_t extents;
-        cairo_text_extents(c, ch.c_str(), &extents);
-        wordWidth += (run.style & Mono)
-            ? float(actualSize * .62) * (cp >= 128 ? 2 : 1)
-            : extents.x_advance;
-        if (!word.empty() && word.back().style == run.style &&
-            word.back().link == run.link) word.back().text += ch;
-        else word.push_back({ch, run.link, run.style});
+  };
+  auto openingPunctuation = [](uint32_t cp) {
+    switch (cp) {
+    case '(': case '[': case '{': case 0x2018: case 0x201c:
+    case 0x3008: case 0x300a: case 0x300c: case 0x300e: case 0x3010:
+    case 0x3014: case 0x3016: case 0x3018: case 0x301a: case 0xff08:
+    case 0xff3b: case 0xff5b: case 0xff5f: case 0xff62:
+      return true;
+    default: return false;
+    }
+  };
+  // Delay one wrapping unit: a word (across Markdown spans) or CJK character,
+  // its opening brackets and its trailing punctuation. Never break those at a
+  // soft line boundary. Explicit newlines and code retain their own semantics.
+  // Oversized words are reprocessed as characters, still carrying punctuation;
+  // genuinely indivisible units may overflow into the existing horizontal reader.
+  std::function<void(const std::vector<Run> &, bool)> flow;
+  flow = [&](const std::vector<Run> &runs, bool keepWords) {
+    std::vector<Run> group;
+    float groupWidth = 0;
+    bool onlyOpening = false, lastWord = false, joinNext = false;
+    auto flush = [&]() {
+      if (group.empty()) return;
+      if (keepWords && groupWidth > width - p_->metrics.dp(6) - left) {
+        flow(group, false);
       } else {
-        flushWord();
-        add({ch, run.link, run.style}, 0);
+        if (x > left && x + groupWidth > width - p_->metrics.dp(6)) newline();
+        for (const auto &part : group) add(part, 1);
+      }
+      group.clear(); groupWidth = 0;
+      onlyOpening = lastWord = joinNext = false;
+    };
+    auto append = [&](const Run &part, float advance) {
+      groupWidth += advance;
+      if (!group.empty() && !(part.style & Math) &&
+          !(group.back().style & Math) && group.back().style == part.style &&
+          group.back().link == part.link) group.back().text += part.text;
+      else group.push_back(part);
+    };
+    for (const auto &run : runs) {
+      if (run.style & (DisplayMath | Image)) {
+        flush(); add(run, 0); continue;
+      }
+      if (run.style & Math) {
+        if (!onlyOpening) flush();
+        try {
+          const auto key = formulaKey(p_->cacheIdentity, run.text, actualSize, foreground);
+          const auto cached = p_->cache.find(key);
+          const int advance = cached != p_->cache.end()
+              ? cached->second->width : formulaShared(run.text, actualSize, foreground)->width;
+          append(run, advance);
+          onlyOpening = lastWord = joinNext = false;
+        } catch (...) {
+          flush(); add(run, 0);
+        }
+        continue;
+      }
+      for (const auto &ch : characters(run.text)) {
+        if (ch == "\n" || ch == " " || ch == "\t") {
+          flush(); add({ch, run.link, run.style}, 0); continue;
+        }
+        const auto cp = codepoint(ch);
+        const bool word = wordCharacter(cp);
+        const bool extending = (cp >= 0x300 && cp <= 0x36f) ||
+            (cp >= 0xfe00 && cp <= 0xfe0f) ||
+            (cp >= 0xe0100 && cp <= 0xe01ef) || cp == 0x200d || cp == 0x200c;
+        const bool close = closingPunctuation(cp) || extending ||
+            (cp == '"' && !group.empty() && !onlyOpening);
+        const bool open = openingPunctuation(cp) || (cp == '"' && !close);
+        if (!group.empty() && !onlyOpening && !close && !joinNext &&
+            !(keepWords && lastWord && word && !open)) flush();
+        const bool wasEmpty = group.empty();
+        const bool invisible = (cp >= 0xfe00 && cp <= 0xfe0f) ||
+            (cp >= 0xe0100 && cp <= 0xe01ef) || cp == 0x200d ||
+            cp == 0x200c || cp == 0x200b;
+        const float advance = invisible ? 0 : metricsOf(ch, cp, run.style | baseStyle).advance;
+        append({ch, run.link, run.style}, advance);
+        onlyOpening = open && (wasEmpty || onlyOpening);
+        lastWord = word && (!close || cp == 0x2019);
+        joinNext = cp == 0x200d;
       }
     }
+    flush();
+  };
+  if (block.kind == "code") {
+    for (const auto &run : block.runs) add(run, 0);
+  } else {
+    flow(block.runs, true);
   }
-  flushWord();
-  newline();
+  if (lineStart < p_->pieces.size() || p_->pieces.empty()) newline();
   RichLayout layout;
   layout.width = std::ceil(maxWidth);
-  layout.height = block.kind == "hr" ? 12 : std::max(20, int(std::ceil(y + 4)));
-  for (auto &p : p_->pieces)
+  layout.height = block.kind == "hr" ? p_->metrics.dp(12) : std::max(1, int(std::ceil(y + padding)));
+  for (auto &p : p_->pieces) {
+    if (textHits && p.end > p.begin)
+      layout.textHits.push_back({int(p.x),int(p.y),std::max(1,int(std::ceil(p.width))),
+                                std::max(1,int(std::ceil(p.height))),p.begin,p.end,bool(p.style & Math)});
     if (!p.target.empty())
       layout.links.push_back(
           {int(p.x), int(p.y), int(p.width), int(p.height), p.target});
+  }
   cairo_destroy(c);
   cairo_surface_destroy(surf);
   return layout;
 }
 Bitmap RichText::paint(const Block &block, int width, int top, int height,
                        int size, int left, int windowWidth, bool subdued) {
-  auto info = layout(block, width, size);
+  const auto info = layout(block, width, size, false, subdued);
+  return paintPrepared(block, width, info, {top, height, left, windowWidth}, size, subdued);
+}
+std::vector<Bitmap> RichText::paintBatch(const Block &block, int width,
+                                       const std::vector<RichWindow> &windows,
+                                       int size, bool subdued) {
+  std::vector<Bitmap> bitmaps;
+  if (windows.empty()) return bitmaps;
+  bitmaps.reserve(windows.size());
+  const auto info = layout(block, width, size, false, subdued);
+  for (const auto &window : windows)
+    bitmaps.push_back(paintPrepared(block, width, info, window, size, subdued));
+  return bitmaps;
+}
+Bitmap RichText::paintPrepared(const Block &block, int width, const RichLayout &info,
+                               const RichWindow &window, int size, bool subdued) {
+  const int top = window.top, height = window.height;
+  const int left = window.left, windowWidth = window.width;
   Bitmap b;
   b.width =
       windowWidth > 0 ? std::min(windowWidth, info.width - left) : info.width;
@@ -706,15 +1024,15 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
                          ((value >> 8) & 255) / 255., (value & 255) / 255.);
   };
   if (block.kind == "code" || block.kind == "table") {
-    color(block.kind == "table" && block.header ? theme::surface : theme::code);
+    color(block.kind == "table" && block.header ? theme::palette().surface : theme::palette().code);
     cairo_rectangle(c, left, top, b.width, height);
     cairo_fill(c);
   }
   if (block.kind == "table") {
-    color(theme::border);
-    cairo_set_line_width(c, 1);
+    color(theme::palette().border);
+    cairo_set_line_width(c, p_->metrics.dp(1));
     const float tableLeft =
-        block.quote * 12 + std::max(0, block.indent - 1) * 20;
+        block.quote * p_->metrics.dp(12) + std::max(0, block.indent - 1) * p_->metrics.dp(20);
     float edge = tableLeft + .5f;
     cairo_move_to(c, edge, .5);
     cairo_line_to(c, edge, info.height - .5);
@@ -730,55 +1048,51 @@ Bitmap RichText::paint(const Block &block, int width, int top, int height,
     cairo_stroke(c);
   }
   if (block.quote) {
-    color(theme::muted);
-    cairo_rectangle(c, 1, top, 3, height);
+    color(theme::palette().muted);
+    cairo_rectangle(c, p_->metrics.dp(1), top, p_->metrics.dp(3), height);
     cairo_fill(c);
   }
   if (block.kind == "hr") {
-    color(theme::border);
-    cairo_rectangle(c, 3, 5, width - 6, 1);
+    color(theme::palette().border);
+    cairo_rectangle(c, p_->metrics.dp(3), p_->metrics.dp(5), width - p_->metrics.dp(6), p_->metrics.dp(1));
     cairo_fill(c);
   }
-  int actual = block.kind == "h" ? std::max(size, ((31 - block.level * 2) * size + 10) / 21) : size;
+  int actual = typography(block, size).fontSize;
   for (auto &p : p_->pieces) {
     if (p.y + p.height < top || p.y > top + height || p.x + p.width < left ||
         p.x > left + b.width)
       continue;
     if (p.math) {
       auto m = cairo_image_surface_create_for_data(
-          p.math->pixels.data(), CAIRO_FORMAT_ARGB32, p.math->width,
+          // Cairo's source-surface API takes mutable data but only reads it here.
+          const_cast<uint8_t *>(p.math->pixels.data()), CAIRO_FORMAT_ARGB32, p.math->width,
           p.math->height, p.math->width * 4);
-      if (subdued) {
-        color(theme::reasoning);
-        cairo_mask_surface(c, m, p.x, p.y);
-      } else {
-        cairo_set_source_surface(c, m, p.x, p.y);
-        cairo_paint(c);
-      }
+      cairo_set_source_surface(c, m, p.x, p.y);
+      cairo_paint(c);
       cairo_surface_destroy(m);
       continue;
     }
     p_->select(c, actual, p.style, codepoint(p.text));
     if (!p.target.empty())
-      color(subdued ? theme::reasoningLink : theme::link);
+      color(subdued ? theme::palette().reasoningLink : theme::palette().link);
     else
-      color(subdued ? theme::reasoning : theme::text);
-    if (p.style & Mono) {
-      color(theme::surface);
+      color(subdued ? theme::palette().reasoning : block.kind == "h" ? theme::palette().richHeading : theme::palette().richBody);
+    if ((p.style & Mono) && block.kind != "code") {
+      color(theme::palette().surface);
       cairo_rectangle(c, p.x, p.y, p.width, p.height);
       cairo_fill(c);
-      color(subdued ? theme::reasoning : theme::text);
+      color(subdued ? theme::palette().reasoning : block.kind == "h" ? theme::palette().richHeading : theme::palette().richBody);
     }
     cairo_move_to(c, p.x, p.y + p.baseline);
     cairo_show_text(c, p.text.c_str());
-    if (p.style & Bold) {
-      cairo_move_to(c, p.x + .5, p.y + p.baseline);
+    if ((p.style & Bold) && !p_->boldCairo) {
+      cairo_move_to(c, p.x + .5*p_->metrics.factor(), p.y + p.baseline);
       cairo_show_text(c, p.text.c_str());
     }
     if ((p.style & Strike) || !p.target.empty()) {
       cairo_rectangle(
-          c, p.x, p.y + (p.style & Strike ? p.baseline * .6 : p.baseline + 2),
-          p.width, 1);
+          c, p.x, p.y + (p.style & Strike ? p.baseline * .6 : p.baseline + p_->metrics.dp(2)),
+          p.width, p_->metrics.dp(1));
       cairo_fill(c);
     }
   }

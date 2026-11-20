@@ -4,6 +4,9 @@ import http.server,json,os,pathlib,signal,sqlite3,tempfile,threading,time
 import test_lvgl_app as t
 from anthropic_fixture import Handler,seed,configure,SIGNATURE,REDACTED
 from test_reply_actions import action as reply_action,confirm as confirm_retry,bottom
+from provider_ui import activate as provider_action,commit_model
+from choice_ui import select
+from chat_instruction_checks import assert_chat_prompt
 BINARY=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',t.ROOT/'build/host/penchat-lvgl'))
 OUT=t.ROOT/'.work/anthropic-ui';OUT.mkdir(parents=True,exist_ok=True)
 def shot(a,name):
@@ -26,18 +29,18 @@ def configuration(w,h):
  with tempfile.TemporaryDirectory(prefix='penchat-anthropic-settings-') as folder:
   p=pathlib.Path(folder);seed(p,1);a=t.Native(BINARY,p,screen={'width':w,'height':h,'direction':0})
   try:
-   a.open_settings();a.setting('models');a.tap(w-90,76)
-   a.tap(w-230,128);assert a.diag()['modal'];shot(a,f'{w}-protocols')
-   a.tap(400,112);assert a.diag()['provider_protocol']=='chat'
-   a.tap(w-230,128);a.tap(400,160);assert a.diag()['provider_protocol']=='anthropic'
-   row(a,'anthropic_connection');assert a.diag()['view']=='anthropic_connection';shot(a,f'{w}-connection-default')
+   a.open_settings();a.setting('models');provider_action(a,'provider-open:p')
+   provider_action(a,'provider-protocol');assert a.diag()['modal'];shot(a,f'{w}-protocols')
+   select(a,'chat');assert a.diag()['provider_protocol']=='chat'
+   provider_action(a,'provider-protocol');select(a,'anthropic');assert a.diag()['provider_protocol']=='anthropic'
+   row(a,'provider_advanced');row(a,'anthropic_connection');assert a.diag()['view']=='anthropic_connection';shot(a,f'{w}-connection-default')
    row(a,'anthropic_auth');row(a,'anthropic_version');row(a,'anthropic_headers')
    enter(a,json.dumps({'X-Fixture':'yes','anthropic-workspace-id':'workspace-test'}))
    shot(a,f'{w}-connection-bearer')
    with sqlite3.connect(p/'penchat.db') as db:assert json.loads(db.execute('select metadata_json from providers').fetchone()[0])['anthropic']['auth']=='x-api-key'
    a.tap(40,32);row(a,'api_compatibility');row(a,'enabled')
    assert 'usage' not in a.diag()['settings']['rows'];shot(a,f'{w}-compatibility')
-   a.tap(40,32);a.page_action('保存')
+   a.tap(40,32);provider_action(a,'provider-save-bottom')
    with sqlite3.connect(p/'penchat.db') as db:
     base,metadata,headers=db.execute('select base_url,metadata_json,headers_json from providers').fetchone()
     assert base=='http://127.0.0.1:1/v1'
@@ -45,16 +48,19 @@ def configuration(w,h):
     assert json.loads(headers)['anthropic-workspace-id']=='workspace-test'
     assert db.execute("select count(*) from model_configs where id in ('a','b')").fetchone()[0]==2
    # The first model remains the same row; unknown service capabilities are editable.
-   a.tap(w-90,125);assert a.diag()['view']=='model';shot(a,f'{w}-adaptive-model')
+   provider_action(a,'model-edit:a');assert a.diag()['view']=='model';shot(a,f'{w}-adaptive-model')
    row(a,'max_output');enter(a,'32768');a.page_action('参数映射')
    row(a,'thinking_high');enter(a,'xhigh');shot(a,f'{w}-adaptive-mapping')
-   a.page_action('保存');assert a.diag()['view']=='provider'
-   a.tap(w-90,178);assert a.diag()['view']=='model';shot(a,f'{w}-budget-model')
+   commit_model(a);assert a.diag()['view']=='provider'
+   provider_action(a,'model-edit:b');assert a.diag()['view']=='model';shot(a,f'{w}-budget-model')
    a.page_action('参数映射');row(a,'thinking_high');enter(a,'20000')
-   a.page_action('保存');assert a.diag()['modal'];shot(a,f'{w}-invalid-budget')
-   a.tap(w-70,h-44);row(a,'thinking_high');enter(a,'8192');a.page_action('保存')
+   a.page_action('完成');assert a.diag()['modal'];shot(a,f'{w}-invalid-budget')
+   a.tap(w-70,h-44);row(a,'thinking_high');enter(a,'8192');commit_model(a)
    assert a.diag()['view']=='provider'
   finally:a.close()
+
+def assert_chat_instructions(request, session):
+    assert_chat_prompt(request['system'],session)
 
 def chat(w,h):
  with http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler) as server,tempfile.TemporaryDirectory(prefix='penchat-anthropic-chat-') as folder:
@@ -70,7 +76,7 @@ def chat(w,h):
   try:
    a.edit('第一条 Messages 问题');a.tap(w-52,h-34);settled(a)
    assert len(Handler.requests)==1 and not a.diag()['modal'],a.read_messages()
-   request=Handler.requests[-1][2];assert request['system']=='CHAT_SYSTEM_ONCE'
+   request=Handler.requests[-1][2];assert_chat_instructions(request,'CHAT_SYSTEM_ONCE')
    assert any(b.get('type')=='image' for m in request['messages'] for b in m['content'])
    assert a.diag()['reasoning_header_count']>=1;shot(a,f'{w}-reply-and-thinking')
    with sqlite3.connect(p/'penchat.db') as db:
@@ -91,7 +97,7 @@ def chat(w,h):
    with sqlite3.connect(p/'penchat.db') as db:
     pivot=db.execute("select id from chat_messages where session_id=? and role='assistant' order by seq desc limit 1",(branch,)).fetchone()[0]
    reply_action(a,pivot,'retry')
-   assert a.diag()['reply_actions']['confirm'];confirm_retry(a,True);settled(a)
+   assert not a.diag()['reply_actions']['confirm'];settled(a)
    assert len(Handler.requests)==3 and a.diag()['session']==branch and not a.diag()['modal']
    assert '未发送草稿' not in json.dumps(Handler.requests[-1][2],ensure_ascii=False)
    # Manual compression goes through Messages with its own instruction, no effort.
@@ -100,11 +106,11 @@ def chat(w,h):
    with sqlite3.connect(p/'penchat.db') as db:
     checkpoint=json.loads(db.execute('select metadata_json from chat_sessions where id=?',(branch,)).fetchone()[0])['context_compression']
     assert checkpoint['archive_id'] and checkpoint['summary']
-   assert a.diag()['modal'];a.tap(w-70,h-44)
+   assert a.diag()['view']=='context_summary' and not a.diag()['modal'];a.to_chat()
    compressed=Handler.requests[-1][2]
-   assert 'PenChat_CONTEXT_COMPRESSION_V1' in compressed.get('system','') and 'CHAT_SYSTEM_ONCE' not in compressed['system']
+   assert 'PenChat_CONTEXT_CHECKPOINT_V2' in json.dumps(compressed) and 'CHAT_SYSTEM_ONCE' not in compressed['system']
    assert 'thinking' not in compressed and 'output_config' not in compressed
-   a.attachment_action('summary');shot(a,f'{w}-summary');a.tap(w-70,h-44)
+   a.attachment_action('summary');assert a.diag()['view']=='context_summary' and not a.diag()['modal'];shot(a,f'{w}-summary');a.to_chat()
    a.edit('压缩后继续');a.tap(w-52,h-34);settled(a)
    body=Handler.requests[-1][2];assert SIGNATURE not in json.dumps(body)
    assert '历史参考摘要' in json.dumps(body,ensure_ascii=False)
@@ -143,13 +149,20 @@ def streaming():
     reason,meta=db.execute("select reasoning_text,metadata_json from chat_messages where role='assistant' order by seq desc limit 1").fetchone()
     assert not reason and json.loads(meta)['reasoning_observed']
    assert SIGNATURE not in (p/'runtime.log').read_text() and REDACTED not in json.dumps(a.diag())
-   a.open_settings();a.setting('models');a.tap(870,76)
-   a.tap(250,180);enter(a,'');before=len(Handler.requests)
-   a.tap(250,235);t.wait_for(lambda:len(Handler.requests)==before+2);time.sleep(.25)
-   a.page_action('保存')
+   a.open_settings();a.setting('models');provider_action(a,'provider-open:p')
+   provider_action(a,'provider-add-models');before=len(Handler.requests)
+   provider_action(a,'models-fetch');t.wait_for(lambda:len(Handler.requests)==before+2);time.sleep(.25)
+   # Fetch is review-only: preserve existing models until explicit selection,
+   # addition to the workspace and whole-provider Save.
+   with sqlite3.connect(p/'penchat.db') as db:
+    original=[n for n, in db.execute('select name from model_configs where enabled=1 order by name')]
+   for name in ('claude-fixture','claude-fixture-second'):
+    provider_action(a,'model-option:'+name)
+   provider_action(a,'加入草稿');provider_action(a,'provider-save-bottom')
    with sqlite3.connect(p/'penchat.db') as db:
     names=[n for n, in db.execute('select name from model_configs where enabled=1 order by name')]
-    assert names==['claude-fixture','claude-fixture-second']
+    assert names==sorted(original+['claude-fixture','claude-fixture-second'])
+    assert db.execute("select count(*) from model_configs where id in ('a','b')").fetchone()[0]==2
   finally:a.close();Handler.delay=0
  print('Messages slow stream: live thinking/timing, frozen model, retained draft, budget next request, cancellation and hidden timing passed.',flush=True)
 
@@ -165,7 +178,7 @@ def automatic_title():
   try:
    a.edit('自动命名');a.tap(908,232);settled(a)
    t.wait_for(lambda:len(Handler.requests)==2 and not a.diag()['title_busy'] and not a.diag()['title_pending'])
-   assert Handler.requests[0][2]['system']=='CHAT_ONLY'
+   assert_chat_instructions(Handler.requests[0][2],'CHAT_ONLY')
    title=Handler.requests[1][2];assert '[penchat-title]' in title['system'] and 'CHAT_ONLY' not in json.dumps(title)
    assert 'thinking' not in title and 'output_config' not in title
    with sqlite3.connect(p/'penchat.db') as db:assert db.execute('select title from chat_sessions').fetchone()[0]=='Messages 标题'

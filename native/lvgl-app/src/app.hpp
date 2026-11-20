@@ -1,26 +1,84 @@
 #pragma once
+#include "input_focus.hpp"
+#include "composer_shortcut.hpp"
+#include "chat_bottom_state.hpp"
+#include "text_gesture.hpp"
 #include "database.hpp"
 #include "transfer.hpp"
 #include "feedback.hpp"
 #include "update.hpp"
 #include "onboarding.hpp"
 #include "layout.hpp"
+#include "ui_metrics.hpp"
 #include "editor.hpp"
 #include "pinyin.hpp"
 #include "editor_layout.hpp"
 #include "images.hpp"
 #include "native_touch.hpp"
 #include "network.hpp"
+#include "balance.hpp"
 #include "platform.hpp"
 #include "pull_geometry.hpp"
 #include "reasoning.hpp"
 #include "presets.hpp"
 #include "scanner.hpp"
 #include "theme.hpp"
+#include "popup_style.hpp"
 #include <map>
 #include <set>
 namespace penchat {
 class App {
+#ifndef PENCHAT_NATIVE_DEVICE
+  friend struct UiControlsTest;
+  friend struct BottomStabilityTest;
+  friend struct UiPerformanceTest;
+  friend struct PaintPerformanceTest;
+  friend struct MenusMotionTest;
+#endif
+  UiMetrics uiMetrics_;
+  int refreshSaved_=0,refreshTarget_=0;
+  std::string refreshRequest_;
+  bool refreshReady_=false,refreshError_=false;
+  uint64_t refreshChanges_=0;
+  void requestRefreshRate(int hz);
+  void refreshRateSaved(const Event &event);
+  void refreshRateTick();
+  std::string themeRequest_;
+  theme::Mode themeTarget_=theme::Mode::Dark;
+  bool themeReady_=false;
+  void requestTheme(const std::string &name);
+  void themeSaved(const Event &event);
+  void themeTick();
+  void sendAppearance();
+  lv_obj_t *composerGauge_=nullptr;
+  bool effortPreview_=false;
+  void syncEffortGauge();
+  void layoutBalances();
+  void syncChatBottomPadding();
+  int uiScaleSaved_=100,uiScaleDraft_=100;
+  std::string uiScaleRequest_,uiScaleError_;
+  bool uiScaleReady_=false;
+  uint64_t uiScaleChanges_=0;
+  lv_obj_t *uiScaleSlider_=nullptr,*uiScaleCaption_=nullptr,*uiScalePreview_=nullptr,*uiScaleStatus_=nullptr;
+  std::vector<lv_obj_t *> uiScaleControls_;
+  void uiScalePage();
+  void updateUiScalePreview(int percent);
+  void saveUiScale();
+  void uiScaleSaved(const Event &event);
+  void uiScaleTick();
+  void uiScaleBusy(bool busy);
+  struct ScaleAnchor {
+    std::string session,message,region;
+    size_t offset=0;
+    double fraction=0;
+    int y=0;
+    bool label=false,following=true,pending=false;
+  } scaleAnchor_;
+  std::map<std::string,lv_obj_t *> scaleMessageRows_;
+  void captureScaleAnchor();
+  void restoreScaleAnchor();
+  bool keyboardControl(lv_obj_t *parent) const;
+  const UiMetrics &controlMetrics(lv_obj_t *parent) const;
   struct Texture {
     lv_image_dsc_t descriptor{};
     std::shared_ptr<ImageFrame> frame;
@@ -34,9 +92,50 @@ class App {
     std::string tableKey;
     std::map<std::pair<int, int>, lv_obj_t *> tiles;
   };
-  AppLayout layout() const { return {screen_.width,screen_.height}; }
+  AppLayout layout() const { return {screen_.width,screen_.height,roundedDisplay_,uiMetrics_}; }
+  uint64_t formLayoutBatches_=0,formLayoutRows_=0;
   void portraitPage();
   void arrangeModal();
+  int officialReaderPending_ = 0, officialReaderMomentum_ = 0, officialReaderSampleY_ = 0;
+  double officialReaderVelocity_ = 0;
+  uint64_t officialReaderSampleAt_ = 0;
+  lv_obj_t *officialReaderGlideBody_ = nullptr;
+  void stopOfficialReaderGlide();
+  int editorComposerEntryBottom_ = 0;
+  std::string officialComposerHit_,officialActionId_,officialActionKind_,officialActionSession_;
+  uint64_t officialActionAt_ = 0;
+  int64_t officialKeyEventAt_ = 0, officialTextEventAt_ = 0;
+  std::set<std::string> officialContactIds_;
+  bool officialComposerMoved_ = false, officialPopupContact_ = false;
+  std::function<void()> officialMenuAction_;
+  bool officialTextContact_=false;
+  uint64_t officialEditSequence_=0,officialEditPending_=0;
+  void officialEditSync(const std::string &base);
+  void officialEditAction(const std::string &action);
+  std::string officialComposerActionAt(int x,int y) const;
+  bool officialReaderInput() const;
+  void officialReaderTouch(const Json &message);
+  bool officialReaderDown_ = false, officialReaderCaptured_ = false, officialReaderDragging_ = false;
+  int officialReaderX_ = 0, officialReaderY_ = 0, officialReaderLastY_ = 0;
+  lv_area_t officialReaderBounds_{};
+  bool roundedDisplay_ = false, contextMenuOpening_ = false, popupConsumeTouch_ = false;
+  lv_obj_t *popupTouchPanel_ = nullptr;
+  bool popupTracking_ = false, popupOutside_ = false, popupMoved_ = false, popupBack_ = false;
+  int popupStartX_ = 0, popupStartY_ = 0;
+  lv_obj_t *contextMenuPanel_ = nullptr, *contextMenuList_ = nullptr;
+  std::string contextMenuKind_;
+  lv_obj_t *attachmentPanel_ = nullptr;
+  lv_obj_t *contextMenu(const std::string &kind, int rows, int width = 0);
+  std::map<std::string, lv_obj_t *> choiceActions_;
+  void choiceMenu(const std::string &kind,
+                  const std::vector<std::pair<std::string, std::string>> &options,
+                  const std::string &current,
+                  std::function<void(const std::string &)> apply);
+  void selected(lv_obj_t *object, bool value);
+  bool popupTouch(const Json &message);
+  bool keepChatEditor() const;
+  LayoutRect pickerArea(int desiredWidth) const;
+  bool finishChatEditorForNavigation();
   lv_obj_t *modalScroll_=nullptr;
   std::vector<lv_obj_t *> modalButtons_;
   std::unique_ptr<Onboarding> onboarding_;
@@ -58,6 +157,24 @@ class App {
   NativeTouch touchInput_;
   Events events_;
   PinyinService pinyin_;
+  std::unique_ptr<BalanceService> balanceService_;
+  std::map<std::string, Json> balanceResults_;
+  std::set<std::string> balancePending_, balanceExpanded_;
+  uint64_t balanceGeneration_ = 0;
+  bool balanceDirty_ = false;
+  int64_t balanceLastRender_ = 0;
+  int balanceAnchorX_ = 0, balanceAnchorY_ = 0;
+  lv_obj_t *balanceShortcut_ = nullptr;
+  lv_obj_t *balanceRefresh_ = nullptr;
+  std::map<std::string,lv_obj_t *> balanceDetailActions_;
+  void balanceButton(lv_obj_t *parent, int x, int y, uint32_t background);
+  void openBalances();
+  void balancePage();
+  void refreshBalances();
+  void cancelBalances();
+  void balanceEvent(const Event &event);
+  void balanceVendorPicker();
+  Json balanceDiagnostic() const;
   std::unique_ptr<Updater> updater_;
   Json updateState_=Json::object(),updateSnapshot_=Json::object();
   bool updateDirty_=false,updateReturning_=false,updateExit_=false;
@@ -111,8 +228,17 @@ class App {
   std::string scanSession_;
   Json scanResult_ = Json::object();
   bool scanConfirming_ = false;
+  uint64_t scanViewRequest_ = 0;
+  std::string scanOriginalPath_,scanOriginalKey_;
+  uint64_t scanFinishedAt_=0,scanPreparedAt_=0,scanDecodedAt_=0,scanViewClickedAt_=0,scanViewLoadedAt_=0;
+  uint64_t scanConfirmClickedAt_=0,scanStoredAt_=0,scanExportUs_=0;
+  lv_obj_t *scanWarning_ = nullptr, *scanHolder_ = nullptr;
+  void updateScanWarning(const Json &);
+  void viewScanResult();
   lv_obj_t *scanImage_ = nullptr, *scanLabel_ = nullptr, *scanUse_ = nullptr,
            *scanHint_ = nullptr;
+  lv_obj_t *chatHeader_ = nullptr, *chatTitle_ = nullptr;
+  void refreshChatTitle();
   std::function<void()> afterScanRelease_;
   void syncScanner();
   void scanPage();
@@ -122,9 +248,46 @@ class App {
   std::string workspace_, dataDir_, view_ = "chat", session_, draft_,
                                     assistant_, output_, reasoning_, notice_;
   Json providerForm_, rows_ = Json::array();
+  Json providerDraftModels_ = Json::array(), providerOriginal_ = Json::object(), modelEditOriginal_ = Json::object();
+  std::string providerWorkspaceId_, providerFetchIdentity_;
+  bool providerDirty() const;
+  void beginProvider(const std::string &id = "");
+  void leaveProvider();
+  void returnProvider();
+  Json draftModel(const Json &model) const;
+  void providerModelsSection(int y, int width);
+  bool providerAdvanced_=false;
+  std::string providerModelsId_,providerModelFilter_,providerManualModels_;
+  std::set<std::string> providerModelSelection_;
+  size_t providerModelPage_=0;
+  void providerModelsPage();
+  void openProviderModels(const std::string &id);
+  void addProviderModels();
+  void editModel(const Json &model);
+  void removeModel(const Json &model);
+  int modelIdentityFields();
+  void providerModelsResult(const Event &event);
   Json sessionPreferences_ = Json::object(),
        reasoningMetadata_ = Json::object(), modelForm_ = Json::object();
   std::string effortMemory_, popupKind_;
+  std::map<std::string, Json> webMessageMetadata_;
+  std::set<std::string> expandedWeb_;
+  std::map<lv_obj_t *,std::string> webImageRetries_;
+  Json webDetails_ = Json::object(), webSource_ = Json::object();
+  std::string webReturnView_ = "chat";
+  std::thread webReaderWorker_;
+  std::atomic<bool> webReaderCancel_{false};
+  int webReaderGeneration_ = 0;
+  size_t webSourceOffset_ = 0;
+  void webDetailsPage();
+  void webSourcePage();
+  void openWebDetails(const std::string &id);
+  void openWebSource(Json source);
+  void fetchWebSource(const std::string &url);
+  void cancelWebReader();
+  void webEvent(const Event &event);
+  void webPolicyPicker();
+  Json webMetadata(const std::string &id) const;
   std::set<std::string> expandedReasoning_;
   std::map<std::string, bool> reasoningOverrides_;
   std::set<lv_obj_t *> chatPhotos_;
@@ -137,9 +300,9 @@ class App {
       viewerLastX_ = 0, viewerLastY_ = 0, viewerDistance_ = 0,
       viewerLastTapX_ = 0, viewerLastTapY_ = 0;
   int64_t viewerLastTap_ = 0;
-  bool viewerFailed_ = false;
+  bool viewerFailed_ = false, viewerScanResult_ = false;
   void requestImageViewer(const std::string &path);
-  void openImageViewer(const std::string &path);
+  void openImageViewer(const std::string &path, bool scanResult = false);
   void closeImageViewer(bool restore = true);
   void refreshImageViewer();
   void updateImageViewer();
@@ -163,9 +326,17 @@ class App {
   double viewerReturnZoom_ = 1;
   Json imageViewerDiagnostic() const;
 
-  std::map<std::string,std::string> sessionDrafts_;
+  Json draftState_, contextDraft_;
+  std::string deferredModalTitle_,deferredModalText_;
+  void loadDraft(const std::string &session);
+  void saveDraft();
+  bool draftImage(const std::string &id) const;
+  Json draftRows() const;
   bool switchDraft(const std::string &next);
-  struct ReplyControls {lv_obj_t *bar,*copy,*retry,*branch;bool body,question;};
+  struct ReplyControls {lv_obj_t *bar,*copy,*retry,*branch,*previous,*next;bool body,question;int ordinal,total;};
+  Json replyChoiceRows_=Json::object();
+  int replyAnchorY_=0,replyAnchorScroll_=0;
+  void selectReply(const std::string &,int);
   std::map<std::string,ReplyControls> replyControls_;
   std::string replyConfirmId_,replyToken_;
   Json replyConfirmModel_=Json::object();
@@ -179,10 +350,11 @@ class App {
   void branchReply(const std::string &);
   bool replyEvent(const Event &);
   Json replyDiagnostic() const;
-  std::string imageDeleteId_;
+  std::string imageDeleteId_,imageDeleteRequest_;
+  bool imageDeleteScrolling_=false;
   Json messageEdit_ = Json::object(), messageEditImages_ = Json::array();
   Json messageEditPreferences_ = Json::object();
-  std::string messageEditToken_, messageContextId_, messageEditMemory_;
+  std::string messageEditToken_, messageContextId_, messageContextText_, messageEditMemory_;
   std::thread messageEditWorker_;
   lv_obj_t *messagePrepareModal_ = nullptr;
   bool messageEditBusy_ = false, messageEditArchive_ = false;
@@ -206,6 +378,19 @@ class App {
   void selectMessageText(const std::string &text);
   void reasoningDisplayPicker();
   std::vector<lv_obj_t *> reasoningHeaders_;
+  struct ReasoningControl {
+    lv_obj_t *arrow=nullptr,*detail=nullptr,*wrap=nullptr;
+    std::string text,searchText;
+    int width=0,naturalHeight=0;
+    bool expanded=false;
+  };
+  std::map<std::string,ReasoningControl> reasoningControls_;
+  void toggleReasoning(const std::string &id, bool expanded);
+  std::string reasoningSearchText(const Json &metadata,bool active) const;
+  std::map<std::string,ReasoningControl> webControls_;
+  void toggleWeb(const std::string &id,bool expanded);
+  void animateDisclosure(ReasoningControl &control,bool expanded);
+  std::map<std::string,lv_obj_t *> navigationFooter_;
   bool modelAdvanced_ = false, hasConversationContent_ = false;
   bool navigationPointerDown_ = false, navigationBackdrop_ = false;
   int navigationStartX_ = 0, navigationStartY_ = 0, navigationDistance_ = 0;
@@ -229,7 +414,6 @@ class App {
   void historyCaption(lv_obj_t *,const Json &,int,int,int);
   struct HistoryCaption {lv_obj_t *title,*time;};
   std::map<std::string,HistoryCaption> historyCaptions_;
-  lv_obj_t *historyFullTitle_=nullptr,*historyFullTime_=nullptr;
   std::map<std::string,lv_obj_t *> historyActions_;
   int archiveOffset_ = 0;
   std::string archiveHighlight_;
@@ -249,11 +433,29 @@ class App {
   std::map<std::string,lv_obj_t *> archiveViewButtons_;
   void historyContext(const std::string &id);
   void closeHistoryContext();
+  void refreshHistoryHighlight();
   void retireSession(const std::string &id, bool archive);
   lv_obj_t *historyRow(lv_obj_t *parent, const Json &session, int y, int width);
   int messageOffset_ = 0, historyOffset_ = 0, networkGeneration_ = 0;
   bool shutdownComplete_ = false;
   bool generating_ = false, visible_ = true, keyboard_ = false;
+  std::string penObserverRequest_;
+  bool penObserverReady_=false;
+  bool pageVisible_=true, windowFocused_=true, pageAttached_=true;
+  uint64_t windowFocusSequence_=0;
+  Json systemOverlayStatus_=Json::object();
+  bool systemEdgeDown_=false, systemEdgeGesture_=false;
+  InputFocus inputFocus_;
+  ScreenPowerGate screenPower_;
+  bool screenPowerPaused_=false;
+  void applyScreenPower(const Json &state);
+  InputFocusTrace inputFocusTrace_;
+  void recordInputFocus(InputFocusTrace::Reason reason, bool value, uint64_t sequence=0);
+  Json inputFocusDiagnostics() const;
+  bool inputFocused_ = false, startupReadyPending_ = false;
+  bool touchLeaseActive_ = false;
+  void cancelNativeInteraction(bool preserveSettledReadSelection=false);
+  void updateInputFocus();
   std::atomic<bool> cancel_{false};
   std::thread network_;
   std::thread modelWorker_;
@@ -281,9 +483,17 @@ class App {
   bool receivingReply_ = false;
   bool readerDown_ = false, readerPointer_ = false, readerVertical_ = false, readerSettle_ = false;
   int readerStartX_ = 0, readerStartY_ = 0;
+  ComposerShortcut composerShortcut_;
+  ChatBottomState chatBottomState_;
+  void syncChatBottomState(bool immediate=false);
+  bool composerShortcutAvailable() const;
+  bool composerShortcutTouch(int x, int y, bool pressed, bool cancelled);
+  void composerShortcutTick();
+  void composerShortcutPicker();
   bool chatRenderPending_ = false, chatRefreshPending_ = false, chatImagesPending_ = false;
   Json chatFinishPending_ = Json::object();
   bool atLatestBottom() const;
+  bool chatComposerVisible() const;
   bool readerInteracting() const;
   void readerTouch(int x, int y, bool pressed, bool cancelled);
   void settleReader();
@@ -293,10 +503,19 @@ class App {
   std::string builtView_;
   int settingsScroll_ = 0;
   int readingFontPercent_ = 100, readingFontDraft_ = 100;
-  int readingFontSize() const { return (21 * readingFontPercent_ + 50) / 100; }
+  int readingFontSize() const { return uiMetrics_.fontSize(UiFont::Body); }
   void fontSizePage();
   void updateFontPreview(int percent);
-  lv_obj_t *fontSlider_ = nullptr, *fontPercentLabel_ = nullptr, *fontPreview_ = nullptr;
+  void saveFontSize();
+  void fontSizeSaved(const Event &event);
+  void fontSizeTick();
+  void fontSizeBusy(bool busy);
+  std::string fontRequest_,fontError_;
+  bool fontReady_ = false;
+  uint64_t fontChanges_ = 0;
+  std::vector<lv_obj_t *> fontControls_;
+  lv_obj_t *fontSlider_ = nullptr, *fontPercentLabel_ = nullptr, *fontPreview_ = nullptr, *fontStatus_ = nullptr;
+  int settingsRowHeight() const;
   lv_obj_t *settingsHeading_ = nullptr;
   lv_obj_t *pageHeading_ = nullptr, *pageHeader_ = nullptr, *pageContent_ = nullptr;
   std::string builtPageKey_;
@@ -306,6 +525,7 @@ class App {
     bool toggle;
   };
   std::map<std::string, SettingsControl> settingsControls_;
+  std::vector<std::pair<std::string, lv_obj_t *>> settingsGroups_;
   lv_obj_t *chatControls_ = nullptr, *toBottom_ = nullptr;
   lv_obj_t *attachments_ = nullptr, *modal_ = nullptr,
            *pullIndicator_ = nullptr, *pullArc_ = nullptr,
@@ -331,17 +551,23 @@ class App {
   int albumPage_ = 0;
   std::vector<std::string> modelNames_;
   lv_obj_t *box(lv_obj_t *parent, int x, int y, int w, int h,
-                uint32_t color = theme::background);
+                uint32_t color = theme::palette().background);
+  lv_obj_t *box(lv_obj_t *parent, int x, int y, int w, int h,
+                uint32_t color, const UiMetrics &metrics);
+  // Geometry and the integer-size overload are already resolved logical pixels.
   lv_obj_t *label(lv_obj_t *parent, const std::string &text, int x, int y,
-                  int w, int size = 21, uint32_t color = theme::text);
+                  int w, int size = -1, uint32_t color = theme::palette().text);
+  lv_obj_t *label(lv_obj_t *parent, const std::string &text, int x, int y,
+                  int w, UiFont role, uint32_t color = theme::palette().text);
   lv_obj_t *button(lv_obj_t *parent, const std::string &text, int x, int y,
                    int w, int h, std::function<void()> click,
-                   uint32_t color = theme::surface,
+                   uint32_t color = theme::palette().surface,
                    lv_text_align_t align = LV_TEXT_ALIGN_CENTER);
   void primary(lv_obj_t *button);
   lv_obj_t *fieldButton(lv_obj_t *parent, const std::string &caption,
                         const std::string &value, int x, int y, int width,
                         std::function<void()> action);
+  UiMetrics::Field fieldMetrics(const UiMetrics &metrics) const;
   void emptyState(const std::string &title, const std::string &hint);
   lv_obj_t *imageWidget(lv_obj_t *parent);
   void image(lv_obj_t *parent, const std::string &path, int x, int y, int w,
@@ -352,8 +578,8 @@ class App {
                bool premultiplied = false);
   lv_obj_t *icon(lv_obj_t *parent, const std::string &kind, int x, int y, int w,
                  int h, std::function<void()> action = {},
-                 uint32_t background = theme::background,
-                 uint32_t ink = theme::text);
+                 uint32_t background = theme::palette().background,
+                 uint32_t ink = theme::palette().text);
   void closeAttachments();
   void toggleAttachments();
   void resetPull();
@@ -407,6 +633,8 @@ class App {
   lv_obj_t *backHint_ = nullptr;
   void closeNavigation(bool resumeCamera = true);
   void cameraPage();
+  void cameraControlsOrientation();
+  std::vector<lv_obj_t *> cameraRotatingControls_;
   int photoWidth() const { return !layout().portrait()&&cameraAngle_%180 ? screen_.height : screen_.width; }
   int photoHeight() const { return !layout().portrait()&&cameraAngle_%180 ? screen_.width : screen_.height; }
   lv_point_t photoPoint(lv_point_t point) const;
@@ -451,16 +679,146 @@ class App {
   void replyContent(lv_obj_t *parent, const std::string &text, int width,
                     const std::string &id, bool live);
   void paintVisible();
+  struct ReadPart {
+    lv_obj_t *object=nullptr;
+    std::string text, deferred, target, separator="\n";
+    size_t begin=0, length=0;
+    int width=0, size=21;
+    bool rich=false, slice=false, hasDeferred=false;
+    RichLayout hits;
+    std::vector<Hit> links;
+    std::vector<size_t> scalarBytes;
+  };
+  struct ReadRegion {
+    uint64_t id=0;
+    lv_obj_t *root=nullptr;
+    std::string key, text;
+    size_t length=0;
+    std::vector<ReadPart> parts;
+    bool grouped=false;
+  };
+  std::map<lv_obj_t *,ReadRegion> readRegions_;
+  uint64_t readSerial_=0, readActive_=0, readLinkRegion_=0,readScrollRegion_=0,readSavedRegion_=0;
+  EditorState readSelection_;
+  TextGesture readGesture_;
+  size_t readSavedCursor_=0,readSavedAnchor_=0,readWordStart_=0,readWordEnd_=0;
+  bool readRebuildPending_=false;
+  bool readSavedAll_=false,readPreview_=false,readHadSelection_=false,readMenuPointer_=false;
+  bool readDown_=false,readSuppressed_=false,readMenuWanted_=false,readScrollPassthrough_=false;
+  int readHandle_=-1,readHandleOffsetY_=0;
+  lv_obj_t *readOverlay_=nullptr,*readMenu_=nullptr,*readHandles_[2]={nullptr,nullptr};
+  std::vector<lv_obj_t *> readMarks_;
+  LayoutRect readSelectionBounds_{};
+  int64_t readLinkDue_=0,readScrollAt_=0;
+  std::string readLink_;
+  uint64_t readBegin(lv_obj_t *,const std::string &key);
+  void readRich(lv_obj_t *,lv_obj_t *,const Block &,int,int,const RichLayout &);
+  void readGroup(lv_obj_t *,const std::string &);
+  void readRefresh(ReadRegion &);
+  void readLabel(lv_obj_t *,const std::string &);
+  void readLinkText(lv_obj_t *,const std::string &,const std::string &);
+  void readSlice(lv_obj_t *,const std::string &,size_t);
+  lv_obj_t *readableLabel(lv_obj_t *,const std::string &,int,int,int,int=-1,uint32_t=theme::palette().text);
+  ReadRegion *readRegion(uint64_t);
+  lv_area_t readClip(lv_obj_t *) const;
+  size_t readPosition(ReadRegion &,int,int,bool word=false,std::pair<size_t,size_t> *atom=nullptr);
+  void readWord(ReadRegion &,int,int);
+  void readMap(ReadPart &);
+  const Block *readBlock(const ReadPart &) const;
+  void readDraw(bool menu);
+  void readReset();
+  bool readTouch(int,int,bool,bool);
+  void readTick();
+  bool readBusy() const {return readActive_&&(readSelection_.selected()||readGesture_.active()||readLinkDue_||ticks()-readGesture_.tapped<280);}
+  void openTextLink(const std::string &);
+  Json readDiagnostic() const;
   void richScrolled(lv_obj_t *object);
   bool syncingTableScroll_ = false;
   std::map<std::string, int> tableScrolls_;
   void renderLiveMessage();
   void refreshImages();
-  bool editorSelectionOnly_ = false;
-  EditorLayout editorLayout() const { return EditorLayout(screen_.width,screen_.height,editorSelectionOnly_); }
+  struct InputTarget {std::string key;int style;uint64_t serial;};
+  std::map<lv_obj_t *,InputTarget> inputTargets_;
+  lv_obj_t *inputSource_=nullptr, *editorTarget_=nullptr;
+  std::string editorTargetKey_,editorTargetView_;
+  uint64_t inputTargetSerial_=0;
+  int inputOrdinal_=0,editorTargetHeight_=0,editorComposerOpenHeight_=0;
+  bool editorFocusSwitch_=false,editorPendingBuild_=false,editorPlaceCursor_=false;
+  bool editorTransfer_=false,editorEnglishOnly_=false;
+  std::string editorKeyboardId_;
+  void editorDiscardTransfer();
+  lv_point_t inputSourcePoint_{},editorInitialPoint_{};
+  void inputTarget(lv_obj_t *,const std::string &,int style=0);
+  void inputAction(lv_obj_t *,const std::function<void()> &);
+  int chatComposerHeight() const;
+  int chatComposerY() const;
+  int chatComposerY(int composerHeight) const;
+  void layoutChatComposer();
+  void editorAttachTarget();
+  void editorDetachTarget();
+  bool editorAccept();
+  bool editorSendAssets_=false;
+  EditorLayout::Popup editorLastTextArea_{0,0,0,0};
+  EditorLayout::Popup editorTextArea() const;
+  Json editorOfficialField();
+  bool editorInPlace() const {return layout().portrait()&&!editorSelectionOnly_;}
+  bool editorSelectionOnly_ = false, editorInlineChat_ = false, editorReaderTouch_ = false;
+  void editorViewport();
+  bool editorDismissTouch(int x,int y,bool down,bool cancelled);
+  void editorMoveDismiss(int offset);
+  void editorResetDismiss();
+  bool editorDismissTracking_=false, editorDismissing_=false;
+  int editorDismissStartX_=0,editorDismissStartY_=0,editorDismissBoundary_=0;
+  int editorDismissOffset_=0,editorDismissThreshold_=0,editorDismissReturnFrom_=0,editorDismissBodyHeight_=0;
+  int64_t editorDismissReturnAt_=0;
+  void editorRefresh();
+  void editorRefreshCandidates();
+  uint64_t editorPaintKey() const;
+  std::string editorCompositionText() const;
+  lv_obj_t *editorPreeditLabel_=nullptr, *editorChoices_=nullptr, *editorExpand_=nullptr, *editorExactList_=nullptr, *editorQueryLabel_=nullptr;
+  bool editorRefreshPending_=false, editorChoicesDirty_=false, editorChoicesEmpty_=false, editorSelectPending_=false;
+  std::string editorChosenWord_;
+  uint64_t editorPaintedKey_=0, editorBuildCount_=0, editorRefreshCount_=0;
+  bool editorCompactExpanded_=false, editorToolsOpen_=false, editorRestoreViewScroll_=false;
+  int editorCompactScroll_[2]={0,0}, editorCompactIcon_=-1;
+  lv_obj_t *editorPreeditViewport_=nullptr, *editorCompactBar_=nullptr;
+  bool editorCompactComposition() const;
+  void editorRefreshCompositionRow();
+  bool editorHasComposition() const;
+  void editorCompactView(bool expanded);
+  void editorCompactEnsureCaret();
+
+  const EditorLayout &editorLayout() const;
+  const KeyboardDesign &editorDesign() const { editorLayout();return editorDesignCache_; }
+  const UiMetrics &editorMetrics() const { editorLayout();return editorMetricsCache_; }
+  mutable std::array<int,13> editorLayoutKey_{};
+  mutable std::unique_ptr<EditorLayout> editorLayoutCache_;
+  mutable KeyboardDesign editorDesignCache_;
+  mutable UiMetrics editorMetricsCache_;
+  mutable uint64_t editorLayoutResolves_=0,editorLayoutCacheHits_=0;
+  struct KeyboardTiming {
+    uint64_t requested=0, animation=0, firstFrame=0, hardwareReady=0, framesBefore=0;
+    uint64_t entryFinished=0,exitStarted=0,exitFinished=0;
+    int duration=0;
+  } keyboardTiming_;
+  bool wideKeyboardSwap_=false, editorSwapSides_=false;
+  bool preferOfficialKeyboard_=false, officialShortcut_=false, officialPreferenceTarget_=false;
+  bool officialPreferenceError_=false, officialShortcutError_=false;
+  std::string officialPreferenceRequest_, officialPreferenceKey_, editorDefaultOfficial_;
+  void requestOfficialKeyboardPreference(bool shortcut=false);
+  void officialKeyboardPreferenceSaved(const Event &event);
   EditorState editor_;
+  TextGesture editorTextGesture_;
+  size_t editorTextSavedCursor_=0,editorTextSavedAnchor_=0,editorWordStart_=0,editorWordEnd_=0;
+  bool editorTextSavedAll_=false,editorWordPreview_=false,editorRangeDrag_=false;
+  void editorWordPreview();
+  EditorState officialBackup_;
+  bool officialDocked_=false,officialForeground_=false;
+  int64_t officialLayoutAt_=0;
+  int officialHeight_=0;
   Json editorLearning_ = Json::array(), editorExact_ = Json::array(), editorPinyinPending_;
-  bool editorLayoutMenu_ = false, editorPunctuation_ = false;
+  bool editorLayoutMenu_ = false, editorLayoutHold_ = false, editorPunctuation_ = false;
+  bool editorLeasePaused_ = false;
   std::map<std::string, lv_obj_t *> editorLocalActions_;
   void keyboardSettingsPage();
   void editorUseLayout(int layout, bool cycle = false);
@@ -469,31 +827,68 @@ class App {
   lv_obj_t *editorHandles_[2] = {nullptr,nullptr};
   lv_obj_t *editorMagnifier_ = nullptr, *editorMagnifierImage_ = nullptr, *editorMagnifierCaret_ = nullptr;
   lv_draw_buf_t *editorMagnifierBuffer_ = nullptr;
-  bool editorClipboardOpen_=false, editorClipboardConfirm_=false, editorUndoMenu_=false;
-  lv_point_t editorMenuAnchor_{};
+  bool editorClipboardOpen_=false, editorClipboardConfirm_=false;
+  lv_obj_t *editorSelectionMenu_=nullptr;
+  LayoutRect editorSelectionBounds_{};
+  std::map<std::string,lv_obj_t *> editorSelectionActions_;
+  void editorSyncSelectionMenu();
+  bool editorOcrPreparing_=false;
+  uint64_t editorOcrPrepareSent_=0;
+  void editorOcrPrepared(const Json &);
+  void editorOcrCapabilities(const Json &);
+  bool editorMultiLineAllowed_=true, editorMultiLineSupported_=false;
+  bool editorChat_=false;
+  bool ocrMultilinePreferred_=false,ocrModeSaving_=false,ocrModeDirty_=false,ocrModeSaveError_=false;
+  std::string ocrModeRequest_;
+  void saveOcrMode();
+  void ocrModeSaved(const Event &event);
   bool editorOcrMulti_=false, editorOcrActive_=false, editorOcrBusy_=false, editorOcrShown_=false;
   bool editorTopBlocked_=false;
-  std::string editorOcrId_;
+  std::string editorOcrId_, editorOcrStopId_;
+  int64_t editorOcrStopRetry_ = 0;
   uint64_t editorOcrCapture_=0, editorPolicySequence_=0,editorOcrInserted_=0;
   bool editorTextTouch_=false, editorTextMoved_=false, editorCursorDrag_=false;
   int editorHandle_=-1, editorTextScroll_=0, editorLastTapX_=0, editorLastTapY_=0, editorTouchX_=0,editorTouchY_=0;
   size_t editorDragAnchor_=0;
+  size_t editorUpstream_=std::string::npos;
+  uint64_t editorAffinityTime_=0;
+  int editorAffinityPhase_=-1;
   uint64_t editorPressTime_=0, editorLastTap_=0;
   int64_t editorAutoScrollAt_=0;
   std::vector<Json> editorOcrPending_;
   void editorSyncText(bool text=false);
   void editorMagnify(bool show);
   void editorScroll(int y);
-  size_t editorPositionAt(int x,int y) const;
-  lv_point_t editorPoint(size_t index) const;
+  size_t editorPositionAt(int x,int y);
+  lv_point_t editorCaretPosition(size_t index) const;
+  lv_point_t editorPoint(size_t index,int selectionAffinity=0) const;
+  void editorBindCaret();
+  void editorSyncCaret();
+  void editorDrawCaret(lv_event_t *event);
   void editorOcrStart();
   void editorOcrStop();
+  void editorOcrFlushStop();
   void editorOcrResult(const Json &);
   void editorPolicy(bool active);
   lv_obj_t *editorRoot_ = nullptr, *editorText_ = nullptr;
-  struct EditorKey { int x,y,w,h; std::string value; lv_obj_t *object; EditorLayout::Popup hit; };
+  struct EditorKey {
+    int x,y,w,h; std::string value; lv_obj_t *object; EditorLayout::Popup hit;
+    KeyboardRole role=KeyboardRole::Character;
+    KeyboardVariant variant=KeyboardVariant::Default;
+    bool selected=false;
+  };
   std::vector<EditorKey> editorKeys_;
   EditorKey editorPress_{};
+  struct EditorContact {
+    std::string id;
+    EditorKey key;
+    bool released=false, slid=false;
+    int repeats=0;
+    uint64_t repeatAt=0;
+  };
+  std::vector<EditorContact> editorContacts_;
+  bool editorKeyTouch(const Json &message);
+  void editorCancelKeys();
   bool editorChoosing_ = false, editorRebuild_ = false,editorFollowCursor_=true;
   uint64_t editorLatency_ = 0;
   std::vector<std::string> editorDeferred_;
@@ -503,9 +898,17 @@ class App {
            editorDue_ = 0, editorSent_ = 0, editorShiftTime_ = 0, editorRepeat_ = 0;
   int editorHeld_ = -1, editorRepeats_ = 0;
   bool editorPointer_ = false, editorSlid_ = false, editorExpanded_ = false, editorMenu_ = false;
-  int editorStartX_ = 0, editorStartY_ = 0;
+  int editorStartX_ = 0, editorStartY_ = 0,editorHandleOffsetY_=0;
+  int editorFontSize(KeyboardFont role) const;
+  const lv_font_t *editorTextFont() const;
+  lv_obj_t *editorButton(lv_obj_t *parent,const std::string &title,int x,int y,int width,int height,
+      std::function<void()> action,KeyboardRole role=KeyboardRole::Auxiliary,
+      KeyboardFont textRole=KeyboardFont::Function,KeyboardVariant variant=KeyboardVariant::Default,
+      bool selected=false,lv_text_align_t align=LV_TEXT_ALIGN_CENTER);
+  void editorBuildKey(const KeyPlacement &placement);
   void editorBuild();
   bool editorCanExpand() const;
+  bool editorCandidateRow() const;
   void editorAction(const std::string &action);
   void editorFinish(bool confirmed);
   void editorOfficial();
@@ -513,13 +916,13 @@ class App {
   void editorQuery(const std::string &operation = "query", int candidate = -1);
   void editorResult(const Json &message);
   void editorTick();
-  void editorInterrupt();
+  void editorInterrupt(bool releaseOcr = true);
   void editorTouch(int x, int y, bool pressed, bool cancelled);
   Json editorDiagnostic() const;
   void edit(const std::string &text, const std::string &placeholder,
             std::function<void(const std::string &)> callback,
             int maxLength = 4096, const char *inputType = "ZhCNPreferred",
-            std::function<void()> cancelled = {}, bool multiline = false, bool secret = false, bool selectionOnly = false);
+            std::function<void()> cancelled = {}, bool multiline = false, bool secret = false, bool selectionOnly = false, bool inlineChat = false);
   bool canSend();
   void sendMessage(const std::string &retry = "");
   void attach(const Json &image);
@@ -530,7 +933,9 @@ class App {
   void newChat(bool inherit = false);
   Json presetForm_ = Json::object();
   void presetsPage();
+  Json presetsDiagnostic() const;
   void presetEditor();
+  void fitAttachmentEditor(LayoutRect &area) const;
   void presetPicker();
   void presetChoices(const std::string &field);
   void applyPreset(const Json &preset);
@@ -538,16 +943,18 @@ class App {
   std::string presetSummary(const Json &preset);
 
   bool contextBusy_ = false;
+  std::string contextPreparedMessage_,contextPreparedResult_;
   int contextGeneration_ = 0;
   std::thread contextWorker_;
   std::atomic<bool> contextCancel_{false};
   void startContext(bool manual, const std::string &retry = "",
-                    bool regenerate = false, bool archive = false,
-                    Json frozenModel = Json::object());
+                    bool regenerate = false,
+                    Json frozenModel = Json::object(), bool edited = false);
   void cancelContext();
   void contextProgress(const std::string &text);
   void contextEvent(Event &event);
   void contextDetails();
+  void contextSummaryPage();
   void openSessionInfo();
   void refreshSessionInfo();
   void sessionInfoPage();
@@ -562,10 +969,10 @@ class App {
   Json sessionInfoData_ = Json::object();
   std::map<std::string, lv_obj_t *> attachmentEntries_;
   void sendPrepared(Json model, Json input, const std::string &retryId,
-                    const std::string &draft);
+                    const std::string &draft,Json prepared=Json::object(),Json checkpoint=Json::object());
   void stopNetwork();
   void fetchModels();
-  void saveProvider();
+  void saveProvider(bool returnToList = false);
   void show(const std::string &view);
   void error(const std::string &message);
   void modal(const std::string &title, const std::string &text);
@@ -573,15 +980,17 @@ class App {
 public:
   App(Database &, Bridge &, Display &, Input &, const Screen &,
       std::string workspace, std::string dataDir, const std::string &fontPath,
-      const std::string &resources, bool nativeTouch, const Json &configuration = Json::object());
+      const std::string &resources, bool nativeTouch, const Json &configuration = Json::object(),
+      const UiMetrics &metrics = UiMetrics());
   ~App();
   void tick();
   void waitInput(unsigned milliseconds) const { touchInput_.wait(milliseconds); }
   void handle(const Json &message);
   void suspend(bool value);
+  void windowFocus(bool focused);
   void shutdown();
   bool updateExit() const { return updateExit_; }
-  bool interactive() const { return visible_ && !keyboard_; }
+  bool interactive() const { return visible_ && (!keyboard_ || officialReaderInput()); }
   void demo(const std::string &markdown);
   Json diagnostics() const;
 };

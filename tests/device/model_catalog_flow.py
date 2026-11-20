@@ -52,26 +52,42 @@ def run(ctx):
         if read()['editor']['mode']==0:ctx['key']('mode')
         for c in text:ctx['key'](c)
         click(read()['editor']['actions']['done']);wait(lambda:not read()['editor']['active'])
-    tap(40,32);tap(width*2//3-70,height-30);assert read()['view']=='settings'
+    ctx['open_settings']()
     click(locate('compression_threshold'));number('60');capture('catalog-threshold')
     click(locate('models'));wait(lambda:read()['view']=='provider')
-    tap(width-90,125);wait(lambda:read()['view']=='model')
+    ctx['page_action_prefix']('provider-open:')
+    ctx['page_action_prefix']('model-edit:');wait(lambda:read()['view']=='model')
     assert read()['model_catalog']['match']['rule']=='openai:gpt-5:gpt-5'
     for key in ('context_budget','reasoning.levels','input_modalities'):
         b=locate('model_'+key);tap(b[2]+31,(b[1]+b[3])//2)
     s=read();assert s['model_parameters']['context']==400000
     assert s['model_parameters']['reasoning']['levels']['minimal']=='minimal'
     assert s['model_parameters']['vision'] is True;capture('catalog-filled-model')
-    click(locate('model_context_budget'));number('22000');action('保存')
-    wait(lambda:read()['view']=='provider');tap(width-90,125);wait(lambda:read()['view']=='model')
+    click(locate('model_context_budget'));number('22000');action('完成')
+    wait(lambda:read()['view']=='provider');ctx['page_action_prefix']('model-edit:');wait(lambda:read()['view']=='model')
     assert read()['model_parameters']['context']==22000
-    capture('catalog-manual-override');tap(40,32);wait(lambda:read()['view']=='provider')
-    tap(width-90,76);wait(lambda:bool(read()['provider_protocol']))
+    capture('catalog-manual-override');ctx['navigate_back_or_menu']();wait(lambda:read()['view']=='provider')
+    wait(lambda:bool(read()['provider_protocol']))
+    click(locate('provider_advanced'));time.sleep(.35)
     click(locate('model_adapter'));wait(lambda:read()['modal']);capture('catalog-adapter-list')
     # Select automatic. Lower entries are separately covered by real host UI
     # and protocol fixtures; scrolling here verifies the 44px rows on the board.
-    stroke(width//2,height-90,width//2,70);capture('catalog-adapter-scroll')
-    tap(width-70,height-44);wait(lambda:not read()['modal']);action('保存')
+    popup=read()['context_menu']['list'];cx=(popup[0]+popup[2])//2
+    before_scroll=read()['scroll_y']
+    for choice in read()['context_menu']['choices'].values():assert choice['bounds'][3]-choice['bounds'][1]+1>=44
+    choices=read()['context_menu']['choices']
+    if max(c['bounds'][3] for c in choices.values())>popup[3]:
+        ctx['drag'](cx,popup[3]-12,cx,popup[1]+12)
+        assert read()['context_menu']['kind']=='choice:model_adapter','Popup drag unexpectedly selected/dismissed an adapter'
+    capture('catalog-adapter-scroll')
+    assert read()['scroll_y']==before_scroll,'Adapter scrolling must remain inside its popup'
+    for _ in range(8):
+        s=read();b=s['context_menu']['choices']['auto']['bounds'];v=s['context_menu']['list']
+        if b[1]>=v[1] and b[3]<=v[3]:break
+        ctx['drag'](cx,v[1]+12,cx,v[3]-12)
+    else:raise AssertionError('Automatic adapter choice never became visible')
+    ctx['context_choice']('auto');wait(lambda:not read()['modal']);action('provider-save-bottom')
+    wait(lambda:not read()['storage']['unsaved']);ctx['navigate_back_or_menu']()
     wait(lambda:not read()['provider_protocol'])
-    tap(40,32);wait(lambda:read()['view']=='settings')
+    ctx['navigate_back_or_menu']();wait(lambda:read()['view']=='settings')
     capture('catalog-settings-restored')

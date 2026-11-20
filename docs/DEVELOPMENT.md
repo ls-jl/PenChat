@@ -75,6 +75,10 @@ npm run check:package
 
 ### 扫描与相机
 
+扫描的编译期设备配置、RK／CVI 平台边界、帧所有权和 runtime 分批迁移见
+[扫描平台与编译期配置](SCANNER-PLATFORMS.md)。新增已支持能力的机型优先组合
+配置；不要在公共扫描会话或 Stream32 中添加板型分支。
+
 扫描采用全内存流水线：原始Y平面复制一次，后台逐帧筛选，选中帧有序进入32帧首批、24帧步长、8帧重叠的模型窗口，绘制提交后按引用释放。保留原始尺寸和逐帧光照估计，临时帧不写盘；每100ms根据整机余量授予动态预算，不设置固定240MiB RSS限制。正常松开排空已接收工作，取消可丢弃排队任务，资源不足返回明确部分结果。
 
 模型在后台预热成功后才启动采集，健康模型和扫描进程常驻至应用退出；离页或后台仍需释放采集、灯、按键及系统服务租约。Y02 的驱动缓存同步仅用于已核实的驱动和调用范围。绘制前检查几何及图像一致性，不可信尾部不会覆盖此前画布。
@@ -115,3 +119,153 @@ Y07 通过驱动 LED 类控制白灯，使用厂商模式值1，不套用 ORANGE
 自有代码、文档、测试和原创图形采用 [Apache-2.0](../LICENSE)。第三方代码、字体、模型、SDK与运行库按各自许可处理。RKNN SDK/运行库、扫描模型及附带校准资源未获授权；部分 Falcon/JQ SDK 的许可也尚未确认。公开源码构建成功不表示相关二进制可公开再分发。
 
 第三方来源、许可原文、源码和再分发义务以[第三方声明](../THIRD_PARTY_NOTICES.md)、[NOTICE](../NOTICE)及各依赖锁为准。
+
+开发整合中的公共组件、三类布局及 Rockchip/S6 后端边界见 [共享平台说明](SHARED-PLATFORMS.md)。S6 的采集反复重开仍为独立待办。
+
+### 联网搜索组件（dev）
+
+公共工具注册、三协议调用续答和网页图片引用的接入说明见
+[WEB_SEARCH.md](WEB_SEARCH.md)，独立构建/更新入口见
+[web-search/README.md](../native/web-search/README.md)。修改搜索组件后分别执行
+`bash scripts/build-web-search.sh rk3562` 与 `bash scripts/build-web-search.sh cv1826-s`，
+主应用仍使用原有构建脚本。不要把另一目标的 `assets/web-search` 放进安装包。
+开发编译不执行搜索、不调用付费模型；`tests/test_web_tools.py` 是单独的模拟请求回归入口。
+
+### Markdown 标点换行（dev）
+
+三类布局共用 `RichText::layout` 的软换行规则。常见中英文收尾标点与前文
+一起换行，左括号、左引号随其后的文字；加粗、链接及其他行内样式的边界
+不产生额外断点。表格单元格复用相同规则，行内公式也保留收尾标点。
+超长英文单词仍可按字符拆行；极窄区域中，连一个完整标点组合都放不下时
+保留该组合并允许横向阅读。主动换行与代码块不套用禁则，不改写原文和复制偏移。
+字宽预读与落点共用单次布局内、最多256项的缓存。
+
+定向检查：构建 `penchat-markdown-wrap-tests` 和 `penchat-text-selection-tests`，
+再执行 `ctest --test-dir build/host -R '^penchat-(markdown-wrap|text-selection)$' --output-on-failure`。
+新增用例覆盖多字号、窄栏、样式边界、公式、表格、长单词及显式换行。
+`penchat-markdown-wrap-tests <字体> <MicroTeX资源目录> <已有输出目录>`
+可额外生成几种阅读宽度的排版截图；截图不入库。
+
+### DPI 与全局缩放基础（实验分支）
+
+当前“字体大小”已覆盖全应用文字，沿用`reading_font_percent`旧键，与独立的
+界面缩放组合后一次取整。设计几何走`dp()`，设计字号走`sp()`或语义字体角色；
+字体预览、异步保存与失败处理见[字体大小](FONT-SIZE.md)。
+
+以下保留各阶段的实施记录；当前完整范围、单位边界、键盘适配和验收命令见
+[DPI 与全局缩放](DPI-SCALING.md)。设备可通过正式设置调整界面倍率，仍不开放主机测试命令行参数。
+
+`ui_metrics.hpp` 的 `UiMetrics` 统一设计尺寸和语义字号，默认 density/UI scale
+均为 100%。两者先组合，再统一四舍五入到 Falcon 逻辑像素；不根据分辨率推测
+物理 DPI。生产设备固定 100%，本阶段没有用户设置或数据库迁移。
+
+- `dp()` 只接受设计尺寸。坐标、已计算的宽高、图片像素、LVGL 百分比和
+  `LV_SIZE_CONTENT` 直接传递，不能再次转换。普通 helper 的外部 x/y/w/h 均为
+  已解析逻辑像素，例如调用方先计算 `metrics.dp(44)`，按钮内部不再缩放高度。
+- `label(..., UiFont)` 使用语义字号；原 `label(..., int)` 和 `font(int)` 继续接受
+  最终像素字号。阅读字体百分比、Markdown 和键盘的既有字号路径保持独立。
+- 基础控件已迁移通用按钮、字段、页面标题/动作、设置行内部度量及 box 默认
+  字体；第二阶段接入 AppLayout 和 composer，详见下文。键盘复用 helper 时仍
+  使用 100% 兼容指标，不能把局部试验当作全应用缩放验收。
+- 主机程序仅在 `--headless` 下接受 `--ui-scale-percent 75..150` 整数参数；设备
+  构建拒绝该参数。App 度量启动时确定，不支持运行中更改。
+
+定向检查（先完成 host 构建）：
+
+```bash
+cmake --build build/host --target penchat-ui-metrics-tests penchat-ui-controls-tests -j6
+ctest --test-dir build/host -R '^penchat-ui-metrics$' --output-on-failure
+python3 tests/test_ui_controls.py
+# 基线必须由改造前的独立程序生成，不能用当前结果更新后再比较。
+python3 tests/test_ui_metrics_baseline.py --binary /absolute/path/to/baseline \
+  --output .work/ui-metrics/baseline
+python3 tests/test_ui_metrics_baseline.py --baseline .work/ui-metrics/baseline
+```
+
+控件检查在临时数据目录中运行真实 LVGL，每个进程只创建一个 App，遵循
+MicroTeX 的进程级生命周期；覆盖三种布局与四档倍率。基线比较使用相同字体、
+资源和确定性的 PNG 编码，比较稳定界面的几何及完整图片字节。截图和基线
+可执行文件保留在忽略目录，不提交到 Git。
+
+
+### AppLayout 与 composer 度量接入
+
+AppLayout 接收显式 UiMetrics，转换导航/页面/消息区/弹层及各工作区的固定设计
+尺寸；显示宽高、布局类别的宽高比、比例分栏及 ScreenSafety 的物理圆角包络
+保持 Falcon 逻辑坐标。相机/裁剪只转换工作区控件尺寸，不改变采集、图片像素
+或旋转坐标。EditorLayout 默认使用原有指标，键盘键帽和候选布局尚未迁移。
+
+composer 的控件直径、内外留白、文字区域、工具行、键盘间隔及返回底部按钮
+由同一组指标驱动；创建、草稿增长和停靠路径共用这些度量。Composer 字体角色
+默认 20px，测量、预览和竖屏内嵌 textarea 使用同一个最终字号，不再借用键盘
+字号隐式决定正文布局。聊天阅读字号设置仍独立，键帽不会跟随缩放。
+
+保持单行圆角、横屏两倍/竖屏既有增长策略、局部滚动、composer 显隐策略，以及
+160ms 回弹和所有手势时间规则。下拉创建只根据转换完成后的未遮挡 reader
+计算空间阈值，按下时冻结；不再乘 UI 倍率，也不改变 NativeTouch 映射。
+
+主机验证包括四档倍率、三类布局、空白/短/长草稿、有无推理强度按钮及停靠编辑；
+100% 与上一阶段的独立二进制比较几何及 PNG 字节。非 100% 仍为主机实验，其他
+页面的内部内容、图标图形及键盘整体缩放未完成，不开放设备设置。
+
+```bash
+python3 tests/test_composer_scale.py
+# 在修改前记录一次；此文件夹不能由新程序覆盖。
+python3 tests/test_composer_scale.py --binary /absolute/path/to/baseline \
+  --scales 100 --output .work/composer-before
+python3 tests/test_composer_scale.py --scales 100 --baseline .work/composer-before
+ctest --test-dir build/host -R '^penchat-(ui-metrics|platform-layout)$' --output-on-failure
+```
+
+此阶段曾发现 `test_docked_dismiss.py` 取消触摸后的 offset 归零超时，独立基线
+`1e36122` 同样失败。最终阶段已修复：先把取消事件交还已拥有该手势的键盘
+下推处理器，避免被阅读选择处理器吞掉；原有取消与归零断言现已通过。
+
+### 设置页与 Provider / 模型表单度量接入
+
+第三阶段把设置分组的起点、列间距、行距和组间距接入 Form 指标；Provider
+列表、连接表单、模型列表、身份字段、能力填充区、API 兼容与 Anthropic 表单
+的内部尺寸和字号显式解析到逻辑像素。字号预览页、连接保留时间和键盘设置页
+也使用同一套页面度量；阅读字号百分比的预览继续使用阅读字体，不乘 UI 倍率。
+
+- 100% 保留原有单列/双列结构、字段高度与标题动作位置；与上一阶段二进制
+  比较设置及 Provider/模型页面的几何和 PNG 字节。
+- 非 100% 字段使用实际字体行框确定标题、值和高度；Provider 连接区及添加
+  模型页根据解析后的字段高度推进，避免相邻行重叠。所有尺寸只换算一次，
+  API 超时、token 上限、分页数量、字符限制与业务默认值不属于布局单位。
+- 单列表单重排使用统一留白，能力填充按钮保持绑定对应字段。竖屏模型标题栏
+  在放大后容不下两个动作时，把模式切换放入滚动内容；100% 不走这项调整。
+- 竖屏内嵌字段编辑框沿用表单的字号和文本起点；键盘根节点、候选区和键帽
+  几何保持原样。字段切换仍只提交到 Provider 编辑工作区，必须显式保存才写库。
+- 非 100% 仍仅供主机测试。此阶段不迁移全部业务页面、通用弹层和键盘整体布局。
+
+```bash
+python3 tests/test_form_scale.py
+python3 tests/test_form_editor_scale.py
+# 使用修改前的独立二进制记录；不要用新程序覆盖旧基线。
+python3 tests/test_form_scale.py --binary /absolute/path/to/baseline \
+  --scales 100 --output .work/forms-before
+python3 tests/test_form_scale.py --scales 100 --baseline .work/forms-before
+```
+
+表单测试使用临时数据库和虚构本地 Provider，不请求真实模型；通过实际控件
+边界定位入口，避免把旧测试固定坐标在放大后的失效当成产品回归。
+
+第三阶段曾发现 `test_anthropic_ui.py` 的旧 system 等值断言与已存在的应用规则
+不一致，独立基线 `1423410` 同样失败。最终阶段按当前请求契约检查应用规则
+只出现一次、先于会话指令、会话指令只出现一次且位于末尾；完整测试已通过。
+请求生产逻辑未因此改变，模型同步测试也改为实际的选择、添加和显式保存流程。
+
+### 思考期间的联网状态
+
+工具轮次结束不代表整个思考结束。`web_pending` 仅标识本地搜索/等待续答阶段，
+不进入模型请求协议；最终回答、取消和失败会结束该状态。“思考完毕后收起”
+在搜索期间保持展开，明确的手动展开/收起选择优先。正在搜索及已完成的查询
+在思考详情里作为独立只读文字显示，不拼入 reasoning_text 或模型上下文。
+每条查询按Unicode字符截断到160字，最多显示最近24条工具记录；错误或取消
+不显示为成功。完整检索记录与来源仍在回答阶段可访问。
+
+`test_reasoning_search_ui.py` 使用本地HTTP模型与隔离假搜索子进程，验证运行中、
+搜索完成等待续答、手动收起、最终回答和保存内容；不访问搜索引擎或真实账户。
+相关工具协议、既有推理UI、字体和键盘像素定向检查的日志分别位于忽略目录
+`.work/reasoning-search/`、`.work/footer-scan-font/` 和 `.work/composer-lower-corners/`。

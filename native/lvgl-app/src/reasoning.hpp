@@ -30,11 +30,38 @@ inline std::vector<std::string> supportedEfforts(const Json &model) {
   return out;
 }
 inline std::vector<std::string> effortChoices(const Json &model) {
-  auto options = supportedEfforts(model);
-  auto position = std::find(options.begin(), options.end(), "none");
-  options.insert(position == options.end() ? options.begin() : position + 1,
-                 "api_default");
-  return options;
+  return supportedEfforts(model);
+}
+struct EffortGaugePlacement { bool isDefault; int index,count; };
+inline EffortGaugePlacement effortGaugePlacement(const std::vector<std::string> &options,int selected) {
+  const bool automatic=selected<0||selected>=int(options.size())||options[selected]=="api_default";
+  int count=0,index=0;
+  for(int i=0;i<int(options.size());++i)if(options[i]!="api_default") {
+    if(i<selected)++index;
+    ++count;
+  }
+  return automatic?EffortGaugePlacement{true,1,std::max(2,count)}:
+                   EffortGaugePlacement{false,index,std::max(1,count)};
+}
+inline std::string effortCaption(const std::string &effort) {
+  return effortLabel(effort)+" · 推理强度";
+}
+// Invalid or absent settings follow the current logical layout; explicit user
+// choices survive rotation. This does not mutate settings or migrate history.
+inline std::string historyTimeDisplay(const Json &settings,bool portrait) {
+  auto found=settings.find("history_time_display");
+  if(found!=settings.end()&&found->is_string()) {
+    const auto value=found->get<std::string>();
+    if(value=="time"||value=="title"||value=="off")return value;
+  }
+  return portrait?"off":"time";
+}
+inline int effortChoiceIndex(const Json &model) {
+  const auto options=effortChoices(model);
+  auto key=model.value("effective_effort",std::string());
+  if(key.empty())key="api_default";
+  const auto found=std::find(options.begin(),options.end(),key);
+  return found==options.end()?0:int(found-options.begin());
 }
 inline Json resolveReasoning(Json model, const Json &preferences,
                              const std::string &memory) {

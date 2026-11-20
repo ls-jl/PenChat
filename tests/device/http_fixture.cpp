@@ -103,7 +103,7 @@ static void request(int fd) {
     return;
   }
   const bool compression =
-      body.find("PenChat_CONTEXT_COMPRESSION_V1") != std::string::npos;
+      body.find("PenChat_CONTEXT_CHECKPOINT_V2") != std::string::npos;
   int systemCount = parsed.value("instructions", std::string()).empty() ? 0 : 1;
   int images = 0;
   for (const auto &item :

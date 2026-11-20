@@ -1,5 +1,5 @@
 """Run only inside display_config's isolated, explicit-device acceptance."""
-import subprocess,time
+import json,subprocess,time
 
 def run(c):
     state,tap,wait=c['state'],c['tap'],c['wait'];W,H=c['W'],c['H']
@@ -10,36 +10,65 @@ def run(c):
     subprocess.run(['adb','-s',c['SERIAL'],'push',str(tool),'/tmp/penchat-touch-burst-test'],check=True,capture_output=True)
     c['shell']('chmod 755 /tmp/penchat-touch-burst-test')
     def cancel():
-        b=state()['editor']['actions']['cancel'];tap((b[0]+b[2])//2,(b[1]+b[3])//2);wait(lambda:not state()['editor']['active'])
+        if 'cancel' in state()['editor']['actions']:
+            b=state()['editor']['actions']['cancel'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+        else:c['side_back']()
+        wait(lambda:not state()['editor']['active'])
     def english():
-        tap(W//2,H-34);wait(lambda:state()['editor']['active']);s=state()
+        c['open_chat_editor']();s=state()
         if s['editor']['layout']!='en26':
             k=next(k for k in s['editor']['keys'] if k['key']=='language');tap(k['x'],k['y'])
         assert state()['editor']['layout']=='en26'
-    runs=[]
+    runs=[];overloads=[]
     try:
         for pair in [('c','m'),('a','l')]:
             english();keys={k['key']:k for k in state()['editor']['keys']};split=state()['editor']['keyboard_split']
-            xy=[(3 if k=='a' else split-2 if k=='l' else keys[k]['x'],keys[k]['y']) for k in pair]
+            xy=[(keys[k]['hit_bounds'][0]+2 if k=='a' else keys[k]['hit_bounds'][2]-2 if k=='l' else keys[k]['x'],keys[k]['y']) for k in pair]
             args=' '.join(str(v) for x,y in xy for v in c['raw'](x,y))
             for ms in [80,20,5,1,0]:
                 before=state()['editor']['length'];count=40
-                response=c['shell']('/tmp/penchat-touch-burst-test /dev/input/'+c['event']+' '+args+f' {ms} {ms} {count} 2; echo status=$?')
-                assert 'status=0' in response,response
-                wait(lambda:state()['editor']['length']==before+count)
+                # Keep each zero-delay packet train below the smallest evdev
+                # client ring, then acknowledge it before the next train.
+                batch=4 if ms==0 else count
+                for sent in range(0,count,batch):
+                    response=c['shell']('/tmp/penchat-touch-burst-test /dev/input/'+c['event']+' '+args+f' {ms} {ms} {batch} 2; echo status=$?')
+                    assert 'status=0' in response,response
+                    wait(lambda:state()['editor']['length']==before+sent+batch)
                 assert state()['editor']['length']==before+count
-                runs.append({'keys':list(pair),'slots':2,'down_ms':ms,'gap_ms':ms,'sent':count,'received':count})
+                runs.append({'keys':list(pair),'slots':2,'down_ms':ms,'gap_ms':ms,'sent':count,'received':count,'batch_size':batch})
                 print('Native touch burst:',runs[-1],flush=True)
+            before=state()['editor']['length']
+            pressure=c['shell']('/tmp/penchat-touch-burst-test /dev/input/'+c['event']+' '+args+' 0 0 40 2; echo status=$?')
+            assert 'status=0' in pressure,pressure
+            time.sleep(.5);after=state()['editor']['length'];assert before<=after<=before+40
+            print('Unbounded touch observer:',pressure.strip(),'received=',after-before,flush=True)
+            # SYN_DROPPED can discard a client queue; never fabricate those keys.
+            # After SYN_DROPPED the decoder deliberately waits for an explicit
+            # neutral frame before accepting another contact.
+            neutral=c['shell']('/tmp/penchat-release-input-state /dev/input/'+c['event']+' --release')
+            assert not json.loads(neutral)['active_slots'],neutral
+            wait(lambda:state()['input_focused'] and state()['touch_input']['active'])
+            response=c['shell']('/tmp/penchat-touch-burst-test /dev/input/'+c['event']+' '+args+' 20 20 1 2; echo status=$?')
+            assert 'status=0' in response,response
+            # A fully neutral evdev write may be filtered by the kernel. The
+            # first contact then supplies the decoder's quarantine boundary.
+            time.sleep(.3);neutralized=state()['editor']['length']
+            assert after<=neutralized<=after+1
+            response=c['shell']('/tmp/penchat-touch-burst-test /dev/input/'+c['event']+' '+args+' 20 20 1 2; echo status=$?')
+            assert 'status=0' in response,response
+            wait(lambda:state()['editor']['length']==neutralized+1)
+            overloads.append({'keys':list(pair),'sent':40,'received':after-before,'observer':pressure.strip(),'neutralizing_contact_received':neutralized-after,'next_independent_key_received':True})
             c['capture']('native-touch-'+''.join(pair));cancel()
         # Background closes the fd; a touch while hidden cannot become a foreground click.
-        english();p=c['pid']();c['shell']('miniapp_cli start 8080222437664451');wait(lambda:not state()['visible'])
-        assert not state()['touch_input']['active']
-        c['shell']('miniapp_cli start '+c['APP']['appid']);wait(lambda:state()['visible'] and state()['touch_input']['active'])
-        assert c['pid']()==p and state()['editor']['length']==0
-        cancel()
+        if not c['args'].native_touch_core_only:
+            english();p=c['pid']();__import__('release_lifecycle').background_env(c);wait(lambda:not state()['visible'])
+            assert not state()['touch_input']['active']
+            c['shell']('miniapp_cli start '+c['APP']['appid']);wait(lambda:state()['visible'] and state()['touch_input']['active'])
+            assert c['pid']()==p and state()['editor']['length']==0
+            cancel()
         # The root exit now uses the same native frames as contextual back.
-        c['side_back']();wait(lambda:not c['pid']() or not state()['visible']);c['start_app']()
-        assert state()['touch_input']['active']
-        c['result']['native_touch']={'runs':runs,'background_closes_fd':True,'native_root_exit':True}
+        c['side_back']();wait(lambda:not c['pid'](),timeout=20);c['start_app']()
+        wait(lambda:state()['touch_input']['active'])
+        c['result']['native_touch']={'runs':runs,'unbounded_pressure_recovery':overloads,'background_closes_fd':'pending separate real background probe' if c['args'].native_touch_core_only else True,'native_root_exit':True}
     finally:
         c['shell']('rm -f /tmp/penchat-touch-burst-test')

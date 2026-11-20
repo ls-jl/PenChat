@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """ORANGE-only real touch/lifecycle acceptance. Never restarts the system host."""
 import json, pathlib, subprocess, time, os
+from release_lifecycle import background_env
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text());APP_ID=APP['appid']
 SERIAL='MEB0400008900794'
@@ -43,6 +44,11 @@ def tap(x,y):
     time.sleep(.04)
 def official_editor():
     wait(lambda:state()['editor']['active'])
+    editor=state()['editor']
+    if 'official' not in editor['actions']:
+        globe=next(k for k in editor['keys'] if k['key']=='language')
+        adb('/tmp/penchat-ui-tap --hold '+str(globe['y']+113)+' '+str(959-globe['x'])+' 600 2>/dev/null')
+        wait(lambda:state()['editor']['layout_menu'])
     x1,y1,x2,y2=state()['editor']['actions']['official']
     tap((x1+x2)//2,(y1+y2)//2)
     wait(lambda:state()['keyboard'])
@@ -143,7 +149,7 @@ if __name__=='__main__':
     tap(35,35);cancel_native_editor()
     assert state()['view']=='chat'
     result['ime_cancel']=True
-    adb('miniapp_cli start 8080222437664451')
+    background_env(globals())
     wait(lambda:not pid() or not state()['visible'])
     assert 'allocated by = penchat-lvgl' not in adb('cat /sys/kernel/debug/dri/0/state')
     adb('miniapp_cli start '+APP_ID);wait(pid);view('chat');wait(lambda:state()['visible'])

@@ -27,7 +27,10 @@ def license_payload():
         files[name] = ROOT / name
     files['pinyin-source-lock.json'] = ROOT / 'native/pinyin/source-lock.json'
     files['pinyin-dictionary-lock.json'] = ROOT / 'native/pinyin/dictionary-lock.json'
+    files['codex-compaction-source.json'] = ROOT / 'native/lvgl-app/codex-compaction-source.json'
     files['dependencies.lock.json'] = ROOT / 'native/lvgl-app/dependencies.lock.json'
+    files['web-search-source-lock.json'] = ROOT / 'native/web-search/source-lock.json'
+    files['web-search-dependencies.lock.json'] = ROOT / 'native/web-search/dependencies.lock.json'
     return files
 
 

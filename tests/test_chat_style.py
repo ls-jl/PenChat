@@ -31,6 +31,29 @@ def seed(directory, text, count=1):
         db.execute("insert into app_settings(key,value_json,updated_at) values('active_session_id','\"fixture\"',1)")
 
 
+def wide_code_excludes_pull(binary):
+    with tempfile.TemporaryDirectory(prefix='penchat-style-scroll-') as directory:
+        seed(directory, '```cpp\n' + 'wide_'*150 + '\n```')
+        app=Native(binary,pathlib.Path(directory))
+        try:
+            wait_for(lambda:not app.diag()['chat_render_pending'])
+            state=app.diag();original=state['session']
+            code=next(r for r in state['text_selection']['regions'] if r['key']=='reply0')
+            bounds=next(b for b in code['parts'] if b[3]>b[1] and b[2]>b[0])
+            x=(bounds[0]+bounds[2])//2;y=bounds[3]-2
+            assert bounds[1]<=y<=bounds[3] and y>=45,bounds
+            # Typography can move the code line. The first contact must land
+            # inside its actual horizontal reader before dragging outside it.
+            drag(app,[y,y-20,y-45],False,x=x)
+            assert not app.diag()['pull_active']
+            app.send('touch',x=x-200,y=y-45,pressed=True)
+            app.send('touch',x=x-200,y=y-45,pressed=False)
+            assert app.diag()['session']==original
+            snapshot(app,'wide-code')
+        finally:app.close()
+    print('Wide-code actual reader excludes pull-to-create throughout a captured drag.',flush=True)
+
+
 def run():
     transport.port = 1
     binary = pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY', str(ROOT/'build/host/penchat-lvgl')))
@@ -58,7 +81,9 @@ def run():
             app.tap(600,70);assert not app.diag()['attachments']
             app.tap(128,232)
             drag(app,[190,170,140])
-            assert not app.diag()['attachments'] and not app.diag()['pull_active']
+            # Moving a backdrop contact must not dismiss the popup or start a pull.
+            assert app.diag()['attachments'] and not app.diag()['pull_active']
+            app.tap(600,70);assert not app.diag()['attachments']
             app.tap(128,232);app.tap(200,38);assert app.diag()['view']=='camera';snapshot(app,'camera')
             app.tap(40,44)
             app.tap(128,232);app.tap(200,82);assert app.diag()['view']=='album';snapshot(app,'album')
@@ -159,18 +184,7 @@ def run():
                     app.send('visibility',visible=False);app.send('visibility',visible=True)
                 assert not app.diag()['pull_active'] and app.diag()['session']==second
         finally:app.close()
-    with tempfile.TemporaryDirectory(prefix='penchat-style-scroll-') as directory:
-        # A wide final code block remains horizontally scrollable and excludes the pull gesture.
-        seed(directory, '```cpp\n' + 'wide_'*150 + '\n```')
-        app=Native(binary,pathlib.Path(directory))
-        try:
-            original=app.diag()['session']
-            drag(app,[65,45,20],False,x=500)
-            assert not app.diag()['pull_active']
-            app.send('touch',x=300,y=20,pressed=True);app.send('touch',x=300,y=20,pressed=False)
-            assert app.diag()['session']==original
-            snapshot(app,'wide-code')
-        finally:app.close()
+    wide_code_excludes_pull(binary)
     with tempfile.TemporaryDirectory(prefix='penchat-style-pages-') as directory:
         seed(directory,'分页及上推手势测试。',40)
         app=Native(binary,pathlib.Path(directory))
@@ -293,4 +307,9 @@ def run():
     print('ChatGPT-style UI: attachments, reversible pull progress, commit once, cancel, background, draft retention, history creation and wide-code exclusion passed.')
 
 
-if __name__=='__main__':run()
+if __name__=='__main__':
+    import sys
+    if '--wide-code-only' in sys.argv:
+        transport.port=1
+        wide_code_excludes_pull(pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ROOT/'build/host/penchat-lvgl')))
+    else:run()

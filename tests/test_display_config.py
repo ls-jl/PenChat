@@ -32,17 +32,23 @@ def run(w,h,rotation):
             a.tap(w-30,60);assert not a.diag()['navigation_open']
             # The input field opens the native editor at every logical resolution.
             a.tap(w//2,h-34);t.wait_for(lambda:a.diag()['editor']['active'])
+            def keyboard_settled():
+                state=a.diag()
+                return not state.get('surface_motion',False) and all(
+                    0<=b[0]<=b[2]<w and 0<=b[1]<=b[3]<h
+                    for b in (item['bounds'] for item in state['editor']['controls']))
+            t.wait_for(keyboard_settled)
             d=a.diag()['editor'];keys={k['key']:k for k in d['keys']}
             for key in d['keys']:assert 0<=key['x']<w and 0<=key['y']<h
             for item in d['controls']:
                 x1,y1,x2,y2=item['bounds'];assert 0<=x1<=x2<w and 0<=y1<=y2<h, item
             actions=d['actions']
-            assert list(sorted(actions,key=lambda k:actions[k][0]))==['cancel','official','ocr-mode','done','clipboard']
-            for name,width in [('official',64),('ocr-mode',48),('done',104),('clipboard',44)]:
+            assert list(sorted(actions,key=lambda k:actions[k][0]))==['cancel','ocr-mode','done','clipboard']
+            for name,width in [('ocr-mode',48),('done',104),('clipboard',44)]:
                 x1,y1,x2,y2=actions[name]
                 assert x2-x1+1==width and y2-y1+1==44
                 assert any(item['bounds']==actions[name] for item in d['controls'])
-            assert (actions['done'][1]+actions['done'][3])//2==(actions['official'][1]+actions['official'][3])//2
+            assert (actions['done'][1]+actions['done'][3])//2==(actions['ocr-mode'][1]+actions['ocr-mode'][3])//2
             screenshot(a,f'{w}-{h}-keyboard',w,h)
             for value in ['q','w','e']:
                 k=keys[value];a.tap(k['x'],k['y'])
@@ -50,18 +56,19 @@ def run(w,h,rotation):
             k=keys['enter'];a.tap(k['x'],k['y'])
             t.wait_for(lambda:a.diag()['editor']['length']==3)
             before=a.diag()['editor']
-            for x,y in [(before['text_bounds'][0]+12,before['text_bounds'][1]+12),(w-20,h-80)]:
+            for x,y in [(before['text_bounds'][0]+12,before['text_bounds'][1]+12),(before['text_bounds'][2]-12,before['text_bounds'][1]+12)]:
                 a.long_press(x,y);popup=a.diag()['editor']
-                assert popup['undo_menu'] and popup['text_bounds']==before['text_bounds'] and popup['text_scroll']==before['text_scroll']
-                x1,y1,x2,y2=popup['undo_popup'];assert x2-x1+1==96 and y2-y1+1==52
+                assert popup['menu'] and popup['text_bounds']==before['text_bounds'] and popup['text_scroll']==before['text_scroll']
+                x1,y1,x2,y2=popup['selection_popup'];assert x2-x1+1==464 and y2-y1+1==52
                 assert 4<=x1<x2<w-4 and 4<=y1<y2<h-4
-                if x==before['text_bounds'][0]+12:assert x1<before['text_bounds'][0]
+                commands=[popup['actions'][name] for name in ['all','copy','paste','cut','undo']]
+                assert len({b[1] for b in commands})==1 and all(b[3]-b[1]+1>=44 for b in commands)
                 screenshot(a,f'{w}-{h}-undo-{y}',w,h)
                 # Text beside the popup remains interactive, without a full-width cover.
                 tx=before['text_bounds'][2]-12 if x1<before['text_bounds'][0]+100 else before['text_bounds'][0]+12
                 ty=max(before['text_bounds'][1]+12,min(before['text_bounds'][3]-12,(y1+y2)//2))
-                a.tap(tx,ty);assert not a.diag()['editor']['undo_menu']
-            a.long_press(w-20,h-80);a.editor_action('undo');assert not a.diag()['editor']['undo_menu']
+                a.tap(tx,ty);assert not a.diag()['editor']['menu']
+            a.long_press(before['text_bounds'][0]+12,before['text_bounds'][1]+12);a.editor_action('undo');assert not a.diag()['editor']['menu']
             # Mode transitions, candidates, clipboard and official cancellation use
             # the same logical geometry; they do not rescale already mapped touches.
             k=keys['mode'];a.tap(k['x'],k['y']);assert a.diag()['editor']['mode']==1
@@ -73,8 +80,8 @@ def run(w,h,rotation):
             assert a.diag()['keyboard']
             a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
             t.wait_for(lambda:not a.diag()['keyboard'])
-            a.tap(w-80,h-30);t.wait_for(lambda:not a.diag()['editor']['active'])
-            a.tap(40,32);a.tap(w*2//3-70,h-30);assert a.diag()['view']=='settings'
+            t.wait_for(lambda:not a.diag()['editor']['active'])
+            a.open_settings();assert a.diag()['view']=='settings'
             screenshot(a,f'{w}-{h}-settings',w,h)
             assert a.diag()['settings']['viewport'][1:4:2]==[0,h-1]
             a.settings_swipe(-120);t.wait_for(lambda:not a.diag()['settings']['scrolling'])

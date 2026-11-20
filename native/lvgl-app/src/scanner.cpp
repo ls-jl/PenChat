@@ -1,4 +1,5 @@
 #include "scanner.hpp"
+#include "scanner_lease.hpp"
 #include "../../scanner/src/hardware.hpp"
 #include <algorithm>
 #include <chrono>
@@ -21,10 +22,13 @@ struct ScanService::Impl {
   mutable std::mutex mutex;
   std::condition_variable cv;
   std::thread worker;
+  bool desiredOcr = false, desiredPenInput = true, paused = false, observing = false;
   bool stopped = false, desired = false, disarmed = true, available = false;
   std::string session;
   uint64_t generation = 0, request = 0;
   Json status = Json::object(), lease;
+  const CaptureProfile profile=detectedScanProfile();
+  const bool sharedMedia=profile.handoff.mediaHandoff;
   std::deque<Json> commands;
   int socket = -1, memory = -1, processLock = -1;
   pid_t child = -1;
@@ -33,19 +37,21 @@ struct ScanService::Impl {
       : events(e), workspace(std::move(w)), data(std::move(d)) {
     binary = join(workspace, "assets/bin/penchat-scanner");
     resources = join(workspace, "assets/scanner");
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
     if (const auto p = getenv("PENCHAT_SCANNER_BINARY"))
       binary = p;
     if (const auto p = getenv("PENCHAT_SCAN_RESOURCES"))
       resources = p;
 #endif
-    available = access(binary.c_str(), R_OK) == 0 &&
-                access(join(resources, "demo_gain.json").c_str(), R_OK) == 0;
-#ifdef __aarch64__
-    // Only explicit board/sensor capture profiles may own the pen hardware.
-    available = available && detectedScanProfile().supported();
+    available = access(binary.c_str(),R_OK)==0;
+#ifdef PENCHAT_NATIVE_DEVICE
+    available = available && profile.supported();
+    if (available) for (const auto &resource:requiredScanResources(profile))
+      available = available && access(join(resources,resource).c_str(),R_OK)==0;
 #else
-    available = available && getenv("PENCHAT_SCANNER_BINARY");
+    // Simulation uses a mock backend and intentionally needs no model/runtime.
+    available = available && getenv("PENCHAT_SCANNER_BINARY") &&
+      access(join(resources,"demo_gain.json").c_str(),R_OK)==0;
 #endif
     worker = std::thread([this] { run(); });
   }
@@ -61,7 +67,8 @@ struct ScanService::Impl {
   Json command(const std::string &type, uint64_t scan = 0) {
     return {{"v", ProtocolVersion},     {"type", type},
             {"generation", generation}, {"session", session},
-            {"requestId", ++request},   {"scanId", scan}};
+            {"requestId", ++request},   {"scanId", scan},
+            {"pen_input_enabled", desiredPenInput},{"paused",paused},{"observe_only",observing}};
   }
   void queue(const std::string &type, uint64_t scan = 0) {
     commands.push_back(command(type, scan));
@@ -69,7 +76,7 @@ struct ScanService::Impl {
   }
   void start() {
     bool mock = false;
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
     mock = getenv("PENCHAT_SCANNER_TEST") != nullptr;
 #endif
     if (!mock)
@@ -117,9 +124,13 @@ struct ScanService::Impl {
       args.push_back("--lease-fd");
       args.push_back("5");
     }
-#ifndef __aarch64__
-    if (getenv("PENCHAT_SCANNER_TEST"))
-      args.push_back("--simulate");
+#ifndef PENCHAT_NATIVE_DEVICE
+    if (getenv("PENCHAT_SCANNER_TEST")) {
+      const auto profile=getenv("PENCHAT_SCANNER_TEST_PROFILE");
+      const std::string selected=profile?profile:"orange";
+      if(selected!="orange"&&selected!="s6"&&selected!="y02"&&selected!="y07"&&selected!="melon")throw std::runtime_error("Invalid simulated scan profile");
+      args.push_back(selected=="orange"?"--simulate":"--simulate-"+selected);
+    }
 #endif
     std::vector<char *> argv;
     for (auto &a : args)
@@ -138,7 +149,7 @@ struct ScanService::Impl {
         environment.push_back(value);
     }
     std::string libraries = join(resources, "lib");
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
     if (const char *p = getenv("LD_LIBRARY_PATH"))
       libraries = std::string(p) + ":" + libraries;
 #endif
@@ -213,8 +224,10 @@ struct ScanService::Impl {
       child = -1;
     }
     // Last resort after a killed child, never before its light worker exits.
-    if (!lease.empty())
+    if (!lease.empty()) {
       restoreScanLease(lease);
+      if(sharedMedia&&scanLeaseRestored(lease))unlink(join(data,"scanner-lease.json").c_str());
+    }
     lease = Json();
     // Keep the shared flock through waitpid and fallback restoration. A new
     // worker must not acquire the same guardian while old cleanup is pending.
@@ -241,20 +254,20 @@ struct ScanService::Impl {
         std::unique_lock<std::mutex> l(mutex);
         if (commands.empty() && socket < 0 && !stopped)
           cv.wait(l, [&] { return stopped || !commands.empty(); });
-        else if (commands.empty() && disarmed && !stopped)
+        else if (commands.empty() && disarmed && !desiredOcr && !stopped)
           cv.wait_for(l, std::chrono::milliseconds(250),
                       [&] { return stopped || !commands.empty(); });
         if (stopped)
           break;
         outgoing.swap(commands);
-        idle = disarmed && outgoing.empty();
+        idle = disarmed && !desiredOcr && outgoing.empty();
       }
       try {
         if (socket < 0 && !outgoing.empty())
           start();
-        for (auto &j : outgoing)
-          if (!sendPacket(socket, j))
-            throw std::runtime_error("scanner command failed");
+        for (auto &j : outgoing) {
+          if (!sendPacket(socket, j))throw std::runtime_error("scanner command failed");
+        }
         if (socket < 0)
           continue;
         pollfd p{socket, POLLIN, 0};
@@ -272,8 +285,16 @@ struct ScanService::Impl {
           if (type == "fatal")
             throw std::runtime_error(
                 j.value("error", std::string("scanner failed")));
+          if(type=="media_yield") {
+            // S6 composes through Falcon shared slots, not CVI VO. Capture
+            // handoff must never pause/recreate the display or wait on LVGL.
+            auto ack=j;ack["type"]="media_ack";
+            if(!sendPacket(socket,ack))throw std::runtime_error("media release acknowledgement failed");
+            continue;
+          }
           if (type == "lease") {
             lease = j.at("lease");
+            if(sharedMedia)scan_recovery::persist(join(data,"scanner-lease.json"),lease);
             Json ack = j;
             ack["type"] = "lease_ack";
             ack.erase("lease");
@@ -285,9 +306,17 @@ struct ScanService::Impl {
             if (j.value("generation", uint64_t(0)) != generation ||
                 j.value("session", std::string()) != session)
               continue;
-            status = j;
+            if(type=="overlay_pause") {
+              status["overlay_paused"]=j.value("overlay_paused",false);
+              status["overlay_observing"]=j.value("overlay_observing",false);
+              status["observed_key_edges"]=j.value("observed_key_edges",uint64_t(0));
+            } else if (type == "pen_input")
+              status["pen_input_enabled"] = j.value("pen_input_enabled", true);
+            else
+              status = j;
             if (type == "released") {
               disarmed = true;
+              if(sharedMedia&&scanLeaseRestored(lease))unlink(join(data,"scanner-lease.json").c_str());
               lease = Json();
             }
             if (type == "error" || type == "fatal")
@@ -315,27 +344,70 @@ struct ScanService::Impl {
     cleanup();
   }
 };
+void ScanService::recoverHardware(const std::string &data) {
+  if(!detectedScanProfile().handoff.mediaHandoff)return;
+  const auto path=join(data,"scanner-lease.json");
+  if(access(path.c_str(),F_OK))return;
+  const int lock=acquireScanProcessLock(2000);
+  struct Close {int fd;~Close(){::close(fd);}} guard{lock};
+  scan_recovery::recover(path,detectedScanProfile().id,[](const Json &lease) {
+    restoreScanLease(lease);
+    if(!scanLeaseRestored(lease))throw std::runtime_error("System capture recovery failed");
+  },[] {
+    // This only inspects strict process identities, pause state and configured
+    // light state. It neither opens the CVI ISP nor guesses a PID to resume.
+    scanLeaseSnapshot();
+  });
+}
 ScanService::ScanService(Events &e, const std::string &w, const std::string &d)
     : p_(new Impl(e, w, d)) {}
 ScanService::~ScanService() = default;
 void ScanService::stop() { p_->stop(); }
-void ScanService::eligible(bool enabled, const std::string &session) {
+bool ScanService::listening() const {
+  std::lock_guard<std::mutex> lock(p_->mutex);return p_->desired&&!p_->stopped;
+}
+void ScanService::pauseTriggers(bool paused,bool observerReady) {
+  std::lock_guard<std::mutex> lock(p_->mutex);
+  const bool observing=paused&&observerReady;
+  if(p_->paused==paused&&p_->observing==observing)return;
+  p_->paused=paused;p_->observing=observing;
+  if(p_->desired&&!p_->stopped)p_->queue("overlay_pause");
+}
+void ScanService::eligible(bool enabled, const std::string &session, bool ocrKeys,
+                           bool penInput) {
   std::lock_guard<std::mutex> l(p_->mutex);
   if (!p_->available || p_->stopped)
     return;
-  if (enabled && (!p_->desired || p_->session != session)) {
+  enabled = enabled || ocrKeys;
+  if (enabled && (!p_->desired || p_->session != session || p_->desiredOcr != ocrKeys)) {
     p_->desired = true;
+    p_->desiredOcr = ocrKeys;
+    p_->desiredPenInput = penInput;
     p_->session = session;
     ++p_->generation;
     p_->disarmed = false;
     p_->status = {{"type", "preparing"},
                   {"generation", p_->generation},
                   {"session", session}};
-    p_->queue("arm");
+    p_->queue(ocrKeys ? "ocr_keys" : "arm");
+    if(p_->paused)p_->queue("overlay_pause");
+  } else if (enabled && p_->desiredPenInput != penInput) {
+    p_->desiredPenInput = penInput;
+    p_->queue("pen_input");
   } else if (!enabled && p_->desired) {
     p_->desired = false;
+    p_->desiredOcr = false;
     p_->queue("disarm");
   }
+}
+uint64_t ScanService::prepareReview(uint64_t scan) {
+  std::lock_guard<std::mutex> l(p_->mutex);
+  auto j=p_->command("prepare_review",scan);auto id=j["requestId"].get<uint64_t>();
+  p_->commands.push_back(std::move(j));p_->cv.notify_all();return id;
+}
+void ScanService::cancelReview(uint64_t scan) {
+  std::lock_guard<std::mutex> l(p_->mutex);
+  if(!p_->disarmed)p_->queue("cancel_review",scan);
 }
 void ScanService::confirm(uint64_t scan) {
   std::lock_guard<std::mutex> l(p_->mutex);
@@ -349,6 +421,12 @@ bool ScanService::released() const {
   std::lock_guard<std::mutex> l(p_->mutex);
   return p_->disarmed;
 }
+bool ScanService::nativeOcrKeys() const {
+#ifndef PENCHAT_NATIVE_DEVICE
+  if(const char *test=getenv("PENCHAT_TEST_NATIVE_OCR_KEYS"))return std::string(test)=="1";
+#endif
+  return p_->profile.handoff.nativeOcrKeys;
+}
 bool ScanService::available() const { return p_->available; }
 uint64_t ScanService::generation() const {
   std::lock_guard<std::mutex> l(p_->mutex);
@@ -358,7 +436,7 @@ Json ScanService::state() const {
   std::lock_guard<std::mutex> l(p_->mutex);
   return p_->status;
 }
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
 void ScanService::test(const Json &input) {
   if (!getenv("PENCHAT_SCANNER_TEST"))
     return;

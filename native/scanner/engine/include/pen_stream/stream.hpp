@@ -46,7 +46,7 @@ struct SystemMemory {
 SystemMemory systemMemory();
 struct Limits {
     unsigned maxSessions = 4;
-    unsigned idleModelMs = 5000; // 0 retains a healthy model until shutdown.
+    unsigned idleModelMs = 0; // Retain a healthy model until process shutdown by default.
     // Optional deterministic source for tests. Production reads procfs.
     std::function<SystemMemory()> memoryProbe;
     std::function<bool(std::size_t)> allocationProbe; // Optional allocation-failure injection.
@@ -142,6 +142,8 @@ class Inference {
 // Dynamically loads only public RKNN ABI; no vendor stitch library or GPU.
 std::unique_ptr<Inference> makeRknn32(std::string modelPath,
                                       std::string runtimePath = "librknnrt.so");
+// CV1826 RGB3 fixed32 model; uses the device's public CVI runtime only.
+std::unique_ptr<Inference> makeCvi32(std::string modelPath, std::string runtimePath);
 class Engine {
   public:
     explicit Engine(std::unique_ptr<Inference>, Limits = {});

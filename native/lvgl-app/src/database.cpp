@@ -1,16 +1,20 @@
 #include "database.hpp"
+#include "api_config.hpp"
+#include "anthropic_config.hpp"
+#include "chat_text.hpp"
 #include "chat_time.hpp"
 #include "context.hpp"
-#include "reasoning.hpp"
-#include "api_config.hpp"
 #include "network.hpp"
+#include "reasoning.hpp"
 #include "schema.hpp"
 #include "titles.hpp"
 #include "util.h"
 #include <algorithm>
 #include <dirent.h>
+#include <limits.h>
 #include <sqlite3.h>
 #include <stdexcept>
+#include <sys/stat.h>
 #include <unistd.h>
 namespace penchat {
 static std::string text(const Json &j) {
@@ -35,6 +39,7 @@ Database::Database(const std::string &path) {
       throw std::runtime_error(message);
     }
     migrate(path);
+    migrateReplyChoices(path);
     worker_ = std::thread([this] {
       for (;;) {
         std::function<void()> task;
@@ -50,13 +55,20 @@ Database::Database(const std::string &path) {
       }
     });
     execute("INSERT OR IGNORE INTO schema_meta(key,value) "
-            "VALUES('schema_version','2')");
+            "VALUES('schema_version','3')");
     execute("UPDATE chat_messages SET status='interrupted' WHERE status='streaming'");
+    perform([this] {
+      execute("BEGIN IMMEDIATE");
+      try {for(const auto &g:query("SELECT message_id FROM reply_groups"))saveReplyResult(g["message_id"]);execute("COMMIT");}
+      catch(...){execute("ROLLBACK");throw;}
+      return Json();
+    });
     {
       std::lock_guard<std::mutex> lock(jobsMutex_);
       jobs_.push_back([this] {
         try {
           collectAssets(true);
+          collectDraftFiles();
         } catch (...) {
           saveEvents_.push("maintenance_error");
         }
@@ -412,9 +424,9 @@ Json Database::messages(const std::string &s, int offset, int limit) {
   int position = nearest->first;
   int64_t cursor = nearest->second;
   while (position < page) {
-    auto rows = query("SELECT seq FROM chat_messages WHERE session_id=? AND seq<? "
+    auto rows = query("SELECT seq FROM chat_messages WHERE session_id=? AND seq<? AND (seq<=? OR (role='user' AND message_type='image' AND coalesce(output_text,'')='' AND seq>(SELECT coalesce(max(seq),0) FROM chat_messages WHERE session_id=? AND role='assistant'))) "
                       "ORDER BY seq DESC LIMIT ?",
-                      {s, cursor, limit});
+                      {s, cursor, replyCut(s),s,limit});
     if (int(rows.size()) < limit)
       return Json::array();
     cursor = rows.back()["seq"];
@@ -451,6 +463,7 @@ void Database::removeSession(const std::string &s) {
                           {s});
   execute("BEGIN IMMEDIATE");
   try {
+    clearDraft(s);
     enqueueAssets(scanAssets);
     for (auto table :
          {"stream_events", "message_parts", "message_assets", "chat_messages"}) {
@@ -506,7 +519,12 @@ bool Database::removePendingImage(const std::string &session,
     auto latest = query("SELECT output_text,message_type,created_at FROM chat_messages "
                         "WHERE session_id=? ORDER BY seq DESC LIMIT 1",
                         {session});
-    if (latest.empty()) {
+    const bool retainedDraft=latest.empty()&&!query("SELECT draft_key FROM chat_drafts WHERE draft_key=? AND "
+        "(length(text)>0 OR EXISTS(SELECT 1 FROM draft_attachments a WHERE a.draft_key=chat_drafts.draft_key))",{session}).empty();
+    if(latest.empty()&&retainedDraft) {
+      // Keep the legacy owner across restart; history already excludes rows without messages.
+      execute("UPDATE chat_sessions SET message_count=0,preview_text='',last_message_at=0 WHERE id=?",{session});
+    } else if (latest.empty()) {
       execute("DELETE FROM chat_sessions WHERE id=?", {session});
       execute("DELETE FROM app_settings WHERE key='active_session_id' AND "
               "value_json=?",
@@ -553,6 +571,7 @@ std::string Database::append(const std::string &s, const std::string &role,
       hasImage ? image["path"].get<std::string>() : std::string();
   std::string stored, preview;
   bool transaction = false;
+  bool ownTransaction = true;
   try {
     if (hasImage) {
 
@@ -583,7 +602,8 @@ std::string Database::append(const std::string &s, const std::string &role,
         });
       }
     }
-    execute("BEGIN IMMEDIATE");
+    ownTransaction = sqlite3_get_autocommit(db_) != 0;
+    if(ownTransaction)execute("BEGIN IMMEDIATE");
     transaction = true;
     // A new UI conversation is transient until its first message is committed.
     // Persist its row and active selection in the same transaction as content.
@@ -648,9 +668,9 @@ std::string Database::append(const std::string &s, const std::string &role,
                  : role,
              preview, s});
     setting("active_session_id", s);
-    execute("COMMIT");
+    if(ownTransaction)execute("COMMIT");
   } catch (...) {
-    if (transaction)
+    if (transaction && ownTransaction)
       execute("ROLLBACK");
     for (auto &path : createdAssets) {
       unlink(path.c_str());
@@ -670,18 +690,65 @@ void Database::updateMessage(const std::string &id, const std::string &t,
     });
     return;
   }
-  execute("BEGIN IMMEDIATE");
+  const bool ownTransaction = sqlite3_get_autocommit(db_) != 0;
+  if (ownTransaction) execute("BEGIN IMMEDIATE");
   try {
     auto rows = query("SELECT session_id,role,metadata_json FROM chat_messages WHERE id=?", {id});
     if (!rows.empty()) {
         auto merged = objectField(rows[0], "metadata_json");
         if(metadata.is_object())merged.update(metadata);
+        const auto prior = objectField(rows[0], "metadata_json").value("tool_compaction", Json::object());
+        if (!prior.empty()) {
+          const auto next = merged.value("tool_compaction", Json::object());
+          if (next.value("revision", 0) <= prior.value("revision", 0)) merged["tool_compaction"] = prior;
+        }
         auto timeline=merged.value("timeline",Json::object());
         if(status=="complete" && rows[0]["role"]=="assistant" && timeline.is_object() && timeline.value("version",0)==1) {
           auto completed=chatTimestamp(timeline,"completed_at");
           if(!completed)completed=nowMs();
           timeline["completed_at"]=completed;merged["timeline"]=timeline;
           recordActivity(rows[0]["session_id"],completed);
+        }
+        if (merged.contains("web_images") && merged["web_images"].is_array()) {
+          if (merged["web_images"].size() > 4)
+            throw std::runtime_error("Too many web images");
+          for (auto &image : merged["web_images"]) {
+            const auto ref = image.value("ref", std::string()),
+                       path = image.value("path", std::string());
+            const auto name = path.substr(path.find_last_of('/') + 1);
+            struct stat info{};
+            char root[PATH_MAX], real[PATH_MAX];
+            if (ref.empty() || name.compare(0, 4, "web-") || name.size() != 72 ||
+                lstat(path.c_str(), &info) || !S_ISREG(info.st_mode) || S_ISLNK(info.st_mode) ||
+                info.st_size > 2 * 1024 * 1024 || !realpath(assetDirectory_.c_str(), root) ||
+                !realpath(path.c_str(), real) || std::string(real) != join(root, name))
+              throw std::runtime_error("Invalid web image asset");
+            auto found = query("SELECT a.id FROM message_parts p JOIN message_assets a ON "
+                               "a.id=p.asset_id WHERE p.message_id=? AND a.stored_path=?",
+                               {id, path});
+            std::string aid;
+            if (found.empty()) {
+              aid = uid("asset");
+              auto assetMetadata = image;
+              assetMetadata.erase("path");
+              assetMetadata.erase("asset_id");
+              execute("INSERT INTO "
+                      "message_assets(id,session_id,message_id,kind,source_type,original_path,"
+                      "stored_path,mime_type,width,height,size_bytes,metadata_json,created_at) "
+                      "VALUES(?,?,?,'image','web',?,?,?,?,?,?,?,?)",
+                      {aid, rows[0]["session_id"], id, path, path, image.value("mime",std::string()), image.value("width", 0),
+                       image.value("height", 0), info.st_size, assetMetadata.dump(), nowMs()});
+              auto n = query(
+                  "SELECT coalesce(max(part_index),-1)+1 n FROM message_parts WHERE message_id=?",
+                  {id})[0]["n"];
+              execute("INSERT INTO "
+                      "message_parts(id,session_id,message_id,part_index,part_type,asset_id) "
+                      "VALUES(?,?,?,?,'image',?)",
+                      {uid("part"), rows[0]["session_id"], id, n, aid});
+            } else
+              aid = found[0]["id"];
+            image["asset_id"] = aid;
+          }
         }
         execute("UPDATE chat_messages SET metadata_json=? WHERE id=?",
                 {merged.dump(), id});
@@ -692,9 +759,10 @@ void Database::updateMessage(const std::string &id, const std::string &t,
             {t, r, status, error.is_null() ? Json() : Json(error.dump()), nowMs(), id});
     execute("UPDATE message_parts SET text=? WHERE message_id=? AND part_type='text'",
             {t, id});
-    execute("COMMIT");
+    saveReplyResult(id);
+    if (ownTransaction) execute("COMMIT");
   } catch (...) {
-    execute("ROLLBACK");
+    if (ownTransaction) execute("ROLLBACK");
     throw;
   }
 }
@@ -732,13 +800,19 @@ Json Database::providerForm(const std::string &id) {
           {"model", names},
           {"default_effort", metadata.value("default_effort", std::string())},
           {"model_adapter", metadata.value("model_adapter", std::string("auto"))},
+          {"balance_vendor", metadata.value("balance_vendor", std::string())},
           {"compatibility", objectField(metadata, "compatibility")},
-          {"anthropic", objectField(metadata, "anthropic")}};
+          {"anthropic", objectField(metadata, "anthropic")},
+          {"max_output_tokens", metadata.value("max_output_tokens", Json(16384))},
+          {"credential_revision", metadata.value("credential_revision",std::string())}};
 }
 Json Database::models() {
   if (!onWorker()) {
     return perform([=] { return models(); });
   }
+  return modelCatalogOnWorker();
+}
+const Json &Database::modelCatalogOnWorker() {
   if (!modelsCache_.is_null())
     return modelsCache_;
   modelsCache_ =
@@ -749,12 +823,20 @@ Json Database::models() {
             "m.enabled=1 AND p.enabled=1 ORDER BY m.is_default DESC,m.created_at");
   return modelsCache_;
 }
-Json Database::activeModel() {
+Json Database::model(const std::string &id) {
   if (!onWorker()) {
-    return perform([=] { return activeModel(); });
+    return perform([=] { return model(id); });
   }
-  auto m = models();
-  return m.empty() ? Json::object() : m[0];
+  const auto &catalog = modelCatalogOnWorker();
+  if (id.empty())
+    return catalog.empty() ? Json::object() : catalog[0];
+  for (const auto &candidate : catalog)
+    if (candidate["id"] == id)
+      return candidate;
+  return Json::object();
+}
+Json Database::activeModel() {
+  return model("");
 }
 Json Database::sessionPreferences(const std::string &session) {
   if (!onWorker()) {
@@ -793,11 +875,32 @@ void Database::saveSessionPreferences(const std::string &session,
           {id.empty() ? Json() : Json(id),
            model.empty() ? Json() : model[0]["provider_id"], metadata.dump(), session});
 }
-void Database::saveModelSettings(const std::string &id, Json capabilities) {
-  if (!onWorker()) { perform([=] { saveModelSettings(id, capabilities); return Json(); }); return; }
+void Database::saveModelSettings(const std::string &id, Json capabilities,
+                                 const std::string &name, const std::string &display) {
+  if (!onWorker()) {
+    perform([=] { saveModelSettings(id, capabilities, name, display); return Json(); }); return;
+  }
   if (!capabilities.is_object()) throw std::runtime_error("模型设置无效");
-  if (query("SELECT id FROM model_configs WHERE id=?", {id}).empty()) throw std::runtime_error("模型已删除");
-  execute("UPDATE model_configs SET capabilities_json=?,updated_at=? WHERE id=?", {capabilities.dump(), nowMs(), id});
+  auto rows=query("SELECT provider_id,name,display_name FROM model_configs WHERE id=? AND enabled=1",{id});
+  if(rows.empty())throw std::runtime_error("模型已删除，请重新选择");
+  const auto nextName=name.empty()?rows[0]["name"].get<std::string>():name;
+  const auto nextDisplay=display.empty()?(name.empty()?rows[0]["display_name"].get<std::string>():nextName):display;
+  if(!query("SELECT id FROM model_configs WHERE provider_id=? AND name=? AND id<>?",{rows[0]["provider_id"],nextName,id}).empty())
+    throw std::runtime_error("该服务商下已存在相同的模型 ID");
+  execute("UPDATE model_configs SET name=?,display_name=?,capabilities_json=?,updated_at=? WHERE id=?",
+          {nextName,nextDisplay,capabilities.dump(),nowMs(),id});
+}
+void Database::removeModel(const std::string &id) {
+  if(!onWorker()){perform([=]{removeModel(id);return Json();});return;}
+  execute("BEGIN IMMEDIATE");
+  try {
+    execute("UPDATE model_configs SET enabled=0,is_default=0,updated_at=? WHERE id=?",{nowMs(),id});
+    if(query("SELECT id FROM model_configs WHERE enabled=1 AND is_default=1").empty()) {
+      auto available=models();
+      if(!available.empty())execute("UPDATE model_configs SET is_default=1 WHERE id=?",{available[0]["id"].get<std::string>()});
+    }
+    execute("COMMIT");
+  } catch(...) {execute("ROLLBACK");throw;}
 }
 void Database::saveModelCapabilities(const std::string &id, const Json &reasoning,
                                      int budget, int maxOutput) {
@@ -854,7 +957,8 @@ void Database::recordRequest(const std::string &message, const Json &model,int64
         mode != "disabled" && caps.value("display_supported", false);
     parameters["api_version"] = anthropicVersion(model);
   }
-  execute("BEGIN IMMEDIATE");
+  const bool ownTransaction=sqlite3_get_autocommit(db_)!=0;
+  if(ownTransaction)execute("BEGIN IMMEDIATE");
   try {
     auto rows=query("SELECT session_id,seq,metadata_json FROM chat_messages WHERE id=?",{message});
     if(!rows.empty()) {
@@ -872,20 +976,20 @@ void Database::recordRequest(const std::string &message, const Json &model,int64
       auto meta=objectField(rows[0],"metadata_json");meta["timeline"]={{"version",1},{"request_started_at",startedAt}};
       execute("UPDATE chat_messages SET provider_id=?,model_config_id=?,request_json=?,metadata_json=? WHERE id=?",
               {model["provider_id"],model["id"],parameters.dump(),meta.dump(),message});
+      if(!query("SELECT id FROM reply_groups WHERE message_id=?",{message}).empty()) {
+        auto sessionMeta=objectField(sessionInfo(session),"metadata_json");sessionMeta.erase("title_token");sessionMeta["title_state"]="manual";
+        execute("UPDATE chat_sessions SET metadata_json=? WHERE id=?",{sessionMeta.dump(),session});
+      }
       recordActivity(session,sentAt);
     }
-    execute("COMMIT");
-  } catch(...) {execute("ROLLBACK");throw;}
+    if(ownTransaction)execute("COMMIT");
+  } catch(...) {if(ownTransaction)execute("ROLLBACK");throw;}
 }
-void Database::saveProvider(const Json &f, const std::vector<std::string> &names) {
+std::string Database::saveProvider(const Json &f, const std::vector<std::string> &names, bool replaceModels) {
   if (!onWorker()) {
-    perform([=] {
-      saveProvider(f, names);
-      return Json();
-    });
-    return;
+    return perform([=] { return Json(saveProvider(f,names,replaceModels)); }).get<std::string>();
   }
-  if (names.empty())
+  if (replaceModels && names.empty())
     throw std::runtime_error("At least one model is required");
   if (f.value("api", std::string()) == "anthropic") {
     auto output = f.value("max_output_tokens", Json(16384));
@@ -896,10 +1000,13 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
       f.contains("id") && f["id"].is_string() && !f["id"].get<std::string>().empty();
   const auto id = editing ? f["id"].get<std::string>() : uid("provider");
   bool first = models().empty();
-  execute("BEGIN IMMEDIATE");
+  const bool firstProvider=providers().empty();
+  bool connectionChanged=false;
+  const bool ownTransaction=sqlite3_get_autocommit(db_)!=0;
+  if(ownTransaction)execute("BEGIN IMMEDIATE");
   try {
     if (editing) {
-      auto old = query("SELECT metadata_json,headers_json,api_key FROM providers WHERE "
+      auto old = query("SELECT metadata_json,headers_json,api_key,base_url FROM providers WHERE "
                        "id=? AND enabled=1",
                        {id});
       if (old.empty())
@@ -908,11 +1015,19 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
           Json::parse(old[0]["metadata_json"].get<std::string>(), nullptr, false);
       if (!metadata.is_object())
         metadata = Json::object();
+      connectionChanged=old[0]["base_url"]!=f.value("baseURL",std::string()) ||
+          old[0]["api_key"]!=f.value("apiKey",std::string()) ||
+          (f.contains("headers")&&objectField(old[0],"headers_json")!=f["headers"]) ||
+          metadata.value("api",std::string("responses"))!=f.value("api",std::string("responses")) ||
+          objectField(metadata,"compatibility")!=objectField(f,"compatibility") ||
+          objectField(metadata,"anthropic")!=objectField(f,"anthropic");
       metadata["api"] = f.value("api", std::string("responses"));
       metadata["default_effort"] = f.value("default_effort", std::string());
       if (f.contains("compatibility")) metadata["compatibility"] = objectField(f, "compatibility");
       if (f.contains("anthropic")) metadata["anthropic"] = objectField(f, "anthropic");
       metadata["model_adapter"] = f.value("model_adapter", std::string("auto"));
+      if (f.contains("balance_vendor")) metadata["balance_vendor"] = f.value("balance_vendor", std::string());
+      metadata["max_output_tokens"] = f.value("max_output_tokens", Json(16384));
       if (old[0]["api_key"] != f.value("apiKey", std::string()) ||
           (f.contains("headers") && objectField(old[0], "headers_json") != f["headers"]))
         metadata["credential_revision"] = uid("credentials");
@@ -937,11 +1052,13 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
                      {"compatibility", objectField(f, "compatibility")},
                      {"anthropic", objectField(f, "anthropic")},
                      {"model_adapter", f.value("model_adapter", std::string("auto"))},
-                     {"credential_revision", uid("credentials")}})
+                     {"balance_vendor", f.value("balance_vendor", std::string())},
+                     {"credential_revision", uid("credentials")},
+                     {"max_output_tokens", f.value("max_output_tokens", Json(16384))}})
                    .dump(),
-               nowMs(), nowMs(), first ? 1 : 0});
+               nowMs(), nowMs(), firstProvider ? 1 : 0});
     }
-    for (const auto &m : query("SELECT id,name FROM model_configs WHERE "
+    if(replaceModels) for (const auto &m : query("SELECT id,name FROM model_configs WHERE "
                                "provider_id=? AND enabled=1",
                                {id}))
       if (std::find(names.begin(), names.end(), m["name"].get<std::string>()) ==
@@ -978,12 +1095,105 @@ void Database::saveProvider(const Json &f, const std::vector<std::string> &names
                 {available[0]["id"].get<std::string>()});
       }
     }
-    execute("COMMIT");
-    invalidateHttpProvider(id);
+    if(ownTransaction)execute("COMMIT");
+    if(ownTransaction&&connectionChanged)invalidateHttpProvider(id);
   } catch (...) {
-    execute("ROLLBACK");
+    if(ownTransaction)execute("ROLLBACK");
     throw;
   }
+  return id;
+}
+Json Database::saveProviderWorkspace(const Json &form, const Json &drafts) {
+  if(!onWorker())return perform([=]{return saveProviderWorkspace(form,drafts);});
+  if(!drafts.is_array())throw std::runtime_error("模型草稿无效");
+  if(!hasChatText(form.value("name",std::string())) || !hasChatText(form.value("baseURL",std::string())) ||
+     !hasChatText(form.value("apiKey",std::string())))throw std::runtime_error("请填写名称、Base URL 和 API Key");
+  Json request={{"base_url",form.value("baseURL",std::string())},{"api_key",form.value("apiKey",std::string())},
+    {"headers_json",form.value("headers",Json::object())},
+    {"provider_metadata",{{"api",form.value("api",std::string("responses"))},{"anthropic",objectField(form,"anthropic")}}}};
+  apiRoot(request);apiHeaders(request);
+  const auto previous=form.contains("id")?providerForm(form.at("id")):Json::object();
+  bool connectionChanged=false;
+  for(const auto &key:{"baseURL","apiKey","headers","api","compatibility","anthropic"})
+    if(previous.value(key,Json())!=form.value(key,Json()))connectionChanged=true;
+  execute("BEGIN IMMEDIATE");
+  try {
+    const auto provider=saveProvider(form,{},false);
+    Json mapping=Json::object(), prepared=Json::array();
+    std::set<std::string> names,ids;
+    for(const auto &draft:drafts) {
+      const auto key=draft.at("id").get<std::string>();
+      const auto name=draft.value("name",std::string());
+      const bool deleted=draft.value("workspace_deleted",false);
+      if(key.empty()||name.empty()||name.find_first_of("\r\n")!=std::string::npos ||
+         name.find_first_not_of(" \t")==std::string::npos || !ids.insert(key).second)
+        throw std::runtime_error("模型 ID 无效或重复");
+      if(!deleted&&!names.insert(name).second)throw std::runtime_error("该服务商下存在重复的模型 ID");
+      auto stored=query("SELECT * FROM model_configs WHERE id=?",{key});
+      if(!stored.empty()&&stored[0]["provider_id"]!=provider)throw std::runtime_error("模型不属于当前服务商");
+      std::string id=key;
+      if(stored.empty()) {
+        if(!draft.value("workspace_new",false))throw std::runtime_error("模型已失效，请重新打开服务商");
+        auto match=query("SELECT * FROM model_configs WHERE provider_id=? AND name=?",{provider,name});
+        if(!match.empty()) {
+          if(match[0].value("enabled",0)!=0)throw std::runtime_error("该服务商下已存在相同的模型 ID");
+          stored=match;id=stored[0]["id"];
+        }
+      }
+      auto caps=draft.value("capabilities_json",Json());
+      if(caps.is_string())caps=Json::parse(caps.get<std::string>(),nullptr,false);
+      if(!caps.is_object())throw std::runtime_error("模型 "+name+" 的能力配置无效");
+      if(!deleted && form.value("api",std::string())=="anthropic") {
+        Json model={{"name",name},{"capabilities_json",caps}};
+        try {validateAnthropic(model,objectField(caps,"reasoning"));}
+        catch(const std::exception &error){throw std::runtime_error("模型 "+name+"："+error.what());}
+      }
+      auto entry=draft;entry["resolved_id"]=id;entry["existing"]=!stored.empty();
+      mapping[key]=id;prepared.push_back(entry);
+    }
+    // Validate the complete desired state before changing any model row.
+    std::set<std::string> resolved;
+    for(const auto &entry:prepared) {
+      const auto id=entry.at("resolved_id").get<std::string>();
+      if(!resolved.insert(id).second)throw std::runtime_error("模型恢复关系重复");
+      auto conflict=query("SELECT id FROM model_configs WHERE provider_id=? AND name=? AND id<>?",
+                          {provider,entry.at("name"),id});
+      for(const auto &row:conflict) {
+        bool moving=false;
+        for(const auto &other:prepared)if(other.at("resolved_id")==row.at("id")&&other.at("name")!=entry.at("name"))moving=true;
+        if(!moving)throw std::runtime_error("该服务商下已存在相同的模型 ID");
+      }
+    }
+    // Temporary names allow two stable IDs to exchange names under the UNIQUE constraint.
+    for(const auto &entry:prepared)if(entry.at("existing").get<bool>())
+      execute("UPDATE model_configs SET name=? WHERE id=?",{uid("workspace-name"),entry.at("resolved_id")});
+    for(const auto &entry:prepared) {
+      const bool deleted=entry.value("workspace_deleted",false);
+      if(!entry.at("existing").get<bool>()&&deleted)continue;
+      const auto id=entry.at("resolved_id");
+      const auto name=entry.at("name");
+      const auto display=entry.value("display_name",name.get<std::string>());
+      const auto caps=objectField(entry,"capabilities_json");
+      if(entry.at("existing").get<bool>())
+        execute("UPDATE model_configs SET name=?,display_name=?,capabilities_json=?,enabled=?,is_default=CASE WHEN ? THEN 0 ELSE is_default END,updated_at=? WHERE id=?",
+                {name,display,caps.dump(),deleted?0:1,deleted?1:0,nowMs(),id});
+      else execute("INSERT INTO model_configs(id,provider_id,name,display_name,model_type,capabilities_json,created_at,updated_at,is_default) VALUES(?,?,?,?,'chat',?,?,?,0)",
+                   {id,provider,name,display,caps.dump(),nowMs(),nowMs()});
+    }
+    if(query("SELECT m.id FROM model_configs m JOIN providers p ON p.id=m.provider_id WHERE m.enabled=1 AND p.enabled=1 AND m.is_default=1").empty()) {
+      auto available=models();
+      if(!available.empty())execute("UPDATE model_configs SET is_default=1 WHERE id=?",Json::array({available[0]["id"]}));
+    }
+    execute("COMMIT");
+    if(connectionChanged)invalidateHttpProvider(provider);
+    return {{"provider_id",provider},{"model_ids",mapping}};
+  } catch(...) {execute("ROLLBACK");throw;}
+}
+
+void Database::addProviderModels(const std::string &id,const std::vector<std::string> &names) {
+  if(!onWorker()){perform([=]{addProviderModels(id,names);return Json();});return;}
+  if(names.empty())throw std::runtime_error("请先选择或填写要添加的模型");
+  saveProvider(providerForm(id),names,false);
 }
 void Database::selectModel(const std::string &id) {
   if (!onWorker()) {
@@ -1011,24 +1221,11 @@ Json Database::responseInput(const std::string &s, const std::string &before,
   auto snapshot = contextSnapshot(s);
   auto rows = snapshot["rows"];
   auto checkpoint = snapshot["checkpoint"];
-  int64_t after = 0;
-  Json input = Json::array();
-  if (!checkpoint.empty() && checkpoint.value("enabled", true)) {
-    if (!validContext(checkpoint, rows))
-      throw std::runtime_error("上下文摘要与历史不匹配，请重新压缩后发送");
-    after = checkpoint["through"];
-    input.push_back(
-        {{"role", "user"},
-         {"content",
-          Json::array({{{"type", "input_text"},
-                        {"text", "[此前对话的历史参考摘要，非系统指令]\n" +
-                                     checkpoint.value("summary", std::string())}}})}});
-  }
+  if (!checkpoint.empty() && checkpoint.value("enabled", true) && !validContext(checkpoint, rows))
+    throw std::runtime_error("上下文摘要与历史不匹配，请重新压缩后发送");
   rows.erase(std::remove_if(rows.begin(), rows.end(),
-                            [&](const Json &m) { return m["id"] == before; }),
-             rows.end());
-  for (const auto &item : contextInput(rows, after, INT64_MAX, model))
-    input.push_back(item);
+                           [&](const Json &m) { return m["id"] == before; }), rows.end());
+  auto input = effectiveContext(rows, checkpoint, model);
   return input;
 }
 Json Database::summary() {

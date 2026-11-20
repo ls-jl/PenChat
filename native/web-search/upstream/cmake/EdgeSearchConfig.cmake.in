@@ -1,0 +1,10 @@
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+if(@EDGE_SEARCH_USE_IMPERSONATE@)
+    list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
+    find_dependency(CurlImpersonate)
+else()
+    find_dependency(CURL 7.68)
+endif()
+find_dependency(LibXml2 2.9)
+include("${CMAKE_CURRENT_LIST_DIR}/EdgeSearchTargets.cmake")

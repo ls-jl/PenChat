@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Explicit-target Falcon geometry acceptance; isolates user data and never restarts Falcon."""
 import argparse,json,pathlib,shlex,sqlite3,subprocess,sys,time
+from release_lifecycle import install_termination_handler,defer_cleanup_signals
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 APP=json.loads((ROOT/'package.json').read_text())
 parser=argparse.ArgumentParser();parser.add_argument('--serial',required=True)
 parser.add_argument('--back-navigation',action='store_true')
 parser.add_argument('--official-keyboard',action='store_true',help='Scoped system keyboard protocol/return probe')
 parser.add_argument('--portrait',action='store_true',help='Authorized Y07 portrait editor, native touch and HD camera')
+parser.add_argument('--camera-orientation',action='store_true',help='Scoped Y07 preview/save direction and one HD photo, without keyboard/scanner loops')
 parser.add_argument('--onboarding',action='store_true',help='Seven synthetic onboarding animations with real touches')
 parser.add_argument('--model-catalog',action='store_true',help='Offline model capabilities, field fills and compression threshold')
 parser.add_argument('--anthropic',action='store_true',help='Native Messages local-server and physical-touch acceptance')
@@ -16,9 +18,12 @@ parser.add_argument('--chat-whitespace',action='store_true',help='Blank composer
 parser.add_argument('--update',action='store_true',help='Update settings and live fixed-source check, isolated data')
 parser.add_argument('--feedback',action='store_true',help='Read-only feedback hardware and explicit physical-key window')
 parser.add_argument('--scanner-profile',action='store_true',help='Explicit board/sensor original-image capture and lifecycle isolation')
+parser.add_argument('--scanner-profile-core-only',action='store_true',help='Capture/rearm/crash/OCR lifecycle; real retained background remains separately required')
 parser.add_argument('--stream-reading',action='store_true',help='Native slow-stream reading, return to bottom and live action visibility')
 parser.add_argument('--native-touch',action='store_true',help='Raw evdev alternating-slot bursts, edges and lifecycle')
+parser.add_argument('--native-touch-core-only',action='store_true',help='Scope real frame bursts/root finish; retained background is a separate required probe')
 parser.add_argument('--pinyin',action='store_true',help='Owned pinyin, learning and nine-key real-touch acceptance')
+parser.add_argument('--pinyin-core-only',action='store_true',help='Scope native pinyin assertions; official IME/background remain separate required checks')
 parser.add_argument('--pull-sensitivity',action='store_true',help='Saved pull sensitivity and mapped gesture boundary acceptance')
 parser.add_argument('--font-size',action='store_true',help='Reading font size settings and native layout acceptance')
 parser.add_argument('--photo-gestures',action='store_true',help='Real multitouch viewer and ORANGE camera/crop acceptance')
@@ -30,13 +35,24 @@ parser.add_argument('--session-info',action='store_true',help='Run focused conve
 parser.add_argument('--transfer-format',action='store_true',help='Bundled format readers, native ZIP and sample imports, isolated data')
 parser.add_argument('--archive-reader',action='store_true',help='Run focused archive-reader acceptance, with normal data isolation/restoration')
 args=parser.parse_args();SERIAL=args.serial
-assert sum((args.transfer_format,args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch,args.http_pool,args.chat_whitespace,args.stream_reading,args.scanner_profile,args.feedback,args.update,args.portrait,args.official_keyboard))<=1,'Run isolated feature fixtures separately'
-DATA='/userdisk/secondary/miniapp/data/mini_app/pkg/'+APP['appid']+'/data'
+assert SERIAL in ('MEA2300009007113','MEB0400008900794','7G12000010905426','JDA0700006552216'),'Only this release\'s explicitly authorized Y01/Y02/Y07/S6 serials are permitted'
+install_termination_handler()
+assert not args.pinyin_core_only or args.pinyin
+assert not args.native_touch_core_only or args.native_touch
+assert not args.scanner_profile_core_only or args.scanner_profile
+feature_flags=(args.camera_orientation,args.transfer_format,args.model_catalog,args.anthropic,args.pull_sensitivity,args.api_compatibility,args.back_navigation,args.history_time,args.message_edit,args.reply_actions,args.archive_reader,args.session_info,args.composer_touch,args.photo_gestures,args.font_size,args.pinyin,args.native_touch,args.http_pool,args.chat_whitespace,args.stream_reading,args.scanner_profile,args.feedback,args.update,args.portrait,args.official_keyboard)
+assert sum(feature_flags)<=1,'Run isolated feature fixtures separately'
+TARGET='cv1826-s' if SERIAL=='JDA0700006552216' else 'rk3562'
+DATA=('/userdisk/miniapp' if TARGET=='cv1826-s' else '/userdisk/secondary/miniapp')+'/data/mini_app/pkg/'+APP['appid']+'/data'
 OUT=ROOT/'.work'/('device-display-'+SERIAL);OUT.mkdir(parents=True,exist_ok=True)
 class FeatureComplete(Exception):
     """Successful scoped run; shared finally still restores both user directories."""
 
-def shell(command):return subprocess.check_output(['adb','-s',SERIAL,'shell',command],text=True).replace('\r','').strip()
+def shell(command, _touch_checked=False):
+    raw_touch=('PENCHAT_TOUCH_DEVICE=' in command and ' /tmp/penchat-display-tap ' in command) or command.startswith('/tmp/penchat-touch-burst-test /dev/input/')
+    if raw_touch and pid() and not _touch_checked:
+        wait_native_input()
+    return subprocess.check_output(['adb','-s',SERIAL,'shell',command],text=True).replace('\r','').strip()
 def wait(fn,timeout=8):
     end=time.monotonic()+timeout
     while time.monotonic()<end:
@@ -51,34 +67,52 @@ def pid():
         if stat and stat[0] not in ('Z','X'):return p
     return ''
 def state(image=False):
-    p=pid();assert p
+    def signal_ready():
+        current=pid()
+        if not current:return None
+        raw=shell("awk '/SigCgt/{print $2}' /proc/"+current+'/status 2>/dev/null || true')
+        try:caught=int(raw,16)
+        except ValueError:return None
+        return current if caught&(1<<(9 if image else 11)) else None
+    # A normal Home/finish followed by start can reap the old PID between pidof
+    # and /proc. Resolve a live, signal-ready owner instead of parsing its error.
+    p=wait(signal_ready)
     target=DATA+'/lvgl-diagnostic.json'
     old=shell('cat '+target+' 2>/dev/null || true')
     saved=json.loads(old) if old else {}
     # Restored user diagnostics can belong to an earlier process or boot, whose
     # monotonic clock may be ahead of this one. Only compare this process's time.
     previous=saved.get('diagnostic_time',-1) if str(saved.get('pid'))==p else -1
-    wait(lambda:int(shell("awk '/SigCgt/{print $2}' /proc/"+p+'/status'),16)&(1<<(9 if image else 11)))
     shell('kill -'+('USR1' if image else 'USR2')+' '+p)
+    last_request=[time.monotonic()];observed=[]
     def fresh():
+        current=pid()
+        if current!=p:
+            raise RuntimeError('Native diagnostic owner changed during request')
         value=json.loads(shell('cat '+target))
-        return value if str(value.get('pid'))==p and value.get('diagnostic_time',0)>previous else None
-    return wait(fresh)
+        observed.append({k:value.get(k) for k in ('pid','diagnostic_time','visible','page_visible','window_focused','input_focused','screen_power')})
+        if str(value.get('pid'))==p and value.get('diagnostic_time',0)>previous:return value
+        # Standard signals coalesce; reissue only this idempotent read request
+        # to the same signal-ready owner. Keep the existing absolute deadline.
+        if not image and time.monotonic()-last_request[0]>=.35:
+            shell('kill -USR2 '+p);last_request[0]=time.monotonic()
+        return None
+    try:return wait(fresh)
+    except (AssertionError,RuntimeError):
+        (OUT/'diagnostic-timeout.json').write_text(json.dumps({'owner_pid':p,'previous_time':previous,'observed':observed[-8:]},indent=2)+'\n')
+        raise
+
 def capture(name):
     state(True)
     subprocess.run(['adb','-s',SERIAL,'pull',DATA+'/lvgl-diagnostic.png',str(OUT/(name+'.png'))],check=True,capture_output=True)
 def close():
-    shell('miniapp_cli start 8080222437664451');time.sleep(.2)
-    p=pid()
-    if p:
-        assert APP['appid'] in shell("tr '\\0' ' ' < /proc/"+p+'/cmdline')
-        shell('kill -TERM '+p)
-    wait(lambda:not pid())
+    from release_lifecycle import close_app
+    close_app(SERIAL, APP['appid'], shell, pid, state)
 def hashes(path):return sorted(shell('find '+shlex.quote(path)+' -type f -exec sha256sum {} \\;').splitlines())
-assert shell('uname -m')=='aarch64'
+assert shell('uname -m')==('armv7l' if TARGET=='cv1826-s' else 'aarch64')
 # Explicit user-authorized boards; never infer support from resolution/sensor alone.
-assert SERIAL in ('MEA2300009007113','MEB0400008900794','7G12000010905426')
 screen=json.loads(shell('cat /etc/miniapp/resources/cfg.json'))['screen'];W=screen['width'];H=screen['height']
+if TARGET=='cv1826-s' and screen.get('direction') in (90,270):W,H=H,W
 inputs=shell('cat /proc/bus/input/devices').split('\n\n');event=None
 for block in inputs:
     if 'sitronix_ts_spi' in block or 'hyn_ts' in block or 'Hyn_TS' in block:
@@ -94,19 +128,156 @@ def raw(x,y):
     elif rotation==90:rx,ry=H-1-y,x
     else:rx,ry=x,y
     return rx+screen.get('tp_xoffset',0),ry+screen.get('tp_yoffset',0)
+def wait_native_input():
+    def ready():
+        d=state()
+        assert d['visible'] and d.get('page_visible',True) and d['window_focused'] and not d.get('system_overlay',{}).get('panel_visible') and not d.get('keyboard'), 'Raw touch stopped after foreground loss'
+        return d if d['input_focused'] and d['touch_input']['active'] else None
+    return wait(ready,timeout=3)
 def tap(x,y):
-    rx,ry=raw(x,y)
-    shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap '+str(rx)+' '+str(ry)+' 2>/dev/null');time.sleep(.08)
+    from touch_ack import retry_unseen_tap
+    for attempt in range(2):
+        before=None
+        if pid():
+            wait(lambda:not state().get('surface_motion',False))
+            before=wait_native_input()
+        rx,ry=raw(x,y)
+        shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap '+str(rx)+' '+str(ry)+' 2>/dev/null',_touch_checked=before is not None)
+        time.sleep(.08)
+        if before is None or pid()!=str(before['pid']):return
+        observed=[]
+        def acknowledged():
+            if pid()!=str(before['pid']):return True
+            current=state();observed.append(current)
+            return current.get('touch',{}).get('gesture')!=before.get('touch',{}).get('gesture') and not current.get('touch',{}).get('pressed',False)
+        try:wait(acknowledged,timeout=1.2);return
+        except AssertionError:
+            if attempt==0 and observed and retry_unseen_tap(before,observed[-1],allow_cancelled_down=True):
+                probe='/tmp/penchat-release-input-state'
+                if shell('test -x '+probe+' && echo yes')=='yes':
+                    kernel=json.loads(shell(probe+' /dev/input/'+event))
+                    if kernel.get('error') or kernel.get('btn_touch') or kernel.get('active_slots'):return
+                    wait_native_input()
+                    # Only an already empty kernel contact set is resynchronized.
+                    # If this completes a delayed original release, do not press again.
+                    shell(probe+' /dev/input/'+event+' --release');time.sleep(.2)
+                    current=state()
+                    if current.get('touch',{}).get('gesture')!=before.get('touch',{}).get('gesture') and not current.get('touch',{}).get('pressed',False):return
+                    if not retry_unseen_tap(before,current,allow_cancelled_down=True):return
+                    result['cancelled_input_tap_retries']=result.get('cancelled_input_tap_retries',0)+1
+                    continue
+            return
 def drag(x,y,ex,ey):
+    wait_native_input()
+    wait(lambda:not state().get('surface_motion',False))
     sx,sy=raw(x,y);tx,ty=raw(ex,ey)
-    shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --drag-hold '+str(sx)+' '+str(sy)+' '+str(tx)+' '+str(ty)+' 450 200 2>/dev/null')
-    time.sleep(.1)
-def side_back():drag(20,H//2,W//5,H//2)
+    # Ordinary page movement must begin before the 450ms text-selection hold.
+    # Tests that need long-press dragging invoke --drag-hold explicitly.
+    shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap '+str(sx)+' '+str(sy)+' '+str(tx)+' '+str(ty)+' 20 2>/dev/null')
+    time.sleep(.35)
+def side_back():
+    wait(lambda:not state().get('surface_motion',False))
+    from release_lifecycle import free_back_start
+    d=state()
+    try:x,y=free_back_start(d,W,H,inner='edge' in d.get('back_navigation',{}))
+    except RuntimeError:x,y=free_back_start(d,W,H)
+    drag(x,y,min(W-1,x+max(80,W//4)),y)
 def blocked(value):wait(lambda:state()['back_navigation']['policy_ok'] and state()['back_navigation']['blocked']==value)
 def settings_swipe(delta):
     y=H-50 if delta<0 else 75;drag(W//2,y,W//2,min(H-10,max(10,y+delta)))
 def key(value):
     k=next(k for k in state()['editor']['keys'] if k['key']==value);tap(k['x'],k['y'])
+def tap_bounds(bounds):tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
+def double_tap(x,y):
+    d=state();assert d['visible'] and d.get('page_visible',True) and d['window_focused'] and d['touch_input']['active']
+    rx,ry=raw(x,y)
+    shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --double '+str(rx)+' '+str(ry)+' 100 2>/dev/null')
+    time.sleep(.15)
+def open_chat_editor():
+    d=state();assert d['view']=='chat' and not d['editor']['active']
+    if d['composer_hidden']:
+        assert d['to_bottom_visible'];tap(d['to_bottom_x']+22,d['to_bottom_y']+22)
+        wait(lambda:not state()['composer_hidden'])
+    tap_bounds(state()['composer_text_bounds'])
+    wait(lambda:state()['editor']['active'] and state()['editor']['keys'],timeout=25)
+    time.sleep(.3)
+def send_chat():
+    d=state();assert d['view']=='chat' and not d['editor']['active']
+    tap(d['send_center_x2']//2,d['send_center_y2']//2)
+def open_attachment_menu():
+    if not state()['attachments']:
+        tap_bounds(state()['attachment_button'])
+        wait(lambda:state()['attachments'])
+def open_navigation():
+    d=state();assert d['view']=='chat'
+    if d['navigation_open']:return
+    scale=d['ui_scale']['applied'];dp=lambda n:(n*scale+50)//100
+    x=d['screen_safety']['navigation_x'] if H>W else dp(16)
+    y=d['safe_insets'][1] if H>W else dp(8)
+    side=max(44,dp(48));tap(x+side//2,y+side//2)
+    wait(lambda:state()['navigation_open'])
+def open_settings():
+    open_navigation();tap_bounds(state()['navigation_footer']['settings']['bounds'])
+    wait(lambda:state()['view']=='settings' and not state().get('surface_motion',False))
+def navigate_back_or_menu():
+    d=state()
+    if d['editor']['active']:
+        e=d['editor'];name='cancel' if 'cancel' in e['actions'] else 'done'
+        b=e['actions'][name];c=e['coordinate_space']
+        tap((b[0]+b[2])*W/(2*c['width']),(b[1]+b[3])*H/(2*c['height']));return
+    if d['navigation_open']:
+        tap(W-12,H//2);wait(lambda:not state()['navigation_open']);return
+    if d.get('navigation_button')=='close':
+        scale=d['ui_scale']['applied'];dp=lambda n:(n*scale+50)//100
+        x=d['screen_safety']['navigation_x'] if H>W else dp(16)
+        y=d['safe_insets'][1] if H>W else dp(8)
+        side=max(44,dp(48));tap(x+side//2,y+side//2)
+        wait(lambda:state()['navigation_button']!='close');return
+    if d['view']=='chat' and not d['modal'] and not d['attachments']:
+        open_navigation();return
+    heading=d.get('page',{}).get('heading')
+    if H>W and heading and heading[1]>=d['safe_insets'][1]:
+        scale=d['ui_scale']['applied'];dp=lambda n:(n*scale+50)//100
+        size=max(44,dp(44))
+        tap(d['screen_safety']['navigation_x']+size//2,heading[1]-dp(7)+dp(2)+size//2);return
+    side_back()
+def page_action_prefix(prefix,index=0):
+    for _ in range(40):
+        d=state();names=sorted(k for k in d['page']['actions'] if k.startswith(prefix))
+        assert len(names)>index,(prefix,list(d['page']['actions']))
+        b=d['page']['actions'][names[index]];v=d['page']['viewport']
+        top=max(v[1],d['safe_insets'][1] if H>W else v[1])
+        if b[1]>=top and b[3]<=v[3]:tap_bounds(b);return
+        settings_swipe(-100 if b[3]>v[3] else 100)
+    raise AssertionError('Page action is unreachable: '+prefix)
+def ensure_chat():
+    for _ in range(8):
+        s=state()
+        if s['view']=='chat':
+            if s['navigation_open']:tap(W-12,H//2);wait(lambda:not state()['navigation_open'])
+            return
+        navigate_back_or_menu()
+    raise AssertionError('Native Back did not return to chat')
+def context_choice(value):
+    d=state();assert value in d['context_menu']['choices'],(value,d['context_menu'])
+    tap_bounds(d['context_menu']['choices'][value]['bounds'])
+def modal_action(index,landscape_x):
+    d=state();assert d['modal']
+    scale=d['ui_scale']['applied'];dp=lambda n:(n*scale+50)//100
+    if H>W:
+        y=H-(d['safe_insets'][3]+dp(44) if d['screen_safety']['rounded'] else dp(66))-index*dp(52)+dp(22)
+        tap(W//2,y)
+    else:tap(landscape_x,H-dp(44))
+def official_editor():
+    editor=state()['editor']
+    if 'official' not in editor['actions']:
+        globe=next(k for k in editor['keys'] if k['key']=='language')
+        rx,ry=raw(globe['x'],globe['y'])
+        shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 600 2>/dev/null')
+        wait(lambda:state()['editor']['layout_menu'])
+    bounds=state()['editor']['actions']['official']
+    tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
+    wait(lambda:state()['keyboard'])
 def wake():
     if SERIAL!='MEA2300009007113':return
     for _ in range(2):
@@ -135,7 +306,7 @@ def start_app():
 if pid():
     s=state();assert not s['generating'] and not s.get('compressing') and not s['title_busy'] and not s['keyboard'] and not s['editor']['active'] and not s['draft_length'] and not s['storage']['unsaved'],'Pending work preserved; finish it before isolated acceptance'
     close()
-compiler='/home/ls-jl/dictpen/x7pro/android13_sdk/RK3562_Android13.0_SDK/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++'
+compiler=subprocess.check_output(['bash','-c','source scripts/native-target.sh '+TARGET+'; printf "%s" "$PENCHAT_BUILD_CXX"'],cwd=ROOT,text=True)
 helper=OUT/'tap'
 subprocess.run([compiler,'-std=c++11','-Os',str(ROOT/'tests/device/tap.cpp'),'-o',str(helper)],check=True)
 subprocess.run(['adb','-s',SERIAL,'push',str(helper),'/tmp/penchat-display-tap'],check=True,capture_output=True)
@@ -237,7 +408,7 @@ try:
         shell('mkdir -p '+DATA+'/assets')
         for source,target in [(sample/'penchat.db',DATA+'/penchat.db'),(sample/'assets/original.png',DATA+'/assets/original.png')]:
             subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
-    if args.back_navigation or args.history_time or args.photo_gestures or args.portrait:
+    if args.back_navigation or args.history_time or args.photo_gestures or args.portrait or args.camera_orientation:
         sys.path.insert(0,str(ROOT/'tests'))
         from test_image_viewer import fixture
         from test_history_time import seed_history
@@ -248,14 +419,28 @@ try:
         if args.history_time:seed_history(sample,1)
         else:fixture(sample)
         files=[(sample/'penchat.db',DATA+'/penchat.db')]
-        if args.back_navigation or args.photo_gestures or args.portrait:
+        if args.back_navigation or args.photo_gestures or args.portrait or args.camera_orientation:
             with sqlite3.connect(sample/'penchat.db') as db:
-                if args.photo_gestures or args.portrait:
+                if args.photo_gestures or args.portrait or args.camera_orientation:
                     for key,value in [('camera_auto_orientation','false'),('camera_orientation','0')]:db.execute('insert or replace into app_settings values(?,?,1)',(key,value))
                 db.execute('update message_assets set stored_path=?,original_path=?',(DATA+'/assets/original.png',)*2)
             shell('mkdir -p '+DATA+'/assets');files.append((sample/'assets/original.png',DATA+'/assets/original.png'))
         for source,target in files:
             subprocess.run(['adb','-s',SERIAL,'push',str(source),target],check=True,capture_output=True)
+    if not args.onboarding:
+        # Feature fixtures are already private and native is stopped. Keep
+        # animated first-run onboarding in its dedicated acceptance scope.
+        import sqlite3,tempfile
+        with tempfile.TemporaryDirectory(prefix='penchat-feature-onboarding-') as temp:
+            fixture=pathlib.Path(temp)/'penchat.db'
+            if shell('test -f '+DATA+'/penchat.db && echo yes || true')=='yes':
+                subprocess.run(['adb','-s',SERIAL,'pull',DATA+'/penchat.db',str(fixture)],check=True,capture_output=True)
+            with sqlite3.connect(fixture) as db:
+                if not db.execute("select count(*) from sqlite_master where name='app_settings'").fetchone()[0]:
+                    db.executescript((ROOT/'native/lvgl-app/src/schema.hpp').read_text().split('R"SQL(')[1].split(')SQL"')[0])
+                db.execute('insert or replace into app_settings values(?,?,1)',('onboarding',json.dumps({'version':1,'complete':True,'step':6})))
+            db.close()
+            subprocess.run(['adb','-s',SERIAL,'push',str(fixture),DATA+'/penchat.db'],check=True,capture_output=True)
     wake()
     start_app();time.sleep(2.2) # Let Falcon's app transition finish before corner mapping.
     if SERIAL=='MEA2300009007113' and int(shell('cat /sys/class/backlight/backlight/actual_brightness'))<=5:
@@ -271,15 +456,30 @@ try:
             wait(lambda:not (state().get('onboarding') or {}).get('busy',False))
         wait(lambda:state()['view']=='chat')
     s=state();assert (s['width'],s['height'],s['rotation'])==(W,H,screen.get('direction',0));capture('chat')
-    # Firmware may swallow the first touch while leaving its idle state. Use
-    # a blank-area wake tap, then require subsequent exact mapped events.
-    tap(W//2,2);time.sleep(.6)
-    for x,y in [(2,2),(W-3,2),(2,H-3),(W-3,H-3)]:
-        tap(x,y)
-        def mapped():
-            p=state()['touch']
-            return p if abs(p.get('x',-100)-x)<=1 and abs(p.get('y',-100)-y)<=1 else None
-        p=wait(mapped);result['corners'].append([p['x'],p['y']])
+    # Mapping is a dedicated fixture, not a prelude that may copy text or
+    # open images in an unrelated feature's prepared conversation.
+    if args.native_touch or not any(feature_flags):
+        # Edge contacts belong to native Back/system-panel arbitration, and the
+        # portrait corners may be physically masked. Verify the same affine touch
+        # mapping at four well-separated reader points; dedicated edge tests cover
+        # Back and system-panel ownership instead of opening them in every fixture.
+        reader=s['chat_header']['reader_bounds'];margin=44
+        left=max(reader[0]+8,margin);right=min(reader[2]-8,W-margin)
+        top=max(reader[1]+12,s['safe_insets'][1]+margin)
+        bottom=min(reader[3]-12,s['composer_bounds'][1]-12) if not s['composer_hidden'] else reader[3]-12
+        assert left<right and top<bottom,(reader,s['composer_bounds'])
+        tap((left+right)//2,(top+bottom)//2);time.sleep(.6)
+        result['mapping_scope']='Reader interior; native Back/system edges tested separately'
+        for x,y in [(left,top),(right,top),(left,bottom),(right,bottom)]:
+            tap(x,y)
+            def mapped():
+                p=state()['touch']
+                return p if abs(p.get('x',-100)-x)<=1 and abs(p.get('y',-100)-y)<=1 else None
+            p=wait(mapped);result['corners'].append([p['x'],p['y']])
+        # An image fixture can occupy the whole reader: the mapping probe may open
+        # its viewer. Close that known surface before exercising page navigation.
+        if state().get('image_viewer',{}).get('open'):
+            side_back();wait(lambda:not state()['image_viewer']['open'])
     if args.transfer_format:
         import transfer_format_flow
         transfer_format_flow.run(globals())
@@ -288,12 +488,16 @@ try:
     if args.official_keyboard:
         tap(W//2,H-34);wait(lambda:state()['editor']['active'])
         key('language');key('a');key('l')
-        b=state()['editor']['actions']['official'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
-        wait(lambda:state()['keyboard']);time.sleep(1)
+        official_editor();time.sleep(1)
         shell('miniapp_cli capture /tmp/penchat-official-ready.png')
         subprocess.run(['adb','-s',SERIAL,'pull','/tmp/penchat-official-ready.png',str(OUT/'official-ready.png')],check=True,capture_output=True)
         tap(35,35);time.sleep(1)
         result['official_keyboard']={'returned':not state()['keyboard'],'status':'passed' if not state()['keyboard'] else 'needs manual verification'}
+        raise FeatureComplete()
+    if args.camera_orientation:
+        import camera_orientation_flow
+        camera_orientation_flow.run(globals())
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
         raise FeatureComplete()
     if args.portrait:
         import portrait_flow
@@ -363,27 +567,27 @@ try:
         photo_gestures_flow.run(globals())
         assert shell('pidof miniapp')==host;result['host_unchanged']=True
         raise FeatureComplete()
-    # Near the former plus/editor boundary, real taps must open attachments.
-    for x,y in [(154,H-34),(158,H-34),(154,H-12),(108,H-56)]:
-        tap(x,y);s=state()
-        assert s['attachments'] and not s['editor']['active'],(x,y,s['view'])
-        if x==158:capture('attachment-expanded-target')
-        tap(W-30,80);assert not state()['attachments']
-    result['attachment_expanded_hit_target']=True
     if args.composer_touch:
+        b=state()['attachment_button'];y=(b[1]+b[3])//2
+        for x in ((b[0]+b[2])//2,b[0]+2,b[2]-2):
+            tap(x,y);wait(lambda:state()['attachments'])
+            assert not state()['editor']['active']
+            capture('attachment-target-'+str(x))
+            tap(W-12,H//2);wait(lambda:not state()['attachments'])
+        result['attachment_expanded_hit_target']=True
         capture('composer-hit-layout')
-        tap(180,H-34);wait(lambda:state()['editor']['active'])
-        b=state()['editor']['actions']['cancel'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+        open_chat_editor();navigate_back_or_menu()
         wait(lambda:not state()['editor']['active'])
         assert not state()['draft_length'] and shell('pidof miniapp')==host
         result['adjacent_composer_entry']=True;result['host_unchanged']=True
         raise FeatureComplete()
-    tap(40,32);assert state()['navigation_open'];capture('drawer')
+    open_navigation();capture('drawer')
     # Check the pixels captured from the real LVGL page, not just constants.
     pixel_probe=ROOT/'build/host/penchat-icon-pixel-tests'
-    subprocess.run([str(pixel_probe),str(OUT/'drawer.png'),str(W*2//3-145),str(H-43),'26','0'],check=True)
+    glyph=state()['navigation_footer']['settings']['glyph'];size=26
+    subprocess.run([str(pixel_probe),str(OUT/'drawer.png'),str((glyph[0]+glyph[2]+1-size)//2),str((glyph[1]+glyph[3]+1-size)//2),str(size),'0'],check=True)
     result['gear_pixel_symmetry']=True
-    tap(W*2//3-70,H-30);assert state()['view']=='settings';capture('settings')
+    tap_bounds(state()['navigation_footer']['settings']['bounds']);wait(lambda:state()['view']=='settings' and not state().get('surface_motion',False));capture('settings')
     assert state()['settings']['viewport'][1:4:2]==[0,H-1]
     # A settled drag reveals Settings controls in the former title-bar area.
     sx,sy=raw(W//2,H-50);ex,ey=raw(W//2,H-170)
@@ -400,36 +604,48 @@ try:
         assert shell('pidof miniapp')==host;result['host_unchanged']=True
         raise FeatureComplete()
     if args.reply_actions:
-        tap(40,32)
-        if state()['navigation_open']:tap(W-30,100)
+        ensure_chat()
         reply_actions_flow.run(globals(),messageHandler)
-        tap(40,32);tap(W*2//3-70,H-30)
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
     if args.message_edit:
-        tap(40,32)
-        if state()["navigation_open"]:tap(W-30,100)
+        ensure_chat()
         message_edit_flow.run(globals(),messageHandler)
-        tap(40,32);tap(W*2//3-70,H-30)
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
     if args.history_time:
         from settings_ui import activate
         for index,mode in enumerate(('time','title','off')):
             activate(state,tap,settings_swipe,'history_time');wait(lambda:state()['modal']);capture('history-time-picker')
-            width=(W-162)//3;tap(100+index*(width+12)+width//2,90);wait(lambda:not state()['modal'])
-            tap(40,32);wait(lambda:state()['navigation_open']);s=state()
+            context_choice(mode);wait(lambda:not state()['modal'])
+            navigate_back_or_menu();wait(lambda:state()['navigation_open']);s=state()
             assert s['history_captions']['missing']['time']==''
             assert bool(s['history_captions']['today']['time'])==(mode=='time')
             capture('history-'+mode)
             if mode=='time':
                 row=next(r for r in s['history_rows'] if r['id']=='today');rx,ry=raw(row['x'],row['y'])
                 shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 650 2>/dev/null')
-                wait(lambda:state()['history_context']=='today');assert state()['history_details']['title_length']>100
+                wait(lambda:state()['history_context']=='today')
+                menu=state();assert next(r for r in menu['history_rows'] if r['id']=='today')['highlighted']
+                assert set(menu['history_actions'])=={'rename','pin','archive','delete','export'}
+                for bounds in menu['history_actions'].values():
+                    assert bounds[3]-bounds[1]+1>=44
+                visible=menu['context_menu']['list'];last=menu['history_actions']['export']
+                if last[3]>visible[3]:
+                    x=(visible[0]+visible[2])//2
+                    drag(x,visible[3]-12,x,visible[1]+12)
+                    wait(lambda:state()['history_actions']['export'][3]<=state()['context_menu']['list'][3])
+                    result['history_popup_local_overflow_scrolled']=True
                 capture('history-full-title');tap(W-10,H-10)
-            tap(W*2//3-70,H-30);wait(lambda:state()['view']=='settings')
+            tap_bounds(state()['navigation_footer']['settings']['bounds']);wait(lambda:state()['view']=='settings' and not state().get('surface_motion',False))
         result['history_time_modes']=3;result['history_static_title']=True;result['missing_history_time_hidden']=True
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
     if args.back_navigation:
         native=pid();blocked(True)
         from settings_ui import activate
         activate(state,tap,settings_swipe,'models');wait(lambda:state()['view']=='provider');blocked(True);capture('back-provider')
-        side_back();wait(lambda:state()['view']=='settings');assert pid()==native
+        side_back();wait(lambda:state()['view']=='settings' and not state().get('surface_motion',False));assert pid()==native
         side_back();wait(lambda:state()['navigation_open']);blocked(True)
         drag(W*5//6,H//2,W-10,H//2);assert state()['navigation_open']
         result['child_back_and_drawer_tap_only']=True
@@ -448,27 +664,35 @@ try:
         sx,sy=raw(W//2,H//2)
         shell('for i in 1 2; do PENCHAT_TOUCH_DEVICE=/dev/input/'+event+' /tmp/penchat-display-tap '+str(sx)+' '+str(sy)+' 2>/dev/null; done')
         pan=state()['image_viewer']['pan']
-        # At 2x a 4:3 image still fits horizontally on these wide displays;
-        # test pan on its overflowing vertical axis, not the centered axis.
-        assert state()['image_viewer']['zoom']==2
-        drag(W//3,H//2,W//3,H//2+H//5)
+        # Pan an axis which actually overflows after fitting and zooming; a
+        # portrait viewport centers this fixture vertically even at 2x.
+        viewer=state()['image_viewer'];assert viewer['zoom']==2
+        fw,fh=viewer['frame'];vw,vh=viewer['viewport'][2:]
+        fit=min(vw/fw,vh/fh)
+        if fw*fit*viewer['zoom']>vw+1:drag(W//3,H//2,W//3+W//5,H//2)
+        else:drag(W//3,H//2,W//3,H//2+H//5)
         assert state()['image_viewer']['open'] and state()['image_viewer']['pan']!=pan
         capture('back-image-pan');side_back();wait(lambda:not state()['image_viewer']['open'])
         assert state()['session']==before['session'] and state()['scroll_y']==before['scroll_y'] and pid()==native
         s=state()
         if s['to_bottom_visible']:tap(s['to_bottom_x']+22,s['to_bottom_y']+22)
-        wait(lambda:state()['toolbar_y']==H-58)
-        tap(W//2,H-34);wait(lambda:state()['editor']['active']);blocked(True)
+        wait(lambda:not state()['composer_hidden'] and not state().get('surface_motion',False))
+        open_chat_editor();blocked(True)
         key('language');key('q');assert state()['editor']['length']==1
         side_back();wait(lambda:not state()['editor']['active']);blocked(True)
         assert state()['draft_length']==0 and pid()==native
         result['image_pan_and_edge_back']=result['editor_back_cancels_input']=True
+        blocked(True);side_back();wait(lambda:not pid())
+        result['root_system_exit']=True
+        assert shell('pidof miniapp')==host;result['host_unchanged']=True
+        raise FeatureComplete()
     wait(lambda:state()['toolbar_y']==H-58);time.sleep(.4)
     tap(W//2,H-34);wait(lambda:state()['editor']['active']);capture('keyboard')
     assert state()['editor']['top_panel_blocked']
     actions=state()['editor']['actions']
-    assert list(sorted(actions,key=lambda k:actions[k][0]))==['cancel','official','ocr-mode','done','clipboard']
-    for name,width in [('official',64),('ocr-mode',48),('done',104),('clipboard',44)]:
+    quick=state()['editor']['official_shortcut']['saved']
+    assert list(sorted(actions,key=lambda k:actions[k][0]))==(['cancel','official','ocr-mode','done','clipboard'] if quick else ['cancel','ocr-mode','done','clipboard'])
+    for name,width in ([('official',64)] if quick else [])+[('ocr-mode',48),('done',104),('clipboard',44)]:
         x1,y1,x2,y2=actions[name];assert x2-x1+1==width and y2-y1+1==44
     x1,y1,x2,y2=actions['ocr-mode'];tap((x1+x2)//2,(y1+y2)//2)
     wait(lambda:state()['editor']['ocr_multi']);capture('keyboard-multi')
@@ -547,14 +771,14 @@ try:
         wait(lambda:state()['editor']['candidate_count']>0);key('space')
     result['independent_pinyin_candidates']=True
     tap(W-30,H-30);assert state()['editor']['clipboard_open'];capture('clipboard');tap(W-45,25)
-    before=state()['editor'];x1,y1,x2,y2=before['actions']['official'];tap((x1+x2)//2,(y1+y2)//2);wait(lambda:state()['keyboard']);time.sleep(1)
+    before=state()['editor'];official_editor();time.sleep(1)
     shell('miniapp_cli capture /tmp/penchat-display-official.png')
     subprocess.run(['adb','-s',SERIAL,'pull','/tmp/penchat-display-official.png',str(OUT/'official.png')],check=True,capture_output=True)
     tap(35,35);wait(lambda:not state()['keyboard']);assert state()['editor']['length']==before['length']
     wait(lambda:state()['editor']['top_panel_blocked']);tap(W-80,H-30);wait(lambda:not state()['editor']['active'])
     assert state()['draft_length']>0
     result['official_cancel_preserves_input']=True
-    p=pid();shell('miniapp_cli start 8080222437664451');wait(lambda:not state()['visible'])
+    p=pid();__import__('release_lifecycle').background_env(globals());wait(lambda:not state()['visible'])
     assert 'allocated by = penchat-lvgl' not in shell('cat /sys/kernel/debug/dri/0/state')
     shell('miniapp_cli start '+APP['appid']);wait(lambda:state()['visible']);assert pid()==p
     assert state()['draft_length']>0;result['background_resume']=True
@@ -575,22 +799,23 @@ except BaseException:
         subprocess.run(['adb','-s',SERIAL,'pull','/tmp/penchat-display-system-failure.png',str(OUT/'system-failure.png')],check=True,capture_output=True)
     raise
 finally:
-    try:
-        if messageServer:
-            messageServer.shutdown();messageServer.server_close()
-    finally:
-        # A fixture teardown failure must never skip restoration of user files.
-        if pid():close()
-        if privateIsolated:
-            shell('rm -rf '+DATA)
-            if hasData:shell('mv '+saved+' '+DATA)
-        if publicIsolated:
-            shell('rm -rf '+public)
-            if hasPublic:shell('mv '+publicSaved+' '+public)
-        if hasData:assert hashes(DATA)==original
-        if hasPublic:assert hashes(public)==originalPublic
-        assert shell('pidof miniapp')==host
-        shell('rm -f /tmp/penchat-display-tap /tmp/penchat-display-key /tmp/penchat-display-official.png /tmp/penchat-display-system-failure.png')
+    with defer_cleanup_signals():
+        try:
+            if messageServer:
+                messageServer.shutdown();messageServer.server_close()
+        finally:
+            # A fixture teardown failure must never skip restoration of user files.
+            if pid():close()
+            if privateIsolated:
+                shell('rm -rf '+DATA)
+                if hasData:shell('mv '+saved+' '+DATA)
+            if publicIsolated:
+                shell('rm -rf '+public)
+                if hasPublic:shell('mv '+publicSaved+' '+public)
+            if hasData:assert hashes(DATA)==original
+            if hasPublic:assert hashes(public)==originalPublic
+            assert shell('pidof miniapp')==host
+            shell('rm -f /tmp/penchat-display-tap /tmp/penchat-display-key /tmp/penchat-display-official.png /tmp/penchat-display-system-failure.png')
 result['user_data_restored']=True
 (OUT/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
 start_app();capture('final')

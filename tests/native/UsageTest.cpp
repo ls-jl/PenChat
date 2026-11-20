@@ -60,6 +60,10 @@ int main() {
   assert(compressed["compressed"] == true && compressed["estimated_tokens"] < plain["estimated_tokens"]);
   snapshot["checkpoint"]["checksum"] = "stale";
   assert(sessionMetrics(snapshot, model, pending)["compression_invalid"] == true);
+  assert(sessionMetrics(snapshot, model, pending)["estimated_tokens"] == plain["estimated_tokens"]);
+  snapshot["checkpoint"] = Json::array({"invalid checkpoint"});
+  assert(sessionMetrics(snapshot, model, pending)["compression_invalid"] == true);
+  assert(sessionMetrics(snapshot, model, pending)["estimated_tokens"] == plain["estimated_tokens"]);
   snapshot["checkpoint"] = Json::object();
   auto picture = rows;picture[0]["parts"] = Json::array({{{"type", "image"}, {"path", "/fake.png"}}});
   snapshot["rows"] = picture;

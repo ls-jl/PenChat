@@ -5,6 +5,18 @@ CREATE TABLE IF NOT EXISTS schema_meta (
     key TEXT PRIMARY KEY NOT NULL,
     value TEXT NOT NULL
   );
+CREATE TABLE IF NOT EXISTS chat_drafts (
+    draft_key TEXT PRIMARY KEY NOT NULL,
+    epoch INTEGER NOT NULL DEFAULT 0,
+    revision INTEGER NOT NULL DEFAULT 0,
+    text TEXT NOT NULL DEFAULT ''
+  );
+CREATE TABLE IF NOT EXISTS draft_attachments (
+    id TEXT PRIMARY KEY NOT NULL,
+    draft_key TEXT NOT NULL REFERENCES chat_drafts(draft_key),
+    position INTEGER NOT NULL,
+    image_json TEXT NOT NULL
+  );
 CREATE TABLE IF NOT EXISTS chat_sessions (
     id TEXT PRIMARY KEY NOT NULL,
     title TEXT NOT NULL,

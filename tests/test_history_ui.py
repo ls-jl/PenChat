@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""History actions, independent one-shot naming and explicit API-default effort."""
+"""History actions, independent naming and legacy API-default preferences."""
 import http.server, json, os, pathlib, sqlite3, tempfile, threading, time
 from test_lvgl_app import Native, ROOT, wait_for
-from test_reasoning_ui import seed, screenshot, gauge
+from test_reasoning_ui import seed, screenshot, gauge, select_effort
 import test_lvgl_app as transport
 
 class Server(http.server.BaseHTTPRequestHandler):
@@ -38,11 +38,17 @@ def info(directory,id):
     return (rows[0][0],rows[0][1],json.loads(rows[0][2])) if rows else None
 def context(app,id):
     if not app.diag()['navigation_open']:app.open_navigation()
+    wait_for(lambda:not app.diag().get('surface_motion',False))
     row=next(r for r in app.diag()['history_rows'] if r['id']==id)
     app.long_press(row['x'],row['y']);assert app.diag()['history_context']==id
 
+def footer(app,key):
+    wait_for(lambda:not app.diag().get('surface_motion',False))
+    b=app.diag()['navigation_footer'][key]['bounds']
+    app.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+
 def new(app):
-    app.open_navigation();app.tap(180,236);return app.diag()['session']
+    app.open_navigation();footer(app,'newchat');return app.diag()['session']
 def send(app,text):
     app.edit(text);app.tap(908,232);wait_for(lambda:not app.diag()['generating'])
 def named(app,directory,id):
@@ -82,10 +88,10 @@ def run():
             assert info(directory,'old0')[0]=='手动置顶标题'
             context(app,'old0');app.history_action("archive")
             assert info(directory,'old0')[1]=='archived' and not any(r['id']=='old0' for r in app.diag()['history_rows'])
-            app.tap(500,236);app.setting("archives");assert app.diag()['view']=='archives';screenshot(app,'archives')
+            footer(app,'settings');app.setting("archives");assert app.diag()['view']=='archives';screenshot(app,'archives')
             app.tap(726,76);assert info(directory,'old0')[1]=='active'
             app.to_chat();app.open_navigation();assert app.diag()['history_rows'][0]['id']=='old0'
-            context(app,'old0');app.history_action("archive");app.tap(500,236);app.setting("archives");app.tap(846,76)
+            context(app,'old0');app.history_action("archive");footer(app,'settings');app.setting("archives");app.tap(846,76)
             assert info(directory,'old0') is None
             app.tap(40,32);app.setting("title_model");assert app.diag()['popup']=='title_models'
             app.tap(300,162);assert app.diag()['active_model']=='a'
@@ -94,11 +100,19 @@ def run():
             assert Server.titles[-1]['model']=='b' and Server.requests[-1]['model']=='a'
             count=len(Server.titles);old_title=info(directory,second)[0]
             send(app,'追问不再次命名');time.sleep(.15);assert len(Server.titles)==count and info(directory,second)[0]==old_title
-            gauge(app);assert app.diag()['effort_choices']==['none','api_default','medium','high','xhigh']
-            screenshot(app,'default-effort-slot');app.tap(334,110);app.tap(800,230)
+            gauge(app);assert app.diag()['effort_choices']==['none','medium','high','xhigh']
+            screenshot(app,'explicit-effort-stops')
+            # api_default remains a legacy persisted request override, never a
+            # selectable slider stop. Reload a saved legacy preference to test it.
+            app.close()
+            with sqlite3.connect(pathlib.Path(directory)/'penchat.db') as db:
+                metadata=json.loads(db.execute('select metadata_json from chat_sessions where id=?',(second,)).fetchone()[0])
+                metadata.setdefault('chat_preferences',{})['effort']='api_default'
+                db.execute('update chat_sessions set metadata_json=? where id=?',(json.dumps(metadata),second))
+            app=Native(ROOT/'build/host/penchat-lvgl',directory)
             assert app.diag()['effective_effort']=='api_default';send(app,'使用API默认')
             assert 'effort' not in Server.requests[-1].get('reasoning',{})
-            gauge(app);app.tap(146,110);app.tap(800,230);send(app,'使用即时')
+            gauge(app);select_effort(app,'none');send(app,'使用即时')
             assert Server.requests[-1]['reasoning']['effort']=='none'
             Server.title_delay=2
             pending=new(app);send(app,'命名过程中手动改名')
@@ -121,5 +135,5 @@ def run():
             assert not info(directory,incomplete)[2].get('title_state') and len(Server.titles)==before
         finally:app.close()
         server.shutdown()
-    print('History UI: header-free rows, long press, pin/rename/archive/restore/delete, first-answer naming, model override, title limits, late-result guards and API-default slot passed.')
+    print('History UI: header-free rows, long press, pin/rename/archive/restore/delete, first-answer naming, model override, title limits, late-result guards, explicit-only slider and legacy API-default replay passed.')
 if __name__=='__main__':run()

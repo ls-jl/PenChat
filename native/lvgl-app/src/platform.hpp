@@ -1,20 +1,45 @@
 #pragma once
 #include "common.hpp"
-#include "overlay.h"
+#include "display_surface.h"
 #include <lvgl/lvgl.h>
 namespace penchat {
+Json displayInformationJson(const camera::DisplayInfo &info);
 class Display {
-  camera::Overlay overlay_;
+  std::unique_ptr<camera::DisplaySurface> surface_;
   lv_display_t *display_ = nullptr;
   std::vector<uint8_t> buffer_;
   Screen screen_;
-  bool shown_ = true, headless_ = false;
+  int refreshRate_ = 30;
+  int topHeight_ = 0;
+  std::string error_;
+  uint64_t retryPresentAt_ = 0;
+  bool available_ = true;
+  void retryPresent();
+  bool shown_ = true, headless_ = false, mediaPaused_ = false, pending_ = false, presented_ = false;
 
 public:
   Display(const Screen &s, bool headless);
   ~Display();
   void visible(bool value);
+  void topHeight(int height);
+  int topHeight() const { return topHeight_; }
+  bool supportsTopRegion() const { return headless_ || (surface_ && surface_->supportsTopRegion()); }
+  void mediaHandoff(bool release);
+  void check();
+  // Call on the LVGL UI thread. Unsupported values restore the geometry default.
+  void setRefreshRate(int hz);
+  int refreshRate() const { return refreshRate_; }
+  // Diagnostic reads of the actual LVGL timers; zero means no timer exists.
+  uint32_t refreshPeriod() const;
+  uint32_t animationPeriod() const;
+  uint32_t inputPeriod() const;
+  Json information() const { return headless_?Json{{"mode","headless"}}:surface_?displayInformationJson(surface_->information()):Json::object(); }
+  bool presented() const {return presented_;}
+  bool pending() const {return pending_;}
   bool visible() const { return shown_; }
+  bool available() const { return available_; }
+  std::array<uint64_t,4> stacking() {return surface_?surface_->stacking():std::array<uint64_t,4>{{0,0,0,0}};}
+  bool systemOverlaySafe() const { return headless_ || (surface_ && surface_->systemOverlaySafe()); }
   void screenshot(const std::string &path);
   void flush(lv_display_t *, const lv_area_t *, uint8_t *);
   lv_display_t *handle() { return display_; }
@@ -30,6 +55,8 @@ public:
   void touch(int x, int y, bool down);
   void release();
   void cancel();
+  // Outside LVGL callbacks: revoke a gesture and settle only elastic overflow.
+  void interrupt();
 };
 class Bridge {
   int fd_ = -1;
@@ -53,4 +80,6 @@ void shutdownFonts();
 // Call only after the display has finished drawing a frame, never from a glyph callback.
 void trimFontCache();
 Json fontCacheInfo();
+// UI-thread counters; no framebuffer capture or database work.
+Json displayTimingInfo();
 } // namespace penchat

@@ -95,6 +95,15 @@ struct EditorState {
   bool selected() const { auto r=range();return r.first!=r.second; }
   void position(size_t index) { cursor=editBoundary(text,index);anchor=cursor;all=false; }
   void select(size_t start,size_t end) { all=false;anchor=editBoundary(text,start);cursor=editBoundary(text,end,true); }
+  void extendSelection(size_t fixed, size_t moving) {
+    const size_t length=editLength(text);
+    fixed=std::min(fixed,length);moving=std::min(moving,length);
+    if(fixed==moving&&length) {
+      if(range().first<fixed||fixed==length)moving=editBoundary(text,fixed-1);
+      else moving=editBoundary(text,fixed+1,true);
+    }
+    select(fixed,moving);
+  }
   std::string selection() const { auto r=range();auto a=editByte(text,r.first);return text.substr(a,editByte(text,r.second)-a); }
   size_t retained() const { auto r=range();return editLength(text)-(r.second-r.first); }
   void remember() { if(undo.size()==20) undo.erase(undo.begin());undo.push_back({text,preedit,fixed,chainWord,chainPinyin,parked,cursor,anchor,all,layout,chainPieces}); }
@@ -117,7 +126,8 @@ struct EditorState {
     auto chars=editScalars(text);if(chars.empty())return;
     at=std::min(at,chars.size()-1);size_t begin=editBoundary(text,at),end=editBoundary(text,at+1,true);
     auto asciiWord=[](uint32_t c){return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_';};
-    if(asciiWord(chars[at])) { while(begin && asciiWord(chars[begin-1]))--begin;while(end<chars.size()&&asciiWord(chars[end]))++end; }
+    auto wordPart=[&](size_t i){return asciiWord(chars[i])||((chars[i]=='\''||chars[i]==0x2019)&&i>0&&i+1<chars.size()&&asciiWord(chars[i-1])&&asciiWord(chars[i+1]));};
+    if(wordPart(at)) { while(begin && wordPart(begin-1))--begin;while(end<chars.size()&&wordPart(end))++end; }
     select(begin,end);
   }
   void revert() { if(undo.empty())return;auto s=undo.back();undo.pop_back();text=s.text;preedit=s.preedit;fixed=s.fixed;chainWord=s.word;chainPinyin=s.pinyin;parked=s.parked;layout=s.layout;chinese=layout!=1;chainPieces=s.pieces;cursor=s.cursor;anchor=s.anchor;all=s.all;contentChanged(); }

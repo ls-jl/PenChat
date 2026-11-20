@@ -2,6 +2,7 @@
 """Actual LVGL + scanner child; no live sensor or real API credentials."""
 import http.server, json, os, pathlib, signal, sqlite3, tempfile, threading, time
 from test_lvgl_app import Native, ROOT, wait_for
+from draft_assets import pending_images
 import test_lvgl_app as transport
 BUNDLE=pathlib.Path(os.environ.get('PENCHAT_SCAN_BUNDLE','/home/ls-jl/Documents/ChatGPT/词典笔扫描拼接/deliverables/stream32_complete_20261018'))
 def snapshot(app,name):
@@ -42,28 +43,33 @@ def run():
                 wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
                 assert app.diag()['scanner']['generation']==finished['scan_result']['generation']
                 assert app.diag()['session']==original and app.diag()['summary']['sessions']==0
-                scan(app)
+                saved=scan(app);saved_generation=saved['scan_result']['generation']
                 app.tap(840,54);app.tap(840,54)
                 wait_for(lambda:app.diag()['view']=='chat')
-                rows=app.read_messages();assert len(rows)==1 and rows[0][0]=='user',rows
-                with sqlite3.connect(pathlib.Path(directory)/'penchat.db') as db:
-                    asset=db.execute('select stored_path,display_src,source_type,metadata_json from message_assets').fetchone()
+                assert app.diag()['scanner']['generation']==saved_generation
+                rows=app.read_messages();assert not rows and app.diag()['summary']['sessions']==0,rows
+                images=pending_images(directory);assert len(images)==1
+                image=images[0];asset=(image['path'],image['previewPath'],image['source'],json.dumps(image['metadata']))
                 assert pathlib.Path(asset[0]).exists() and pathlib.Path(asset[1]).exists()
                 assert asset[2]=='scan' and json.loads(asset[3])['counts']['committed']==33
                 assert pathlib.Path(asset[1]).stat().st_size<1024*1024
                 # A second confirm tap can land on the newly attached photo.
-                # Viewing it must release capture, and closing must rearm it;
-                # neither tap may append the scan twice.
+                # Viewing retains the healthy capture lease but gates pen
+                # presses; neither tap may append the scan twice.
                 if not app.diag()['image_viewer']['open']:
                     state=app.diag()
                     photo=next(i for i in state['chat_images'] if 0<=i['y'] and i['y']+i['height']<=state['height'])
                     app.tap(photo['x']+photo['width']//2,photo['y']+photo['height']//2)
                 wait_for(lambda:app.diag()['image_viewer']['open'])
-                wait_for(lambda:app.diag()['scan_released'])
+                assert not app.diag()['scan_released']
                 assert app.diag()['scanner']['worker_pid']==worker and pathlib.Path(f'/proc/{worker}').exists()
+                app.send('scanner.test',command='test.press',pressed=True);time.sleep(.15)
+                app.send('scanner.test',command='test.press',pressed=False);time.sleep(.15)
+                assert app.diag()['view']=='chat' and app.diag()['image_viewer']['open']
+                assert not app.read_messages() and len(pending_images(directory))==1
                 app.tap(922,30)
                 wait_for(lambda:not app.diag()['image_viewer']['open'])
-                assert len(app.read_messages())==1
+                assert not app.read_messages() and len(pending_images(directory))==1
                 # History can render the thumbnail after the pending original is deleted.
                 wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
                 assert app.diag()['scanner']['worker_pid']==worker
@@ -123,7 +129,7 @@ def run():
                 app.send('visibility',visible=True)
                 wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
                 assert app.diag()['scanner']['worker_pid']==worker
-                assert len(app.read_messages())==1 and app.diag()['view']=='chat'
+                assert not app.read_messages() and len(pending_images(directory))==1 and app.diag()['view']=='chat'
                 app.edit('扫描后仍可输入')
                 assert app.diag()['view']=='chat'
             finally:app.close()

@@ -1,0 +1,15 @@
+{
+  "source": "Mozilla CA certificate store, PEM conversion by curl",
+  "url": "https://curl.se/ca/cacert-2026-11-05.pem",
+  "checksum_url": "https://curl.se/ca/cacert-2026-11-05.pem.sha256",
+  "documentation": "https://curl.se/docs/caextract.html",
+  "revision_date": "2026-11-05",
+  "verified_on": "2026-11-10",
+  "sha256": "427c064216761a1e72a8b30f0d954d08cb6e4435a82091fb865afd20c8497285",
+  "bytes": 200116,
+  "certificates": 118,
+  "license": "MPL-2.0",
+  "license_url": "https://www.mozilla.org/media/MPL/2.0/index.815ca599c9df.txt",
+  "license_sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+  "modifications": "None. No private or build-host roots are added."
+}

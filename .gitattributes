@@ -6,3 +6,5 @@ licenses/* -text -whitespace
 
 # Serialized upstream diff context must retain its exact whitespace.
 native/pinyin/penchat.patch -whitespace
+# Unified-diff context lines intentionally contain one space on empty lines.
+native/web-search/patches/*.patch whitespace=-blank-at-eol

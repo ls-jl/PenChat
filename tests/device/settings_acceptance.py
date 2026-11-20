@@ -24,10 +24,10 @@ def fixture():
 
 def exercise():
     d.open_settings();assert d.state()['scroll_y']==0
-    rows=d.state()['settings']['rows'];assert len(rows)==16
+    rows=d.state()['settings']['rows'];assert len(rows)==24
     for name in ('models','presets','reasoning','image_auto_send','auto_title','title_model'):
-        a=rows[name]['bounds'];assert 48<=a[1] and a[3]<266
-    capture('first-screen')
+        a=locate(d.state,d.settings_swipe,name)['bounds'];assert 0<=a[1] and a[3]<d.state()['height']
+    d.to_chat();d.open_settings();capture('first-screen')
     assert d.state()['settings']['viewport'][1:4:2]==[0,d.state()['height']-1]
     d.settings_swipe(-120);d.wait(lambda:not d.state()['settings']['scrolling'])
     assert d.state()['settings']['heading'][3]<0

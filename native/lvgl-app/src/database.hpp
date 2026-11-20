@@ -19,6 +19,13 @@ class Database {
   void deleteConversationRows(const std::string &session, const Json &rows);
   void refreshConversationCount(const std::string &session);
   void migrate(const std::string &path);
+  void migrateReplyChoices(const std::string &path);
+  Json replyMessageSnapshot(const std::string &message);
+  void saveReplyResult(const std::string &message);
+  void restoreReplyResult(const Json &payload);
+  void pinReplyAssets(const std::string &group,const std::string &owner,const Json &rows);
+  void clearReplyChoices(const std::string &session,int64_t removedAfter=INT64_MAX);
+  Json replyUsageExtras(const std::string &session,const Json &visible);
   void cleanup() noexcept;
   void collectAssets(bool discover = false);
   void deferAssetCollection();
@@ -30,6 +37,8 @@ class Database {
   void savePending(const std::string &id);
   std::map<std::string, Json> pendingSaves_, failedSaves_, saveVersions_;
   std::set<std::string> scheduledSaves_;
+  std::map<std::string, Json> pendingDrafts_;
+  std::set<std::string> scheduledDrafts_;
   int latestSaveGeneration_ = -1;
   Events saveEvents_;
   std::map<std::string, std::map<int, Json>> sessionCursors_;
@@ -42,12 +51,24 @@ class Database {
   std::thread worker_;
   Json perform(std::function<Json()> task);
   Json queryOnWorker(const std::string &sql, const Json &args);
+  const Json &modelCatalogOnWorker();
 
 public:
   explicit Database(const std::string &path);
   ~Database();
   Json query(const std::string &sql, const Json &args = Json::array());
   void execute(const std::string &sql, const Json &args = Json::array());
+  Json draft(const std::string &key);
+  void queueDraft(const Json &snapshot, const std::string &text);
+  Json addDraftImage(const Json &snapshot, const Json &image);
+  bool removeDraftImage(const Json &snapshot, const std::string &id);
+  void clearDraft(const std::string &key);
+  void collectDraftFiles();
+  void moveDraft(const std::string &from, const std::string &to);
+  Json commitDraftSend(const Json &draft, const std::string &session,
+                       const std::string &text, const Json &preferences,
+                       const Json &model, int64_t sentAt,
+                       const Json &prepared, const Json &checkpoint);
   Json settings();
   void setting(const std::string &key, const Json &value);
   void queueSetting(const std::string &key, const Json &value, const std::string &request = "");
@@ -87,33 +108,50 @@ public:
   Json providers();
   Json providerForm(const std::string &id);
   Json models();
+  // An empty ID selects the current default; only one model crosses the worker boundary.
+  Json model(const std::string &id);
   Json activeModel();
   Json sessionPreferences(const std::string &session);
   void saveSessionPreferences(const std::string &session, const Json &preferences);
-  void saveModelSettings(const std::string &id, Json capabilities);
+  void saveModelSettings(const std::string &id, Json capabilities,
+                         const std::string &name = "", const std::string &display = "");
+  void removeModel(const std::string &id);
   void saveModelCapabilities(const std::string &id, const Json &reasoning,
                              int budget = 0, int maxOutput = 0);
   void recordRequest(const std::string &message, const Json &model,
                      int64_t sentAt=0,int64_t startedAt=0);
   void recordActivity(const std::string &session,int64_t stamp);
-  void saveProvider(const Json &form, const std::vector<std::string> &names);
+  std::string saveProvider(const Json &form, const std::vector<std::string> &names,
+                           bool replaceModels = true);
+  void addProviderModels(const std::string &id, const std::vector<std::string> &names);
+  Json saveProviderWorkspace(const Json &form, const Json &models);
   void selectModel(const std::string &id);
   Json responseInput(const std::string &session, const std::string &beforeMessage,
                      const Json &model = Json::object());
   void transferSnapshot(const std::string &path);
   void releaseTransferSnapshot();
   Json importTransfer(const Json &bundle);
-  Json contextSnapshot(const std::string &session, bool lease = false);
+  Json contextSnapshot(const std::string &session, bool lease = false, bool allowPending = false);
+  Json commitToolCompression(const std::string &session, const std::string &message,
+                             Json checkpoint, const Json &state, std::atomic<bool> &cancel);
   Json commitCompression(const Json &snapshot, Json checkpoint,
                          std::atomic<bool> &cancel);
   Json messageEditSnapshot(const std::string &session, const std::string &message);
   Json commitMessageEdit(const Json &snapshot, const Json &images,
                          const std::string &text, const Json &preferences,
                          bool archive, int64_t sentAt);
-  Json commitRegeneration(const Json &snapshot, const std::string &message,
-                          bool archive, Json checkpoint, std::atomic<bool> &cancel);
   Json createBranch(const Json &snapshot, const std::string &message,
                     const Json &preferences, std::atomic<bool> &cancel);
+  Json replyChoices(const std::string &session);
+  int64_t replyCut(const std::string &session);
+  bool replyHasLater(const std::string &session,const std::string &message);
+  Json beginReplyResult(const Json &snapshot,const std::string &message,const Json &archive,
+                        const Json &checkpoint,std::atomic<bool> &cancel);
+  void selectReplyResult(const std::string &session,const std::string &message,int ordinal);
+  void discardPreparedReply(const std::string &message,const std::string &result);
+  Json commitReplyContinuation(const Json &snapshot,const std::string &text,
+                               const Json &preferences,const Json &checkpoint,
+                               const Json &images = Json::array(), bool ownTransaction = true);
   Json summary();
 };
 } // namespace penchat

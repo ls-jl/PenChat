@@ -1,6 +1,7 @@
-#include "network.hpp"
 #include "anthropic_stream.hpp"
 #include "image_data.h"
+#include "network.hpp"
+#include "tools.hpp"
 #include <cctype>
 namespace penchat {
 namespace {
@@ -60,6 +61,15 @@ Json anthropicRequestBody(const Json &model, const Json &input, bool streaming) 
           if (!value.empty()) content.push_back({{"type", "text"}, {"text", value}});
         } else if (kind == "input_image" && role == "user") {
           content.push_back({{"type", "image"}, {"source", imageSource(p.at("image_url").get<std::string>())}});
+        } else if ((kind == "tool_use" && role == "assistant") ||
+                   (kind == "tool_result" && role == "user")) {
+          auto tool = p;
+          if (kind == "tool_result" && tool.contains("content") && tool["content"].is_array())
+            for (auto &part : tool["content"])
+              if (part.value("type", std::string()) == "input_image")
+                part = {{"type", "image"},
+                        {"source", imageSource(part.at("image_url").get<std::string>())}};
+          content.push_back(tool);
         } else if ((kind == "thinking" || kind == "redacted_thinking") && role == "assistant") {
           if (apiOptions(model).replay) content.push_back(p);
         } else if (kind == "refusal" && role == "assistant")
@@ -101,13 +111,15 @@ Json anthropicRequestBody(const Json &model, const Json &input, bool streaming) 
     if (body["thinking"]["type"] != "disabled" && caps.value("display_supported", false))
       body["thinking"]["display"] = apiOptions(model).summary && model.value("reasoning_summary", false) ? "summarized" : "omitted";
   }
+  if (model.value("web_tools", false))
+    body["tools"] = wireToolDefinitions(model);
   applyModelParameters(body, model);
   return body;
 }
 void streamAnthropic(const Json &model, Json input, std::atomic<bool> &cancel,
                      Events &events, int generation) {
   const auto options = apiOptions(model);
-  AnthropicStream state(ticks());
+  AnthropicStream state(ticks(), model.value("web_tools", false));
   int64_t lastPublish = 0; size_t publications = 0; bool dirty = false;
   Json diagnostic = Json::object(), tag = {{"generation", generation}};
   std::vector<std::string> secrets; sensitive(input, secrets);
@@ -171,7 +183,7 @@ void streamAnthropic(const Json &model, Json input, std::atomic<bool> &cancel,
     diagnostic = {{"status", result.status}, {"request_id", redact(result.requestId)}, {"elapsed_ms", result.elapsedMs}, {"timings", result.timings},
                   {"outcome", cancel ? "cancelled" : !complete ? "api_or_transport_error" : "response"}};
     state.finish(ticks()); publish(complete);
-    tag["http_status"] = result.status; tag["request_id"] = redact(result.requestId);
+    tag["http_status"] = result.status; tag["error_code"] = result.errorCode; tag["request_id"] = redact(result.requestId);
     tag["elapsed_ms"] = result.elapsedMs; tag["snapshots"] = publications;
     if (cancel) events.push("cancelled", tag);
     else if (!complete) { tag["error"] = error; events.push("network_error", tag); }

@@ -33,7 +33,7 @@ def run(env):
    b=d.state()['editor']['actions']['expand'];d.tap((b[0]+b[2])//2,(b[1]+b[3])//2);d.capture('portrait-candidates-expanded')
    b=d.state()['editor']['actions']['expand'];d.tap((b[0]+b[2])//2,(b[1]+b[3])//2);key('space')
    key('language');d.capture('portrait-keyboard-English');key('mode');d.capture('portrait-keyboard-number');key('symbols');d.capture('portrait-keyboard-symbol');key('mode')
-   k=next(k for k in d.state()['editor']['keys'] if k['key']=='language');rx,ry=d.raw(k['x'],k['y']);d.shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+d.event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 550')
+   k=next(k for k in d.state()['editor']['keys'] if k['key']=='language');rx,ry=d.raw(k['x'],k['y']);d.shell('PENCHAT_TOUCH_DEVICE=/dev/input/'+d.event+' /tmp/penchat-display-tap --hold '+str(rx)+' '+str(ry)+' 850')
    d.wait(lambda:d.state()['editor']['layout_menu']);b=d.state()['editor']['actions']['layout:2'];d.tap((b[0]+b[2])//2,(b[1]+b[3])//2);d.capture('portrait-keyboard-9')
   control('cancel');d.wait(lambda:not d.state()['editor']['active'])
  after=len(d.shell('ls -1 /proc/'+d.pid()+'/fd').splitlines());assert after<=before+12,(before,after)
@@ -44,7 +44,7 @@ def run(env):
   attachment('camera');d.wait(lambda:d.state()['view']=='camera');d.wait(lambda:d.state()['camera_ready'],timeout=20)
   rss.append(int(next(l.split()[1] for l in d.shell('cat /proc/'+d.pid()+'/status').splitlines() if l.startswith('VmHWM:'))))
   if cycle==0:
-   d.capture('portrait-camera');d.tap(W//2,H-90)
+   d.capture('portrait-camera');b=d.state()['camera_controls']['shutter'];d.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
    d.wait(lambda:d.state()['view']=='crop' and d.state()['crop_loaded'],timeout=30);s=d.state();assert sorted(s['crop_source'])==[2448,3264],s['crop_source']
    d.capture('portrait-HD-crop');x,y,w,h=s['crop_selection'];pinch(x+w/2,y+h/2,2,True);assert d.state()['crop_zoom']>1.8;d.capture('portrait-HD-crop-pinch')
    remote=d.shell('find '+d.DATA+'/camera-tmp -type f').splitlines();assert len(remote)==1

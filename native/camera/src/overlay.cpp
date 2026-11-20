@@ -1,10 +1,12 @@
 #include "overlay.h"
+#include "plane_order.hpp"
 
 #include "camera_logic.h"
 
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -15,14 +17,15 @@
 #include <drm_fourcc.h>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <vector>
+#include <set>
 
 namespace camera {
 namespace {
 
 #define CAMLOG(fmt, ...) syslog(LOG_INFO, "miniapp-camera: " fmt, ##__VA_ARGS__)
 
-const uint32_t kFormatNv12 = DRM_FORMAT_NV12;
 const uint32_t kFormatArgb = DRM_FORMAT_ARGB8888;
 
 int yuv2rgb(int y, int u, int v, int c)
@@ -39,49 +42,43 @@ int yuv2rgb(int y, int u, int v, int c)
     return val;
 }
 
-void mapRotatedSrc(int dx, int dy, int dstW, int dstH, int srcW, int srcH, int rotate, int* sx, int* sy)
-{
-    int x = dx;
-    int y = dy;
-    if (rotate == 90) {
-        x = dy * srcW / dstH;
-        y = (dstW - 1 - dx) * srcH / dstW;
-    } else if (rotate == 270) {
-        x = (dstH - 1 - dy) * srcW / dstH;
-        y = dx * srcH / dstW;
-    } else if (rotate == 180) {
-        x = (dstW - 1 - dx) * srcW / dstW;
-        y = (dstH - 1 - dy) * srcH / dstH;
-    } else {
-        x = dx * srcW / dstW;
-        y = dy * srcH / dstH;
-    }
-    if (x < 0) x = 0;
-    if (y < 0) y = 0;
-    if (x >= srcW) x = srcW - 1;
-    if (y >= srcH) y = srcH - 1;
-    if (sx) *sx = x;
-    if (sy) *sy = y;
-}
 
 }  // namespace
 
 void nv12ToBgra(const uint8_t* yPlane, const uint8_t* uvPlane, int width, int height,
     int yStride, int uvStride, uint8_t* dst, int dstW, int dstH, int rotate)
 {
-    for (int dy = 0; dy < dstH; ++dy) {
-        for (int dx = 0; dx < dstW; ++dx) {
-            int sx = 0, sy = 0;
-            mapRotatedSrc(dx, dy, dstW, dstH, width, height, rotate, &sx, &sy);
-            const int y = yPlane[sy * yStride + sx];
-            const int uvIndex = (sy / 2) * uvStride + (sx & ~1);
-            const int u = uvPlane[uvIndex];
-            const int v = uvPlane[uvIndex + 1];
-            uint8_t* p = dst + (dy * dstW + dx) * 4;
-            p[0] = static_cast<uint8_t>(yuv2rgb(y, u, v, 2));
-            p[1] = static_cast<uint8_t>(yuv2rgb(y, u, v, 1));
-            p[2] = static_cast<uint8_t>(yuv2rgb(y, u, v, 0));
-            p[3] = 255;
+    if (width <= 0 || height <= 0 || dstW <= 0 || dstH <= 0) return;
+    const bool quarter = rotate == 90 || rotate == 270;
+    const bool flipX = rotate == 90 || rotate == 180;
+    const bool flipY = rotate == 180 || rotate == 270;
+    std::vector<int> columns(dstW), rows(dstH);
+    // The same nearest-neighbour mapping, computed once per axis rather than
+    // two integer divisions and a rotation branch for every output pixel.
+    for (int x = 0; x < dstW; ++x)
+        columns[x] = int(int64_t(flipX ? dstW - 1 - x : x) * (quarter ? height : width) / dstW);
+    for (int y = 0; y < dstH; ++y)
+        rows[y] = int(int64_t(flipY ? dstH - 1 - y : y) * (quarter ? width : height) / dstH);
+    // Quarter-turns otherwise walk entire source columns with poor locality.
+    // Small tiles keep both the sensor planes and the BGRA destination hot.
+    const int tile = quarter ? 16 : std::max(dstW, dstH);
+    for (int top = 0; top < dstH; top += tile) {
+        for (int left = 0; left < dstW; left += tile) {
+            const int endY = std::min(dstH, top + tile), endX = std::min(dstW, left + tile);
+            for (int dy = top; dy < endY; ++dy) {
+                for (int dx = left; dx < endX; ++dx) {
+                    const int sx = quarter ? rows[dy] : columns[dx];
+                    const int sy = quarter ? columns[dx] : rows[dy];
+                    const int y = yPlane[size_t(sy) * yStride + sx];
+                    const size_t uvIndex = size_t(sy / 2) * uvStride + (sx & ~1);
+                    const int u = uvPlane[uvIndex], v = uvPlane[uvIndex + 1];
+                    uint8_t* p = dst + (size_t(dy) * dstW + dx) * 4;
+                    p[0] = static_cast<uint8_t>(yuv2rgb(y, u, v, 2));
+                    p[1] = static_cast<uint8_t>(yuv2rgb(y, u, v, 1));
+                    p[2] = static_cast<uint8_t>(yuv2rgb(y, u, v, 0));
+                    p[3] = 255;
+                }
+            }
         }
     }
 }
@@ -149,22 +146,38 @@ bool Overlay::open()
         pthread_mutex_unlock(&mu_);
         return true;
     }
+    info_=DisplayInfo{};info_.mode=CompositionMode::Unselected;info_.stage="libdrm_unavailable";
     if (!loadDrm()) {
         pthread_mutex_unlock(&mu_);
         return false;
     }
     fd_ = ::open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
     if (fd_ < 0) {
-        error_ = "open /dev/dri/card0 failed";
+        info_.stage="device_open_failed";info_.queryError=errno;
+        error_ = "open /dev/dri/card0 failed: "+std::to_string(errno);
         pthread_mutex_unlock(&mu_);
         return false;
     }
+    atomic_=false;
     decltype(&drmSetClientCap) setCap = DRM_SYM(drmSetClientCap);
     if (setCap) {
         setCap(fd_, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
         if (setCap(fd_, DRM_CLIENT_CAP_ATOMIC, 1) == 0) atomic_ = true;
     }
-    if (!pickResources()) {
+    info_=DisplayInfo{};info_.mode=CompositionMode::Unselected;allowUpper_=false;
+    probeDeadline_=std::chrono::steady_clock::now()+std::chrono::milliseconds(1500);
+    const auto deadline=probeDeadline_-std::chrono::milliseconds(100); // Reserve completion proof time.
+    bool selected=false;
+    do {
+        ++info_.attempts;
+        if(pickResources()){selected=true;break;}
+        if(completionFailed_)break;
+        if(std::chrono::steady_clock::now()>=deadline)break;
+        const auto remaining=std::chrono::duration_cast<std::chrono::microseconds>(deadline-std::chrono::steady_clock::now()).count();
+        if(remaining>0)usleep(static_cast<useconds_t>(std::min<int64_t>(50000,remaining)));
+    } while(true);
+    if(!selected&&!completionFailed_) {allowUpper_=true;++info_.attempts;selected=pickResources();}
+    if (!selected) {
         pthread_mutex_unlock(&mu_);
         close();
         return false;
@@ -177,6 +190,8 @@ bool Overlay::open()
 
 bool Overlay::pickResources()
 {
+    error_.clear();
+    crtcId_=0;crtcW_=crtcH_=0;info_.stage="resources";
     decltype(&drmModeGetResources) getRes = DRM_SYM(drmModeGetResources);
     decltype(&drmModeFreeResources) freeRes = DRM_SYM(drmModeFreeResources);
     decltype(&drmModeGetConnector) getConn = DRM_SYM(drmModeGetConnector);
@@ -189,13 +204,15 @@ bool Overlay::pickResources()
     decltype(&drmModeFreePlaneResources) freePlanes = DRM_SYM(drmModeFreePlaneResources);
     decltype(&drmModeGetPlane) getPlane = DRM_SYM(drmModeGetPlane);
     decltype(&drmModeFreePlane) freePlane = DRM_SYM(drmModeFreePlane);
-    if (!getRes || !getConn || !getPlanes || !getPlane) {
+    if (!getRes || !freeRes || !getConn || !freeConn || !getEnc || !freeEnc ||
+        !getCrtc || !freeCrtc || !getPlanes || !freePlanes || !getPlane || !freePlane) {
         error_ = "libdrm symbols missing";
         return false;
     }
     drmModeRes* res = getRes(fd_);
     if (!res) {
-        error_ = "drmModeGetResources failed";
+        info_.queryError=errno;info_.stage="resources_unavailable";
+        error_ = "drmModeGetResources failed: "+std::to_string(errno);
         return false;
     }
     drmModeConnector* conn = 0;
@@ -241,88 +258,138 @@ bool Overlay::pickResources()
         error_ = "no drm planes";
         return false;
     }
-    uint32_t overlayNv12 = 0;
-    uint32_t overlayArgb = 0;
-    uint32_t primaryId = 0;
-    uint64_t primaryZpos = 0;
-    bool primaryHasZpos = false;
-    for (uint32_t i = 0; i < planes->count_planes; ++i) {
-        drmModePlane* p = getPlane(fd_, planes->planes[i]);
-        if (!p) continue;
-        if (!(p->possible_crtcs & crtcMask)) {
-            freePlane(p);
-            continue;
-        }
-        uint64_t type = 0;
-        findProp(p->plane_id, DRM_MODE_OBJECT_PLANE, "type", &type);
-        bool hasNv12 = false;
-        bool hasArgb = false;
-        for (uint32_t f = 0; f < p->count_formats; ++f) {
-            if (p->formats[f] == kFormatNv12) hasNv12 = true;
-            if (p->formats[f] == kFormatArgb || p->formats[f] == DRM_FORMAT_XRGB8888) hasArgb = true;
-        }
-        if (type == DRM_PLANE_TYPE_PRIMARY) {
-            primaryId = p->plane_id;
-            primaryHasZpos = findProp(primaryId, DRM_MODE_OBJECT_PLANE, "zpos", &primaryZpos) != 0;
-        }
-        if (type == DRM_PLANE_TYPE_OVERLAY) {
-            if (hasNv12 && !overlayNv12) overlayNv12 = p->plane_id;
-            if (hasArgb && !overlayArgb) overlayArgb = p->plane_id;
-        }
-        freePlane(p);
-    }
-    planeId_ = overlayNv12 ? overlayNv12 : overlayArgb;
-    useNv12_ = overlayNv12 != 0;
-    if (!planeId_) {
-        freePlanes(planes);
-        freeRes(res);
-        error_ = "no overlay plane";
-        return false;
-    }
-    uint64_t zval = 0;
-    propZpos_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "zpos", &zval);
-    minZpos_ = 0;
-    maxZpos_ = 0;
-    zpos_ = static_cast<uint32_t>(zval);
-    if (propZpos_) {
-        decltype(&drmModeGetProperty) getProp = DRM_SYM(drmModeGetProperty);
-        decltype(&drmModeFreeProperty) freeProp = DRM_SYM(drmModeFreeProperty);
-        drmModePropertyRes* prop = getProp ? getProp(fd_, propZpos_) : 0;
-        if (prop && (prop->flags & DRM_MODE_PROP_RANGE) && prop->count_values >= 2) {
-            minZpos_ = static_cast<uint32_t>(prop->values[0]);
-            maxZpos_ = static_cast<uint32_t>(prop->values[1]);
-            zpos_ = minZpos_;
-            if (primaryHasZpos) {
-                if (primaryZpos < maxZpos_)
-                    zpos_ = static_cast<uint32_t>(std::max<uint64_t>(minZpos_, primaryZpos + 1));
-                else
-                    CAMLOG("operation=zpos warning=overlay_cannot_above_primary plane=%u primary=%llu max=%u",
-                        planeId_, static_cast<unsigned long long>(primaryZpos), maxZpos_);
-            } else {
-                CAMLOG("operation=zpos warning=primary_zpos_unavailable plane=%u", planeId_);
+    struct Candidate {uint32_t id,format;};
+    std::vector<Candidate> candidates;
+    uint32_t primaryId=0,primaryFb=0;
+    uint64_t primaryZpos=0;
+    for(uint32_t i=0;i<planes->count_planes;++i) {
+        drmModePlane *plane=getPlane(fd_,planes->planes[i]);
+        if(!plane)continue;
+        if(plane->possible_crtcs&crtcMask) {
+            uint64_t type=0;findProp(plane->plane_id,DRM_MODE_OBJECT_PLANE,"type",&type);
+            if(type==DRM_PLANE_TYPE_PRIMARY&&plane->fb_id&&plane->crtc_id==crtcId_) {
+                primaryId=plane->plane_id;primaryFb=plane->fb_id;
+                findProp(primaryId,DRM_MODE_OBJECT_PLANE,"zpos",&primaryZpos);
             }
-            if (zpos_ > maxZpos_) zpos_ = maxZpos_;
-            CAMLOG("operation=zpos min=%u max=%u primary=%llu use=%u",
-                minZpos_, maxZpos_, static_cast<unsigned long long>(primaryHasZpos ? primaryZpos : 0), zpos_);
+            if(type==DRM_PLANE_TYPE_OVERLAY&&!plane->fb_id) {
+                uint32_t format=0;
+                for(uint32_t f=0;f<plane->count_formats;++f) {
+                    if(plane->formats[f]==DRM_FORMAT_ARGB8888){format=DRM_FORMAT_ARGB8888;break;}
+                    if(plane->formats[f]==DRM_FORMAT_XRGB8888)format=DRM_FORMAT_XRGB8888;
+                }
+                if(format)candidates.push_back({plane->plane_id,format});
+            }
         }
-        if (prop && freeProp) freeProp(prop);
+        freePlane(plane);
     }
-    propFb_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "FB_ID");
-    propCrtc_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "CRTC_ID");
-    propSrcX_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "SRC_X");
-    propSrcY_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "SRC_Y");
-    propSrcW_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "SRC_W");
-    propSrcH_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "SRC_H");
-    propCrtcX_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "CRTC_X");
-    propCrtcY_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "CRTC_Y");
-    propCrtcW_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "CRTC_W");
-    propCrtcH_ = findProp(planeId_, DRM_MODE_OBJECT_PLANE, "CRTC_H");
-    freePlanes(planes);
-    freeRes(res);
-    if (!atomic_ || !propFb_ || !propCrtc_) {
-        CAMLOG("%s", "atomic props incomplete, will use drmModeSetPlane");
+    freePlanes(planes);freeRes(res);
+    info_.primary=primaryId;info_.crtc=crtcId_;info_.framebuffer=primaryFb;
+    info_.format=0;info_.queryResult=-1;info_.queryError=0;
+    auto fail=[&](const char *stage,const std::string &reason) {
+        info_.stage=stage;error_=std::string("DRM display initialization [")+stage+"]: "+reason;
+        return false;
+    };
+    if(!primaryId||!primaryFb)return fail("primary_not_ready","Falcon primary framebuffer is not ready");
+    drm_mode_fb_cmd2 hostFrame{};hostFrame.fb_id=primaryFb;
+    errno=0;info_.queryResult=ioctl(fd_,DRM_IOCTL_MODE_GETFB2,&hostFrame);
+    info_.queryError=info_.queryResult<0?errno:0;
+    if(info_.queryResult==0)info_.format=hostFrame.pixel_format;
+    std::set<uint32_t> handles;
+    for(auto handle:hostFrame.handles)if(handle&&handles.insert(handle).second) {
+        drm_gem_close release{};release.handle=handle;ioctl(fd_,DRM_IOCTL_GEM_CLOSE,&release);
     }
-    return true;
+    drm_mode_get_plane current{};current.plane_id=primaryId;
+    if(ioctl(fd_,DRM_IOCTL_MODE_GETPLANE,&current)!=0||current.fb_id!=primaryFb||current.crtc_id!=crtcId_)
+        return fail("primary_changed","Falcon framebuffer changed during display probe");
+    const bool alpha=info_.queryResult==0&&info_.format==DRM_FORMAT_ARGB8888;
+    info_.reason=alpha?"underlay_capabilities":info_.queryResult<0?
+        "framebuffer_query_failed errno="+std::to_string(info_.queryError):
+        "primary_format="+std::to_string(info_.format);
+    if(candidates.empty())return fail("no_free_rgb_plane","No idle RGB overlay is available");
+    hostPlane_=primaryId;hostZprop_=findProp(hostPlane_,DRM_MODE_OBJECT_PLANE,"zpos",&hostOriginalZ_);
+    propOutFence_=findProp(crtcId_,DRM_MODE_OBJECT_CRTC,"OUT_FENCE_PTR");
+    crtcIndex_=crtcIndex;
+    auto range=[&](uint32_t property,uint64_t currentZ,PlaneZRange &out) {
+        auto get=DRM_SYM(drmModeGetProperty);auto release=DRM_SYM(drmModeFreeProperty);
+        auto p=get&&property?get(fd_,property):nullptr;
+        const bool valid=p&&(p->flags&DRM_MODE_PROP_RANGE)&&p->count_values>=2;
+        if(valid)out={p->values[0],p->values[1],currentZ,!(p->flags&DRM_MODE_PROP_IMMUTABLE)};
+        if(p&&release)release(p);
+        return valid;
+    };
+    PlaneZRange host{};
+    if(!range(hostZprop_,hostOriginalZ_,host))return fail("host_order_unknown","Falcon plane order cannot be verified");
+    info_.hostRange={{host.low,host.high,host.current}};
+    std::string completionFailure;
+    const bool atomicClient=atomic_;
+    for(int upper=0;upper<=(allowUpper_?1:0);++upper) {
+        if(!upper&&!alpha)continue;
+        for(const auto &candidate:candidates) {
+            uint64_t currentZ=0;
+            const auto zprop=findProp(candidate.id,DRM_MODE_OBJECT_PLANE,"zpos",&currentZ);
+            PlaneZRange native{};UnderlayOrder order{};
+            if(!range(zprop,currentZ,native))continue;
+            if(!(upper?upperOverlayOrder(native,host,order):underlayOrder(native,host,order))||order.native>UINT32_MAX)continue;
+            planeId_=candidate.id;propZpos_=zprop;nativeOriginalZ_=currentZ;
+            nativeFormat_=candidate.format;zpos_=uint32_t(order.native);hostDesiredZ_=order.host;
+            minZpos_=uint32_t(native.low);maxZpos_=uint32_t(native.high);useNv12_=false;
+            propFb_=findProp(planeId_,DRM_MODE_OBJECT_PLANE,"FB_ID");
+            propCrtc_=findProp(planeId_,DRM_MODE_OBJECT_PLANE,"CRTC_ID");
+            propSrcX_=findProp(planeId_,DRM_MODE_OBJECT_PLANE,"SRC_X");
+            propSrcY_=findProp(planeId_,DRM_MODE_OBJECT_PLANE,"SRC_Y");
+            propSrcW_=findProp(planeId_,DRM_MODE_OBJECT_PLANE,"SRC_W");
+            propSrcH_=findProp(planeId_,DRM_MODE_OBJECT_PLANE,"SRC_H");
+            propCrtcX_=findProp(planeId_,DRM_MODE_OBJECT_PLANE,"CRTC_X");
+            propCrtcY_=findProp(planeId_,DRM_MODE_OBJECT_PLANE,"CRTC_Y");
+            propCrtcW_=findProp(planeId_,DRM_MODE_OBJECT_PLANE,"CRTC_W");
+            propCrtcH_=findProp(planeId_,DRM_MODE_OBJECT_PLANE,"CRTC_H");
+            atomic_=atomicClient&&propOutFence_&&propFb_&&propCrtc_&&propSrcX_&&propSrcY_&&propSrcW_&&propSrcH_&&
+                propCrtcX_&&propCrtcY_&&propCrtcW_&&propCrtcH_&&DRM_SYM(drmModeAtomicAlloc)&&DRM_SYM(drmModeAtomicFree)&&
+                DRM_SYM(drmModeAtomicAddProperty)&&DRM_SYM(drmModeAtomicCommit)&&DRM_SYM(drmHandleEvent);
+            info_.mode=upper?CompositionMode::UpperOverlay:CompositionMode::Underlay;
+            uint64_t active=1;
+            const bool inactive=findProp(crtcId_,DRM_MODE_OBJECT_CRTC,"ACTIVE",&active)&&!active;
+            // A sleeping CRTC cannot validate a visible plane. Keep the proven
+            // property/event path selected and let present() wait for wakeup.
+            if(atomic_&&!inactive) {
+                DrmBuf probe{};int x=0,y=0,w=0,h=0;
+                mapToCrtc(&x,&y,&w,&h);
+                const bool allocated=allocBuf(&probe,w,h);
+                errno=0;
+                const bool accepted=allocated&&commit(probe.fbId,x,y,w,h,w,h,true);
+                const int testError=errno;
+                const bool deferred=allocated&&(temporarilyUnavailable_||testError==EBUSY||testError==EAGAIN);
+                if(!accepted&&!deferred&&error_.empty())error_="Atomic probe rejected: "+std::to_string(testError);
+                freeBuf(&probe);
+                if(!accepted&&!deferred) {
+                    atomic_=false;info_.reason="atomic_test_rejected: "+error_;
+                }
+            }
+            if(!atomic_) {
+                if(!upper){info_.mode=CompositionMode::Unselected;continue;}
+                if(!DRM_SYM(drmModeSetPlane)||!DRM_SYM(drmModeObjectSetProperty)||!DRM_SYM(drmHandleEvent))continue;
+                error_.clear();
+                const auto remaining=std::chrono::duration_cast<std::chrono::milliseconds>(probeDeadline_-std::chrono::steady_clock::now()).count();
+                if(remaining<=0){completionFailure="Display probe deadline expired before vblank proof";break;}
+                if(!queueVblank()||!finishPendingFlip(true,static_cast<int>(std::min<int64_t>(100,remaining)))) {
+                    completionFailure=error_;
+                    if(flipPending_){completionFailed_=true;return fail("completion_unavailable","Cannot confirm legacy vblank completion");}
+                    continue;
+                }
+            }
+            info_.mode=upper?CompositionMode::UpperOverlay:CompositionMode::Underlay;
+            info_.plane=planeId_;info_.nativeFormat=nativeFormat_;info_.atomic=atomic_;
+            info_.completion=atomic_?"page_flip_event":"crtc_vblank";
+            info_.nativeRange={{native.low,native.high,native.current}};
+            info_.stage="ready";error_.clear();
+            return true;
+        }
+    }
+    info_.mode=CompositionMode::Unselected;
+    atomic_=atomicClient;planeId_=0;
+    if(!completionFailure.empty())return fail("completion_unavailable",completionFailure);
+    if(!alpha&&!allowUpper_)return fail(info_.queryResult<0?"framebuffer_query_failed":"primary_format_incompatible",info_.reason);
+    return fail("order_or_completion_unsupported","No safe overlay order and completion path is available; "+info_.reason);
 }
 
 uint32_t Overlay::findProp(uint32_t objId, uint32_t objType, const char* name, uint64_t* value)
@@ -331,7 +398,7 @@ uint32_t Overlay::findProp(uint32_t objId, uint32_t objType, const char* name, u
     decltype(&drmModeFreeObjectProperties) freeProps = DRM_SYM(drmModeFreeObjectProperties);
     decltype(&drmModeGetProperty) getProp = DRM_SYM(drmModeGetProperty);
     decltype(&drmModeFreeProperty) freeProp = DRM_SYM(drmModeFreeProperty);
-    if (!getProps || !getProp) return 0;
+    if (!getProps || !freeProps || !getProp || !freeProp) return 0;
     drmModeObjectProperties* props = getProps(fd_, objId, objType);
     if (!props) return 0;
     uint32_t found = 0;
@@ -383,7 +450,7 @@ bool Overlay::allocBuf(DrmBuf* buf, int width, int height)
     uint32_t pitches[4] = {creq.pitch, 0, 0, 0};
     uint32_t offsets[4] = {0, 0, 0, 0};
     decltype(&drmModeAddFB2) addFb = DRM_SYM(drmModeAddFB2);
-    if (!addFb || addFb(fd_, width, height, kFormatArgb, handles, pitches, offsets, &buf->fbId, 0) != 0) {
+    if (!addFb || addFb(fd_, width, height, nativeFormat_?nativeFormat_:kFormatArgb, handles, pitches, offsets, &buf->fbId, 0) != 0) {
         error_ = "AddFB2 failed";
         return false;
     }
@@ -394,9 +461,9 @@ void Overlay::freeBuf(DrmBuf* buf)
 {
     if (!buf) return;
     decltype(&drmModeRmFB) rmFb = DRM_SYM(drmModeRmFB);
-    if (buf->fbId && rmFb) rmFb(fd_, buf->fbId);
+    if (fd_ >= 0 && buf->fbId && rmFb) rmFb(fd_, buf->fbId);
     if (buf->map && buf->size) munmap(buf->map, buf->size);
-    if (buf->handle) {
+    if (fd_ >= 0 && buf->handle) {
         struct drm_mode_destroy_dumb dreq;
         memset(&dreq, 0, sizeof(dreq));
         dreq.handle = buf->handle;
@@ -408,9 +475,26 @@ void Overlay::freeBuf(DrmBuf* buf)
 void Overlay::close()
 {
     pthread_mutex_lock(&mu_);
-    if (presented_ && ownsCurrentPlane()) {
-        commit(0, 0, 0, 0, 0, 1, 1);
+    const bool retired = finishPendingFlip(true);
+    if (!retired && fd_ >= 0) {
+        // Abandon this DRM client instead of recycling uncertain scanout.
+        // Kernel framebuffer references pin any still-scanned storage after
+        // userspace mappings/handles are released; no further upload is allowed.
+        ::close(fd_);
+        fd_ = -1;
     }
+    if (retired && presented_ && ownsCurrentPlane()) {
+        commit(0, 0, 0, 0, 0, 1, 1);
+        if(flipPending_&&!finishPendingFlip(true)) {::close(fd_);fd_=-1;}
+    }
+    if(upperOverlay()&&fd_>=0) {
+        drm_mode_get_plane plane{};plane.plane_id=planeId_;uint64_t z=0;
+        auto set=DRM_SYM(drmModeObjectSetProperty);
+        if(set&&ioctl(fd_,DRM_IOCTL_MODE_GETPLANE,&plane)==0&&!plane.fb_id&&
+           findProp(planeId_,DRM_MODE_OBJECT_PLANE,"zpos",&z)==propZpos_&&z==zpos_)
+            set(fd_,planeId_,DRM_MODE_OBJECT_PLANE,propZpos_,nativeOriginalZ_);
+    }
+    restoreHostOrder();
     freeBuf(&bufs_[0]);
     freeBuf(&bufs_[1]);
     if (fd_ >= 0) {
@@ -419,7 +503,29 @@ void Overlay::close()
     }
     planeId_ = 0;
     presented_ = false;
+    flipPending_ = false;
+    completionFailed_ = false;
     pthread_mutex_unlock(&mu_);
+}
+
+std::array<uint64_t,4> Overlay::stacking() {
+    uint64_t native=0,host=0;
+    findProp(planeId_,DRM_MODE_OBJECT_PLANE,"zpos",&native);
+    findProp(hostPlane_,DRM_MODE_OBJECT_PLANE,"zpos",&host);
+    return {{planeId_,hostPlane_,native,host}};
+}
+
+bool Overlay::restoreHostOrder()
+{
+    if(!hostAdjusted_||fd_<0)return !hostAdjusted_;
+    uint64_t current=0;
+    auto set=DRM_SYM(drmModeObjectSetProperty);
+    // Never overwrite a subsequent owner's different order.
+    bool same=findProp(hostPlane_,DRM_MODE_OBJECT_PLANE,"zpos",&current)==hostZprop_&&current==hostDesiredZ_;
+    if(same&&(!set||set(fd_,hostPlane_,DRM_MODE_OBJECT_PLANE,hostZprop_,hostOriginalZ_)!=0)) {
+        CAMLOG("operation=restoreFalconOrder failed errno=%d",errno);return false;
+    }
+    hostAdjusted_=false;return true;
 }
 
 bool Overlay::ownsCurrentPlane() const
@@ -499,15 +605,122 @@ bool Overlay::addProp(void* req, uint32_t objId, uint32_t propId, uint64_t value
     return add(static_cast<drmModeAtomicReq*>(req), objId, propId, value) >= 0;
 }
 
-bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int srcH)
+void Overlay::flipComplete(int, unsigned, unsigned, unsigned, void* context)
 {
+    static_cast<Overlay*>(context)->flipPending_ = false;
+}
+
+bool Overlay::finishPendingFlip(bool wait, int waitMs)
+{
+    if (completionFailed_) return false;
+    if (!flipPending_) return true;
+    // An accepted NONBLOCK commit still owns both buffers: the new one is
+    // queued and the old one may still be scanned. EBUSY at the next commit is
+    // too late to protect an upload into that old buffer.
+    struct pollfd event = {fd_, POLLIN, 0};
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(waitMs);
+    int result;
+    int timeout = wait ? waitMs : 0;
+    for (;;) {
+        result = poll(&event, 1, timeout);
+        if (result >= 0 || errno != EINTR) break;
+        if (!wait) return false;
+        // Signals do not retire the queued buffers. Retry lifecycle waits,
+        // charging every interruption against the same monotonic deadline.
+        const auto remaining = deadline - std::chrono::steady_clock::now();
+        if (remaining <= std::chrono::steady_clock::duration::zero()) {
+            result = 0;
+            break;
+        }
+        timeout = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count());
+        // Round down so repeated signals can never extend the 100ms budget.
+    }
+    if (result < 0 || (event.revents & (POLLERR | POLLHUP | POLLNVAL)) ) {
+        error_ = result == 0 ? "DRM flip completion timed out" : "DRM completion poll failed";
+        completionFailed_ = true;
+        return false;
+    }
+    if (result == 0 || !(event.revents & POLLIN)) return false;
+    decltype(&drmHandleEvent) handle = DRM_SYM(drmHandleEvent);
+    if (!handle) { error_ = "DRM event handling unavailable"; completionFailed_ = true; return false; }
+    drmEventContext context = {};
+    context.version = 2;
+    context.page_flip_handler = &Overlay::flipComplete;
+    context.vblank_handler = &Overlay::flipComplete;
+    if (handle(fd_, &context) != 0) {
+        error_ = "DRM completion read failed";
+        completionFailed_ = true;
+    }
+    return !flipPending_ && error_.empty();
+}
+
+bool Overlay::queueVblank()
+{
+    drm_wait_vblank request{};
+    request.request.type=static_cast<drm_vblank_seq_type>(_DRM_VBLANK_RELATIVE|_DRM_VBLANK_EVENT|
+        (crtcIndex_<<_DRM_VBLANK_HIGH_CRTC_SHIFT));
+    request.request.sequence=1;request.request.signal=reinterpret_cast<unsigned long>(this);
+    if(ioctl(fd_,DRM_IOCTL_WAIT_VBLANK,&request)!=0) {
+        error_="Legacy vblank request failed: "+std::to_string(errno);return false;
+    }
+    flipPending_=true;return true;
+}
+
+bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int srcH, bool testOnly)
+{
+    temporarilyUnavailable_ = false;
+    uint64_t active=1;
+    if(fbId&&findProp(crtcId_,DRM_MODE_OBJECT_CRTC,"ACTIVE",&active)&&!active) {
+        temporarilyUnavailable_=true;return false;
+    }
+    if(fbId) {
+        drm_mode_get_plane owner{};owner.plane_id=planeId_;
+        uint64_t hostZ=0;
+        if(ioctl(fd_,DRM_IOCTL_MODE_GETPLANE,&owner)!=0||
+           (owner.fb_id&&owner.fb_id!=bufs_[0].fbId&&owner.fb_id!=bufs_[1].fbId)||
+           findProp(hostPlane_,DRM_MODE_OBJECT_PLANE,"zpos",&hostZ)!=hostZprop_||
+           (hostZ!=hostOriginalZ_&&hostZ!=hostDesiredZ_)) {
+            error_="DRM underlay ownership/order changed";return false;
+        }
+    }
+
+    if(upperOverlay()&&!atomic_) {
+        auto set=DRM_SYM(drmModeSetPlane);auto property=DRM_SYM(drmModeObjectSetProperty);
+        if(!set||!property){error_="Legacy DRM submission unavailable";return false;}
+        if(fbId) {
+            uint64_t currentZ=0;
+            if(findProp(planeId_,DRM_MODE_OBJECT_PLANE,"zpos",&currentZ)!=propZpos_||
+               (currentZ!=nativeOriginalZ_&&currentZ!=zpos_)) {error_="DRM overlay order changed";return false;}
+            if(currentZ!=zpos_&&property(fd_,planeId_,DRM_MODE_OBJECT_PLANE,propZpos_,zpos_)!=0) {
+                error_="Legacy overlay order rejected: "+std::to_string(errno);return false;
+            }
+        }
+        const int rc=set(fd_,planeId_,crtcId_,fbId,0,x,y,w,h,0,0,uint32_t(srcW)<<16,uint32_t(srcH)<<16);
+        if(rc) {
+            if(errno==EBUSY||errno==EAGAIN)return false;
+            if(errno==EACCES||errno==EPERM){temporarilyUnavailable_=true;return false;}
+            error_="Legacy plane submission failed: "+std::to_string(errno);return false;
+        }
+        presented_=fbId!=0;
+        if(!queueVblank()){completionFailed_=true;return false;}
+        return true;
+    }
     if (atomic_ && propFb_ && propCrtc_) {
         decltype(&drmModeAtomicAlloc) alloc = DRM_SYM(drmModeAtomicAlloc);
         decltype(&drmModeAtomicFree) freeReq = DRM_SYM(drmModeAtomicFree);
         decltype(&drmModeAtomicCommit) commitFn = DRM_SYM(drmModeAtomicCommit);
+        // A plane already attached to this CRTC need not add CRTC state.
+        // PAGE_FLIP_EVENT then fails before atomic_check can add that state.
+        // A null OUT_FENCE_PTR explicitly includes the CRTC without changing
+        // its ACTIVE/mode or asking the kernel to create an output fence.
+        if (fbId && !propOutFence_) {
+            error_ = "DRM CRTC event binding unavailable";
+            return false;
+        }
         drmModeAtomicReq* req = alloc();
-        if (!req) return false;
+        if (!req) { error_="DRM atomic allocation failed"; return false; }
         const bool propsOk =
+            (!fbId || addProp(req, crtcId_, propOutFence_, 0)) &&
             addProp(req, planeId_, propFb_, fbId) &&
             addProp(req, planeId_, propCrtc_, fbId ? crtcId_ : 0) &&
             addProp(req, planeId_, propSrcX_, 0) &&
@@ -518,48 +731,37 @@ bool Overlay::commit(uint32_t fbId, int x, int y, int w, int h, int srcW, int sr
             addProp(req, planeId_, propCrtcY_, static_cast<uint64_t>(y)) &&
             addProp(req, planeId_, propCrtcW_, static_cast<uint64_t>(w)) &&
             addProp(req, planeId_, propCrtcH_, static_cast<uint64_t>(h)) &&
-            (!propZpos_ || addProp(req, planeId_, propZpos_, zpos_));
+            addProp(req, planeId_, propZpos_, zpos_) &&
+            (!fbId || upperOverlay() || addProp(req,hostPlane_,hostZprop_,hostDesiredZ_));
         if (!propsOk) {
+            error_ = "DRM atomic property setup failed";
             CAMLOG("operation=atomicAddProperty failed plane=%u", planeId_);
             freeReq(req);
             return false;
         }
-        const int rc = commitFn(fd_, req, DRM_MODE_ATOMIC_NONBLOCK, 0);
+        // Disabling is synchronous: lifecycle teardown must retire scanout
+        // before unmapping buffers. Regular frames stay nonblocking.
+        const uint32_t flags = testOnly?DRM_MODE_ATOMIC_TEST_ONLY:fbId ? DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT : 0;
+        const int rc = commitFn(fd_, req, flags, !testOnly&&fbId ? this : nullptr);
         const int commitError = errno;
         freeReq(req);
         if (rc == 0) {
+            if(testOnly)return true;
+            if(fbId&&!upperOverlay()&&hostDesiredZ_!=hostOriginalZ_)hostAdjusted_=true;
             presented_ = fbId != 0;
+            flipPending_ = fbId != 0;
             return true;
         }
         if (commitError == EBUSY || commitError == EAGAIN) return false;
-        CAMLOG("atomic commit rc=%d errno=%d, retry without zpos", rc, errno);
-        req = alloc();
-        if (!req) return false;
-        addProp(req, planeId_, propFb_, fbId);
-        addProp(req, planeId_, propCrtc_, fbId ? crtcId_ : 0);
-        addProp(req, planeId_, propSrcX_, 0);
-        addProp(req, planeId_, propSrcY_, 0);
-        addProp(req, planeId_, propSrcW_, static_cast<uint64_t>(srcW) << 16);
-        addProp(req, planeId_, propSrcH_, static_cast<uint64_t>(srcH) << 16);
-        addProp(req, planeId_, propCrtcX_, static_cast<uint64_t>(x));
-        addProp(req, planeId_, propCrtcY_, static_cast<uint64_t>(y));
-        addProp(req, planeId_, propCrtcW_, static_cast<uint64_t>(w));
-        addProp(req, planeId_, propCrtcH_, static_cast<uint64_t>(h));
-        const int rc2 = commitFn(fd_, req, DRM_MODE_ATOMIC_NONBLOCK, 0);
-        const int retryError = errno;
-        freeReq(req);
-        if (rc2 == 0) {
-            presented_ = fbId != 0;
-            return true;
-        }
-        if (retryError == EBUSY || retryError == EAGAIN) return false;
-        CAMLOG("atomic commit failed rc=%d errno=%d", rc2, errno);
+        if(commitError==EACCES||commitError==EPERM) {temporarilyUnavailable_=true;return false;}
+        // Retrying without zpos would silently place us above Falcon again.
+        const int retryError=commitError;
+        // Atomic submission failures must not switch to a legacy path whose
+        // buffer retirement/completion contract has not been established.
+        error_ = "DRM atomic submission failed: " + std::to_string(retryError);
+        return false;
     }
-    decltype(&drmModeSetPlane) setPlane = DRM_SYM(drmModeSetPlane);
-    if (!setPlane) return false;
-    const int rc = setPlane(fd_, planeId_, crtcId_, fbId, 0, x, y, w, h, 0, 0, srcW << 16, srcH << 16);
-    if (rc == 0) presented_ = fbId != 0;
-    return rc == 0;
+    error_="Atomic DRM underlay submission unavailable";return false;
 }
 
 bool Overlay::commitPlacedBgra(const uint8_t* bgra, int cw, int ch, int cx, int cy)
@@ -567,12 +769,16 @@ bool Overlay::commitPlacedBgra(const uint8_t* bgra, int cw, int ch, int cx, int 
     if (!bgra || cw < 1 || ch < 1) return false;
     int hx = 0, hy = 0, hw = 0, hh = 0;
     mapToCrtc(&hx, &hy, &hw, &hh);
+    if (!finishPendingFlip()) return false;
     DrmBuf* buf = &bufs_[cur_];
     if (!buf->map || static_cast<int>(buf->height) != hh || static_cast<int>(buf->pitch / 4) < hw) {
         if (!allocBuf(buf, hw, hh)) return false;
     }
     uint8_t* dst = static_cast<uint8_t*>(buf->map);
-    memset(dst, 0, buf->size);
+    // The native full-hole upload covers every visible pixel. Partial images
+    // and padded rows still clear their uncovered bytes before submission.
+    if (cx != hx || cy != hy || cw != hw || ch != hh || buf->pitch != unsigned(hw) * 4)
+        memset(dst, 0, buf->size);
     const int x0 = std::max(hx, cx);
     const int y0 = std::max(hy, cy);
     const int x1 = std::min(hx + hw, cx + cw);
@@ -593,7 +799,10 @@ bool Overlay::commitPlacedBgra(const uint8_t* bgra, int cw, int ch, int cx, int 
 bool Overlay::presentBgra(const uint8_t* bgra, int width, int height)
 {
     pthread_mutex_lock(&mu_);
+    if (completionFailed_) { pthread_mutex_unlock(&mu_); return false; }
+    error_.clear();
     if (!bgra || width < 1 || height < 1) {
+        error_="Invalid DRM frame geometry";
         pthread_mutex_unlock(&mu_);
         return false;
     }
@@ -601,6 +810,10 @@ bool Overlay::presentBgra(const uint8_t* bgra, int width, int height)
         pthread_mutex_unlock(&mu_);
         if (!open()) return false;
         pthread_mutex_lock(&mu_);
+    }
+    if (!finishPendingFlip()) {
+        pthread_mutex_unlock(&mu_);
+        return false;
     }
     int cx = 0, cy = 0, cw = 0, ch = 0;
     fitSourceToCrtc(width, height, &cx, &cy, &cw, &ch);
@@ -621,7 +834,11 @@ void Overlay::disable()
         pthread_mutex_unlock(&mu_);
         return;
     }
-    if (ownsCurrentPlane()) commit(0, 0, 0, 0, 0, 1, 1);
+    if (!finishPendingFlip(true)) {
+        pthread_mutex_unlock(&mu_);
+        return;
+    }
+    if (ownsCurrentPlane()) {commit(0, 0, 0, 0, 0, 1, 1);finishPendingFlip(true);}
     else presented_ = false;
     pthread_mutex_unlock(&mu_);
 }

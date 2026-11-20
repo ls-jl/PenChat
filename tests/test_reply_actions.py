@@ -42,60 +42,36 @@ def bottom(a):
     t.wait_for(lambda:a.diag()['toolbar_y']==s['height']-58)
 
 def confirm(a,archive):
-    s=a.diag();w,h=s['width'],s['height'];assert s['reply_actions']['confirm']
-    width=(w-262)//2;a.tap(84+14+(0 if archive else width+12)+width//2,h-44)
+    s=a.diag()
+    if not s['reply_actions']['confirm']:return # Latest/default-off retries start directly.
+    box=s['context_menu']['list'];row=64 if s['height']>s['width'] else 48
+    a.tap((box[0]+box[2])//2,box[1]+row*(1 if archive else 2)+20)
 
 def select_history(a,id):
     bottom(a);a.open_navigation();s=a.diag();row=next(r for r in s['history_rows'] if r['id']==id);a.tap(row['x'],row['y']);t.wait_for(lambda:a.diag()['session']==id and not a.diag()['navigation_open'])
 
 def read_clipboard(a):
     bottom(a);s=a.diag();w,h=s['width'],s['height'];a.tap(w//2,h-34)
-    t.wait_for(lambda:a.diag()['editor']['active']);a.tap(w-30,h-30)
-    t.wait_for(lambda:a.diag()['editor']['clipboard_open']);a.tap(w-240,100)
+    t.wait_for(lambda:a.diag()['editor']['active']);a.editor_action('clipboard')
+    t.wait_for(lambda:a.diag()['editor']['clipboard_open']);a.editor_action('clip-paste:0')
+    t.wait_for(lambda:not a.diag()['editor']['clipboard_open'])
     r=a.receive('keyboard.open');value=r['text']
     a.send('keyboard.result',requestId=r['requestId'],confirmed=False,text='')
-    t.wait_for(lambda:not a.diag()['editor']['active']);return value
+    # The caller may immediately send raw scroll packets. Let the closing
+    # editor's blocking pixel snapshot retire before those gestures begin.
+    t.wait_for(lambda:not a.diag()['editor']['active'] and not a.diag()['surface_motion']);return value
 
 def run_retry(w,h,api):
-    with http.server.ThreadingHTTPServer(('127.0.0.1',0),Server) as server,tempfile.TemporaryDirectory(prefix='penchat-reply-ui-') as tmp:
-        t.port=server.server_port;Server.requests=[];Server.mode='summary';threading.Thread(target=server.serve_forever,daemon=True).start()
-        p=pathlib.Path(tmp);fixture(p,server.server_port)
-        if api=='chat':
-            with sqlite3.connect(p/'penchat.db') as db:db.execute('update providers set metadata_json=?',(json.dumps({'api':'chat'}),))
-        a=t.Native(BINARY,p,screen={'width':w,'height':h,'direction':0})
-        try:
-            old=records(p);controls=a.diag()['reply_actions']['rows']['a2']
-            assert len({controls[k][1] for k in ('copy','retry','branch')})==1
-            assert controls['copy'][2]<controls['retry'][0]<controls['branch'][0]
-            assert all(controls[k][3]-controls[k][1]+1>=44 for k in ('copy','retry','branch'))
-            action(a,'a2','copy');assert read_clipboard(a)=='**Old answer** $x^2$'
-            b=reveal(a,'a2','branch');before=a.diag()['editor']['clipboard_count'];a.long_press((b[0]+b[2])//2,(b[1]+b[3])//2)
-            assert not a.diag()['reply_actions']['busy'] and a.diag()['summary']['sessions']==1
-            action(a,'a2','retry');assert a.diag()['reply_actions']['confirm']=='a2'
-            shot(a,f'{w}-{api}-retry-confirm');a.tap(w-70,h-44);assert records(p)==old and not Server.requests
-            bottom(a);a.edit('UNSENT_DRAFT');action(a,'a2','retry');assert a.diag()['reply_actions']['confirm']=='a2'
-            confirm(a,True)
-            t.wait_for(lambda:bool(Server.requests) and not a.diag()['generating'] and not a.diag()['compressing'])
-            s=a.diag();assert s['draft_length']==len('UNSENT_DRAFT') and not s['modal']
-            body=Server.requests[-1][1];wire=json.dumps(body)
-            assert body['model']=='b' and body.get('reasoning_effort',body.get('reasoning',{}).get('effort'))=='max'
-            assert 'CURRENT_SYSTEM_PROMPT' in wire and 'OLD_SYSTEM_PROMPT' not in wire
-            assert 'UNSENT_DRAFT' not in wire and 'Later question' not in wire and 'FORBIDDEN_FUTURE_SUMMARY' not in wire and '**Old answer**' not in wire
-            images=wire.count('data:image/png;base64,');assert images==1,(images,body)
-            with sqlite3.connect(p/'penchat.db') as db:
-                archive=db.execute("select id from chat_sessions where status='archived'").fetchone();assert archive
-                assert db.execute('select count(*) from chat_messages where session_id=?',archive).fetchone()[0]==8
-                live=db.execute("select id,seq,role,output_text from chat_messages where session_id='s' order by seq").fetchall()
-                assert len(live)==6 and live[-1][0]=='pending' and live[-2][0]=='a2'
-                assert live[-1][1]>live[-2][1] and not any(r[0] in ('u3','a3') for r in live)
-                assert db.execute('pragma foreign_key_check').fetchall()==[]
-            shot(a,f'{w}-{api}-regenerated');count=len(Server.requests)
-            action(a,'a2','retry');confirm(a,False)
-            t.wait_for(lambda:len(Server.requests)>count and not a.diag()['generating'] and not a.diag()['compressing'])
-            with sqlite3.connect(p/'penchat.db') as db:assert db.execute("select count(*) from chat_sessions where status='archived'").fetchone()[0]==1
-            assert a.diag()['draft_length']==len('UNSENT_DRAFT')
-            assert (p/'original.png').exists()
-        finally:a.close();server.shutdown()
+    from test_reply_choices import run
+    # The themed fixture owns temporary feedback/update configuration files.
+    # Do not leave later Native instances pointing at its deleted directory.
+    keys=('PENCHAT_TEST_Y07_ROUNDED','PENCHAT_TEST_FEEDBACK_CONFIG','PENCHAT_TEST_UPDATE_CONFIG')
+    previous={key:os.environ.get(key) for key in keys}
+    try:run(w,h,api)
+    finally:
+        for key,value in previous.items():
+            if value is None:os.environ.pop(key,None)
+            else:os.environ[key]=value
 
 def run_branch(w,h):
     with http.server.ThreadingHTTPServer(('127.0.0.1',0),Server) as server,tempfile.TemporaryDirectory(prefix='penchat-branch-ui-') as tmp:
@@ -128,7 +104,7 @@ def preflight_failure():
     with tempfile.TemporaryDirectory(prefix='penchat-retry-preflight-') as tmp:
         p=pathlib.Path(tmp);fixture(p,1);(p/'assets/photo.png').unlink();a=t.Native(BINARY,p)
         try:
-            before=records(p);action(a,'a2','retry');confirm(a,True)
+            before=records(p);action(a,'a2','retry')
             t.wait_for(lambda:not a.diag()['compressing']);assert records(p)==before and a.diag()['modal']
         finally:a.close()
 
@@ -200,4 +176,4 @@ if __name__=='__main__':
     for w,h in ((960,266),(936,280)):
         run_retry(w,h,'responses');run_branch(w,h)
     run_retry(960,266,'chat');preflight_failure();stream_and_empty_cases();restart_cases()
-    print('Assistant actions: raw copy, hidden live controls, busy states, tooltips, reference handling, confirmation/cancel, archive/direct retry, frozen config, draft/photo isolation, preflight failure, prefix branches, numbering and moved draft restoration passed.')
+    print('Assistant actions: raw copy, hidden live controls, busy states, tooltips, reference handling, direct retries and optional small archive prompt, frozen config, draft/photo isolation, preflight failure, prefix branches, numbering and moved draft restoration passed.')

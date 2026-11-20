@@ -1,4 +1,6 @@
 #include "app.hpp"
+#include "back_geometry.hpp"
+#include "icons.hpp"
 #include <cmath>
 namespace penchat {
 bool App::navigationRoot() const {
@@ -33,7 +35,10 @@ void App::nativeBack() {
   input_.cancel(); touchDown_ = false; composerTapAllowed_ = false;
   if (imageViewer_) closeImageViewer();
   else if (editor_.active) editorFinish(false);
-  else if (modal_) { auto object = modal_; modal_ = nullptr; historyContextId_.clear(); lv_obj_delete(object); }
+  else if (modal_) {
+    if(contextMenuPanel_)closeHistoryContext();
+    else {auto object=modal_;modal_=nullptr;historyContextId_.clear();lv_obj_delete(object);}
+  }
   else if (attachments_) closeAttachments();
   else if (!navigationOpen_ && view_ != "chat") goBack();
   else if(!messageEdit_.empty())cancelMessageEdit();
@@ -42,9 +47,8 @@ void App::nativeBack() {
 bool App::backTouch(const Json &m) {
   const int x=m.value("x",0), y=m.value("y",0);
   const bool down=m.value("pressed",false), cancelled=m.value("cancelled",false);
-  const int slop=std::max(8,int(std::lround(screen_.width*.0125)));
-  const int edge=std::max(20,int(std::lround(screen_.width*.046)));
-  const int distance=std::max(44,int(std::lround(screen_.width*.10)));
+  const auto geometry=backGeometry(screen_.width,uiMetrics_);
+  const int slop=geometry.slop, edge=geometry.edge, distance=geometry.distance;
   if (cancelled) {
     const bool consumed=backCandidate_;
     resetBack();
@@ -52,8 +56,10 @@ bool App::backTouch(const Json &m) {
   }
   if (down && !backDown_) {
     backDown_=true;
+    const auto editorGeometry=editorLayout();
+    const int editorX=editorGeometry.fromNativeX(x),editorY=editorGeometry.fromNativeY(y);
     backEditorKey_ = editor_.active && std::any_of(editorKeys_.begin(), editorKeys_.end(),
-        [x,y](const EditorKey &key) { return key.hit.contains(x,y); });
+        [editorX,editorY](const EditorKey &key) { return key.hit.contains(editorX,editorY); });
     // Reserve only the logical left edge. Drawer dismissal stays tap-only;
     // image panning, text selection and horizontal content keep their gestures.
     bool cropHandle=false;
@@ -61,7 +67,29 @@ bool App::backTouch(const Json &m) {
       auto p=photoPoint({x,y});lv_area_t viewport;lv_obj_get_coords(cropViewport_,&viewport);
       cropHandle=cropEdges(p.x-viewport.x1,p.y-viewport.y1)!=0;
     }
-    backCandidate_=!cropHandle && (!navigationOpen_ || modal_) && x>=0 && x<=edge;
+    // The swapped editor now occupies the left edge. Deliver its original
+    // pointer-down immediately: buffering it for Back defeats long-press caret
+    // dragging and selection handles. Unoccupied edge space still navigates.
+    bool editorHandle=false;
+    if(editor_.active&&editor_.selected())for(auto handle:editorHandles_) {
+      if(!handle||lv_obj_is_hidden(handle))continue;
+      lv_area_t area;lv_obj_get_coords(handle,&area);
+      if(selectionHandleContains(handle,editorX,editorY))editorHandle=true;
+    }
+    const bool editorOwns=editor_.active&&(editorTextArea().contains(editorX,editorY)||editorHandle);
+    bool readOwns=false;
+    if(!editor_.active) {
+      for(auto object:{readMenu_,readHandles_[0],readHandles_[1]})if(object&&!lv_obj_is_hidden(object)){
+        lv_area_t a;lv_obj_get_coords(object,&a);
+        if((x>=a.x1&&x<=a.x2&&y>=a.y1&&y<=a.y2)||(object!=readMenu_&&selectionHandleContains(object,x,y)))readOwns=true;
+      }
+      for(const auto &entry:readRegions_) {
+        bool available=!modal_;
+        if(modal_)for(auto p=entry.second.root;p;p=lv_obj_get_parent(p))if(p==modal_)available=true;
+        if(available&&!navigationOpen_)for(const auto &part:entry.second.parts){const auto a=readClip(part.object);if(x>=a.x1&&x<=a.x2&&y>=a.y1&&y<=a.y2)readOwns=true;}
+      }
+    }
+    backCandidate_=!cropHandle&&!editorOwns&&!readOwns && (!navigationOpen_ || modal_) && x>=0 && x<=edge;
     if (backCandidate_) { backStart_=m; backX_=x; backY_=y; backContext_=backContext(); }
   }
   if (!backCandidate_) { if(!down)backDown_=false; return false; }
@@ -80,7 +108,7 @@ bool App::backTouch(const Json &m) {
   const int claimSlop = backEditorKey_ ? 2 * slop : slop;
   if (!backClaimed_ && dx>claimSlop && dx>std::abs(dy)*1.5) {
     backClaimed_=true;
-    backHint_=icon(lv_screen_active(),"back",8,(screen_.height-56)/2,44,56,{},theme::surface);
+    backHint_=icon(lv_screen_active(),"back",uiMetrics_.dp(8),(screen_.height-uiMetrics_.dp(56))/2,uiMetrics_.touchTarget(44),uiMetrics_.dp(56),{},theme::palette().surface);
     lv_obj_set_clickable(backHint_,false);
   }
   if (backHint_) {

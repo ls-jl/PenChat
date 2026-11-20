@@ -47,6 +47,12 @@ int main() {
   down(0,2009,41,100);assert(sync()[0]["x"]==41);up(0);sync();
   abs(ABS_MT_TRACKING_ID,2010);abs(ABS_MT_POSITION_Y,917);p=sync();
   assert(p[0]["x"]==42&&p[0]["y"]==100);up(0);sync();
+  f.reserveTop(10);
+  down(0,2011,400,3);assert(sync().empty());
+  abs(ABS_MT_POSITION_X,313);assert(sync().empty()); // Still held far inside the page.
+  f.reserveTop(0);assert(sync().empty()); // Policy changes cannot revive that finger.
+  up(0);assert(sync().empty());
+  down(0,2012,400,20);assert(sync().size()==1);up(0);assert(sync().size()==1);
   f.reset({});assert(sync().empty());
   for(int rotation:{0,90,180,270}) {
     s.touchRotation=rotation;s.touchYoffset=7;

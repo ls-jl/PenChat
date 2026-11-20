@@ -39,24 +39,24 @@ int main() {
     db.execute("CREATE TRIGGER block_pending_move BEFORE DELETE ON chat_messages WHEN OLD.id='"+pending2+"' BEGIN SELECT RAISE(ABORT,'fixture late failure'); END");
     failed=false;try{db.createBranch(before,target,Json::object(),cancel);}catch(...){failed=true;}
     assert(failed&&db.contextSnapshot(source)["rows"]==before["rows"]);db.execute("DROP TRIGGER block_pending_move");
-    db.execute("CREATE TRIGGER block_regen BEFORE INSERT ON chat_messages WHEN NEW.id='"+target+"' BEGIN SELECT RAISE(ABORT,'fixture retry failure'); END");
-    failed=false;try{db.commitRegeneration(before,target,true,Json::object(),cancel);}catch(...){failed=true;}
+    db.execute("CREATE TRIGGER block_regen BEFORE INSERT ON reply_results WHEN NEW.ordinal=2 BEGIN SELECT RAISE(ABORT,'fixture retry failure'); END");
+    failed=false;try{db.beginReplyResult(before,target,true,Json::object(),cancel);}catch(...){failed=true;}
     assert(failed&&db.contextSnapshot(source)["rows"]==before["rows"]);db.execute("DROP TRIGGER block_regen");
     cancel=true;failed=false;try{db.createBranch(before,target,Json::object(),cancel);}catch(...){failed=true;}assert(failed);cancel=false;
-    // Regeneration archives the complete original and keeps pending photographs.
     auto snapshot=db.contextSnapshot(source,true);
-    auto regenerated=db.commitRegeneration(snapshot,target,true,Json::object(),cancel);db.releaseTransferSnapshot();
-    const auto archive=regenerated["archive"].get<std::string>();
-    assert(db.messages(archive).size()==before["rows"].size());
-    auto live=db.messages(source);assert(live.size()==3&&live[0]["id"]==first&&live[1]["id"]==target&&live[2]["id"]==pending2);
-    assert(live[1]["status"]=="interrupted"&&live[1]["output_text"]==""&&live[2]["seq"]==3);
-    assert(db.pendingImage(source,pending2));
+    db.beginReplyResult(snapshot,target,true,Json::object(),cancel);db.releaseTransferSnapshot();
+    db.updateMessage(target,"new result","","complete");
+    assert(db.query("SELECT id FROM chat_sessions WHERE status='archived'").size()==1); // existing branch archive only
+    assert(db.query("SELECT id FROM chat_messages WHERE id=?",{laterImage}).size()==1);
+    db.commitReplyContinuation(db.contextSnapshot(source),"continue",Json::object(),Json::object());
+    auto archives=db.query("SELECT id FROM chat_sessions WHERE metadata_json LIKE '%retry_archive%'");assert(archives.size()==1);
+    assert(db.messages(archives[0]["id"]).size()==before["rows"].size());
+    auto live=db.messages(source);assert(live.size()==5&&live[0]["id"]==first&&live[1]["id"]==target&&live[2]["id"]==pending2);
     assert(db.query("SELECT id FROM chat_messages WHERE id=?",{laterImage}).empty());
     assert(fileText(photo)=="image fixture");
-    // Stale snapshots cannot overwrite new content; no-question references cannot retry.
-    failed=false;try{db.commitRegeneration(snapshot,target,false,Json::object(),cancel);}catch(...){failed=true;}assert(failed);
+    failed=false;try{db.beginReplyResult(snapshot,target,false,Json::object(),cancel);}catch(...){failed=true;}assert(failed);
     auto reference=uid("session");auto ref=db.append(reference,"assistant","");db.updateMessage(ref,"reference","","complete");
-    failed=false;try{db.commitRegeneration(db.contextSnapshot(reference),ref,false,Json::object(),cancel);}catch(...){failed=true;}assert(failed);
+    failed=false;try{db.beginReplyResult(db.contextSnapshot(reference),ref,false,Json::object(),cancel);}catch(...){failed=true;}assert(failed);
     auto longSource=uid("session");db.append(longSource,"user","q");auto longReply=db.append(longSource,"assistant","");db.updateMessage(longReply,"a","","complete");
     db.renameSession(longSource,std::string(256,'x'));
     auto longBranch=db.createBranch(db.contextSnapshot(longSource),longReply,Json::object(),cancel);

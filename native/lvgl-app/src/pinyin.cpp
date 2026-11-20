@@ -162,13 +162,18 @@ struct PinyinService::Impl {
       if(prefix.empty()||raw.compare(0,prefix.size(),prefix)!=0||fixed.find_first_not_of("abcdefghijklmnopqrstuvwxyz'")!=std::string::npos)throw std::runtime_error("invalid filter");
       input=fixed+(prefix.size()<raw.size()?"'"+raw.substr(prefix.size()):"");
     }
+    const bool spelledT9=t9&&input.find_first_of("23456789")==std::string::npos;
     openEngine();
     pinyin_ime_set_correction(engine,!t9&&request.value("correction",true));
     if(pinyin_ime_input(engine,input.c_str())!=PINYIN_IME_OK)return result;
     for(int i=0;i<std::min(48,pinyin_ime_get_candidate_count(engine));++i) {
       const auto *word=pinyin_ime_get_candidate(engine,i), *py=pinyin_ime_candidate_pinyin(engine,i);
       if(!word||!py)continue;
-      const auto consumed=pinyin_ime_candidate_consumed(engine,i);
+      int consumed=pinyin_ime_candidate_consumed(engine,i);
+      if(consumed<=0||size_t(consumed)>input.size())continue;
+      // Once every nine-key syllable is fixed, the decoder sees ordinary
+      // pinyin and counts separators. The editor still consumes raw digits.
+      if(spelledT9)consumed-=int(std::count(input.begin(),input.begin()+consumed,'\''));
       if(consumed<=0||size_t(consumed)>raw.size())continue;
       choices.push_back({{"word",word},{"pinyin",py},{"consumed",consumed}});
       result["candidates"].push_back(word);
@@ -207,6 +212,11 @@ struct PinyinService::Impl {
           profile=Json::array();dirty=true;if(engine){pinyin_ime_destroy(engine);engine=nullptr;}last=Json::object();choices=Json::array();save();
           events.push("pinyin.cleared",{{"ok",!dirty}});
         } else {
+#ifndef __aarch64__
+          // Deterministic slow-dictionary integration tests; never a device path.
+          if(op=="query")if(const auto delay=getenv("PENCHAT_TEST_PINYIN_DELAY_MS"))
+            std::this_thread::sleep_for(std::chrono::milliseconds(std::max(0,std::min(2000,atoi(delay)))));
+#endif
           auto result=op=="choose"?choose(request):query(request);
           events.pushLatest("pinyin.result",std::move(result));
         }

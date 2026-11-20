@@ -18,24 +18,25 @@ def run(c,server):
     def key(k):
         item=next(x for x in state()['editor']['keys'] if x['key']==k);tap(item['x'],item['y'])
     def edit(keys):
-        tap(W//2,H-34);wait(lambda:state()['editor']['active'])
+        c['open_chat_editor']()
         if state()['editor']['layout']!='en26':key('language')
         for k in keys:key(k)
         b=state()['editor']['actions']['done'];tap((b[0]+b[2])//2,(b[1]+b[3])//2)
         wait(lambda:not state()['editor']['active'])
-    edit(['enter','enter']);tap(W-52,H-34)
+    edit(['enter','enter']);c['send_chat']()
     assert not state()['generating'] and not server.requests
-    tap(40,32);wait(lambda:state()['navigation_open'])
+    c['open_navigation']()
     assert not state()['history_rows']
     tap(W-20,80);wait(lambda:not state()['navigation_open'])
     # Reopen the unchanged blank draft; these become the leading blank lines.
-    edit(['q','enter','enter']);tap(W-52,H-34)
+    edit(['q','enter','enter']);c['send_chat']()
     wait(lambda:len(server.requests)==1)
     wait(lambda:not state()['generating'] and not state()['storage']['unsaved'])
     assert state()['draft_length']==0
     c['capture']('chat-trimmed-blank-lines');c['close']()
     snapshot=c['OUT']/'whitespace-fixture'/'result.db'
-    subprocess.run(['adb','-s',c['SERIAL'],'pull',c['DATA']+'/penchat.db',str(snapshot)],check=True,capture_output=True)
+    from release_lifecycle import pull_database
+    pull_database(c['SERIAL'],c['DATA'],snapshot,c['shell'])
     with sqlite3.connect(snapshot) as db:
         assert db.execute('select count(*) from chat_sessions').fetchone()[0]==1
         assert db.execute("select output_text from chat_messages where role='user'").fetchall()==[('q',)]

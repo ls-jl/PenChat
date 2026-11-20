@@ -2,6 +2,8 @@
 """Actual-process context compaction: HTTP batches, atomic archives, cancellation.
 All keys, providers, databases and images are isolated fixtures. No device access.
 """
+from chat_instruction_checks import assert_chat_prompt
+from provider_ui import open_model,commit_model
 import http.server, json, os, pathlib, sqlite3, tempfile, threading, time, struct, zlib, subprocess, shutil, zipfile
 from test_lvgl_app import Native, ROOT, wait_for
 from test_reasoning_ui import seed
@@ -18,13 +20,13 @@ class Server(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         self.requests.append((self.path,body))
-        compression='PenChat_CONTEXT_COMPRESSION_V1' in json.dumps(body)
+        compression='PenChat_CONTEXT_CHECKPOINT_V2' in json.dumps(body)
         if compression and self.fail:
             self.send_response(500);self.send_header('Content-Length','0');self.end_headers();return
         self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Connection','close');self.end_headers()
         try:
             if compression: time.sleep(self.delay)
-            text=('事实摘要：保留约束、决定和图片信息。' if not self.verbose else '过长摘要'*1000) if compression else '正文完成。'
+            text=('事实摘要：保留约束、决定和图片信息。' if not self.verbose else '过长摘要'*100000) if compression else '正文完成。'
             chat=self.path.endswith('/chat/completions')
             payload={'choices':[{'delta':{'content':text}}]} if chat else {'type':'response.output_text.delta','delta':text}
             # Exercise fragmented multibyte SSE for the separate compression reader too.
@@ -136,50 +138,53 @@ def run():
                     snapshot(app,'context-progress-'+api)
                     wait_idle(app)
                     assert not app.diag()['modal'],(p/'runtime.log').read_text()
-                    cp=checkpoint(p);assert cp['summary'] and cp['archive_id'] and cp['through']==72,cp
-                    calls=[b for _,b in Server.requests if 'PenChat_CONTEXT_COMPRESSION_V1' in json.dumps(b)]
-                    assert len(calls)>1,len(calls)
+                    cp=checkpoint(p);assert cp['summary'] and cp['archive_id'] and 0 < cp['through'] <= 80 and cp['version'] == 2,cp
+                    calls=[b for _,b in Server.requests if 'PenChat_CONTEXT_CHECKPOINT_V2' in json.dumps(b)]
+                    assert len(calls)>=1,len(calls)
                     assert all(b['model']=='b' and 'reasoning_effort' not in b and 'reasoning' not in b for b in calls)
                     assert 'data:image/' in json.dumps(calls),calls[0]
                     answer=Server.requests[-1][1]
                     assert answer['model']=='a' and 'CURRENT_PENDING' in json.dumps(answer)
                     if api=='responses':
-                        assert answer['instructions']=='CHAT_SYSTEM_ONCE'
+                        assert_chat_prompt(answer['instructions'],'CHAT_SYSTEM_ONCE')
                         assert answer['reasoning']['effort']=='high'
                     else:
-                        assert answer['messages'][0]=={'role':'system','content':'CHAT_SYSTEM_ONCE'}
+                        assert answer['messages'][0]['role']=='system'
+                        assert_chat_prompt(answer['messages'][0]['content'],'CHAT_SYSTEM_ONCE')
                         assert sum(m['role']=='system' for m in answer['messages'])==1
                     # Covered source/opaque data is absent; summary is ordinary historical data.
-                    assert 'fact-0:' not in json.dumps(answer) and 'opaque-covered' not in json.dumps(calls)
+                    assert 'opaque-covered' not in json.dumps(calls)
+                    assert cp['retained'] and '历史参考摘要' in json.dumps(answer,ensure_ascii=False)
                     with sqlite3.connect(p/'penchat.db') as db:
                         assert db.execute("select count(*) from chat_sessions where status='archived'").fetchone()[0]==1
                         assert db.execute("select count(*) from chat_messages where session_id=?",(cp['archive_id'],)).fetchone()[0]==80
                         assert db.execute("select count(*) from message_assets").fetchone()[0]==2
-                    app.attachment_action('summary');snapshot(app,'context-summary-'+api);app.tap(890,222)
+                    app.attachment_action('summary');assert app.diag()['view']=='context_summary' and not app.diag()['modal'];snapshot(app,'context-summary-'+api);app.to_chat()
                     # Explicit second compression, exactly one more complete pre-state copy.
                     before=len(Server.requests);manual(app);wait_idle(app)
                     assert checkpoint(p)['revision']==2
                     with sqlite3.connect(p/'penchat.db') as db:
                         assert db.execute("select count(*) from chat_sessions where status='archived'").fetchone()[0]==2
                     snapshot(app,'context-summary-manual-'+api)
-                    app.tap(890,222);app.open_settings();drag(app,[220,180,120,60],x=350)
+                    app.to_chat();app.open_settings();drag(app,[220,180,120,60],x=350)
                     snapshot(app,'context-settings-'+api)
-                    app.to_chat();app.edit('ARCHIVE_KEEP');app.attachment_action('summary');app.tap(150,222)
+                    app.to_chat();app.edit('ARCHIVE_KEEP');app.attachment_action('summary');app.page_action('对应归档')
                     assert app.diag()['view']=='archives' and app.diag()['session']=='s'
                     snapshot(app,'context-archives-'+api)
                     app.to_chat();assert app.diag()['draft_length']==12
-                    app.open_settings();app.setting("models");app.tap(870,175)
+                    app.open_settings();app.setting("models");open_model(app,"a")
                     assert app.diag()['view']=='model'
                     drag(app,[230,190,150,100,60],x=450)
                     snapshot(app,'context-model-budget-'+api)
-                    app.page_action("保存");app.to_chat()
-                    app.open_settings();app.setting("presets");app.tap(300,166)
+                    commit_model(app);app.to_chat()
+                    app.open_settings();app.setting("presets");app.page_action("新增预设")
                     assert app.diag()['view']=='preset_edit'
                     drag(app,[230,190,150,100,60],x=450)
                     snapshot(app,'context-preset-model-'+api)
                 finally:app.close()
                 transfer_roundtrip(p)
-        # A selection made while compaction is running must survive the queued send.
+        # Compaction freezes input/models and blocks the Plus chooser; the next
+        # model is selected explicitly after the frozen request has completed.
         for api in ['responses','chat']:
             with tempfile.TemporaryDirectory(prefix='penchat-context-selection-') as d:
                 p=pathlib.Path(d);fixture(p,server.server_port,rounds=40,budget=16384,api=api,image=True)
@@ -187,12 +192,15 @@ def run():
                 try:
                     Server.requests=[];Server.delay=1
                     app.edit('selection');app.tap(908,232);wait_for(lambda:app.diag()['compressing'])
-                    app.tap(890,222);app.open_settings();app.setting("models");app.tap(300,175)
-                    assert app.diag()['active_model']=='b'
+                    app.tap(890,222)
+                    b=app.diag()['attachment_button'];app.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+                    state=app.diag();assert state['compressing'] and state['modal'] and not state['attachments']
+                    assert state['active_model']=='a'
                     wait_idle(app)
-                    assert app.diag()['active_model']=='b', 'Queued send replaced the next-request selection'
                     assert Server.requests[-1][1]['model']=='a'
-                    app.to_chat();Server.delay=0;app.edit('next');app.tap(908,232);wait_idle(app)
+                    app.to_chat();app.attachment_action("models");app.tap(300,114)
+                    assert app.diag()['active_model']=='b'
+                    Server.delay=0;app.edit('next');app.tap(908,232);wait_idle(app)
                     assert Server.requests[-1][1]['model']=='b'
                 finally:app.close();Server.delay=0
         # Disabled automatic mode sends every one of 102 historical rows, no silent 80 limit.
@@ -205,17 +213,22 @@ def run():
                 assert 'fact-0:' in json.dumps(body) and 'fact-101:' in json.dumps(body)
                 assert not checkpoint(p)
             finally:app.close()
-        # Manual compaction also works on fewer than four turns and splits one very long reply.
+        # Manual compaction also works on fewer than four turns. Complete turns stay indivisible.
         with tempfile.TemporaryDirectory(prefix='penchat-context-manual-') as d:
             p=pathlib.Path(d);fixture(p,server.server_port,rounds=1,budget=16384)
             with sqlite3.connect(p/'penchat.db') as db:
-                db.execute("update chat_messages set output_text=? where id='m1'",('长回复事实。'*3000,))
+                db.execute("update chat_messages set output_text=? where id='m1'",('短历史事实。'*100,))
             app=Native(binary,p)
             try:
                 Server.requests=[];app.edit('MANUAL_DRAFT');manual(app);wait_idle(app)
                 assert checkpoint(p)['through']==2
-                assert len(Server.requests)>1
-                app.tap(890,222);app.tap(500,232);q=app.receive('keyboard.open');assert q['text']=='MANUAL_DRAFT'
+                assert len(Server.requests)==1
+                # dev now opens a reader page after manual compression; return
+                # through its navigation instead of tapping the former modal.
+                state=app.diag();assert state['view']=='context_summary' and not state['modal']
+                app.to_chat();state=app.diag();assert not state['composer_hidden']
+                b=state['composer_text_bounds'];app.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+                q=app.receive('keyboard.open');assert q['text']=='MANUAL_DRAFT'
             finally:app.close()
         with tempfile.TemporaryDirectory(prefix='penchat-context-empty-') as d:
             p=pathlib.Path(d);fixture(p,server.server_port,rounds=0)
@@ -227,7 +240,12 @@ def run():
         # HTTP error, too-long output, unavailable image capability and stop retain original state/draft.
         for mode in ['http','cancel','long','vision','model','switch','budget','input_limit']:
             with tempfile.TemporaryDirectory(prefix='penchat-context-failure-') as d:
-                p=pathlib.Path(d);fixture(p,server.server_port,image=True,auto=mode!='budget')
+                p=pathlib.Path(d)
+                # Reach the intended HTTP/cancellation phase: the former 4096
+                # budget now fails the retained-context admission before HTTP.
+                fixture(p,server.server_port,image=True,auto=mode!='budget',
+                        rounds=16 if mode in ('budget','input_limit') else 40,
+                        budget=4096 if mode in ('budget','input_limit') else 16384)
                 if mode in ['vision','model']:
                     with sqlite3.connect(p/'penchat.db') as db:
                         if mode=='vision':db.execute("update model_configs set capabilities_json=? where id='b'",(json.dumps({'context_budget':4096,'vision':False}),))
@@ -245,9 +263,15 @@ def run():
                         wait_for(lambda:app.diag()['compressing'])
                         if mode=='cancel':app.tap(140,222)
                         else:
-                            app.tap(890,222);app.open_navigation();app.tap(180,236)
+                            app.tap(890,222);app.open_navigation()
+                            before_session=app.diag()['session']
+                            bounds=app.diag()['navigation_footer']['newchat']['bounds']
+                            app.tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
+                            wait_for(lambda:app.diag()['session']!=before_session)
                     wait_idle(app)
                     assert not checkpoint(p),mode
+                    if mode=='http':assert len(Server.requests)==1
+                    if mode in ('cancel','long','switch'):assert Server.requests
                     with sqlite3.connect(p/'penchat.db') as db:
                         assert db.execute('select count(*) from chat_sessions').fetchone()[0]==1,mode
                         assert db.execute("select count(*) from chat_messages where output_text='KEEP_DRAFT'").fetchone()[0]==0

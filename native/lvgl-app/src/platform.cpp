@@ -1,52 +1,191 @@
 #include "platform.hpp"
 #include "camera_logic.h"
+#include "refresh_policy.hpp"
 #include "stb_image_write.h"
+#include "src/misc/lv_timer_private.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <fcntl.h>
+#include <cerrno>
 #include <map>
+#include <array>
+#include <chrono>
 #include <stdexcept>
 #include <sys/socket.h>
 #include <unistd.h>
 namespace penchat {
+// LVGL has one global animation timer. The native app owns one Display; newly
+// created inputs must inherit its setting as well as existing inputs.
+static int activeRefreshRate = 30;
+namespace {
+uint64_t monotonicUs() {return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();}
+struct RenderTiming {
+  uint64_t frames=0,start=0,total=0,maximum=0,lastStart=0,intervalTotal=0,intervalMax=0;
+  uint64_t presentCalls=0,presented=0,presentTotalUs=0,presentMaxUs=0;
+  std::array<uint64_t,6> buckets{};
+} renderTiming;
+bool presentTimed(camera::DisplaySurface &surface,const uint8_t *pixels,int width,int height) {
+  const auto start=monotonicUs();const bool accepted=surface.present(pixels,width,height);
+  const auto duration=monotonicUs()-start;
+  ++renderTiming.presentCalls;renderTiming.presented+=accepted;
+  renderTiming.presentTotalUs+=duration;renderTiming.presentMaxUs=std::max(renderTiming.presentMaxUs,duration);
+  return accepted;
+}
+}
+Json displayTimingInfo() {
+  return {{"frames",renderTiming.frames},{"render_total_us",renderTiming.total},
+    {"render_max_us",renderTiming.maximum},{"interval_total_us",renderTiming.intervalTotal},
+    {"interval_max_us",renderTiming.intervalMax},{"render_buckets",renderTiming.buckets},
+    {"present_calls",renderTiming.presentCalls},{"presented",renderTiming.presented},
+    {"present_total_us",renderTiming.presentTotalUs},{"present_max_us",renderTiming.presentMaxUs},
+    {"sample_time_us",monotonicUs()}};
+}
+Json displayInformationJson(const camera::DisplayInfo &info) {
+  return {{"mode",camera::compositionName(info.mode)},{"stage",info.stage},{"reason",info.reason},
+    {"primary",info.primary},{"crtc",info.crtc},{"framebuffer",info.framebuffer},{"format",info.format},
+    {"plane",info.plane},{"native_format",info.nativeFormat},{"query_rc",info.queryResult},{"query_errno",info.queryError},
+    {"attempts",info.attempts},{"atomic",info.atomic},{"completion",info.completion},
+    {"native_z",info.nativeRange},{"host_z",info.hostRange}};
+}
 Display::Display(const Screen &s, bool headless)
     : screen_(s), headless_(headless) {
   buffer_.resize(size_t(s.width) * s.height * 4);
   if (!headless_) {
-    camera::HoleRect r(0, 0, s.width, s.height, s.width, s.height, s.rotation,
-                       0, 0, s.xoffset, s.yoffset);
-    overlay_.setHole(r);
-    if (!overlay_.open())
-      throw std::runtime_error(overlay_.lastError());
+    surface_=camera::makeDisplaySurface({s.width,s.height,s.rotation,s.xoffset,s.yoffset,s.panelWidth,s.panelHeight});
+    // An upper overlay may cover system UI. Wait for the foreground display
+    // lease before first upload; touch still waits for nativeReady separately.
+    if(!surface_->systemOverlaySafe()){shown_=false;available_=false;}
   }
   display_ = lv_display_create(s.width, s.height);
+  renderTiming={};
+  lv_display_add_event_cb(display_,[](lv_event_t *event){
+    const auto now=monotonicUs();
+    if(lv_event_get_code(event)==LV_EVENT_RENDER_START) {
+      if(renderTiming.lastStart) {
+        const auto interval=now-renderTiming.lastStart;
+        renderTiming.intervalTotal+=interval;renderTiming.intervalMax=std::max(renderTiming.intervalMax,interval);
+      }
+      renderTiming.start=renderTiming.lastStart=now;
+    }
+  },LV_EVENT_RENDER_START,nullptr);
+  lv_display_add_event_cb(display_,[](lv_event_t *){
+    if(!renderTiming.start)return;
+    const auto duration=monotonicUs()-renderTiming.start;renderTiming.start=0;
+    ++renderTiming.frames;renderTiming.total+=duration;renderTiming.maximum=std::max(renderTiming.maximum,duration);
+    const uint64_t limits[]={8000,16667,33334,50000,100000};size_t bucket=0;
+    while(bucket<5&&duration>limits[bucket])++bucket;
+    ++renderTiming.buckets[bucket];
+  },LV_EVENT_RENDER_READY,nullptr);
   lv_display_set_color_format(display_, LV_COLOR_FORMAT_ARGB8888);
+  // Keep one complete CPU framebuffer, but redraw only LVGL's invalid areas.
+  // Static headers, composer and keys need not be repainted on every scroll.
   lv_display_set_buffers(display_, buffer_.data(), nullptr, buffer_.size(),
-                         LV_DISPLAY_RENDER_MODE_FULL);
+                         LV_DISPLAY_RENDER_MODE_DIRECT);
   lv_display_set_user_data(display_, this);
   lv_display_set_flush_cb(
       display_, [](lv_display_t *d, const lv_area_t *a, uint8_t *p) {
         static_cast<Display *>(lv_display_get_user_data(d))->flush(d, a, p);
       });
+  setRefreshRate(refresh::defaultRate(s.width, s.height));
 }
 Display::~Display() {
-  overlay_.close();
+  surface_.reset();
   if (display_)
     lv_display_delete(display_);
 }
+void Display::setRefreshRate(int hz) {
+  refreshRate_ = refresh::resolveRate(hz, screen_.width, screen_.height);
+  activeRefreshRate = refreshRate_;
+  const auto period = refresh::periodMs(refreshRate_);
+  if (auto timer = lv_display_get_refr_timer(display_)) lv_timer_set_period(timer, period);
+  if (auto timer = lv_anim_get_timer()) lv_timer_set_period(timer, period);
+  for (auto input = lv_indev_get_next(nullptr); input; input = lv_indev_get_next(input))
+    if (auto timer = lv_indev_get_read_timer(input)) lv_timer_set_period(timer, period);
+  if (surface_) surface_->setRefreshRate(refreshRate_);
+}
+uint32_t Display::refreshPeriod() const {
+  const auto timer = display_ ? lv_display_get_refr_timer(display_) : nullptr;
+  return timer ? timer->period : 0;
+}
+uint32_t Display::animationPeriod() const {
+  const auto timer = lv_anim_get_timer();
+  return timer ? timer->period : 0;
+}
+uint32_t Display::inputPeriod() const {
+  const auto input = lv_indev_get_next(nullptr);
+  const auto timer = input ? lv_indev_get_read_timer(input) : nullptr;
+  return timer ? timer->period : 0;
+}
 void Display::flush(lv_display_t *d, const lv_area_t *, uint8_t *) {
-  if (shown_ && !headless_)
-    overlay_.presentBgra(buffer_.data(), screen_.width, screen_.height);
+  // DIRECT may flush several dirty rectangles in one refresh. Backends consume
+  // the complete framebuffer, so submit once after its last rectangle is drawn.
+  if (!lv_display_flush_is_last(d)) { lv_display_flush_ready(d); return; }
+  if (shown_ && !headless_ && surface_) {
+    try {retryPresent();}
+    catch(const camera::DisplayUnavailable &) {available_=false;pending_=true;retryPresentAt_=monotonicUs()+100000;}
+    catch(const std::exception &e) {
+      error_=e.what();shown_=false;pending_=false;
+      try{surface_->hide();}catch(...){}
+    }
+  }
+  if(headless_)presented_=true;
   if(lv_display_flush_is_last(d)) trimFontCache();
   lv_display_flush_ready(d);
 }
+void Display::check() {
+  if(!error_.empty())throw std::runtime_error(error_);
+  if(surface_)surface_->check();
+  if(pending_&&shown_&&!surface_&&!mediaPaused_&&!headless_&&monotonicUs()>=retryPresentAt_)mediaHandoff(false);
+  // The full LVGL CPU buffer already contains the newest frame. Retry that
+  // buffer directly; no extra redraw, queue, copied snapshot or UI wait.
+  if(pending_&&shown_&&surface_) {
+    try {retryPresent();}
+    catch(const camera::DisplayUnavailable &) {available_=false;retryPresentAt_=monotonicUs()+100000;}
+  }
+}
+void Display::retryPresent() {
+  if(monotonicUs()<retryPresentAt_)return;
+  pending_=!presentTimed(*surface_,buffer_.data(),screen_.width,screen_.height);
+  if(!pending_) {presented_=true;available_=true;retryPresentAt_=0;}
+}
 void Display::visible(bool value) {
   shown_ = value;
-  if (!value && !headless_)
-    overlay_.disable();
+  if(!value)pending_=false;
+  if (!value && !headless_ && surface_) {
+    if(surface_->releaseOnHide()){surface_.reset();available_=false;}
+    else surface_->hide();
+  }
   if (value) {
+    retryPresentAt_=0;
+    if(!surface_&&!mediaPaused_&&!headless_)mediaHandoff(false);
     lv_obj_invalidate(lv_screen_active());
     lv_refr_now(display_);
+  }
+}
+void Display::topHeight(int height) {
+  height=std::max(0,std::min(screen_.height,height));
+  if(topHeight_==height)return;
+  topHeight_=height;
+  if(surface_)surface_->topRegion(height);
+  if(shown_) {lv_obj_invalidate(lv_screen_active());lv_refr_now(display_);}
+}
+void Display::mediaHandoff(bool release) {
+  if(headless_)return;
+  if(surface_&&surface_->sharedCaptureSafe())return;
+  mediaPaused_=release;
+  if(release){pending_=false;surface_.reset();}
+  else if(!surface_&&shown_) {
+    try {
+      surface_=camera::makeDisplaySurface({screen_.width,screen_.height,screen_.rotation,
+        screen_.xoffset,screen_.yoffset,screen_.panelWidth,screen_.panelHeight});
+    }catch(const camera::DisplayInitializationError &failure) {
+      if(failure.info.stage!="primary_not_ready"&&failure.info.stage!="primary_changed"&&
+         failure.info.queryError!=EACCES&&failure.info.queryError!=EPERM)throw;
+      available_=false;pending_=true;retryPresentAt_=monotonicUs()+100000;return;
+    }
+    surface_->setRefreshRate(refreshRate_);
+    surface_->topRegion(topHeight_);
+    if(shown_)lv_obj_invalidate(lv_screen_active());
   }
 }
 void Display::screenshot(const std::string &path) {
@@ -59,6 +198,8 @@ void Display::screenshot(const std::string &path) {
 }
 Input::Input() {
   input_ = lv_indev_create();
+  if (auto timer = lv_indev_get_read_timer(input_))
+    lv_timer_set_period(timer, refresh::periodMs(activeRefreshRate));
   lv_indev_set_type(input_, LV_INDEV_TYPE_POINTER);
   lv_indev_set_user_data(input_, this);
   lv_indev_set_read_cb(input_, [](lv_indev_t *d, lv_indev_data_t *out) {
@@ -86,6 +227,23 @@ void Input::cancel() {
   pressed_ = false;
   lv_indev_reset(input_, nullptr);
   lv_indev_read(input_);
+}
+void Input::interrupt() {
+  auto scroll = lv_indev_get_scroll_obj(input_);
+  lv_anim_delete(input_, nullptr);
+  if (scroll) {
+    lv_obj_stop_scroll_anim(scroll);
+    // A reset alone drops LVGL's scroll owner before its elastic return runs.
+    // Stop at the nearest valid offset, without moving a valid reading position.
+    const int x = lv_obj_get_scroll_x(scroll), y = lv_obj_get_scroll_y(scroll);
+    const int maxX = std::max(0, int(lv_obj_get_scroll_left(scroll) + lv_obj_get_scroll_right(scroll)));
+    const int maxY = std::max(0, int(lv_obj_get_scroll_top(scroll) + lv_obj_get_scroll_bottom(scroll)));
+    const bool rtl = lv_obj_get_style_base_dir(scroll, LV_PART_MAIN) == LV_BASE_DIR_RTL;
+    const int targetX = rtl ? std::max(-maxX, std::min(0, x)) : std::max(0, std::min(maxX, x));
+    const int targetY = std::max(0, std::min(maxY, y));
+    lv_obj_scroll_by_bounded(scroll, x - targetX, y - targetY, LV_ANIM_OFF);
+  }
+  cancel();
 }
 void Input::release() {
   pressed_ = false;

@@ -4,6 +4,7 @@ import http.server,json,os,pathlib,sqlite3,tempfile,threading,time
 from test_lvgl_app import Native,ROOT,wait_for
 from test_reasoning_ui import seed,Server
 from test_chat_style import drag,snapshot
+from chat_instruction_checks import assert_chat_prompt
 import test_lvgl_app as transport
 binary=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ROOT/'build/host/penchat-lvgl'))
 server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Server)
@@ -24,9 +25,13 @@ with tempfile.TemporaryDirectory(prefix='penchat-presets-') as directory:
         snapshot(app,'preset-menu-scroll')
         assert app.diag()['popup']=='presets',app.diag()['popup']
     def choose(row):
-        picker();app.tap(350,66+row*72)
+        picker();bounds=app.diag()['presets_layout']['labels'][row]['row_bounds']
+        app.tap((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
     def send(text):
         app.edit(text);app.tap(908,232);wait_for(lambda:not app.diag()['generating'])
+    def new_chat():
+        app.open_navigation();b=app.diag()['navigation_footer']['newchat']['bounds']
+        app.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
     try:
         assert app.diag()['session_preferences']['system_prompt']=='DEFAULT SYSTEM'
         assert app.diag()['summary']['sessions']==0
@@ -35,12 +40,15 @@ with tempfile.TemporaryDirectory(prefix='penchat-presets-') as directory:
         s=app.diag();assert s['session_preferences']['model_id']=='b' and s['effective_effort']=='max'
         assert s['summary']['sessions']==0
         app.tap(500,232);q=app.receive('keyboard.open');assert q['text']=='保留草稿'
-        app.send('keyboard.result',requestId=q['requestId'],confirmed=False,text='')
+        app.send('keyboard.result',requestId=q['requestId'],confirmed=False)
+        assert app.diag()['draft_length']==len('保留草稿')
         app.tap(908,232);wait_for(lambda:not app.diag()['generating'])
+        wait_for(lambda:bool(Server.requests))
         body=Server.requests[-1][1]
-        assert body['instructions']=='EXPERT SYSTEM' and body['reasoning']['effort']=='max' and body['model']=='b',body
+        assert_chat_prompt(body['instructions'],'EXPERT SYSTEM')
+        assert body['reasoning']['effort']=='max' and body['model']=='b',body
         # Only-empty preset does not replace a sent conversation's model/effort.
-        picker();drag(app,[175,130,90],x=350);app.tap(350,160)
+        choose(2)
         s=app.diag();assert s['session_preferences']['model_id']=='b',s['session_preferences']
         # Pull inherits the applied snapshot, including system instructions.
         app.to_chat();app.tap(521,174) if not app.diag()['following_latest'] else None
@@ -50,20 +58,20 @@ with tempfile.TemporaryDirectory(prefix='penchat-presets-') as directory:
         assert app.diag()['session_preferences']['system_prompt']=='EXPERT SYSTEM'
         assert app.diag()['session_preferences']['model_id']=='b'
         # Drawer new chat applies the default, not the preceding preset.
-        app.open_navigation();app.tap(180,236)
+        new_chat()
         s=app.diag();assert s['session_preferences']['model_id']=='a' and s['effective_effort']=='api_default'
         send('默认请求')
-        body=Server.requests[-1][1];assert body['instructions']=='DEFAULT SYSTEM' and 'effort' not in body.get('reasoning',{})
+        body=Server.requests[-1][1];assert_chat_prompt(body['instructions'],'DEFAULT SYSTEM');assert 'effort' not in body.get('reasoning',{})
         Server.mode='summary-delayed'
         app.edit('请求快照');app.tap(908,232)
         wait_for(lambda:app.diag()['generating'])
         choose(1)
         wait_for(lambda:not app.diag()['generating'])
-        assert Server.requests[-1][1]['instructions']=='DEFAULT SYSTEM'
+        assert_chat_prompt(Server.requests[-1][1]['instructions'],'DEFAULT SYSTEM')
         assert app.diag()['session_preferences']['system_prompt']=='EXPERT SYSTEM'
         Server.mode='none';send('下一次使用专家配置')
-        assert Server.requests[-1][1]['instructions']=='EXPERT SYSTEM'
-        app.open_navigation();app.tap(180,236);send('恢复默认会话')
+        assert_chat_prompt(Server.requests[-1][1]['instructions'],'EXPERT SYSTEM')
+        new_chat();send('恢复默认会话')
         picker();snapshot(app,'presets-picker');app.tap(900,232)
         app.open_settings();app.setting("presets")
         assert app.diag()['view']=='presets',app.diag()['view']
@@ -80,7 +88,7 @@ with tempfile.TemporaryDirectory(prefix='penchat-presets-') as directory:
         assert app.diag()['session_preferences']['system_prompt']=='DEFAULT SYSTEM'
         send('兼容接口')
         body=Server.requests[-1][1]
-        assert body['messages'][0]=={'role':'system','content':'DEFAULT SYSTEM'}
+        assert body['messages'][0]['role']=='system';assert_chat_prompt(body['messages'][0]['content'],'DEFAULT SYSTEM')
         assert sum(m['role']=='system' for m in body['messages'])==1 and 'reasoning_effort' not in body
         app.open_settings();app.setting("presets")
         assert app.diag()['view']=='presets'

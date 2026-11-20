@@ -1,3 +1,4 @@
+#include "bounded.hpp"
 #pragma once
 #include <algorithm>
 #include <cstddef>
@@ -9,6 +10,7 @@
 #endif
 
 namespace pen_photo {
+using pen::stream::bounded;
 // Same white-paper mask, median brightness normalization and clipped gains as
 // the tested Python flatfield experiment. No OpenCV, NN, GPU, or frame history.
 // gain is the frozen clip(220/background, .8, 1.4) sensor map.
@@ -37,13 +39,13 @@ inline float brightness(const uint8_t *gray, int width, int height, const float 
     float median = *middle;
     if (!(scratch.size() & 1))
         median = (median + *std::max_element(scratch.begin(), middle)) * .5f;
-    return std::clamp(220.f / median, .9f, 1.1f);
+    return bounded(220.f / median, .9f, 1.1f);
 }
 
 inline void apply(const uint8_t *gray, uint8_t *output, std::size_t n, const float *gain,
                   float scalar) {
     for (std::size_t i = 0; i < n; ++i) {
-        float g = std::clamp(gain[i] * scalar, .8f, 1.4f);
+        float g = bounded(gain[i] * scalar, .8f, 1.4f);
         float v = std::min(gray[i] * g, 250.f);
         output[i] = static_cast<uint8_t>(v + .5f);
     }
@@ -102,7 +104,7 @@ inline float brightness_neon(const uint8_t *gray, int width, int height, const f
     float median = *middle;
     if (!(scratch.size() & 1))
         median = (median + *std::max_element(scratch.begin(), middle)) * .5f;
-    return std::clamp(220.f / median, .9f, 1.1f);
+    return bounded(220.f / median, .9f, 1.1f);
 }
 
 inline void apply_neon(const uint8_t *gray, uint8_t *output, std::size_t n, const float *gain,

@@ -1,0 +1,97 @@
+Native empty-state and UI metric coverage
+
+Shared component: native/lvgl-app/src/empty_state.hpp/.cpp
+StatusKind distinguishes empty data, loading, a failed request, and a filter with
+no matches. Copy names the content and the existing action that produces it.
+The component never starts requests, saves data, captures images, or changes
+selection. Coordinates supplied by callers are final logical pixels. UI spacing,
+font roles and optional native icon geometry use UiMetrics once.
+
+A positive availableHeight is the actual remaining reader viewport after its
+header/actions. Labels are measured with the supplied real native fonts. Center
+the complete text block only when space permits; include a complete 48dp native
+line-icon box plus 12dp separation only when it also fits. Small viewports omit
+the icon and retain all text in ordinary reader scroll extent. A zero height is a
+content-sized, left-aligned form/popup notice and reserves no page height.
+Portrait form reflow recognizes component roots and remeasures after width/reader
+changes. Provider animated content/footer groups retain their measured height.
+
+Covered call sites in this change:
+- Keyboard clipboard: empty persisted records explain long-press Copy inside
+  PenChat, then tap here to paste. A sensitive temporary current slot keeps its
+  one-use paste action and never becomes an empty/history record.
+- Providers: empty Provider list uses App::emptyState; the model section uses a
+  compact notice with Add models and whole-page Save. Model discovery separately
+  identifies not yet requested, fetching, failed request, service returned zero,
+  and a filter with no matches. Manual model ID entry remains available. No
+  automatic request/import is introduced.
+- Import/export: no active saved conversations, no archived conversations, no
+  saved presets, and no import files each have distinct instructions. A failed
+  list request is an error notice, not an assertion that the folder/list is empty.
+- Web details: no retrieval records explains when the model creates them. No
+  stored source body is a compact snapshot notice beside the existing manual
+  Re-fetch action; it does not automatically fetch the URL.
+- Feedback records: no pending reports and no receipts is empty; successful
+  receipts remain visible when the pending queue is empty. Existing preview/send
+  flow is referenced and no diagnostic collection/upload starts from the notice.
+- Session information: initial snapshot loading and read failure are separate
+  states with the existing Refresh recovery action.
+- Saved preset management: empty list explains New preset and enabling the chat
+  entry. The preset picker keeps its compact measured menu structure.
+
+Other integrated surfaces:
+- App::emptyState is the common adapter used by album and archived conversations.
+- app.cpp renderMessages() messages.empty() branch formerly reserved 166dp and
+  placed welcome text at 42/86dp. It now uses the actual reader viewport excluding
+  the resting composer and distinguishes setup guidance from a ready new chat.
+- app_context.cpp contextSummaryPage() is the source of summary empty/invalid
+  notices. Missing summaries explain how to create one; the existing View history/
+  Recompress actions and invalid-summary distinction remain. Rendering never starts compression.
+- app_history.cpp archive reader messages.empty() now has a compact/reader
+  content explanation with a route back to other archives and the way to archive
+  a conversation; the drawer uses its own actual menu viewport.
+- Balance views distinguish missing balance-query configuration, never requested,
+  pending requests, unsupported services and request failures. Failed requests
+  must keep their recovery instruction instead of generic empty text.
+
+Deliberate exclusions:
+- No pinyin candidates during composition remains an inline composition/selection
+  state with retry/adjust-pinyin instructions. It is not an empty data page.
+- Update current/latest, downloading, validation/install error and unavailable
+  changelog each retain their exact state and existing actions.
+- Camera, crop and scanner are live workspaces. Their capture/preparation/error,
+  lost-frame and partial-result controls remain purpose-specific.
+- Model capability unknown/unconfigured values, missing token usage and a form's
+  blank field remain field-level information; they are not empty list screens.
+- Transfer preview/mapping, export completion and format-loading failures retain
+  their existing validation, success or error flows.
+- Text-selection action rows and menus are content-sized; no centering spacer is
+  introduced. Normal candidate absence does not expand a keyboard/popup.
+
+Metric audit in migrated native files:
+- Resolved editorViewport's 144-unit multiline field minimum, 12-unit tail and
+  8-unit scroll clearance through editorMetrics/UiMetrics.
+- Resolved clipboard/floating keyboard popup geometry and selection-menu gaps;
+  magnifier caret width/inset now use editorMetrics.
+- Provider delete/undo buttons' 2-unit vertical alignment uses UiMetrics.
+- Web paragraphs and feedback record/adaptation descriptions use scaled 4/8/10/
+  12/16-unit gaps, including feedback's three-action width calculation.
+- Native back hint geometry, preset segmented-control gaps and scanner preview/
+  warning insets now use UiMetrics. Image dimensions/scales remain image pixels.
+- Onboarding's illustrations already map a 400x150 design space to a resolved
+  logical scene. Their paper strokes, arc geometry, icon optical box, radii and
+  moving indicators now follow that same mapping rather than bare output pixels.
+- Other design values in owned API/Anthropic/model/update/session-info code were
+  already converted by the shared helpers or local font-size role resolution.
+- Never convert timestamps, animation duration, token/page limits, sequence
+  indices, ratios, LVGL encoded sizes, measured text/image pixels or final caller
+  coordinates. Existing 44-logical-pixel minimum hit policies remain in helpers.
+
+Verification:
+StatusStateTest.cpp measures Chinese text using a verified system-font cache with FreeType through
+LVGL and checks native label bounds, wrapping, compact content height, viewport
+centering, complete-icon admission, width reflow and error ink. It runs both
+semantic themes, scales 75/100/125/150%, widths 240/320/568/640/960 and five remaining
+viewport heights. The targeted host test and twelve isolated C++14 translation-unit checks passed.
+Combined host matrices and device restoration/install results are recorded in
+.work/ui-unification/validation.json alongside ignored screenshots and full packages.

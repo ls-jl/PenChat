@@ -72,22 +72,37 @@ int main(int argc, char **argv) {
       assert(!right.contains(l.split,100) && !left.contains(0,70));
     }
     // Portrait layouts use logical reading width, never physical axes or a
-    // tall-screen multiplier. Landscape geometry above remains unchanged.
+    // tall-screen multiplier. Portrait trigger travel is explicitly doubled;
+    // landscape geometry above remains unchanged.
     for (const auto size : {std::make_pair(568,1210),std::make_pair(600,1280)}) {
       const AppLayout page{size.first,size.second};
       const EditorLayout keyboard(size.first,size.second);
       assert(page.portrait() && page.gutter()==0);
-      assert(page.composerX()+page.composerWidth()==size.first-16);
-      assert(keyboard.portrait && keyboard.textY==12 && keyboard.textBottom()<keyboard.compositionY);
-      assert(keyboard.compositionY+20<=keyboard.candidateY);
-      assert(keyboard.candidateY+44<=keyboard.actionsY);
+      assert(page.composerX()+page.composerWidth()==size.first-page.composerX());
+      assert(page.composerY()+page.composerHeight()==size.second-page.safeBottom());
+      assert(keyboard.keyInset==0 && keyboard.keySpan==size.first);
+      assert(keyboard.portrait && keyboard.docked && keyboard.panelTop<keyboard.compositionY-4 && keyboard.textBottom()<keyboard.compositionY);
+      assert(keyboard.compositionY==keyboard.candidateY);
+      const auto composition=keyboard.compositionRow();
+      const int preeditWidth=keyboard.compositionPreeditWidth(60);
+      const auto candidates=keyboard.compositionCandidates(false,preeditWidth);
+      assert(candidates.y==composition.y&&candidates.height==composition.height);
+      assert(candidates.x==composition.x);
+      assert(candidates.x+candidates.width==composition.x+composition.width);
+      assert(keyboard.candidateY==keyboard.actionsY);
       assert(keyboard.actionsY+44<=keyboard.keyTop);
-      assert(keyboard.rowHeight>=52 && keyboard.rowHeight<=72 && keyboard.keyWidth>=44);
-      assert(keyboard.bottomY+keyboard.bottomHeight<=size.second-8);
+      const int baseRow=std::max(52,std::min(72,int(size.first*.12)));
+      const int baseBottom=std::max(44,std::min(60,int(size.first*.10)));
+      assert(keyboard.rowHeight>=baseRow*1.5 && keyboard.keyWidth>=44);
+      assert(keyboard.keyboardLift==int(std::lround(baseBottom/10.))*10);
+      assert(keyboard.bottomY+keyboard.bottomHeight==size.second-page.safeBottom()-keyboard.keyboardLift);
+      const int actual=keyboard.bottomY+keyboard.bottomHeight-keyboard.keyTop;
+      assert(std::abs(actual-(3*baseRow+18+baseBottom)*1.5)<=2);
+      assert(keyboard.selectionButtonWidth()>=44&&keyboard.selectionButtonHeight()>=44);
       for(const auto &action:keyboard.actions())assert(action.x>=0&&action.width>=44&&action.x+action.width<=size.first);
       const auto pull=pullGeometry({0,0,size.first,size.second},size.first,size.second,size.second-58);
       const auto shorter=pullGeometry({0,0,size.first,size.second/2},size.first,size.second,size.second/2-58);
-      assert(pull.fill+pull.start>210&&pull.fill+pull.start<250);
+      assert(pull.fill+pull.start>420&&pull.fill+pull.start<500);
       assert(pull.fill==shorter.fill&&pull.start==shorter.start);
     }
     for (const auto cfg : {Json::object(), Json{{"width",960},{"height",266}},
@@ -308,8 +323,7 @@ int main(int argc, char **argv) {
   assert(!requestBody(explicitDefault, Json::array(), true)
               .value("reasoning", Json::object())
               .contains("effort"));
-  assert(effortChoices({{"name", "gpt-5.2"}})[0] == "none" &&
-         effortChoices({{"name", "gpt-5.2"}})[1] == "api_default");
+  assert(effortChoices({{"name", "gpt-5.2"}}) == supportedEfforts({{"name", "gpt-5.2"}}));
   auto dir = std::string("/tmp/penchat-native-") + std::to_string(getpid());
   ensureDirectory(dir);
   Database db(join(dir, "penchat.db"));
@@ -344,7 +358,9 @@ int main(int argc, char **argv) {
   assert(db.responseInput(session, assistant).size() == 1);
   auto imageSession = uid("session");
   auto imagePath = join(dir, "fixture.png");
-  atomicText(imagePath, "image fixture bytes");
+  // Request serialization validates actual image bytes, so use a real 1px PNG.
+  const char imageFixture[] = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90\x77\x53\xde\x00\x00\x00\x0c\x49\x44\x41\x54\x78\x9c\x63\x70\x68\x38\x00\x00\x02\x84\x01\x81\x26\x97\xa7\x2b\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82";
+  atomicText(imagePath,std::string(imageFixture,sizeof(imageFixture)-1));
   db.append(imageSession, "user", "",
             {{"path", imagePath}, {"source", "album"}});
   auto imageInput = db.responseInput(imageSession, "");

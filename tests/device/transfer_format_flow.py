@@ -27,8 +27,7 @@ def run(env):
         if H>W:d.side_back()
         else:d.tap(35,28)
     session=d.state()['session'];draft=d.state()['draft_length'];native=d.pid()
-    d.tap(35,28);d.wait(lambda:d.state()['navigation_open'])
-    d.tap(W*2//3-70,H-30);d.wait(lambda:d.state()['view']=='settings')
+    d.open_settings()
     activate(d.state,d.tap,d.settings_swipe,'transfer');ready('home');d.capture('format-home')
     assert len(d.state()['transfer_actions'])==6
     click('查看格式规范');ready('format_index');d.capture('format-index')

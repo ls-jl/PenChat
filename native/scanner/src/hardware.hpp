@@ -1,8 +1,7 @@
 #pragma once
-#include "protocol.hpp"
-#include "profile.hpp"
+#include "scan_platform.hpp"
+#include <memory>
 #include <string>
-#include <vector>
 
 namespace penchat_scan {
 CaptureProfile detectedScanProfile();
@@ -10,34 +9,36 @@ Json scanLeaseSnapshot();
 int acquireScanProcessLock(unsigned waitMs = 0);
 bool validScanProcessLock(int fd);
 void restoreScanLease(const Json &snapshot) noexcept;
-void setScanLight(bool on);
-class Hardware {
-  struct Buffer {
-    void *bytes = nullptr;
-    size_t size = 0;
-  };
-  int video_ = -1, sensor_ = -1, key_ = -1;
-  int stride_ = 0;
-  CaptureProfile profile_;
-  bool stream_ = false, pressed_ = false, waitRelease_ = false;
+bool scanLeaseRestored(const Json &snapshot) noexcept;
+std::unique_ptr<const ResolvedDeviceProfile> resolveScanProfile(const Json &lease);
+void setScanLight(const CaptureProfile &, const std::string &exportMarker, bool on);
+// Common lease/key/light implementation composed with one platform capture.
+// Its implementation is linked only into the scanner and diagnostic probes.
+class Hardware final : public ScanPlatform {
+  std::shared_ptr<CaptureStream> capture_;
+  std::shared_ptr<const ResolvedDeviceProfile> resolved_;
+  std::function<void()> beforeRestore_;
+  int key_ = -1;
+  bool pressed_ = false, waitRelease_ = false, keyMonotonic_ = false, grabbed_ = false;
   Json lease_;
-  std::vector<Buffer> buffers_;
+  const CaptureProfile &profile() const { return resolved_->profile; }
   void openCamera();
   void resetKey();
-
 public:
-  ~Hardware() { close(); }
-  // Snapshot must already be retained by the parent before acquiring.
+  ~Hardware() override { close(); }
   void open(const Json &lease);
-  // Reserve guardian/key ownership without starting sensor or V4L2 buffers.
-  void reserve(const Json &lease);
-  void start();
-  void close() noexcept;
-  bool keyEvent(bool &down);
-  bool readFrame(const std::function<void(const uint8_t *, int, uint64_t,
-                                          int64_t)> &consume);
-  void light(bool on) { setScanLight(on); }
-  // SC2356 gates exposure; SC035GS free-runs and the worker bounds timestamps.
-  void exposure(bool enabled);
+  void beforeRestore(std::function<void()> hook) override { beforeRestore_=std::move(hook); }
+  void reserve(const Json &lease) override;
+  void start() override;
+  void close() noexcept override;
+  void cameraToOcr() override;
+  void observeKeysOnly(bool) override;
+  bool keyEvent(bool &down, int64_t *timestamp=nullptr) override;
+  bool readFrame(const FrameConsumer &) override;
+  bool readFrame(const LegacyFrameConsumer &consume) {
+    return readFrame(FrameConsumer([&](const FrameView &f){consume(f.y,f.stride,f.sequence,f.timestamp);}));
+  }
+  void light(bool) override;
+  void exposure(bool) override;
 };
 } // namespace penchat_scan

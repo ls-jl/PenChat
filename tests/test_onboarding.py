@@ -6,6 +6,7 @@ from test_chat_style import seed
 ROOT=t.ROOT;OUT=ROOT/'.work/onboarding';OUT.mkdir(parents=True,exist_ok=True);t.port=1
 binary=pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ROOT/'build/host/penchat-lvgl'))
 from test_onboarding_helpers import action
+from provider_ui import back
 def shot(a,name):
  p=a.directory/'lvgl-diagnostic.png'
  if p.exists():p.unlink()
@@ -15,22 +16,29 @@ def counts(p):
   return {table:db.execute('select count(*) from '+table).fetchone()[0] for table in ('chat_sessions','chat_messages','providers','model_configs','message_assets')}
 def marker(p):
  with sqlite3.connect(p/'penchat.db') as db:return json.loads(db.execute("select value_json from app_settings where key='onboarding'").fetchone()[0])
-for w,h in [(960,266),(936,280),(568,1210)]:
+for w,h in [(960,266),(936,280),(640,260),(568,1210)]:
  with tempfile.TemporaryDirectory(prefix='penchat-onboard-') as folder:
   p=pathlib.Path(folder);a=t.Native(binary,p,seed_model=False,onboarding=True,screen={'width':w,'height':h,'direction':0,'tp_direction':0})
   try:
    assert a.diag()['view']=='onboarding';baseline=counts(p)
    for step in range(7):
     d=a.diag()['onboarding'];assert d['step']==step
+    assert d['renderer']=='software_3d' and not d['render_failed'],d
+    assert 0<d['render_bytes']<=640*360*12 and 10<=d['render_triangles']<=80
     assert ('finish' in d['actions'])==(step>=3)
     assert ('back' in d['actions'])==(step>0)
     for b in d['actions'].values():assert b[0]>=0 and b[1]>=0 and b[2]<w and b[3]<h and b[3]-b[1]+1>=44
+    controls=[b for key,b in d['actions'].items() if key!='caption']
+    for i,b in enumerate(controls):
+     for c in controls[i+1:]:assert b[2]<c[0] or c[2]<b[0] or b[3]<c[1] or c[3]<b[1],(w,h,step,b,c)
     action(a,'replay');shot(a,f'{w}-{h}-{step}-start')
     # Verify animation really progresses, can pause, and stays paused in background.
     t.wait_for(lambda:a.diag()['onboarding']['phase']>=1,timeout=4);action(a,'pause');before=a.diag()['onboarding'];time.sleep(.12)
-    assert a.diag()['onboarding']['elapsed']==before['elapsed'];shot(a,f'{w}-{h}-{step}-middle')
+    assert a.diag()['onboarding']['elapsed']==before['elapsed']
+    assert a.diag()['onboarding']['render_frames']==before['render_frames'];shot(a,f'{w}-{h}-{step}-middle')
     a.send('visibility',visible=False);time.sleep(.15);a.send('visibility',visible=True)
-    assert a.diag()['onboarding']['elapsed']==before['elapsed'];action(a,'pause')
+    assert a.diag()['onboarding']['elapsed']==before['elapsed']
+    assert a.diag()['onboarding']['render_frames']==before['render_frames'];action(a,'pause')
     t.wait_for(lambda:a.diag()['onboarding']['phase']==3,timeout=6);action(a,'pause');shot(a,f'{w}-{h}-{step}-end')
     assert a.diag()['onboarding']['objects']==before['objects']
     assert not a.diag()['editor']['active'] and not a.diag()['keyboard']
@@ -40,7 +48,7 @@ for w,h in [(960,266),(936,280),(568,1210)]:
      for i in range(7):a.send('touch',x=10+i*w//40,y=h//2,pressed=True);time.sleep(.025)
      a.send('touch',x=w//5,y=h//2,pressed=False);time.sleep(.12);assert a.diag()['view']=='onboarding'
     if step==2:
-     action(a,'configure');t.wait_for(lambda:a.diag()['view']=='provider');a.tap(40,32)
+     action(a,'configure');t.wait_for(lambda:a.diag()['view']=='provider');back(a)
      t.wait_for(lambda:a.diag()['view']=='onboarding');assert a.diag()['onboarding']['step']==2
     action(a,'next')
     if step<6:t.wait_for(lambda:a.diag()['onboarding']['step']==step+1)
@@ -76,4 +84,4 @@ with tempfile.TemporaryDirectory(prefix='penchat-onboard-save-failure-') as fold
   with sqlite3.connect(p/'penchat.db') as db:db.execute('DROP TRIGGER reject_guide')
   a.tap(890,222);t.wait_for(lambda:not a.diag()['modal']);action(a,'next');assert marker(p)['step']==1
  finally:a.close()
-print('Onboarding: seven animated pages / three sizes, mandatory steps, pause/replay/background, configuration return, restart, upgrade, no business writes and About replay passed.')
+print('Onboarding: seven animated pages / four sizes, disjoint controls, mandatory steps, pause/replay/background, configuration return, restart, upgrade, no business writes and About replay passed.')

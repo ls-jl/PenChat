@@ -1,0 +1,36 @@
+--- a/include/edgesearch/search.hpp
++++ b/include/edgesearch/search.hpp
+@@ -1,4 +1,5 @@
+ #pragma once
++#include <functional>
+ 
+ #include <cstddef>
+ #include <cstdint>
+@@ -14,6 +15,8 @@
+ };
+ 
+ struct Options {
++    std::function<bool()> cancelled; // Caller cancellation, no retry.
++
+     std::vector<std::string> engines = {"bing_cn", "so360", "sogou", "baidu"};
+     std::size_t max_results = 10;
+     std::size_t per_engine = 10;
+--- a/src/transport.cpp
++++ b/src/transport.cpp
+@@ -449,6 +449,7 @@
+         return static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now()).count());
+     };
+     while (next < requests.size() || !active.empty()) {
++        if (options.cancelled && options.cancelled()) throw std::runtime_error("cancelled");
+         while (next < requests.size() && active.size() < options.concurrency && remaining() > 0) {
+             auto transfer = std::make_unique<Transfer>(multi.get(), next, options.max_body_bytes, impl_->entry(requests[next].session_key));
+             configure(*transfer, requests[next], options, std::max(remaining(), 1L));
+@@ -471,7 +472,7 @@
+             active.erase(found);  // Detach and clean up before parsing.
+             handler(index, std::move(response));
+         }
+-        const bool enough = stop && stop();
++        const bool enough = (stop && stop()) || (options.cancelled && options.cancelled());
+         if (enough || remaining() <= 0) {
+             for (auto& entry : active) {
+                 auto response = finish(*entry.second, CURLE_OPERATION_TIMEDOUT);

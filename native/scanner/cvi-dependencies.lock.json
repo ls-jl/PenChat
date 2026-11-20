@@ -1,0 +1,31 @@
+{
+  "bundle": "cv1826_int8_complete_20261018",
+  "model_target": "cv182x",
+  "model_format": "1.4",
+  "runtime_version": "1.4.0 t2.2.0-29-g8a2e08f@20220111",
+  "upstream_header": "https://raw.githubusercontent.com/sophgo/tpu-mlir/v1.8/third_party/CV18xx/include/cviruntime.h",
+  "files": {
+    "models/cvimodel/pintu_rgb32_int8_experimental.cvimodel": {
+      "sha256": "e60639153314327dd276207a32cc7714812509bd817d61f3848e79cc8aecfc32",
+      "bytes": 18001072
+    },
+    "results/cvi_stream32_round/official_sources/cviruntime.h": {
+      "sha256": "2de3d90c64b0e450ddbd7a9b78f0c322dee53d55734e9881c2ffe78eabe9aef1",
+      "bytes": 8880
+    },
+    "provenance/device_components/libcviruntime.so": {
+      "sha256": "b81c706d8b91d13d2602659e8a1924d7b0f6526612a48fbf5c4382f28f1db818",
+      "bytes": 592884
+    },
+    "docs/MODEL_IO.md": {
+      "sha256": "7cb80d35693b9bbb7202824655cf33ed117691b2bb0a4d60a7b29b6c7a90be96",
+      "bytes": 3506
+    },
+    "provenance/user_acceptance.json": {
+      "sha256": "6a5cb21e43c534d5f6034f3fa2f74abeb4a96a9b1e38d8c72b2b1684ca4ac2ac",
+      "bytes": 576
+    }
+  },
+  "validated_scope": "CVI device inference and desktop stitching of press32; live ARM32 acquisition/pipeline integration remains separate",
+  "redistribution": "Model and device runtime are not relicensed by PenChat; device runtime is loaded in place, never bundled."
+}

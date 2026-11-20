@@ -197,6 +197,15 @@ Json catalogReasoning(const Json &model) {
              {"summary", false}, {"disable", false}};
   }
   const auto required = out.value("adapter", std::string("standard"));
+  // Saved model capabilities can outlive a Provider protocol change. DeepSeek
+  // Responses uses standard effort names, never Chat's thinking switch values.
+  if (required == "deepseek" && modelAdapter(model) == required &&
+      apiProtocol(model) == ApiProtocol::Responses) {
+    out["wire"] = "standard";
+    auto &levels = out["levels"];
+    if (levels.is_object()) for (auto &level : levels.items())
+      if (level.value() == "disabled") level.value() = "none";
+  }
   if (required != "standard" && required != modelAdapter(model)) {
     out["adapter_required"] = required;
     if (anthropicProtocol(model) || out.value("mode", std::string()) == "toggle") {
@@ -232,9 +241,7 @@ void validateModelImages(const Json &model, const Json &input) {
   }
 }
 void applyModelParameters(Json &body, const Json &model) {
-  const auto caps = objectField(model, "capabilities_json");
-  auto reasoning = objectField(caps, "reasoning");
-  if (reasoning.empty()) reasoning = catalogReasoning(model);
+  auto reasoning = catalogReasoning(model);
   const auto required = reasoning.value("adapter", std::string("standard"));
   if (required == "standard" || modelAdapter(model) != required ||
       model.value("effective_effort", std::string()) == "api_default") return;
@@ -245,6 +252,10 @@ void applyModelParameters(Json &body, const Json &model) {
   if (mode != "enabled" && mode != "disabled") return;
   if (mode == "disabled" && !reasoning.value("disable", false))
     throw std::runtime_error("此模型不支持关闭思考，请修改模型设置");
+  if (required == "deepseek" && apiProtocol(model) == ApiProtocol::Responses) {
+    if (mode == "disabled") body["reasoning"]["effort"] = "none";
+    return;
+  }
   if (wire == "qwen_toggle") {
     body.erase("reasoning_effort"); body["enable_thinking"] = mode == "enabled";
     if (mode == "enabled" && reasoning.contains("token_budget") && reasoning["token_budget"].is_number_integer()) {

@@ -31,8 +31,9 @@ def run():
                 (4,42000,32,False,False,True),
                 (7,67200,32,False,False,True),
                 (7,150000,32,False,False,True),
-                (8,75600,32,False,False,False),
+                (8,75600,32,False,False,True),
                 (9,84000,32,False,False,False),
+                (10,92400,32,False,False,False),
                 (1,16800,2,True,False,True),
                 (1,0,32,False,False,False),
                 (1,-1,32,False,False,False),
@@ -72,7 +73,7 @@ def run():
             assert all(gap['recovered'] for gap in result['frame_gaps']),result
             s.send('discard');s.receive('ready')
             # Total missing frames may exceed eight; only a single continuous
-            # gap reaching eight stops capture. Repeated small gaps are visible.
+            # gap reaching nine stops capture. Repeated small gaps are visible.
             s.press();sequences=list(range(32))+list(range(33,50,2))
             for seq in sequences:
                 s.send('test.frame',rawSequence=seq,rawTimestamp=100000+seq*8400)

@@ -42,12 +42,12 @@ void Database::copyConversationRows(const Json &session,const Json &rows,
   std::map<std::string,std::string> messages,assets;
   for(auto row:rows) {
     auto old=row.at("id").get<std::string>();messages[old]=uid("message");
-    row.erase("parts");row["id"]=messages[old];row["session_id"]=target;
+    row.erase("parts");row.erase("_parts");row.erase("_events");row.erase("_checkpoint");row["id"]=messages[old];row["session_id"]=target;
     copy("chat_messages",row);
   }
   for(const auto &m:rows) {
     const auto old=m.at("id").get<std::string>(),message=messages.at(old);
-    for(auto part:query("SELECT * FROM message_parts WHERE message_id=? ORDER BY part_index",{old})) {
+    for(auto part:m.contains("_parts")?m["_parts"]:query("SELECT * FROM message_parts WHERE message_id=? ORDER BY part_index",{old})) {
       if(part["asset_id"].is_string()) {
         auto aid=part["asset_id"].get<std::string>();
         if(!assets.count(aid)) {
@@ -65,7 +65,18 @@ void Database::copyConversationRows(const Json &session,const Json &rows,
       part["id"]=uid("part");part["session_id"]=target;part["message_id"]=message;
       copy("message_parts",part);
     }
-    for(auto event:query("SELECT * FROM stream_events WHERE message_id=? ORDER BY seq",{old})) {
+    auto copied = query("SELECT metadata_json FROM chat_messages WHERE id=?", {message});
+    if (!copied.empty()) {
+      auto metadata = objectField(copied[0], "metadata_json");
+      if (metadata.contains("web_images"))
+        for (auto &image : metadata["web_images"]) {
+          auto key = image.value("asset_id", std::string());
+          if (assets.count(key))
+            image["asset_id"] = assets.at(key);
+        }
+      execute("UPDATE chat_messages SET metadata_json=? WHERE id=?", {metadata.dump(), message});
+    }
+    for(auto event:m.contains("_events")?m["_events"]:query("SELECT * FROM stream_events WHERE message_id=? ORDER BY seq",{old})) {
       event["id"]=uid("event");event["session_id"]=target;event["message_id"]=message;copy("stream_events",event);
     }
   }
@@ -86,40 +97,6 @@ void Database::refreshConversationCount(const std::string &session) {
   std::string preview;
   if(!last.empty())preview=last[0]["message_type"]=="image"?"[图片]":titleExcerpt(fieldText(last[0],"output_text"),40);
   execute("UPDATE chat_sessions SET message_count=(SELECT count(*) FROM chat_messages WHERE session_id=?),preview_text=? WHERE id=?",{session,preview,session});
-}
-Json Database::commitRegeneration(const Json &snapshot,const std::string &message,
-                                  bool archive,Json checkpoint,std::atomic<bool> &cancel) {
-  return perform([&,snapshot,message,archive,checkpoint]() mutable {
-    cancelled(&cancel);const auto source=snapshot.at("session").at("id").get<std::string>();
-    execute("BEGIN IMMEDIATE");
-    try {
-      auto current=contextSnapshot(source);
-      if(!current.contains("session")||current["rows"]!=snapshot.at("rows")||current["checkpoint"]!=snapshot.at("checkpoint"))
-        throw std::runtime_error("会话已变化，未应用过期重试");
-      const auto seq=assistantSequence(current["rows"],message);
-      Json prefix=Json::array();bool question=false;
-      for(const auto &m:current["rows"])if(m["seq"].get<int64_t>()<seq) {
-        prefix.push_back(m);if(m["role"]=="user"&&(!fieldText(m,"output_text").empty()||!m["parts"].empty()))question=true;
-      }
-      if(!question)throw std::runtime_error("没有对应的用户问题，无法重新生成");
-      if(!checkpoint.empty()&&!validContext(checkpoint,prefix))throw std::runtime_error("重试上下文摘要无效，原会话保持完整");
-      auto saved=(archive||!checkpoint.empty())?archiveCopy(current,archive?"重试前副本":"压缩前副本",archive?"retry_archive":"compression_archive"):std::string();
-      auto pending=pendingPhotos(current["rows"]);std::set<std::string> keep;
-      for(const auto &m:pending)keep.insert(m.at("id").get<std::string>());
-      Json removed=Json::array();
-      for(const auto &m:current["rows"])if(m["seq"].get<int64_t>()>=seq&&!keep.count(m.at("id").get<std::string>()))removed.push_back(m);
-      deleteConversationRows(source,removed);
-      execute("INSERT INTO chat_messages(id,session_id,seq,role,status,message_type,created_at,updated_at,output_text,metadata_json) VALUES(?,?,?,'assistant','interrupted','text',?,?,'',?)",
-              {message,source,seq,nowMs(),nowMs(),Json{{"timeline",{{"version",1}}}}.dump()});
-      auto next=seq+1;
-      for(const auto &m:pending)execute("UPDATE chat_messages SET seq=? WHERE id=? AND session_id=?",{next++,m["id"],source});
-      auto meta=objectField(current["session"],"metadata_json");meta.erase("context_compression");meta.erase("title_token");meta["title_state"]="manual";
-      if(!checkpoint.empty()){checkpoint["archive_id"]=saved;meta["context_compression"]=checkpoint;}
-      execute("UPDATE chat_sessions SET metadata_json=? WHERE id=?",{meta.dump(),source});refreshConversationCount(source);
-      cancelled(&cancel);execute("COMMIT");gcCursor_.clear();deferAssetCollection();
-      return Json{{"message",message},{"archive",saved}};
-    }catch(...){execute("ROLLBACK");throw;}
-  });
 }
 Json Database::createBranch(const Json &snapshot,const std::string &message,
                             const Json &preferences,std::atomic<bool> &cancel) {
@@ -169,7 +146,12 @@ Json Database::createBranch(const Json &snapshot,const std::string &message,
       }while(!query("SELECT id FROM chat_sessions WHERE title=? LIMIT 1",{title}).empty());
       Json rows=Json::array();int64_t lastTime=0;
       for(const auto &m:current["rows"])if(m["seq"].get<int64_t>()<=through) {
-        rows.push_back(m);auto time=objectField(m,"metadata_json").value("timeline",Json::object());
+        auto copy = m;
+        auto messageMetadata = objectField(copy, "metadata_json");
+        messageMetadata.erase("tool_compaction");
+        copy["metadata_json"] = messageMetadata.dump();
+        rows.push_back(std::move(copy));
+        auto time=objectField(m,"metadata_json").value("timeline",Json::object());
         lastTime=std::max(lastTime,std::max(chatTimestamp(time,"sent_at"),chatTimestamp(time,"completed_at")));
       }
       auto pending=pendingPhotos(current["rows"]);auto seq=through+1;

@@ -20,6 +20,32 @@ void Database::transferSnapshot(const std::string &path) {
     int rc = backup ? sqlite3_backup_step(backup, -1) : SQLITE_ERROR;
     if (backup)
       sqlite3_backup_finish(backup);
+    if(rc==SQLITE_DONE) {
+      auto sql=[copy](const std::string &text,const Json &args=Json::array()) {
+        sqlite3_stmt *statement=nullptr;
+        if(sqlite3_prepare_v2(copy,text.c_str(),-1,&statement,nullptr)!=SQLITE_OK)throw std::runtime_error("导出路径准备失败");
+        for(size_t i=0;i<args.size();++i) {
+          if(args[i].is_string()){auto value=args[i].get<std::string>();sqlite3_bind_text(statement,i+1,value.data(),value.size(),SQLITE_TRANSIENT);}
+          else sqlite3_bind_int64(statement,i+1,args[i].get<int64_t>());
+        }
+        const int result=sqlite3_step(statement);sqlite3_finalize(statement);
+        if(result!=SQLITE_DONE)throw std::runtime_error("导出路径准备失败");
+      };
+      try {
+        sql("PRAGMA foreign_keys=OFF");sql("BEGIN IMMEDIATE");
+        for(const auto &group:query("SELECT DISTINCT session_id FROM reply_groups")) {
+          const auto session=group["session_id"].get<std::string>();const auto cut=replyCut(session);
+          if(cut==INT64_MAX)continue;
+          const std::string suffix="(SELECT id FROM chat_messages WHERE session_id=? AND seq>?)";
+          sql("DELETE FROM stream_events WHERE message_id IN "+suffix,{session,cut});
+          sql("DELETE FROM message_parts WHERE message_id IN "+suffix,{session,cut});
+          sql("UPDATE message_assets SET session_id=NULL,message_id=NULL WHERE message_id IN "+suffix,{session,cut});
+          sql("DELETE FROM chat_messages WHERE session_id=? AND seq>?",{session,cut});
+          sql("UPDATE chat_sessions SET message_count=(SELECT count(*) FROM chat_messages WHERE session_id=?),preview_text=(SELECT substr(coalesce(output_text,''),1,40) FROM chat_messages WHERE session_id=? ORDER BY seq DESC LIMIT 1) WHERE id=?",{session,session,session});
+        }
+        sql("DELETE FROM reply_asset_refs");sql("DELETE FROM reply_results");sql("DELETE FROM reply_groups");sql("COMMIT");
+      }catch(...){sqlite3_close(copy);unlink(path.c_str());throw;}
+    }
     sqlite3_close(copy);
     if (rc != SQLITE_DONE) {
       unlink(path.c_str());
@@ -146,6 +172,12 @@ Json Database::importTransfer(const Json &bundle) {
             auto mf = query(
                 "SELECT provider_id FROM model_configs WHERE id=? AND enabled=1", {mm});
             auto metadata = m.value("metadata", Json::object());
+            if (metadata.contains("web_images"))
+              for (auto &image : metadata["web_images"]) {
+                auto key = image.value("asset", std::string());
+                if (assets.count(key))
+                  image["asset_id"] = assets.at(key);
+              }
             execute(
                 "INSERT INTO "
                 "chat_messages(id,session_id,seq,role,status,message_type,created_at,"
@@ -173,6 +205,16 @@ Json Database::importTransfer(const Json &bundle) {
                         "WHERE id=?",
                         {id, a->second});
             }
+          }
+          for (const auto &row : query("SELECT id,metadata_json FROM chat_messages WHERE session_id=?", {sid})) {
+            auto metadata = objectField(row, "metadata_json");
+            if (!metadata.contains("tool_compaction")) continue;
+            auto &tool = metadata["tool_compaction"];
+            const auto restored = contextSnapshot(sid);
+            tool["checksum"] = contextChecksum(restored["rows"], tool.value("through", int64_t(0)));
+            tool["source_checksum"] = contextChecksum(restored["rows"], tool.value("source_through", int64_t(0)));
+            tool.erase("archive_id");
+            execute("UPDATE chat_messages SET metadata_json=? WHERE id=?", {metadata.dump(), row["id"]});
           }
           if (meta.contains("context_compression")) {
             auto &cp = meta["context_compression"];

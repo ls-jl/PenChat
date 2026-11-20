@@ -109,8 +109,18 @@ bool resampleRgbaViewport(const uint8_t* src, int width, int height, uint8_t* ds
     int dstW, int dstH, int imageX, int imageY, int imageW, int imageH, int rotation)
 {
     if (!src || !dst || width < 1 || height < 1 || dstW < 1 || dstH < 1 || imageW < 1 || imageH < 1) return false;
-    memset(dst, 0, static_cast<size_t>(dstW) * dstH * 4);
     const int rot = (rotation % 360 + 360) % 360;
+    // Native UI frames already match their logical viewport. Avoid allocating
+    // coordinate tables and clearing pixels that this exact copy overwrites.
+    if (imageX == 0 && imageY == 0 && imageW == width && imageH == height &&
+        dstW == width && dstH == height && (rot == 0 || rot == 180)) {
+        const size_t count = static_cast<size_t>(width) * height;
+        if (rot == 0) memcpy(dst, src, count * 4);
+        else for (size_t i = 0; i < count; ++i)
+            memcpy(dst + i * 4, src + (count - 1 - i) * 4, 4);
+        return true;
+    }
+    memset(dst, 0, static_cast<size_t>(dstW) * dstH * 4);
     const bool quarter = rot == 90 || rot == 270;
     std::vector<int> xs(dstW, -1), ys(dstH, -1);
     for (int x = 0; x < dstW; ++x) {

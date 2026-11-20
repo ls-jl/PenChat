@@ -63,6 +63,11 @@ struct Updater::Impl {
   bool ok(const updates::Response &r)const{return r.code==0&&r.status==200;}
   updates::Transport &network(){if(!transport)transport.reset(new updates::Transport(config,cancelled));return *transport;}
   void check(bool explicitCheck) {
+#ifdef PENCHAT_CVI_PLATFORM
+    (void)explicitCheck;
+    status("unsupported","当前 S6 构建未配置对应更新源，请手动安装 ARM32 包");
+    return;
+#endif
     manual=explicitCheck;release=Json::object();notes=Json::array();++generation;value.erase("note_text");status("checking","正在检查更新…");
     auto addresses=config.nodes;
     if(addresses.empty()) {

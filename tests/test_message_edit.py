@@ -68,9 +68,11 @@ def run(w,h):
             selected=a.diag()['editor'];assert selected['selection_end']-selected['selection_start']<selected['length']
             a.tap(w-62,28);shot(a,f'{w}-partial-selection');assert a.diag()['editor']['clipboard_count']>=1
             a.tap(40,30);assert rows(p)==original and not a.diag()['editor']['active']
-            # Initial keyboard cancel is a full branch cancel; no archive yet.
+            # Explicit native Cancel aborts the branch; hiding official input only stages.
             request=begin(a,True)
-            a.send('keyboard.result',requestId=request['requestId'],confirmed=False,text='discard')
+            a.send('keyboard.result',requestId=request['requestId'],confirmed=False,error='fixture handoff unavailable')
+            t.wait_for(lambda:a.diag()['editor']['active'] and not a.diag()['keyboard'])
+            a.editor_action('cancel')
             t.wait_for(lambda:not a.diag()['editor']['active']);assert not a.diag()['message_interactions']['editing'] and rows(p)==original
             # Done only stages. X restores the old pending image and clears text.
             request=begin(a,True);a.send('keyboard.result',requestId=request['requestId'],confirmed=True,text='Changed question')
@@ -85,7 +87,7 @@ def run(w,h):
             time.sleep(.3)
             photo=next(v for v in a.diag()['chat_images'] if 20<=v['y']+v['height']//2<h-58)
             a.long_press(photo['x']+photo['width']//2,photo['y']+photo['height']//2);t.wait_for(lambda:a.diag()['modal'])
-            a.tap(w-190,h-44);t.wait_for(lambda:a.diag()['message_interactions']['images']==1)
+            button(a,a.diag()['context_menu']['choices']['delete']['bounds']);t.wait_for(lambda:a.diag()['message_interactions']['images']==1)
             assert rows(p)==original
             a.tap(40,30)
             assert not list((p/'.message-edit').glob('image_*'))
@@ -103,14 +105,17 @@ def run(w,h):
             assert (p/'original.png').exists() and (p/'assets/photo.png').exists()
             shot(a,f'{w}-sent-archived')
             # Default edit policy persists, and no warning appears on next edit.
-            a.open_settings();a.setting('message_edit');shot(a,f'{w}-default-policy');a.tap(84+16+(w-162)//3+12+(w-162)//6,h-98)
+            a.open_settings();a.setting('message_edit');shot(a,f'{w}-default-policy')
+            from choice_ui import select
+            select(a,'archive')
             with sqlite3.connect(p/'penchat.db') as db:assert json.loads(db.execute("select value_json from app_settings where key='message_edit_default'").fetchone()[0])=='archive'
             a.to_chat()
             edited_id=next(id for id,role,text in rows(p) if text=='Edited and sent')
             menu(a,edited_id);action(a,'edit');request=a.receive('keyboard.open')
             assert request['text']=='Edited and sent' # saved policy bypasses the warning
-            a.send('keyboard.result',requestId=request['requestId'],confirmed=False,text='')
-            t.wait_for(lambda:not a.diag()['editor']['active']);assert not a.diag()['message_interactions']['editing']
+            a.send('keyboard.result',requestId=request['requestId'],confirmed=False)
+            t.wait_for(lambda:not a.diag()['editor']['active']);assert a.diag()['message_interactions']['editing']
+            a.tap(40,30);assert not a.diag()['message_interactions']['editing']
         finally:a.close();server.shutdown()
 def generation_guard():
     gate=threading.Event()

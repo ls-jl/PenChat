@@ -2,16 +2,49 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
-function fixture() {
+function fixture(stroke,route) {
   const timers = new Map(), calls = [], events = []; let clock = 0
   const signal = () => { const callbacks = new Set(); return { callbacks, on: f => callbacks.add(f), off: f => callbacks.delete(f), fire: (...a) => [...callbacks].forEach(f => f(...a)) } }
   const manager = Object.fromEntries(['ocrStartChanged','scanWordResultChanged','ocrCompleteChanged','ocrStopChanged','ocrResultChanged','scanErrorChanged'].map(k => [k,signal()]))
   for (const name of ['addUseOcrAppId','deleteUseOcrAppId','setIsOpenScan','setShowImgScanMode','setCurrentAppId','startScan']) manager[name] = (...args) => calls.push([name,...args])
-  const context = vm.createContext({ module: {}, setTimeout: f => { timers.set(++clock,f);return clock }, clearTimeout: id => timers.delete(id) })
+  const context = vm.createContext({ module: {}, setTimeout: (f,delay=0) => { const call=()=>f();call.delay=delay;timers.set(++clock,call);return clock }, clearTimeout: id => timers.delete(id) })
   vm.runInContext(fs.readFileSync('src/launcher/ocr.js','utf8').replace('export class OcrSession','module.exports = class OcrSession'),context)
-  const session = new context.module.exports(manager,'test-app',(type,data) => events.push({type,...data}))
-  return { session, manager, timers, calls, events, flush: () => { for (const [id,f] of [...timers.entries()]) { if(timers.delete(id)) f() } } }
+  const session = new context.module.exports(manager,'test-app',(type,data) => events.push({type,...data}), stroke, route)
+  return { session, manager, timers, calls, events, flush: (delay) => { for (const [id,f] of [...timers.entries()]) { if((delay===undefined||f.delay===delay)&&timers.delete(id)) f() } } }
 }
+test('capability detection is read-only and requires the continuous OCR bridge', () => {
+  const f=fixture(), probe=()=>f.session.constructor.capabilities(f.manager)
+  assert.equal(probe().single,true);assert.equal(probe().multi,false)
+  f.manager.startAlmondMultiScan=()=>{throw new Error('probe must not invoke setters')}
+  assert.equal(probe().multi,true)
+  assert.equal(f.calls.length,0);assert.equal(f.timers.size,0)
+  assert.equal(f.manager.ocrStartChanged.callbacks.size,0)
+  for(const name of ['addUseOcrAppId','deleteUseOcrAppId','ocrStartChanged']) {
+    const value=f.manager[name];delete f.manager[name]
+    assert.equal(probe().single,false);assert.equal(probe().multi,false)
+    f.manager[name]=value
+  }
+  for(const name of ['scanWordResultChanged','ocrCompleteChanged','ocrStopChanged'])delete f.manager[name]
+  assert.equal(probe().single,false);assert.equal(probe().multi,false)
+})
+test('capability detection accepts legacy registration and both signal APIs', () => {
+  const f=fixture(), probe=()=>f.session.constructor.capabilities(f.manager)
+  delete f.manager.setIsOpenScan;delete f.manager.startScan
+  assert.equal(probe().single,true)
+  f.manager.ocrStartChanged={connect(){},disconnect(){}}
+  assert.equal(probe().single,true)
+  delete f.manager.ocrStartChanged.disconnect
+  assert.equal(probe().single,false)
+  assert.equal(f.calls.length,0)
+})
+test('absent or inaccessible OCR exports never advertise multiline', () => {
+  const f=fixture(), probe=value=>f.session.constructor.capabilities(value)
+  assert.equal(probe(null).multi,false)
+  assert.equal(probe({}).single,false)
+  Object.defineProperty(f.manager,'startAlmondMultiScan',{get(){throw new Error('unavailable')}})
+  assert.equal(probe(f.manager).single,true);assert.equal(probe(f.manager).multi,false)
+  assert.equal(f.calls.length,0)
+})
 test('single-line system OCR preserves case and cleans up before delivering text', () => {
   const f=fixture();f.session.start('one')
   const config=JSON.parse(f.calls.find(c => c[0]==='addUseOcrAppId')[1]);assert.equal(config.scanMethod,0)
@@ -96,4 +129,180 @@ test('opening the keyboard only arms OCR; idle completion/error signals stay sil
   f.manager.ocrStartChanged.fire();f.manager.scanErrorChanged.fire();f.flush()
   assert.equal(f.events.at(-1).confirmed,false);assert(f.session.active)
   f.session.stop();assert.equal(f.timers.size,0)
+})
+
+test('prepared routing precedes capture and remains registered through activation and mode changes', () => {
+  const f=fixture();f.manager.startAlmondMultiScan=mode=>f.calls.push(['multi',mode])
+  f.session.start('prepare',{continuous:true,session:'editor',mode:'single',prepareOnly:true})
+  assert(f.events.some(e=>e.type==='ocr.prepared'&&e.ok))
+  assert(f.calls.some(c=>c[0]==='addUseOcrAppId'))
+  assert(!f.calls.some(c=>c[0]==='setIsOpenScan'||c[0]==='startScan'))
+  const first=f.calls.length
+  f.session.start('prepare',{continuous:true,session:'editor',mode:'single'})
+  f.session.start('multi',{continuous:true,session:'editor',mode:'multi',prepareOnly:true})
+  f.session.start('multi',{continuous:true,session:'editor',mode:'multi'})
+  assert(!f.calls.slice(first).some(c=>c[0]==='deleteUseOcrAppId'||(c[0]==='setIsOpenScan'&&c[1]===false)))
+  const registrations=f.calls.filter(c=>c[0]==='addUseOcrAppId').map(c=>JSON.parse(c[1]))
+  assert(registrations.every(c=>c.useOcr===true));assert.equal(registrations.at(-1).scanMethod,1)
+  f.session.stop();assert(f.calls.some(c=>c[0]==='deleteUseOcrAppId'))
+  assert(f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===false))
+})
+test('failed preparation explicitly rejects the handoff and cancels its listeners', () => {
+  const f=fixture();f.manager.addUseOcrAppId=()=>false
+  f.session.start('failed',{continuous:true,session:'editor',prepareOnly:true})
+  assert(f.events.some(e=>e.type==='ocr.prepared'&&!e.ok))
+  assert(f.session.active);assert.equal(f.manager.ocrStartChanged.callbacks.size,0)
+  assert(f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===false));f.session.stop()
+  assert(!f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===true))
+})
+test('preflight failure blocks pen capture temporarily and restores its original flags', () => {
+  const f=fixture();f.manager.isOpenScan=true;f.manager.showImgScanMode=true
+  delete f.manager.addUseOcrAppId
+  f.session.start('unsupported',{continuous:true,session:'editor',prepareOnly:true})
+  assert(f.events.some(e=>e.type==='ocr.prepared'&&!e.ok))
+  assert(f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===false))
+  f.session.stop()
+  assert.equal(f.calls.filter(c=>c[0]==='setIsOpenScan').at(-1)[1],true)
+  assert.equal(f.calls.filter(c=>c[0]==='setShowImgScanMode').at(-1)[1],true)
+})
+
+test('direct pen strokes require matching editor, sequence and press/release boundaries', () => {
+  const strokes=[];const f=fixture((down,sequence)=>{strokes.push([down,sequence]);return true})
+  f.session.start('one',{continuous:true,session:'editor'})
+  const pen=(down,sequence,extra={})=>f.session.pen({down,sequence,requestId:'one',session:'editor',...extra})
+  pen(true,1,{requestId:'stale'});pen(false,1);assert.equal(strokes.length,0)
+  pen(true,1);pen(true,1);pen(false,2);pen(false,1);pen(false,1)
+  assert.deepEqual(strokes,[[true,1],[false,1]])
+  pen(true,1);assert.equal(strokes.length,2)
+  pen(true,2);f.session.stop();assert.deepEqual(strokes.at(-1),[false,2])
+  pen(true,3);assert.equal(strokes.length,4)
+})
+test('unavailable direct OCR interface keeps input and reports a terminal failure', () => {
+  const f=fixture(()=>false);f.session.start('one',{continuous:true,session:'editor'})
+  f.session.pen({down:true,sequence:1,requestId:'one',session:'editor'})
+  assert(f.events.some(e=>e.type==='ocr.result'&&!e.confirmed&&e.terminal))
+  assert(f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===false));f.session.stop()
+})
+
+test('native pen preparation masks only host dispatch before camera handoff and restores it on stop',()=>{
+  const routes=[];const f=fixture(()=>true,enabled=>{routes.push(enabled);return true})
+  f.session.start('prepare',{continuous:true,session:'editor',prepareOnly:true,nativePen:true})
+  assert(f.events.some(e=>e.type==='ocr.prepared'&&e.ok));assert.deepEqual(routes,[true])
+  assert(!f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===true))
+  f.session.start('active',{continuous:true,session:'editor',nativePen:true})
+  f.session.start('mode',{continuous:true,session:'editor',nativePen:true,mode:'multi'})
+  assert.deepEqual(routes,[true]);f.session.stop();assert.deepEqual(routes,[true,false])
+  f.session.stop();assert.deepEqual(routes,[true,false])
+})
+test('unavailable native event mask refuses camera handoff rather than exposing the home handler',()=>{
+  const f=fixture(()=>true,()=>false)
+  f.session.start('fail',{continuous:true,session:'editor',prepareOnly:true,nativePen:true})
+  assert(f.events.some(e=>e.type==='ocr.prepared'&&!e.ok))
+  assert(!f.calls.some(c=>c[0]==='setIsOpenScan'&&c[1]===true));f.session.stop()
+})
+
+test('forwarded pen edges reassert text mode after the vendor press forces image mode',()=>{
+  let f;f=fixture(()=>{f.manager.showImgScanMode=true;return true})
+  f.manager.setShowImgScanMode=enabled=>{f.manager.showImgScanMode=enabled}
+  f.session.start('one',{continuous:true,session:'editor'})
+  for(const down of [true,false]) {
+    f.session.pen({down,sequence:1,requestId:'one',session:'editor'})
+    assert.equal(f.manager.showImgScanMode,false)
+  }
+  f.session.stop()
+})
+
+test('registration-only firmware does not require newer scan-control methods', () => {
+  const f=fixture();delete f.manager.setIsOpenScan;delete f.manager.setShowImgScanMode;delete f.manager.startScan
+  f.session.start('s6',{continuous:true,session:'input'})
+  f.flush();assert(f.session.active);assert(!f.events.some(e=>e.type==='ocr.result'))
+  f.manager.ocrStartChanged.fire(false);f.manager.ocrCompleteChanged.fire('');f.flush()
+  assert(!f.events.some(e=>e.type==='ocr.result'||e.started===true))
+  f.manager.ocrStartChanged.fire(true);f.manager.ocrResultChanged.fire({text:'识别文字'})
+  f.manager.ocrStopChanged.fire();f.flush(900);f.flush(0)
+  assert.equal(f.events.at(-1).text,'识别文字');assert(f.session.active)
+  f.session.stop();assert(f.calls.some(c=>c[0]==='deleteUseOcrAppId'))
+})
+
+test('registration-only multiline cleanup restores optional modes without an open setter', () => {
+  const f=fixture();delete f.manager.setIsOpenScan
+  f.manager.showImgScanMode=true
+  f.manager.startAlmondMultiScan=mode=>f.calls.push(['multi',mode])
+  f.session.start('multi',{continuous:true,session:'input',mode:'multi'})
+  assert(f.calls.some(c=>c[0]==='multi'&&c[1]===1))
+  f.session.stop()
+  assert(f.calls.some(c=>c[0]==='multi'&&c[1]===0))
+  assert(f.calls.some(c=>c[0]==='setShowImgScanMode'&&c[1]===true))
+  assert.equal(f.manager.ocrStartChanged.callbacks.size,0)
+  assert.equal(f.timers.size,0)
+})
+
+test('missing both scan-control paths fails cleanly instead of pretending OCR is armed', () => {
+  const f=fixture();delete f.manager.setIsOpenScan;delete f.manager.setCurrentAppId
+  f.session.start('unsupported',{continuous:true,session:'input'});f.flush()
+  const result=f.events.filter(e=>e.type==='ocr.result').at(-1)
+  assert.equal(result.confirmed,false);assert(result.terminal)
+  assert.equal(f.manager.ocrStartChanged.callbacks.size,0);assert.equal(f.timers.size,0)
+})
+
+test('failed unregister retains cleanup for retry and never reports release success', () => {
+  const f=fixture();f.session.start('cleanup',{continuous:true,session:'input'})
+  let fail=true;f.manager.deleteUseOcrAppId=()=>{if(fail)throw new Error('service busy')}
+  assert.equal(f.session.stop(),false);assert.equal(f.session.active,null)
+  assert.equal(f.manager.ocrStartChanged.callbacks.size,0);assert.equal(f.timers.size,0)
+  assert.equal(f.session.stop(),false)
+  fail=false;assert.equal(f.session.stop(),true);assert.equal(f.session.stop(),true)
+})
+
+test('empty word notification keeps the stroke alive for a delayed real result', () => {
+  const f=fixture();f.session.start('late',{continuous:true,session:'editor'})
+  f.manager.ocrStartChanged.fire(true)
+  f.manager.scanWordResultChanged.fire(0,'')
+  f.flush(0);f.flush(900)
+  assert(!f.events.some(e=>e.type==='ocr.result'))
+  f.manager.scanWordResultChanged.fire(0,{text:'稍后到达的文字'});f.flush(0)
+  const results=f.events.filter(e=>e.type==='ocr.result')
+  assert.equal(results.length,1);assert.equal(results[0].text,'稍后到达的文字')
+  f.flush(2500);f.flush(0);assert.equal(f.events.filter(e=>e.type==='ocr.result').length,1)
+  f.session.stop()
+})
+
+test('stop before the text property waits for recognition, and cancellation rejects delayed timers', () => {
+  const f=fixture();f.session.start('late-property',{continuous:true,session:'editor'})
+  f.manager.ocrStartChanged.fire(true);f.manager.ocrStopChanged.fire('')
+  f.flush(900);f.flush(0);assert(!f.events.some(e=>e.type==='ocr.result'))
+  f.manager.ocrResultChanged.fire({text:'后到的属性'});f.flush(120);f.flush(0)
+  assert.equal(f.events.at(-1).text,'后到的属性')
+  f.manager.ocrStartChanged.fire(true);f.manager.ocrCompleteChanged.fire('')
+  const stale=[...f.timers.values()].find(t=>t.delay===2500)
+  f.session.start('replacement',{continuous:true,session:'other-editor'})
+  stale();f.flush(0)
+  assert.equal(f.events.filter(e=>e.type==='ocr.result').length,1)
+  f.session.stop()
+})
+
+test('prepare activation retains listeners and an early stroke without registering twice', () => {
+  const f=fixture(()=>true,()=>true)
+  const options={continuous:true,session:'editor',nativePen:true}
+  f.session.start('handoff',{...options,prepareOnly:true})
+  const active=f.session.active,listener=[...f.manager.ocrStartChanged.callbacks][0]
+  f.manager.ocrStartChanged.fire(true);f.manager.ocrResultChanged.fire({text:'交接中的笔画'})
+  f.session.start('handoff',options)
+  assert.equal(f.session.active,active);assert.equal([...f.manager.ocrStartChanged.callbacks][0],listener)
+  assert.equal(f.calls.filter(c=>c[0]==='addUseOcrAppId').length,1)
+  assert.equal(f.session.active.capture,1);assert(f.session.active.started)
+  f.manager.ocrStopChanged.fire();f.flush(900);f.flush(0)
+  assert.equal(f.events.at(-1).text,'交接中的笔画');assert.equal(f.events.at(-1).capture,1)
+  f.session.stop()
+})
+
+test('duplicate activation leaves an ongoing stroke intact', () => {
+  const f=fixture();const options={continuous:true,session:'editor'}
+  f.session.start('same',options);const active=f.session.active
+  f.manager.ocrStartChanged.fire(true);f.manager.ocrResultChanged.fire({text:'正在识别'})
+  f.session.start('same',options)
+  assert.equal(f.session.active,active);assert.equal(f.calls.filter(c=>c[0]==='addUseOcrAppId').length,1)
+  f.manager.scanWordResultChanged.fire(0,{text:'完整文字'});f.flush(0)
+  assert.equal(f.events.at(-1).text,'完整文字');assert.equal(f.events.at(-1).capture,1)
+  f.session.stop()
 })

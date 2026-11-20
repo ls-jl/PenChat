@@ -26,19 +26,20 @@ std::string logRoot;
 bool logDirty = false;
 size_t logBytes = 0;
 const std::set<std::string> events = {
-  "lifecycle.start", "lifecycle.background", "lifecycle.foreground", "lifecycle.stop", "lifecycle.startup_error",
-  "ui.error", "camera.started", "camera.error", "camera.photo", "camera.orientation",
+  "lifecycle.runtime_error", "lifecycle.exit", "lifecycle.start", "lifecycle.background", "lifecycle.foreground", "lifecycle.stop", "lifecycle.startup_error",
+  "context.failure", "ui.error", "camera.started", "camera.error", "camera.photo", "camera.orientation",
   "storage.save_error", "storage.save_complete", "scanner.started", "scanner.finished",
-  "scanner.released", "scanner.error", "scanner.stopped", "network.request_end", "feedback.request_end", "feedback.upload_result"};
+  "scanner.released", "scanner.error", "scanner.review_error", "scanner.stopped", "network.request_end", "network.stream_end", "feedback.request_end", "feedback.upload_result"};
 const std::set<std::string> numbers = {
-  "status", "curl_code", "elapsed_ms", "dns_ms", "tcp_ms", "tls_ms", "first_byte_ms", "queue_ms",
+  "signal", "status", "curl_code", "elapsed_ms", "dns_ms", "tcp_ms", "tls_ms", "first_byte_ms", "queue_ms",
   "new_connections", "connection_reused", "attempts", "count", "width", "height", "angle",
+  "semantic_chunks", "stream_quiet_ms", "stream_observed", "stream_done", "cancelled",
   "received", "filtered", "selected", "committed", "dropped_raw", "unlocated", "queue_peak", "queue_capacity",
   "raw_queued", "selected_queued", "raw_peak", "selected_peak", "frame_bytes", "canvas_bytes",
   "peak_frame_bytes", "peak_canvas_bytes", "rss_bytes", "rss_peak_bytes", "swap_bytes",
   "system_available_bytes", "system_reserve_bytes", "memory_stop_code",
   "stop_rss_bytes", "stop_swap_bytes", "stop_frame_bytes", "stop_canvas_bytes",
-  "batches", "unsaved", "failed", "active", "code"};
+  "batches", "unsaved", "failed", "active", "code", "stage", "scan_id", "request_id"};
 Json safeFields(const Json &input) {
   Json out = Json::object();
   if (!input.is_object()) return out;
@@ -53,6 +54,13 @@ Json safeFields(const Json &input) {
       code==35||code==60?"tls":code==42?"cancelled":"transport";
     if(code==0 && out.value("status",0)>=400)kind="http";
     out["error_category"]=kind;
+  }
+  for(const auto &key:{"request_id","finish_reason"}) {
+    const auto field=input.find(key);
+    if(field==input.end()||!field->is_string())continue;
+    auto value=field->get<std::string>();
+    if(value.size()>128||value.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.:/")!=std::string::npos)continue;
+    out[key]=value;
   }
   return out;
 }
@@ -203,7 +211,7 @@ FeedbackConfig FeedbackConfig::build() {
   FeedbackConfig config;
   config.endpoint = FeedbackBuild_endpoint; config.token = FeedbackBuild_token;
   config.nodes = Json::parse(FeedbackBuild_nodes).get<std::vector<std::string>>();
-#ifndef __aarch64__
+#ifndef PENCHAT_NATIVE_DEVICE
   if (const auto path = getenv("PENCHAT_TEST_FEEDBACK_CONFIG")) {
     const auto data = feedbackRead(path, 16384);
     if (data.is_object()) {
@@ -228,46 +236,21 @@ Json feedbackScreen(const Json &configuration, const Screen &s) {
   effective["lvgl_buffer_count"] = 1; // Display supplies one LVGL full-frame buffer.
   return {{"source","falcon_configuration"},{"configured",original},{"effective",effective}};
 }
-Json feedbackHardware(bool native) {
-  Json out = {{"input_devices",Json::array()},{"video_devices",Json::array()}};
-  utsname u{};
-  if (!uname(&u)) out["system"] = {{"kernel",clean(u.release,sizeof(u.release))},{"architecture",clean(u.machine,sizeof(u.machine))}};
-  if (!native) { out["status"] = "host_test"; return out; }
-  auto model = text("/proc/device-tree/model");
-  out["model"] = clean(model.data(),model.size());
-  if(model.empty())out["model_status"]="unknown: device-tree model unavailable";
-  auto compatibles = text("/proc/device-tree/compatible"); out["compatible"] = Json::array();
-  std::istringstream list(compatibles); std::string part;
-  while (out["compatible"].size() < 16 && std::getline(list,part,'\0')) out["compatible"].push_back(clean(part.data(),part.size()));
-  if(compatibles.empty())out["compatible_status"]="unknown: device-tree compatible unavailable";
-  for (const auto &name : names("/dev/input","event",128)) {
-    const auto path = "/dev/input/" + name;
-    int fd = open(path.c_str(),O_RDONLY|O_NONBLOCK|O_CLOEXEC);
-    Json device = {{"path",path}};
-    if (fd < 0) { device["errno"] = errno; device["status"] = "unavailable"; out["input_devices"].push_back(device); continue; }
-    char title[256]{}; input_id id{};
-    if (ioctl(fd, EVIOCGNAME(sizeof(title)), title) >= 0) device["name"] = clean(title,sizeof(title));
-    if (ioctl(fd, EVIOCGID, &id) == 0) device["id"] = {{"bus",id.bustype},{"vendor",id.vendor},{"product",id.product},{"version",id.version}};
-    unsigned char bits[(KEY_MAX+8)/8]{};
-    if (ioctl(fd,EVIOCGBIT(EV_KEY,sizeof(bits)),bits) >= 0) {
-      device["key_codes"] = Json::array();
-      for (int code = 0; code <= KEY_MAX; ++code) if (bits[code/8] & (1u << (code%8))) device["key_codes"].push_back(code);
-    }
-    device["axes"] = Json::object();
-    for (int code : {ABS_X,ABS_Y,ABS_MT_POSITION_X,ABS_MT_POSITION_Y,ABS_MT_SLOT,ABS_MT_TRACKING_ID}) {
-      input_absinfo axis{};
-      if (ioctl(fd,EVIOCGABS(code),&axis) == 0)
-        device["axes"][std::to_string(code)] = {{"minimum",axis.minimum},{"maximum",axis.maximum},{"resolution",axis.resolution}};
-    }
-    close(fd); out["input_devices"].push_back(device);
-  }
-  for (const auto &name : names("/sys/class/video4linux","",128)) {
+Json feedbackVideoDevices(bool probeFormats, const std::string &sysfsRoot, const std::string &devRoot) {
+  Json devices = Json::array();
+  for (const auto &name : names(sysfsRoot,"",128)) {
     if (name.find("video") != 0 && name.find("v4l-subdev") != 0) continue;
-    const auto path = "/dev/" + name;
-    const auto title = text("/sys/class/video4linux/" + name + "/name");
+    const auto path = devRoot + "/" + name;
+    const auto title = text(sysfsRoot + "/" + name + "/name");
     Json device = {{"path",path},{"name",clean(title.data(),title.size())}};
+    if (!probeFormats) {
+      device["status"] = "metadata_only";
+      device["probe_status"] = "not_opened";
+      devices.push_back(std::move(device));
+      continue;
+    }
     int fd = open(path.c_str(),O_RDONLY|O_NONBLOCK|O_CLOEXEC);
-    if (fd < 0) { device["status"] = "unavailable"; device["errno"] = errno; out["video_devices"].push_back(device); continue; }
+    if (fd < 0) { device["status"] = "unavailable"; device["errno"] = errno; devices.push_back(device); continue; }
     if (name.find("v4l-subdev") == 0) {
       v4l2_subdev_format f{}; f.which = V4L2_SUBDEV_FORMAT_ACTIVE;
       if (ioctl(fd,VIDIOC_SUBDEV_G_FMT,&f) == 0) device["current"] = {{"width",f.format.width},{"height",f.format.height},{"media_bus_code",f.format.code}};
@@ -303,8 +286,51 @@ Json feedbackHardware(bool native) {
         }
       } else { device["status"] = "unavailable"; device["errno"] = errno; }
     }
-    close(fd); out["video_devices"].push_back(device);
+    close(fd); devices.push_back(device);
   }
+  return devices;
+}
+Json feedbackHardware(bool native) {
+  Json out = {{"input_devices",Json::array()},{"video_devices",Json::array()}};
+  utsname u{};
+  if (!uname(&u)) out["system"] = {{"kernel",clean(u.release,sizeof(u.release))},{"architecture",clean(u.machine,sizeof(u.machine))}};
+  if (!native) { out["status"] = "host_test"; return out; }
+  auto model = text("/proc/device-tree/model");
+  out["model"] = clean(model.data(),model.size());
+  if(model.empty())out["model_status"]="unknown: device-tree model unavailable";
+  auto compatibles = text("/proc/device-tree/compatible"); out["compatible"] = Json::array();
+  std::istringstream list(compatibles); std::string part;
+  while (out["compatible"].size() < 16 && std::getline(list,part,'\0')) out["compatible"].push_back(clean(part.data(),part.size()));
+  if(compatibles.empty())out["compatible_status"]="unknown: device-tree compatible unavailable";
+  for (const auto &name : names("/dev/input","event",128)) {
+    const auto path = "/dev/input/" + name;
+    int fd = open(path.c_str(),O_RDONLY|O_NONBLOCK|O_CLOEXEC);
+    Json device = {{"path",path}};
+    if (fd < 0) { device["errno"] = errno; device["status"] = "unavailable"; out["input_devices"].push_back(device); continue; }
+    char title[256]{}; input_id id{};
+    if (ioctl(fd, EVIOCGNAME(sizeof(title)), title) >= 0) device["name"] = clean(title,sizeof(title));
+    if (ioctl(fd, EVIOCGID, &id) == 0) device["id"] = {{"bus",id.bustype},{"vendor",id.vendor},{"product",id.product},{"version",id.version}};
+    unsigned char bits[(KEY_MAX+8)/8]{};
+    if (ioctl(fd,EVIOCGBIT(EV_KEY,sizeof(bits)),bits) >= 0) {
+      device["key_codes"] = Json::array();
+      for (int code = 0; code <= KEY_MAX; ++code) if (bits[code/8] & (1u << (code%8))) device["key_codes"].push_back(code);
+    }
+    device["axes"] = Json::object();
+    for (int code : {ABS_X,ABS_Y,ABS_MT_POSITION_X,ABS_MT_POSITION_Y,ABS_MT_SLOT,ABS_MT_TRACKING_ID}) {
+      input_absinfo axis{};
+      if (ioctl(fd,EVIOCGABS(code),&axis) == 0)
+        device["axes"][std::to_string(code)] = {{"minimum",axis.minimum},{"maximum",axis.maximum},{"resolution",axis.resolution}};
+    }
+    close(fd); out["input_devices"].push_back(device);
+  }
+#ifdef PENCHAT_CVI_PLATFORM
+  // CVI open/release can enter the ISP even on a read-only fd. A feedback
+  // preview must not compete with the system capture owner's sensor lease.
+  constexpr bool probeVideoFormats = false;
+#else
+  constexpr bool probeVideoFormats = true;
+#endif
+  out["video_devices"] = feedbackVideoDevices(probeVideoFormats, "/sys/class/video4linux", "/dev");
   return out;
 }
 } // namespace penchat
