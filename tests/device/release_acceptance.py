@@ -428,7 +428,7 @@ class ReleaseDevice(ScopedDevice):
   def launch(self):
     # Keep the source helper's foreground stability guard. A retained Falcon
     # launcher may expose its supported Retry action after native termination.
-    if self.serial == 'MEB0400008900794' and self.features == ['backup-restore'] and self.key_helper_ready:
+    if self.serial == 'MEB0400008900794' and self.key_helper_ready:
       if self.sh('cat /sys/class/backlight/backlight/bl_power') != '0':
         power = next(block for block in self.sh('cat /proc/bus/input/devices').split('\n\n')
                      if 'Name="rk805 pwrkey"' in block)
