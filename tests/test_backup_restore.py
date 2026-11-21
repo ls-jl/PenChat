@@ -101,6 +101,16 @@ class Restore(unittest.TestCase):
   self.assertEqual(sql(self.data,"select value_json from app_settings where key='active_session_id'")[0][0],json.dumps('current-only'))
   self.assertEqual(json.loads(sql(self.data,"select metadata_json from chat_sessions where id='conflict'")[0][0])['title_state'],'manual')
   self.assertEqual((self.pub/'same.txt').read_text(),'backup file');self.assertEqual(json.loads((self.data/'ime/user.json').read_text())['records'][0]['count'],2)
+ def test_falcon_repeated_slashes_restore_and_survive_startup_asset_gc(self):
+  alias=str(self.data.parent)+'//'+self.data.name+'/'
+  for column in ['stored_path','display_src']:
+   sql(self.data,'update message_assets set '+column+'=replace('+column+',?,?)',(str(self.data),alias.rstrip('/')))
+  p=Probe(alias,self.pub);self.probe=p;plan=p.preview(self.id);self.assertNotIn('error',plan,plan)
+  self.assertNotIn('error',p.cmd('commit',choices=self.choices(plan)))
+  image=sql(self.data,"select stored_path from message_assets where session_id='conflict'")[0][0]
+  self.assertTrue(image.startswith(alias+'assets/'));self.assertEqual(pathlib.Path(image).read_bytes(),PNG)
+  p.close();self.probe=None;self.probe=Probe(alias,self.pub)
+  self.assertEqual(pathlib.Path(image).read_bytes(),PNG)
  def test_same_provider_model_name_maps_to_existing_identity(self):
   sql(self.data,"update model_configs set id='m-current' where id='m'")
   sql(self.data,"update chat_sessions set default_model_config_id='m-current'")

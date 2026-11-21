@@ -39,7 +39,10 @@ void safe(const std::string &p,bool file=false){
 }
 int openSafe(const std::string &p,int flags,mode_t mode=0600){
   need(!p.empty()&&p.front()=='/',"文件路径无效");int fd=open("/",O_RDONLY|O_DIRECTORY|O_CLOEXEC);need(fd>=0,"无法打开文件根目录");
-  try{for(size_t at=1;at<p.size();){auto end=p.find('/',at);const auto leaf=p.substr(at,end==std::string::npos?p.size()-at:end-at);need(relative(leaf)&&leaf.find('/')==std::string::npos,"文件路径无效");
+  // Falcon may spell its owned data directory with repeated/trailing '/'.
+  // Preserve that spelling in DB asset references; skip only empty components
+  // in fd-relative traversal, retaining O_NOFOLLOW and rejection of '.'/'..'.
+  try{for(size_t at=1;at<p.size();){auto end=p.find('/',at);if(end==at){++at;continue;}const auto leaf=p.substr(at,end==std::string::npos?p.size()-at:end-at);need(relative(leaf)&&leaf.find('/')==std::string::npos,"文件路径无效");
     const int next=openat(fd,leaf.c_str(),(end==std::string::npos?flags:O_RDONLY|O_DIRECTORY)|O_NOFOLLOW|O_CLOEXEC,mode);need(next>=0,"文件路径已变化或不可访问");close(fd);fd=next;if(end==std::string::npos)return fd;at=end+1;}
     return fd;
   }catch(...){close(fd);throw;}
@@ -48,7 +51,7 @@ std::string readFile(const std::string &p,size_t limit){const int fd=openSafe(p,
 DIR *openDirSafe(const std::string &p){const int fd=openSafe(p,O_RDONLY|O_DIRECTORY);DIR *d=fdopendir(fd);if(!d){close(fd);throw RestoreError("无法读取目录");}return d;}
 void dir(const std::string &p){
   need(!p.empty()&&p.front()=='/',"还原目录无效");int fd=open("/",O_RDONLY|O_DIRECTORY|O_CLOEXEC);need(fd>=0,"无法打开目录");
-  try{for(size_t at=1;at<p.size();){const auto end=p.find('/',at);const auto part=p.substr(at,end==std::string::npos?p.size()-at:end-at);need(relative(part)&&part.find('/')==std::string::npos,"还原目录无效");
+  try{for(size_t at=1;at<p.size();){const auto end=p.find('/',at);if(end==at){++at;continue;}const auto part=p.substr(at,end==std::string::npos?p.size()-at:end-at);need(relative(part)&&part.find('/')==std::string::npos,"还原目录无效");
     int next=openat(fd,part.c_str(),O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);if(next<0&&errno==ENOENT){need(mkdirat(fd,part.c_str(),0700)==0&&fsync(fd)==0,"无法创建或同步还原目录");next=openat(fd,part.c_str(),O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);}need(next>=0,"还原目录包含链接或不可访问");close(fd);fd=next;if(end==std::string::npos)break;
     at=end+1;}
     close(fd);
