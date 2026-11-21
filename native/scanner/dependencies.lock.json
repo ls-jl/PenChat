@@ -1,7 +1,7 @@
 {
   "source_commit": "21bfd280fbb97969ff7883d107aeaa8f21982fc7",
   "files": {
-    "engine/include/pen_stream/dark_paper.hpp": "90988ff68a336f18042cfeed6a376f19eee2648e766aa47712f258e92085cb73",
+    "engine/include/pen_stream/dark_paper.hpp": "ca91433e0274bf7b5248a102868e553325708d2d023a6eb29446c7ca336558a9",
     "engine/include/pen_stream/stream.hpp": "a8e8aa423537bbdcb9d91fb2e0b259fc4e5e76b787c5c3f3fe1156cadf2d0ea9",
     "engine/include/rknn/rknn_api.h": "c48e11a6f41b451a5fd1e4ad774ea60252d3d94f78bee9b21ea3d21b21deba9a",
     "engine/src/canvas.cpp": "be90f755d2ba811034697ff7e7491be54a7554495233babc1a364b48d1b45982",
@@ -12,7 +12,7 @@
     "engine/src/photo_cpu.hpp": "93853dd21d8d654c230e525149912be6a0e2408160ec9f586aa7a362068231b0",
     "engine/src/resize_compat.cpp": "cd379a3215484087753ef6d929c7e60d9b2db5e22daa589c67a5b58495a3fa82",
     "engine/src/rknn.cpp": "0012ef4a069673647aa6106f6aae151ac88fee3ef915755a89772fcc406ea442",
-    "engine/src/stream.cpp": "35911bdf3128c6a6680c6aa4b84fcbc2eb1a975e56ef7124a528273c9b914680",
+    "engine/src/stream.cpp": "b299dfa42a645dfe78cacc92881d0e7002af5f393b7a61735810bd8d0d614a34",
     "engine/tests/fake_runtime.cpp": "2d7f7780a3faa239bb39c7e152a06a218554559a1f3b5f540602314a666a2da8",
     "engine/tests/test_adapter.cpp": "90d08f0fad9d704c7664f7c6c017638b7c9f24bc28fdff18bd3086de41e84cc0",
     "engine/tests/test_stream.cpp": "248e5990d942ca45f92d2adbb26e62ded2c8305356288785372b2fda7c62bbab",
@@ -24,7 +24,7 @@
     "src/memory_policy.hpp": "ad5ca5cb32d7debc4e0009a89f8d892ca6ee4b520de4c4b0790f5362f6077886",
     "src/runtime_io.hpp": "1920f786a5faf268e9f14a21274690b8c280fa5006a234d1a9c251e4f857ef94",
     "src/runtime_guard.cpp": "2866a54afd4e71a58e84e8362392cc462cbadebda95cdcd85f32514a30c50fb9",
-    "src/main.cpp": "22d53eb004eb49dd09e0c38f4e7f6e1a97b7c92b00cbd69a5f935f158963f3df",
+    "src/main.cpp": "de62e4ba937641180ae7b0faf937362485a04db8a879392e5be74710d5f324cf",
     "runtime-symbols.list": "868ca8503bbdbfab6029fe3fca3aceb20e76b4908f63be8bfdcf0f9c9ac92951",
     "tests/test_runtime_io.cpp": "726a9a9e417ad3520743a286ae755f0c857a7b164d74b7b9ea22525c31fd7d05",
     "src/hardware.cpp": "965465ba63282b955d5b51531cf50ca01ce3fbe861f339e2380ae59a49881895",

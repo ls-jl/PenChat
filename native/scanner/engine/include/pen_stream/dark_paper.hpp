@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 
 namespace penchat_scan {
 struct PaperHistogram {
@@ -33,7 +34,9 @@ struct DarkPaperTone {
 
   static DarkPaperTone estimate(const PaperHistogram &hist) {
     DarkPaperTone tone;
-    tone.paper = hist.percentile(95);
+    // A hot spot from the pen lamp can fill the top few percent of
+    // the histogram. Use the bulk paper instead of that bright tail.
+    tone.paper = hist.percentile(80);
     const int span = tone.paper - hist.percentile(10);
     // Leave normal and nearly featureless/clipped images alone. Fade out
     // correction as the paper approaches 120, and cap lift at four times.
@@ -42,10 +45,25 @@ struct DarkPaperTone {
     return tone;
   }
 
+  void stabilize(const DarkPaperTone &previous) {
+    // Only average neighboring estimates of similar brightness. A bright,
+    // clipped or unlit frame breaks the sequence instead of inheriting gain.
+    if (!enabled() || !previous.enabled() ||
+        std::abs(paper - previous.paper) > std::max(2, paper / 10)) return;
+    const int priorTarget = (paper * previous.target + previous.paper / 2) / previous.paper;
+    target = std::min({160, 240 - paper, 4 * paper, (3 * target + priorTarget + 2) / 4});
+  }
+
   void apply(const uint8_t *source, uint8_t *output, size_t size) const {
     std::array<uint8_t, 256> table;
-    for (unsigned i = 0; i < table.size(); ++i)
-      table[i] = uint8_t(std::min(250, (int(i) * target + paper / 2) / paper));
+    for (int i = 0; i < int(table.size()); ++i) {
+      // Keep the black point fixed and compress the highlights above the
+      // estimated paper level instead of flattening them at the white limit.
+      const int value = i <= paper
+        ? (i * target + paper / 2) / paper
+        : target + ((i - paper) * (250 - target) + (255 - paper) / 2) / (255 - paper);
+      table[i] = uint8_t(value);
+    }
     for (size_t i = 0; i < size; ++i)
       output[i] = table[source[i]];
   }

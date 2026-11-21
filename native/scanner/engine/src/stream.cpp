@@ -87,6 +87,7 @@ struct Engine::Impl {
         std::deque<FramePtr> raw, prepared, window;
         FramePtr first;
         Selection selector;
+        penchat_scan::DarkPaperTone lastDarkPaper;
         WindowGeometry geometry;
         GeometryQuality quality;
         bool sealed = false, preprocessed = false, npuSealed = false, capacity = false, haveBatch = false;
@@ -208,6 +209,8 @@ struct Engine::Impl {
                 for (int x = 0; x < small.cols; x += 4)
                     histogram.add(small.ptr<std::uint8_t>(y)[x]);
             f->darkPaper = penchat_scan::DarkPaperTone::estimate(histogram);
+            f->darkPaper.stabilize(s->lastDarkPaper);
+            s->lastDarkPaper = f->darkPaper;
         }
         // Estimate before queueing the frame. Apply only to the stitch input,
         // keeping the original sensor pixels available for unlocated frames.

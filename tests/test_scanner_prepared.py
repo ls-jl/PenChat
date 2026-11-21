@@ -9,7 +9,7 @@ for profile in ('orange','s6'):
   try:
    s.press()
    if profile=='s6':
-    for _ in range(32):s.send('test.frame',darkPaper=True)
+    for _ in range(32):s.send('test.frame',darkPaper=True,paperGlare=True)
     live=s.receive('preview')
     assert live['counts']['committed']>=24,live
     _,w,h=struct.unpack_from('<III',s.memory)

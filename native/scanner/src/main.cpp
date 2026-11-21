@@ -144,12 +144,16 @@ struct PaperExposure {
       ++frames;
     }
     Json info() const {
+      unsigned clipped=0;
+      for (unsigned level=250;level<histogram.bins.size();++level) clipped+=histogram.bins[level];
       return {{"frames",frames},{"p10",histogram.percentile(10)},
-              {"p50",histogram.percentile(50)},{"p95",histogram.percentile(95)}};
+              {"p50",histogram.percentile(50)},{"p80",histogram.percentile(80)},
+              {"p95",histogram.percentile(95)},
+              {"clipped_percent",histogram.count?clipped*100/histogram.count:0}};
     }
   };
   Sample standby, before, early, settled;
-  int64_t standbyAt = 0;
+  int64_t standbyAt = 0, settledAt = 0;
   int64_t onAt = 0;
   Json info(int64_t requestedAt) const {
     return {{"lamp_write_us",onAt ? onAt - requestedAt : -1},
@@ -861,6 +865,11 @@ public:
         for (int x = 20; x < profile_.width - 20; ++x)
           if ((x + y) % 11 < 3)
             pixels[size_t(y) * profile_.width + x] = dark ? 6 : 30;
+      if (j.value("paperGlare",false)) {
+        const auto region=sensorRegion(profile_);
+        for (int y=region.top;y<region.top+region.height/10;++y)
+          std::fill_n(pixels.data()+size_t(y)*profile_.width+region.left,region.width,255);
+      }
       frame({pixels.data(),pixels.size(),profile_.width,profile_.height,profile_.width,
             j.value("rawSequence", haveSequence_ ? lastSequence_ + 1 : uint64_t(0)),
             j.value("rawTimestamp", clockUs())});
@@ -925,9 +934,15 @@ public:
     if (profile_.optics.liftDarkPaper) {
       const auto applied = light_.onAt();
       if (applied >= lightRequestedUs_) exposure_.onAt = applied;
-      auto &sample = !exposure_.onAt || timestamp < exposure_.onAt ? exposure_.before :
-                     timestamp - exposure_.onAt < 120000 ? exposure_.early : exposure_.settled;
-      if (sample.frames < 4) sample.observe(paper);
+      if (!exposure_.onAt || timestamp < exposure_.onAt) {
+        if (exposure_.before.frames < 4) exposure_.before.observe(paper);
+      } else if (timestamp - exposure_.onAt < 120000) {
+        if (exposure_.early.frames < 4) exposure_.early.observe(paper);
+      } else if (exposure_.settled.frames < 12 &&
+                 (!exposure_.settledAt || timestamp - exposure_.settledAt >= 100000)) {
+        exposure_.settled.observe(paper);
+        exposure_.settledAt = timestamp;
+      }
     }
     const auto pushed=engine_->pushFrame(scan_,paper.y,paper.width,paper.height,paper.stride,sequence,timestamp);
 #ifdef SCANNER_DIAGNOSTIC_TRACE

@@ -28,11 +28,27 @@ int main() {
     for (int i=0;i<256;++i) dark.add(i<64?6:37);
     const auto tone=DarkPaperTone::estimate(dark);
     assert(tone.enabled() && tone.paper==37 && tone.target==148);
-    const uint8_t source[]={0,6,37,255};
+    const uint8_t source[]={0,6,37,96,160,255};
     uint8_t corrected[sizeof(source)]{};
     tone.apply(source,corrected,sizeof(source));
-    assert(corrected[0]==0 && corrected[1]==24 && corrected[2]==148 && corrected[3]==250);
-    PaperHistogram uniform,bright;
+    assert(corrected[0]==0 && corrected[1]==24 && corrected[2]==148);
+    assert(corrected[3]>corrected[2] && corrected[4]>corrected[3] && corrected[5]==250);
+    PaperHistogram uniform,bright,glare,nearBlack;
+    for (int i=0;i<256;++i) {
+      glare.add(i<26?255:i<90?6:37);
+      nearBlack.add(i<26?255:4);
+    }
+    assert(glare.percentile(95)==255 && DarkPaperTone::estimate(glare).target==148);
+    assert(!DarkPaperTone::estimate(nearBlack).enabled());
+    DarkPaperTone jitter{74,160};
+    jitter.stabilize(DarkPaperTone{68,136});
+    assert(jitter.target==157);
+    DarkPaperTone newPaper{37,148};
+    newPaper.stabilize(jitter);
+    assert(newPaper.target==148);
+    DarkPaperTone clipped{255,0};
+    clipped.stabilize(newPaper);
+    assert(!clipped.enabled());
     for (int i=0;i<256;++i) {
       uniform.add(4);
       bright.add(i<64?6:210);
