@@ -78,7 +78,24 @@ def run_inner(c):
   c['result']['home_departure_evidence']=wait(departed)
  # SDK capture redraws a global scene. Do not capture the unowned Home page.
 
- c['start_app']();wait(lambda:read()['visible']);time.sleep(.4);open_feedback()
+ def reopening_state():
+  if not c['pid']():return None
+  try:return read()
+  except RuntimeError as error:
+   if str(error)!='Native diagnostic owner changed during request':raise
+   return None
+ try:c['start_app']()
+ except RuntimeError as error:
+  if str(error)!='Native diagnostic owner changed during request':raise
+ previous=None;stable_since=0
+ def reopened():
+  nonlocal previous,stable_since
+  s=reopening_state()
+  owner=s.get('pid') if s and s.get('visible') and s.get('window_focused') and s.get('input_focused') else None
+  if owner!=previous:
+   previous=owner;stable_since=time.monotonic()
+  return owner is not None and time.monotonic()-stable_since>=.8
+ wait(reopened,15);open_feedback()
  if read()['feedback']['screen']=='form':go('adapt')
  capture('feedback-resumed-review');go('review');go('preview');wait(lambda:read()['feedback']['screen']=='preview');capture('feedback-preview')
  assert not list(filter(None,shell('find '+data+'/.feedback/reports -type f').splitlines()))

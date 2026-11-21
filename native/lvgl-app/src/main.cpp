@@ -1,6 +1,7 @@
 #include "app.hpp"
 #include "ui_scale_settings.hpp"
 #include "device_profile.h"
+#include "../../platform/identity.hpp"
 #include <csignal>
 #include <fcntl.h>
 #include <iostream>
@@ -148,8 +149,11 @@ int main(int argc, char **argv) {
       throw std::runtime_error("Cannot read Falcon screen configuration: " + screenConfig);
     const auto parsedConfiguration = Json::parse(configuration);
     const auto capabilities=camera::deviceCapabilities();
-    if(!headless && *capabilities.requiredBoard && fileText("/proc/device-tree/model",4096).find(capabilities.requiredBoard)==std::string::npos)
-      throw std::runtime_error("This native build does not support the detected device");
+#ifdef PENCHAT_CVI_PLATFORM
+    const auto hardware=platform::identify(fileText("/proc/device-tree/model",4096),fileText("/proc/device-tree/compatible",4096));
+    if(!headless&&hardware.family!=platform::Family::Cvi)
+      throw std::runtime_error("CVI native build requires a verified CVI hardware identity");
+#endif
     const bool physicalPanel=capabilities.physicalScreenConfig;
     const auto screen = Screen::fromConfig(parsedConfiguration,physicalPanel);
     const bool standalone = headless && fd < 0;
@@ -178,6 +182,7 @@ int main(int argc, char **argv) {
     const auto displayInfo=display.information();
     std::fprintf(stderr,"DISPLAY_PROBE %s\n",displayInfo.dump().c_str());
     startup("data",{{"display",displayInfo}});
+    BackupRestore::recover(data,BackupRestore::publicDirectory(data));
     Database db(join(data, "penchat.db"));
 #ifndef PENCHAT_NATIVE_DEVICE
     if (!uiScaleSpecified)
@@ -206,7 +211,7 @@ int main(int argc, char **argv) {
       // A closed launcher must not dispatch one last batch of physical touches.
       if (!running || (!standalone && !bridge.connected())) break;
       app.tick();
-      if(app.updateExit())break;
+      if(app.updateExit()||app.backupExit())break;
       const auto nextTimer = lv_timer_handler();
       display.check();
       if(!firstFrameReported&&display.presented()) {
@@ -231,6 +236,7 @@ int main(int argc, char **argv) {
     if(terminationSignal)exitReason="signal";
     else if(!standalone&&!bridge.connected())exitReason="ipc_eof";
     else if(app.updateExit())exitReason="update";
+    else if(app.backupExit())exitReason="backup_restore";
     bridge.send("native.exit",{{"reason",exitReason},{"signal",int(terminationSignal)}});
     auto persistExit=[&](const char *phase) {
       try {atomicText(join(data,"native-exit.json"),Json({{"pid",getpid()},{"reason",exitReason},
@@ -239,6 +245,7 @@ int main(int argc, char **argv) {
     persistExit("shutdown_started");
     diagnosticRecord("lifecycle","exit",{{"signal",int(terminationSignal)}});flushDiagnostics();
     app.shutdown();
+    if(app.backupExit()&&!terminationSignal)app.finishBackupRestore();
     display.visible(false);
     persistExit("shutdown_complete");
     return 0;

@@ -7,11 +7,13 @@ APPID=json.loads((ROOT/'package.json').read_text())['appid']
 def future_version(steps=1):
     major,minor,patch=map(int,json.loads((ROOT/'package.json').read_text())['version'].split('.'))
     return f'{major}.{minor}.{patch+steps}'
-def package(version='0.2.21',appid=APPID,size=128000,extra=None):
+def package(version='0.2.21',appid=APPID,size=128000,extra=None,platform='rk3562'):
     out=io.BytesIO()
     with zipfile.ZipFile(out,'w',compression=zipfile.ZIP_STORED) as z:
         z.writestr('manifest.json',json.dumps(dict(appid=appid,version=version,name='PenChat')))
         z.writestr('app.js.bin',os.urandom(size))
+        elf=bytearray(64);elf[:6]=b'\x7fELF'+bytes([1 if platform=='cv1826-s' else 2,1]);elf[18:20]=(40 if platform=='cv1826-s' else 183).to_bytes(2,'little');elf[37]=4 if platform=='cv1826-s' else 0
+        z.writestr('assets/bin/penchat-lvgl',elf)
         if extra:
             for k,v in extra.items():z.writestr(k,v)
     return out.getvalue()
@@ -65,9 +67,9 @@ class Node:
         return body
     def close(self):self.server.shutdown();self.server.server_close()
 class Probe:
-    def __init__(self,directory,root,nodes=None,current='0.2.20',auto=False):
+    def __init__(self,directory,root,nodes=None,current='0.2.20',auto=False,platform='rk3562'):
         self.path=pathlib.Path(directory);self.path.mkdir(parents=True,exist_ok=True)
-        config=self.path/'config.json';config.write_text(json.dumps(dict(root=root,nodes=nodes or [],current=current,auto=auto)))
+        config=self.path/'config.json';config.write_text(json.dumps(dict(root=root,nodes=nodes or [],current=current,auto=auto,platform=platform)))
         env=dict(os.environ,NO_PROXY='*',no_proxy='*');self.log=open(self.path/'probe.log','a')
         self.p=subprocess.Popen([str(BINARY),str(config),str(self.path)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=self.log,text=True,env=env)
     def cmd(self,op,**args):

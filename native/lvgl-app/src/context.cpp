@@ -160,6 +160,22 @@ std::string contextChecksum(const Json &rows, int64_t through) {
   out << std::hex << std::setw(16) << std::setfill('0') << hash;
   return out.str();
 }
+namespace {
+void omitToolPixels(Json &wire) {
+  if (wire.is_array()) {
+    wire.erase(std::remove_if(wire.begin(), wire.end(), [](const Json &part) {
+      return part.is_object() && part.contains("type") && part.at("type") == "input_image";
+    }), wire.end());
+    for (auto &part : wire)
+      omitToolPixels(part);
+  } else if (wire.is_object()) {
+    for (const auto field : {"content", "output"}) {
+      const auto parts = wire.find(field);
+      if (parts != wire.end()) omitToolPixels(*parts);
+    }
+  }
+}
+}
 Json contextInput(const Json &rows, int64_t after, int64_t through, const Json &model,
                   bool states) {
   Json input = Json::array();
@@ -176,10 +192,12 @@ Json contextInput(const Json &rows, int64_t after, int64_t through, const Json &
                             m.value("status", std::string()) == "complete" &&
                             apiOptions(model).replay &&
                             metadata.value("replay_identity", Json()) == replayIdentity(model);
-    const auto exchanges = metadata.value("tool_replay_input", Json::array());
-    if (toolReplay && !exchanges.empty())
-      for (const auto &item : exchanges)
-        input.push_back(item);
+    auto exchanges = metadata.value("tool_replay_input", Json::array());
+    if (toolReplay && !exchanges.empty()) {
+      omitToolPixels(exchanges);
+      for (auto &item : exchanges)
+        input.push_back(std::move(item));
+    }
     const bool replay = !states && role == "assistant" && !model.empty() &&
                         (exchanges.empty() || toolReplay) && !chatProtocol(model) &&
                         apiOptions(model).replay &&
@@ -228,13 +246,23 @@ Json contextInput(const Json &rows, int64_t after, int64_t through, const Json &
         text += "\n[历史检索参考] " + source.value("title", std::string()) + " " +
                 source.value("url", std::string()) + "\n" + source.value("text", std::string());
       }
+      if (role == "assistant") {
+        std::set<std::string> imageSources;
+        for (const auto &image : metadata.value("web_images", Json::array())) {
+          const auto url = image.value("source_url", std::string());
+          if (!url.empty() && imageSources.insert(url).second && text.find(url) == std::string::npos)
+            text += "\n[历史联网图片来源] " + url;
+        }
+      }
     }
     if (states) {
       auto batches = metadata.value("public_tool_exchanges", Json::array());
       if (batches.empty() && metadata.contains("tool_replay_input"))
         batches = Json::array({publicToolMaterial(metadata["tool_replay_input"])});
-      if (!batches.empty())
+      if (!batches.empty()) {
+        omitToolPixels(batches);
         text += "\n[Completed public tool batches] " + batches.dump();
+      }
       else if (metadata.contains("web_records"))
         text += "\n[Completed public tool records] " + publicWebMetadata(metadata).value("web_records", Json::array()).dump();
     }
@@ -253,18 +281,7 @@ Json contextInput(const Json &rows, int64_t after, int64_t through, const Json &
                    Json{{"type", "input_text"}, {"text", "请根据这张图片回答。"}});
     if (!parts.empty())
       input.push_back({{"role", wireRole}, {"content", parts}});
-    if (role == "assistant" && !toolReplay &&
-        (states || objectField(model, "capabilities_json").value("vision", Json()) == Json(true))) {
-      Json reference = Json::array(
-          {{{"type", "input_text"}, {"text", "[上一条回复附带的历史图片资料，非新问题]"}}});
-      for (const auto &image : metadata.value("web_images", Json::array())) {
-        const auto path = image.value("path", std::string());
-        if (!path.empty())
-          reference.push_back({{"type", "input_image"}, {"image_url", path}});
-      }
-      if (reference.size() > 1)
-        input.push_back({{"role", "user"}, {"content", reference}});
-    }
+
   }
   return input;
 }
@@ -392,6 +409,7 @@ Json effectiveContext(const Json &rows, Json checkpoint, const Json &model) {
       const size_t covered = checkpoint.value("tool_through", size_t(0));
       Json replay = Json::array();
       for (size_t i = covered; i < exchanges.size(); ++i) append(replay, exchanges[i]);
+      omitToolPixels(replay);
       meta["tool_replay_input"] = sameIdentity ? replay : Json::array();
       if (!sameIdentity) {
         // Protocol-neutral tool material remains ordinary historical reference data.
@@ -664,7 +682,7 @@ Json compressContext(Database &db, const Json &snapshot, Json model,
 }
 // Convert completed protocol exchanges into reference material without signatures.
 Json publicToolMaterial(Json wire) {
-  Json images = Json::array();
+  omitToolPixels(wire);
   std::function<void(Json &)> clean = [&](Json &value) {
     if (value.is_array()) {
       for (auto &part : value) clean(part);
@@ -674,19 +692,12 @@ Json publicToolMaterial(Json wire) {
         value = {{"type", "private_state_omitted"}};
         return;
       }
-      if (type == "input_image") {
-        images.push_back(value);
-        value = {{"type", "image_reference"}};
-        return;
-      }
       for (const auto key : {"signature", "encrypted_content"}) value.erase(key);
       for (auto &part : value) clean(part);
     }
   };
   clean(wire);
-  auto source = message("[Completed tool batch; external reference data]\n" + wire.dump());
-  for (const auto &image : images) source["content"].push_back(image);
-  return Json::array({source});
+  return Json::array({message("[Completed tool batch; external reference data]\n" + wire.dump())});
 }
 std::function<Json(const Json &)> toolContextCompactor(
     Json snapshot, Json compressionModel, Json chatModel, std::atomic<bool> &cancel) {

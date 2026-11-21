@@ -1,6 +1,6 @@
-# S6 Falcon 共享内存显示后端
+# CVI Falcon 共享内存显示后端
 
-PenChat 的 S6/ARM32 目标使用这一后端；Rockchip/AArch64 继续使用 DRM。
+PenChat 的 CVI/ARM32 目标使用这一后端，S6为已验证参考机；Rockchip/AArch64继续使用DRM。
 LVGL 页面、字体、键盘和原生 evdev 输入共用原实现。本目录不调用 CVI VO、
 不打开 framebuffer，不替换设备节点，不执行 shell。
 
@@ -12,7 +12,7 @@ Falcon 原 `post_fb` 源图 → 两个共享系统槽 → PenChat 原生进程�
 几何由 Falcon 配置解析，显示旋转仍仅由原提交路径处理一次。
 
 `Composite` 位于启动桥接，动态查找唯一已解析 ELF PLT 槽。只支持已核验
-S6 Cv1826/Plum 与 libfalcon 完整 SHA-256；未知固件拒绝启动，不能绕过。
+libfalcon完整SHA-256和宿主ABI描述的固件profile，不按S6/Plum板名准入；未知固件拒绝启动，不能绕过。
 借用原提交调用槽需要短暂恢复 GOT 页可写权限，随后恢复原权限；不修改磁盘库、
 指令或固定地址。其他所有者已接入时拒绝覆盖。
 
@@ -70,3 +70,5 @@ Surface，覆盖系统透明/半透明/不透明覆盖及撤下、隐藏/恢复�
 失焦中断必须先停止当前滚动和惯性，并把弹性越界收回合法边界，再重置indev。
 仅重置indev会丢失回弹对象，留下负滚动偏移；合法的阅读位置不回到页首。
 重新打开evdev时仍按真实触点槽等待旧手指全部抬起，不把覆盖层的持指接成新拖动。
+
+基础兼容的硬件族、ABI、显示及外设独立准入规则见[通用兼容说明](../../docs/CVI-COMPATIBILITY.md)。

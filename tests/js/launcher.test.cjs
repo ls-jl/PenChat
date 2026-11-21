@@ -1156,3 +1156,107 @@ test('display probe survives startup and first fatal is retained across later fa
  f.page.poll();assert.deepEqual(f.page._displayInfo,display);assert.equal(f.page.errorText,'first display probe failure')
  f.page.fail('another exit');assert.equal(f.page.errorText,'first display probe failure');f.page.dispose()
 })
+
+
+test('software update opens rollback after one owned stop without a crash report, then returns to updates',async()=>{
+ const f=fixture();await f.page.boot();f.page.nativeReady=true
+ let stopped=0,reports=0,lists=0,release
+ f.native.stop=()=>{stopped++;return new Promise(resolve=>{release=resolve})}
+ f.emergency.report=()=>{reports++};f.emergency.request=op=>{if(op==='list')lists++;return {job:'rollback-list'}}
+ const pending=f.page.openRollback({operation:'confirmed-operation'})
+ await f.page.openRollback({operation:'duplicate'})
+ assert.equal(stopped,1);assert.equal(lists,0);assert(!f.page.rescueOpen)
+ f.native.poll=()=>[{type:'exit',status:0}];f.page.poll();assert.equal(reports,0)
+ release({ok:true});await pending
+ assert(f.page.rescueOpen&&f.page.rescueFromUpdate&&!f.page.running&&!f.page.errorText)
+ assert.equal(lists,1);assert.equal(reports,0)
+ f.page.hidePage();f.page.resume();assert(f.page.rescueOpen&&!f.page.running);assert.equal(f.calls.filter(c=>c[0]==='start').length,1)
+ f.native.stop=async()=>({ok:true});await f.page.closeRescue()
+ assert(f.page.running&&!f.page.rescueOpen,JSON.stringify({running:f.page.running,rescue:f.page.rescueOpen,error:f.page.errorText,starting:f.page._starting,calls:f.calls.slice(-8)}))
+ f.native.poll=()=>[{type:'ready',generation:f.page._generation}];f.page.poll()
+ assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='update.open').length,1)
+ f.page.poll();assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='update.open').length,1)
+ f.page.dispose()
+})
+test('failed rollback handoff keeps native alive and matches the original operation',async()=>{
+ const f=fixture();await f.page.boot();f.page.nativeReady=true
+ f.native.stop=async()=>({ok:false,stale:true});await f.page.openRollback({operation:'current'})
+ assert(f.page.running&&!f.page.rescueOpen&&!f.page.errorText)
+ const result=f.calls.find(c=>c[0]==='send'&&c[1].type==='rescue.open.result')[1]
+ assert.equal(result.operation,'current');assert.equal(result.ok,false);f.page.dispose()
+})
+test('rollback handoff from an obsolete page cannot open or query the new page',async()=>{
+ const f=fixture();await f.page.boot();f.page.nativeReady=true
+ let release,lists=0;f.native.stop=()=>new Promise(resolve=>{release=resolve})
+ f.emergency.request=()=>{lists++;return {job:'stale'}}
+ const pending=f.page.openRollback({operation:'old'});f.page.detachPage();release({ok:true});await pending
+ assert(!f.page.rescueOpen);assert.equal(lists,0)
+})
+test('rollback UI uses version rollback wording and hides failure-only diagnostics for the settings entry',()=>{
+ const source=fs.readFileSync('src/launcher/LauncherPage.vue','utf8')
+ assert(!source.split('<script>')[0].includes('降级'));assert(source.includes('版本回退'));assert(source.includes('返回软件更新'))
+ const f=fixture();assert.equal(f.page.rollbackText('旧版没有降级入口。'),'旧版没有版本回退入口。')
+ assert(source.includes('v-if="errorText || rescueOpen"'));assert(source.includes('v-if="!rescueFromUpdate" :style="rescueHintStyle">{{ rescueReportText }}'))
+})
+
+test('selecting a rollback version opens a full dialog and direct install needs its second warning',async()=>{
+ const f=fixture();f.page.rescueOpen=true
+ const release={id:'selected',version:'0.3.2',compatible:false};let prepared=[]
+ f.page._rescueController={disposed:false,cancel:()=>{},prepare:(...args)=>prepared.push(args)}
+ f.page.selectRescue(release);assert.equal(f.page.rescueDialog,'version');assert.equal(prepared.length,0)
+ f.page.installRescue(false);assert.equal(prepared.length,0)
+ f.page.confirmDirectRescue();assert.equal(f.page.rescueDialog,'direct');assert.equal(prepared.length,0)
+ f.page.backRescueDialog();assert.equal(f.page.rescueDialog,'version')
+ f.page.confirmDirectRescue();f.page.installRescue(false);f.page.installRescue(false)
+ assert.equal(prepared.length,1);assert.equal(prepared[0][1].backup,false);assert.equal(prepared[0][1].skipBackupConfirmed,true)
+ assert.equal(f.page.rescueDialog,'');assert.equal(f.page.rescueState.status,'queued')
+})
+test('closing the version dialog cancels selection and the backup choice remains the default',()=>{
+ const f=fixture();f.page.rescueOpen=true;let prepared=[]
+ f.page._rescueController={disposed:false,prepare:(...args)=>prepared.push(args)}
+ const release={id:'chosen',version:'0.3.3',compatible:true}
+ f.page.selectRescue(release);f.page.dismissRescueDialog();assert.equal(f.page.rescueSelected,null);assert.equal(f.page.rescueDialog,'');assert.equal(prepared.length,0)
+ f.page.selectRescue(release);f.page.installRescue();assert.equal(prepared.length,1);assert.equal(prepared[0][1].backup,true)
+ const source=fs.readFileSync('src/launcher/LauncherPage.vue','utf8');assert(source.includes('class="rescue-dialog"'));assert(!source.includes("rescueSelected && !rescueBusy"));assert.equal(f.page.rescueDangerButtonStyle.backgroundColor,'#b42318')
+})
+
+test('backup restoration reloads only its owned runtime once and returns to the restore result page',async()=>{
+ const f=fixture();await f.page.boot();f.page.nativeReady=true
+ f.native.poll=()=>[{type:'backup.applying',operation:'restore_current',generation:f.page._generation}];f.page.poll()
+ assert.equal(f.page._restoring,'restore_current');assert(!f.page.nativeReady)
+ let complete,count=0;f.native.stop=()=>{count++;return new Promise(resolve=>{complete=resolve})}
+ const finish=f.page.finishBackupRestore({operation:'restore_current',ok:true,result:{added:2,replaced:1,skipped:3}})
+ await f.page.finishBackupRestore({operation:'restore_current',ok:true});assert.equal(count,1)
+ complete({ok:true});await finish;assert(f.page.running&&!f.page._restoring)
+ f.native.poll=()=>[{type:'ready',generation:f.page._generation}];f.page.poll()
+ const packets=f.calls.filter(c=>c[0]==='send'&&c[1].type==='backup.return');assert.equal(packets.length,1);assert.equal(packets[0][1].result.replaced,1)
+ await f.page.finishBackupRestore({operation:'restore_current',ok:true});assert.equal(count,1)
+ f.native.stop=async()=>({ok:true});f.page.dispose()
+})
+test('stale restoration callback cannot stop or reopen a replacement page',async()=>{
+ const f=fixture();await f.page.boot();f.page._restoring='restore_old'
+ let complete;f.native.stop=()=>new Promise(resolve=>{complete=resolve})
+ const finish=f.page.finishBackupRestore({operation:'restore_old',ok:true});f.page.detachPage();complete({ok:true});await finish
+ assert(!f.page._returnBackupResult);assert.equal(f.calls.filter(c=>c[0]==='start').length,1)
+})
+
+test('restoration completion under a system panel waits for interactive focus before reloading',async()=>{
+ const f=fixture();await f.page.boot();f.page.nativeReady=true;f.page._restoring='restore_panel'
+ f.native.panelVisible=true;f.page.syncWindowFocus(true)
+ let stops=0;f.native.stop=async()=>{stops++;return {ok:true}}
+ await f.page.finishBackupRestore({operation:'restore_panel',ok:true,result:{added:1}})
+ assert.equal(stops,0);assert(f.page._restoreFinished)
+ f.native.panelVisible=false;f.page.syncWindowFocus(true);f.page.poll()
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(stops,1);assert.equal(f.calls.filter(c=>c[0]==='start').length,2)
+ assert(f.page._returnBackupResult.ok);f.page.dispose()
+})
+test('background restoration resumes polling and a failed apply returns its failure without repeated work',async()=>{
+ const f=fixture();await f.page.boot();f.page.nativeReady=true;f.page._restoring='restore_background'
+ f.page.backgroundPage();assert.equal(f.page._poll,null)
+ await f.page.finishBackupRestore({operation:'restore_background',ok:false,message:'备份校验失败'})
+ assert(!f.calls.some(c=>c[0]==='stop'));f.page.resume()
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(f.calls.filter(c=>c[0]==='start').length,2)
+ assert.equal(f.page._returnBackupResult.message,'备份校验失败')
+ f.native.poll=()=>[{type:'ready',generation:f.page._generation}];f.page.poll()
+ assert.equal(f.calls.filter(c=>c[0]==='send'&&c[1].type==='backup.return').length,1);f.page.dispose()
+})

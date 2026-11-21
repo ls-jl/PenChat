@@ -116,7 +116,7 @@ def behavior():
             try:
                 before = a.diag()
                 open_settings(a)
-                assert len(a.diag()['settings']['rows']) == 26
+                assert len(a.diag()['settings']['rows']) == 27
                 for theme in ['light', 'dark', 'light']:
                     choose_theme(a, theme)
                     wait_theme(a, theme)

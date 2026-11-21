@@ -43,11 +43,12 @@ def main():
    assert b'reply_groups' in z.read('assets/bin/penchat-lvgl'),'Schema v3 provenance missing'
   metadata=dict(format=1,version=version,platform=target,appid=APP['appid'],file=filename,size=len(data),sha256=sha,
     build='candidate-3; native tree 4483f9ae1e3c974e7844012426944a92a194b95e' if version=='0.3.2' else 'candidate-6; runtime 7384173; native f5a8308',
-    channel='candidate',schema=dict(min=3,max=3),known_issues='历史交付候选，未作为 GitHub 正式版发布；不含急救入口和后续开发修复。旧版恢复能力以该版本自身为准。',
+    channel='candidate',schema=dict(min=3,max=3),
     provenance='docs/RELEASE-'+version+'.md')
-  if version=='0.3.2':
-   metadata['known_issues']+=' 未含后续九键连续选字修复。'
-   if target=='cv1826-s':metadata['known_issues']+=' CVI/S6 旧反馈预览曾伴随设备离线或重启，未含后续防护，请避免进入旧版反馈预览。'
+  copy=json.loads((ROOT/'scripts/rescue-release-notes.json').read_text())[version]
+  text=copy.get('cvi_notes',copy['notes']) if target=='cv1826-s' else copy['notes']
+  metadata['release_notes']=text;metadata['known_issues']=text
+  metadata['install_warning']=copy.get('cvi_warning' if target=='cv1826-s' else 'warning',copy.get('warning',''))
   folder=out/('penchat-'+target)/version;folder.mkdir(parents=True,exist_ok=True)
   (folder/'release.json').write_text(json.dumps(metadata,ensure_ascii=False,indent=2)+'\n')
   (folder/(filename+'.sha256')).write_text(sha+'  '+filename+'\n')

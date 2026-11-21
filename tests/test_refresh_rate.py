@@ -98,7 +98,7 @@ def controls():
                     before = a.diag()
                     assert before['draft_length'] > 0
                     open_settings(a)
-                    assert len(a.diag()['settings']['rows']) == 26
+                    assert len(a.diag()['settings']['rows']) == 27
                     default_hz = before['refresh_rate']['default_hz']
                     # Clicking an unchanged orientation default still records
                     # an explicit choice for future orientation changes.

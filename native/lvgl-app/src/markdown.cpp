@@ -1,9 +1,13 @@
 #include "markdown.hpp"
 #include "latex.h"
+#include "core/formula.h"
+#include "core/parser.h"
 #include "md4c.h"
 #include "markdown_tables.hpp"
 #include "theme.hpp"
 #include "chemistry.hpp"
+#include "latex_extensions.hpp"
+#include "latex_native.hpp"
 extern "C" {
 #include "entity.h"
 }
@@ -22,6 +26,7 @@ namespace penchat {
 namespace {
 struct Parser {
   Document doc;
+  std::map<std::string,std::string> mathSources;
   Block *block = nullptr;
   int indent = 0, quote = 0, style = 0, tableId = 0;
   std::vector<int> styles, ordered, listGroups, listItems;
@@ -175,6 +180,7 @@ int textCallback(MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size,
                  void *ctx) {
   auto &p = *static_cast<Parser *>(ctx);
   std::string t(text, size);
+  if(p.style&Math){auto saved=p.mathSources.find(t);if(saved!=p.mathSources.end())t=saved->second;}
   if (type == MD_TEXT_ENTITY) {
     if (t.size() > 3 && t[1] == '#') {
       bool hex = t.size() > 4 && (t[2] == 'x' || t[2] == 'X');
@@ -204,13 +210,36 @@ int textCallback(MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size,
   return 0;
 }
 // Normalize alternate math delimiters outside fenced and inline code.
-std::string normalizeMath(const std::string &input) {
+std::string normalizeMath(const std::string &input,std::map<std::string,std::string> &sources) {
+  std::string prefix="PCMATHTOKEN";while(input.find(prefix)!=std::string::npos)prefix+='X';
+  auto protectedMath=[&](const std::string &body,size_t delimiters){const auto token=prefix+std::to_string(sources.size())+"END";sources.emplace(token,body);const std::string delimiter(delimiters,'$');return delimiter+token+delimiter;};
+  struct CodeRanges {const std::string *source;std::vector<std::pair<size_t,size_t>> ranges;};
+  CodeRanges code{&input,{}};
+  // Only bare-extension normalization needs this structural check. MD4C knows
+  // whether indentation belongs to code or to a nested list; a four-space
+  // shortcut would break one of those cases.
+  if(input.find("\\begin")!=std::string::npos||input.find("\\ce")!=std::string::npos) {
+    MD_PARSER probe{};probe.flags=MD_DIALECT_GITHUB|MD_FLAG_LATEXMATHSPANS|MD_FLAG_NOHTML;
+    probe.enter_block=[](MD_BLOCKTYPE,void *,void *){return 0;};probe.leave_block=probe.enter_block;
+    probe.enter_span=[](MD_SPANTYPE,void *,void *){return 0;};probe.leave_span=probe.enter_span;
+    probe.text=[](MD_TEXTTYPE type,const MD_CHAR *text,MD_SIZE size,void *ctx){
+      auto &c=*static_cast<CodeRanges *>(ctx);const auto base=reinterpret_cast<uintptr_t>(c.source->data()),at=reinterpret_cast<uintptr_t>(text);
+      if(type==MD_TEXT_CODE&&at>=base&&at-base<=c.source->size()&&size<=c.source->size()-(at-base))c.ranges.push_back({size_t(at-base),size_t(at-base)+size});return 0;
+    };
+    md_parse(input.data(),input.size(),&probe,&code);
+    std::sort(code.ranges.begin(),code.ranges.end());
+  }
   std::string out;
   size_t i = 0;
+  size_t codeIndex=0;
   char fence = 0;
   size_t fenceCount = 0;
   size_t mathDelimiter = 0;
   while (i < input.size()) {
+    while(codeIndex<code.ranges.size()&&code.ranges[codeIndex].second<=i)++codeIndex;
+    if(codeIndex<code.ranges.size()&&i>=code.ranges[codeIndex].first) {
+      const auto end=code.ranges[codeIndex].second;out+=input.substr(i,end-i);i=end;continue;
+    }
     bool lineStart = i == 0 || input[i - 1] == '\n';
     if (lineStart) {
       size_t at = i;
@@ -257,9 +286,19 @@ std::string normalizeMath(const std::string &input) {
     }
     if (input[i] == '$') {
       const size_t count = i + 1 < input.size() && input[i + 1] == '$' ? 2 : 1;
+      if(!mathDelimiter){
+        size_t end=i+count;unsigned braces=0;
+        for(;end<input.size();++end){if(input[end]=='\\'){if(end+1<input.size())++end;continue;}if(input[end]=='{')++braces;else if(input[end]=='}'&&braces)--braces;
+          if(!braces&&input[end]=='$'&&(count==1||(end+1<input.size()&&input[end+1]=='$')))break;}
+        if(end<input.size()){out+=protectedMath(input.substr(i+count,end-i-count),count);i=end+count;continue;}
+      }
       if (!mathDelimiter) mathDelimiter = count;
       else if (mathDelimiter == count) mathDelimiter = 0;
       out += input.substr(i, count); i += count; continue;
+    }
+    if(!mathDelimiter&&input.compare(i,6,"\\begin")==0) {
+      auto end=latex::environmentEnd(input,i);
+      if(end!=std::string::npos){out+=protectedMath(input.substr(i,end-i),2);i=end;continue;}
     }
     if (!mathDelimiter && input.compare(i, 3, "\\ce") == 0) {
       size_t at = i + 3;
@@ -268,7 +307,7 @@ std::string normalizeMath(const std::string &input) {
         try {
           std::string body;
           if (chemistry::group(input, at, '{', '}', body)) {
-            out += "$" + input.substr(i, at - i) + "$"; i = at; continue;
+            out += protectedMath(input.substr(i,at-i),1); i = at; continue;
           }
         } catch (const std::exception &) { /* Preserve unfinished streaming text. */ }
       }
@@ -280,7 +319,7 @@ std::string normalizeMath(const std::string &input) {
         auto at = input.find(std::string("\\") + close, i + 2);
         if (at != std::string::npos) {
           std::string delimiter = open == '(' ? "$" : "$$";
-          out += delimiter + input.substr(i + 2, at - i - 2) + delimiter;
+          out += protectedMath(input.substr(i+2,at-i-2),delimiter.size());
           i = at + 2;
           continue;
         }
@@ -361,13 +400,14 @@ bool incomplete(const std::string &source) {
 Document parseMarkdown(const std::string &source, bool streaming) {
   Parser p;
   p.doc.source = source;
-  if (streaming && incomplete(source)) {
+  const bool unfinished=streaming&&incomplete(source);
+  if (unfinished&&source.find('$')==std::string::npos&&source.find("\\end{")==std::string::npos&&source.find("\\)")==std::string::npos&&source.find("\\]")==std::string::npos) {
     Block raw;
     raw.runs.push_back({source, "", 0});
     p.doc.blocks.push_back(std::move(raw));
     return std::move(p.doc);
   }
-  auto input = detail::normalizeTableBoundaries(normalizeMath(source));
+  auto input = detail::normalizeTableBoundaries(normalizeMath(source,p.mathSources));
   MD_PARSER parser{};
   parser.flags = MD_DIALECT_GITHUB | MD_FLAG_LATEXMATHSPANS | MD_FLAG_NOHTML;
   parser.enter_block = enterBlock;
@@ -377,6 +417,12 @@ Document parseMarkdown(const std::string &source, bool streaming) {
   parser.text = textCallback;
   if (md_parse(input.data(), input.size(), &parser, &p))
     throw std::runtime_error("Markdown parse failed");
+  if(unfinished) {
+    bool completedMath=false;
+    for(const auto &block:p.doc.blocks){for(const auto &run:block.runs)completedMath|=bool(run.style&Math);for(const auto &cell:block.cells)for(const auto &run:cell)completedMath|=bool(run.style&Math);}
+    if(!completedMath){p.doc.blocks.clear();Block raw;raw.runs.push_back({source,"",0});p.doc.blocks.push_back(std::move(raw));return std::move(p.doc);}
+  }
+  latex::prepare(p.doc);
   return std::move(p.doc);
 }
 static uint32_t codepoint(const std::string &text) {
@@ -403,6 +449,17 @@ struct RichText::Impl {
   std::map<std::string, std::shared_ptr<const Bitmap>> cache;
   std::deque<std::string> order;
   size_t cacheBytes = 0;
+  uint32_t proseForeground=0;
+  static size_t cost(const std::string &key,const Bitmap &bitmap) {return bitmap.pixels.size()+key.size()*2+128;}
+  void remember(const std::string &key,const std::shared_ptr<const Bitmap> &bitmap) {
+    if(cache.count(key))return;
+    const auto n=cost(key,*bitmap);
+    while(!order.empty()&&(cacheBytes+n>8*1024*1024||cache.size()>=512)) {
+      const auto old=order.front();order.pop_front();auto entry=cache.find(old);
+      if(entry!=cache.end()){cacheBytes-=cost(old,*entry->second);cache.erase(entry);}
+    }
+    if(n<=8*1024*1024){cache.emplace(key,bitmap);order.push_back(key);cacheBytes+=n;}
+  }
 #ifndef PENCHAT_NATIVE_DEVICE
   RichWorkStats work;
 #endif
@@ -458,6 +515,7 @@ RichText::RichText(const std::string &fontPath, const std::string &res, const st
   }
   setFallbackFont(fontPath);
   tex::LaTeX::init(res);
+  latex::registerNative();
 }
 RichText::~RichText() {
   tex::LaTeX::release();
@@ -488,7 +546,7 @@ void RichText::clearCache() {
 bool RichText::hasTrueBold() const { return p_->boldCairo != nullptr; }
 static std::string formulaKey(const std::string &identity, const std::string &source,
                               int size, uint32_t foreground) {
-  return identity + "typography2:" + theme::name(theme::mode()) + ":" +
+  return identity + "typography3:latex2:" + theme::name(theme::mode()) + ":" +
       std::to_string(foreground) + ":" + std::to_string(size) + ":" + source;
 }
 #ifndef PENCHAT_NATIVE_DEVICE
@@ -496,7 +554,9 @@ RichWorkStats RichText::workStats() const { return p_->work; }
 void RichText::resetWorkStats() { p_->work = {}; }
 #endif
 Bitmap RichText::formula(const std::string &source, int size, uint32_t foreground) {
-  const auto bitmap = formulaShared(source, size, foreground);
+  if(source.size()>8192)throw std::runtime_error("Formula too large");
+  Document document;Block block;block.runs.push_back({source,"",Math|DisplayMath});document.blocks.push_back(std::move(block));latex::prepare(document);
+  const auto bitmap = formulaRunShared(document.blocks[0].runs[0],size,foreground,0);
 #ifndef PENCHAT_NATIVE_DEVICE
   ++p_->work.formulaCopies;
 #endif
@@ -513,15 +573,22 @@ std::shared_ptr<const Bitmap> RichText::formulaShared(const std::string &source,
 #endif
     return it->second;
   }
-  if (source.size() > 8192)
+  if (source.size() > 65536)
     throw std::runtime_error("Formula too large");
 #ifndef PENCHAT_NATIVE_DEVICE
   ++p_->work.formulaRenders;
 #endif
   const float formulaSize = size * 1.5f;
-  std::unique_ptr<tex::TeXRender> r(
-      tex::LaTeX::parse(tex::utf82wide(chemistryTex(source)), 4096, formulaSize,
-                        formulaSize * .2, (0xff000000u | foreground)));
+  const auto normalized=latex::expand(chemistryTex(source,65536));
+  tex::Formula formula;
+  tex::TeXParser parser(false,tex::utf82wide(normalized),&formula,true);
+  parser.parse();
+  const bool lined=normalized.compare(0,2,"$$")!=0&&normalized.compare(0,2,"\\[")!=0;
+  tex::TeXRenderBuilder builder;
+  std::unique_ptr<tex::TeXRender> r(builder.setStyle(tex::TexStyle::display).setTextSize(formulaSize)
+      .setWidth(tex::UnitType::pixel,4096,lined?tex::Alignment::left:tex::Alignment::center)
+      .setIsMaxWidth(lined).setLineSpace(tex::UnitType::pixel,formulaSize*.2)
+      .setForeground(0xff000000u|foreground).build(formula));
   auto bitmap = std::make_shared<Bitmap>();
   auto &b = *bitmap;
   b.width = std::max(1, r->getWidth() + p_->metrics.dp(4));
@@ -538,18 +605,99 @@ std::shared_ptr<const Bitmap> RichText::formulaShared(const std::string &source,
   cairo_surface_flush(s);
   cairo_destroy(c);
   cairo_surface_destroy(s);
-  auto n = b.pixels.size();
-  while (!p_->order.empty() && p_->cacheBytes + n > 8 * 1024 * 1024) {
-    auto old = p_->order.front();
-    p_->order.pop_front();
-    p_->cacheBytes -= p_->cache[old]->pixels.size();
-    p_->cache.erase(old);
+  p_->remember(key,bitmap);
+  return bitmap;
+}
+std::shared_ptr<const Bitmap> RichText::formulaRunShared(const Run &run,int size,uint32_t foreground,int available) {
+  if(run.mathInvalid)throw std::runtime_error("Invalid LaTeX structure");
+  if(run.text.size()>8192)throw std::runtime_error("Formula too large");
+  if(run.formulaRows.empty())return formulaShared(run.text,size,foreground);
+  const auto &rows=run.formulaRows;
+  if(rows.size()==1&&rows[0].cells.size()==1&&!rows[0].showTag&&!rows[0].prose)return formulaShared(rows[0].cells[0],size,foreground);
+  if(!foreground)foreground=theme::palette().richBody;
+  std::string identity="formula-layout3:"+run.mathKind+":"+std::to_string(available)+":";
+  for(const auto &row:rows) {
+    identity+=(row.first?"first:":"middle:")+std::string(row.last?"last:":"more:")+row.kind+(row.prose?":prose:":":math:")+(row.compact?"compact:":"normal:");
+    identity+="gap:"+std::to_string(row.gapBefore.size())+":"+row.gapBefore;
+    identity+=row.showTag?(row.tagStar?"star:":"tag:"):"none:";identity+=std::to_string(row.tag.size())+":"+row.tag;
+    for(const auto &cell:row.cells)identity+=":"+std::to_string(cell.size())+":"+cell;
+    identity+=';';
   }
-  if (n <= 8 * 1024 * 1024) {
-    p_->cache[key] = bitmap;
-    p_->order.push_back(key);
-    p_->cacheBytes += n;
+  const auto key=formulaKey(p_->cacheIdentity+"composite:",identity,size,foreground);
+  auto found=p_->cache.find(key);if(found!=p_->cache.end())return found->second;
+  struct Row {std::vector<std::shared_ptr<const Bitmap>> cells;std::shared_ptr<const Bitmap> tag;int ascent=0,descent=0,y=0,gap=0;bool below=false,prose=false;std::string kind;};
+  std::vector<Row> measured;std::vector<int> columns;
+  const int gap=p_->metrics.dp(12),lineGap=p_->metrics.dp(6);int height=0,totalWidth=0,tagWidth=0;
+  for(const auto &row:rows) {
+    Row r;r.prose=row.prose;r.kind=row.kind;
+    if(row.prose)r.gap=row.compact?0:p_->metrics.dp(6);
+    if(!row.gapBefore.empty()) {
+      auto gap=row.gapBefore;const bool negative=gap[0]=='-';if(negative||gap[0]=='+')gap.erase(0,1);
+      auto spacer=formulaShared("\\rule{0pt}{"+gap+"}",size,foreground);
+      r.gap=std::max(0,spacer->height-p_->metrics.dp(4))*(negative?-1:1);
+    }
+    if(row.prose){
+      struct PieceScope {std::vector<Piece> &current;std::vector<Piece> saved;uint32_t &ink;uint32_t old;PieceScope(std::vector<Piece> &value,uint32_t &color,uint32_t next):current(value),saved(std::move(value)),ink(color),old(color){ink=next;}~PieceScope(){current.swap(saved);ink=old;}} preserve(p_->pieces,p_->proseForeground,foreground);
+      const auto prose=parseMarkdown(row.cells[0]);std::vector<Bitmap> pieces;int w=0,h=0;
+      for(const auto &block:prose.blocks){auto info=layout(block,std::max(1,available>0?available:600),size);if(info.height){pieces.push_back(paint(block,std::max(1,available>0?available:600),0,info.height,size));w=std::max(w,pieces.back().width);h+=pieces.back().height;}}
+      if(w>4096||h>2048)throw std::runtime_error("Formula explanation exceeds limit");
+      auto b=std::make_shared<Bitmap>();b->width=std::max(1,w);b->height=std::max(1,h);b->baseline=b->height;b->pixels.resize(size_t(b->width)*b->height*4);
+      int y=0;for(const auto &piece:pieces){for(int line=0;line<piece.height;++line)std::copy_n(piece.pixels.data()+size_t(line)*piece.width*4,size_t(piece.width)*4,b->pixels.data()+(size_t(y+line)*b->width)*4);y+=piece.height;}
+      r.cells.push_back(b);r.ascent=b->height;r.descent=0;
+    }
+    for(size_t i=0;!row.prose&&i<row.cells.size();++i) {
+      auto bitmap=formulaShared(row.cells[i].empty()?"\\vphantom{x}":row.cells[i],size,foreground);
+      if(columns.size()<=i)columns.resize(i+1);
+      columns[i]=std::max(columns[i],bitmap->width);int extent=0;for(auto w:columns)extent+=w;
+      if(extent+int(columns.size()-1)*gap>4096)throw std::runtime_error("Formula width exceeds limit");
+      r.ascent=std::max(r.ascent,bitmap->baseline);r.descent=std::max(r.descent,bitmap->height-bitmap->baseline);r.cells.push_back(std::move(bitmap));
+    }
+    if(row.showTag&&(!row.tagStar||!row.tag.empty())) {
+      auto text=row.tagStar?row.tag:"("+row.tag+")";
+      r.tag=formulaShared("\\text{"+text+"}",size,foreground);tagWidth=std::max(tagWidth,r.tag->width);
+      r.ascent=std::max(r.ascent,r.tag->baseline);r.descent=std::max(r.descent,r.tag->height-r.tag->baseline);
+    }
+    height+=r.ascent+r.descent+lineGap+std::max(0,r.gap);if(height>2048)throw std::runtime_error("Formula height exceeds limit");
+    measured.push_back(std::move(r));
   }
+  for(auto w:columns)totalWidth+=w;
+  totalWidth+=int(columns.size()-1)*gap;
+  const int viewport=available>0?available:totalWidth+(tagWidth?tagWidth+gap:0);
+  const bool tagsBelow=tagWidth&&totalWidth+gap+tagWidth>viewport;
+  int proseWidth=0;for(const auto &r:measured)if(r.prose)proseWidth=std::max(proseWidth,r.cells[0]->width);
+  const int width=std::max(proseWidth,std::max(std::max(totalWidth,tagWidth),tagWidth?viewport:totalWidth));
+  height=0;
+  bool firstRow=true;
+  for(auto &r:measured){if(!firstRow)height+=std::max(0,lineGap+r.gap);firstRow=false;r.y=height;r.below=tagsBelow&&bool(r.tag);height+=r.ascent+r.descent+(r.below?r.tag->height+lineGap:0);}
+  height=std::max(1,height);
+  if(width<1||width>4096||height>2048)throw std::runtime_error("Formula dimensions exceed limits");
+  auto bitmap=std::make_shared<Bitmap>();bitmap->width=width;bitmap->height=height;bitmap->baseline=measured.front().ascent;
+  bitmap->pixels.resize(size_t(width)*height*4);
+  auto surface=cairo_image_surface_create_for_data(bitmap->pixels.data(),CAIRO_FORMAT_ARGB32,width,height,width*4);
+  auto context=cairo_create(surface);
+  auto paint=[&](const Bitmap &b,int x,int y){
+    auto source=cairo_image_surface_create_for_data(const_cast<unsigned char *>(b.pixels.data()),CAIRO_FORMAT_ARGB32,b.width,b.height,b.width*4);
+    cairo_set_source_surface(context,source,x,y);cairo_paint(context);cairo_surface_destroy(source);
+  };
+  for(size_t i=0;i<measured.size();++i) {
+    const auto &r=measured[i];const int content=tagWidth&&!tagsBelow?std::max(totalWidth,viewport-tagWidth-gap):width;
+    int x=std::max(0,(content-totalWidth)/2);
+    if(r.prose||r.kind=="flalign")x=0;
+    if(r.kind=="gather"&&r.cells.size()==1)x=std::max(0,(content-r.cells[0]->width)/2);
+    if(r.kind=="multline") {
+      int rowWidth=0;for(const auto &b:r.cells)rowWidth+=b->width;
+      x=rows[i].first?0:(rows[i].last?std::max(0,content-rowWidth):std::max(0,(content-rowWidth)/2));
+    }
+    for(size_t j=0;j<r.cells.size();++j) {
+      const bool align=!r.prose&&(r.kind=="align"||r.kind=="alignat"||r.kind=="flalign");
+      if(r.kind=="flalign"&&r.cells.size()>2&&j&&j%2==0)x+=std::max(0,(content-totalWidth)/int((r.cells.size()-1)/2));
+      const int offset=align&&j%2==0?columns[j]-r.cells[j]->width:0;
+      paint(*r.cells[j],x+offset,r.y+r.ascent-r.cells[j]->baseline);x+=(r.prose?r.cells[j]->width:columns[j])+gap;
+    }
+    if(r.tag)paint(*r.tag,std::max(0,viewport-r.tag->width),r.below?r.y+r.ascent+r.descent+lineGap:r.y+r.ascent-r.tag->baseline);
+  }
+  cairo_surface_flush(surface);cairo_destroy(context);cairo_surface_destroy(surface);
+  p_->remember(key,bitmap);
   return bitmap;
 }
 void RichText::prepare(Document &document, int width, int size) {
@@ -608,7 +756,7 @@ void RichText::prepare(Document &document, int width, int size) {
   }
 }
 static std::string runPlainText(const Run &run) {
-  if (run.style & Math) return (run.style & DisplayMath ? "$$" : "$") + run.text +
+  if (run.style & Math) return run.bareMath?run.text:(run.style & DisplayMath ? "$$" : "$") + run.text +
                                (run.style & DisplayMath ? "$$" : "$");
   return run.style & Image ? "[图片] " + run.text : run.text;
 }
@@ -714,7 +862,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
   const auto type = typography(block, size);
   const int actualSize = type.fontSize;
   const int baseStyle = block.kind == "h" || block.header ? Bold : 0;
-  const uint32_t foreground = subdued ? theme::palette().reasoning :
+  const uint32_t foreground = p_->proseForeground?p_->proseForeground:subdued ? theme::palette().reasoning :
       block.kind == "h" ? theme::palette().richHeading : theme::palette().richBody;
   auto surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
   auto c = cairo_create(surf);
@@ -793,7 +941,7 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
       newline();
     if (run.style & Math) {
       try {
-        auto bitmap = formulaShared(run.text, actualSize, foreground);
+        auto bitmap = formulaRunShared(run, actualSize, foreground, width-left);
         if (!forceWidth && block.kind != "code" && x + bitmap->width > width && x > left)
           newline();
         Piece p;
@@ -930,10 +1078,15 @@ RichLayout RichText::layout(const Block &block, int width, int size, bool textHi
       if (run.style & Math) {
         if (!onlyOpening) flush();
         try {
-          const auto key = formulaKey(p_->cacheIdentity, run.text, actualSize, foreground);
-          const auto cached = p_->cache.find(key);
-          const int advance = cached != p_->cache.end()
-              ? cached->second->width : formulaShared(run.text, actualSize, foreground)->width;
+          const bool simple=!run.mathInvalid&&(run.formulaRows.empty()||
+              (run.formulaRows.size()==1&&run.formulaRows[0].cells.size()==1&&!run.formulaRows[0].showTag));
+          int advance;
+          if(simple) {
+            const auto &source=run.formulaRows.empty()?run.text:run.formulaRows[0].cells[0];
+            const auto key=formulaKey(p_->cacheIdentity,source,actualSize,foreground);
+            const auto cached=p_->cache.find(key);
+            advance=cached==p_->cache.end()?formulaRunShared(run,actualSize,foreground,width-left)->width:cached->second->width;
+          } else advance=formulaRunShared(run,actualSize,foreground,width-left)->width;
           append(run, advance);
           onlyOpening = lastWord = joinNext = false;
         } catch (...) {
@@ -1076,12 +1229,12 @@ Bitmap RichText::paintPrepared(const Block &block, int width, const RichLayout &
     if (!p.target.empty())
       color(subdued ? theme::palette().reasoningLink : theme::palette().link);
     else
-      color(subdued ? theme::palette().reasoning : block.kind == "h" ? theme::palette().richHeading : theme::palette().richBody);
+      color(p_->proseForeground?p_->proseForeground:subdued ? theme::palette().reasoning : block.kind == "h" ? theme::palette().richHeading : theme::palette().richBody);
     if ((p.style & Mono) && block.kind != "code") {
       color(theme::palette().surface);
       cairo_rectangle(c, p.x, p.y, p.width, p.height);
       cairo_fill(c);
-      color(subdued ? theme::palette().reasoning : block.kind == "h" ? theme::palette().richHeading : theme::palette().richBody);
+      color(p_->proseForeground?p_->proseForeground:subdued ? theme::palette().reasoning : block.kind == "h" ? theme::palette().richHeading : theme::palette().richBody);
     }
     cairo_move_to(c, p.x, p.y + p.baseline);
     cairo_show_text(c, p.text.c_str());

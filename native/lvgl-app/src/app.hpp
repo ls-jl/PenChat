@@ -5,6 +5,7 @@
 #include "text_gesture.hpp"
 #include "database.hpp"
 #include "transfer.hpp"
+#include "backup_restore.hpp"
 #include "feedback.hpp"
 #include "update.hpp"
 #include "onboarding.hpp"
@@ -190,6 +191,27 @@ class App {
   Json updateSnapshot() const;
   void updateBack();
   void beginUpdate();
+  void beginRollback();
+  void openRollback();
+  std::string rollbackRequest_;
+  lv_obj_t *rollbackContinue_=nullptr;
+  std::unique_ptr<BackupRestore> backups_;
+  Json backupItems_=Json::array(),backupPlan_=Json::object(),backupDecisions_=Json::object();
+  Json backupApply_=Json::object(),backupResult_=Json::object();
+  std::string backupScreen_="list",backupMessage_;
+  size_t backupConflict_=0;
+  uint64_t backupUiEpoch_=0;
+  bool backupAll_=false,backupExit_=false,backupReload_=false;
+  std::map<std::string,lv_obj_t *> backupControls_;
+  lv_obj_t *backupProgress_=nullptr;
+  void openBackupRestore();
+  void backupPage();
+  void backupReturn(const Json &);
+  void backupEvent(const Event &);
+  void backupAction(const std::string &,const Json &);
+  void backupRequest(const std::string &,Json args=Json::object());
+  void backupTick();
+  bool backupCanStart();
   std::unique_ptr<Feedback> feedback_;
   std::string feedbackView_ = "form", feedbackOperation_;
   uint64_t feedbackActionSequence_ = 0;
@@ -227,21 +249,28 @@ class App {
   uint64_t scanId_ = 0, scanGeneration_ = 0, scanConfirmed_ = 0;
   std::string scanSession_;
   Json scanResult_ = Json::object();
-  bool scanConfirming_ = false;
+  bool scanConfirming_ = false, scanCancelPending_ = false;
+  bool scanExitContact_ = false;
+  uint64_t scanExitGuardUntil_ = 0;
+  LayoutRect scanExitUse_{}, scanExitCancel_{};
   uint64_t scanViewRequest_ = 0;
   std::string scanOriginalPath_,scanOriginalKey_;
   uint64_t scanFinishedAt_=0,scanPreparedAt_=0,scanDecodedAt_=0,scanViewClickedAt_=0,scanViewLoadedAt_=0;
-  uint64_t scanConfirmClickedAt_=0,scanStoredAt_=0,scanExportUs_=0;
+  uint64_t scanConfirmClickedAt_=0,scanExportedAt_=0,scanStoredAt_=0,scanChatBuiltAt_=0,scanExportUs_=0;
+  Json scanExportTiming_ = Json::object();
+  std::string scanWarningText_;
   lv_obj_t *scanWarning_ = nullptr, *scanHolder_ = nullptr;
   void updateScanWarning(const Json &);
   void viewScanResult();
-  lv_obj_t *scanImage_ = nullptr, *scanLabel_ = nullptr, *scanUse_ = nullptr,
+  lv_obj_t *scanImage_ = nullptr, *scanUse_ = nullptr, *scanCancel_ = nullptr,
            *scanHint_ = nullptr;
   lv_obj_t *chatHeader_ = nullptr, *chatTitle_ = nullptr;
   void refreshChatTitle();
   std::function<void()> afterScanRelease_;
   void syncScanner();
   void scanPage();
+  void refreshScanPreview();
+  void cancelScanReview();
   void scanEvent(const Event &);
   void whenScannerReleased(std::function<void()>);
   RichText rich_;
@@ -476,6 +505,8 @@ class App {
   int64_t persistDue_ = 0;
   std::string reasoningDisplay_ = "collapsed";
   int lastAssistantSeq_ = 0;
+  int64_t chatQuestionSeq_ = INT64_MAX;
+  uint64_t chatFullRenders_ = 0, liveRenders_ = 0, liveRowRenders_ = 0, liveRenderMaxMs_ = 0;
   void persistReply(const std::string &status, const Json &error = Json());
   int64_t renderDue_ = 0, lastCameraFrame_ = 0;
   bool dirty_ = false;
@@ -673,7 +704,7 @@ class App {
   void albumPage();
   void renderMessages(bool bottom, bool cached = false);
   void renderMessageRows(lv_obj_t *parent,const Json &messages,const std::string &source,
-                         int width,bool readOnly,int lastAssistant,int64_t questionSeq);
+                         int width,bool readOnly,int lastAssistant,int64_t questionSeq, bool liveOnly=false);
   void richMessage(lv_obj_t *parent, const std::string &text, int width,
                    bool subdued = false, const std::string &context = "");
   void replyContent(lv_obj_t *parent, const std::string &text, int width,
@@ -990,6 +1021,8 @@ public:
   void windowFocus(bool focused);
   void shutdown();
   bool updateExit() const { return updateExit_; }
+  bool backupExit() const { return backupExit_; }
+  void finishBackupRestore();
   bool interactive() const { return visible_ && (!keyboard_ || officialReaderInput()); }
   void demo(const std::string &markdown);
   Json diagnostics() const;

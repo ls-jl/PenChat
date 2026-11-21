@@ -90,6 +90,7 @@ App::App(Database &db, Bridge &bridge, Display &display, Input &input,
   feedback_.reset(new Feedback(events_, dataDir_, feedbackScreen(configuration, s), nativeTouch));
   transfer_.reset(new Transfer(db_, events_, dataDir_));
   transfer_->start("init");
+  backups_.reset(new BackupRestore(db_,events_,dataDir_,transfer_->root()));
   clearCrop();
   auto config = db_.settings();
   uiScaleSaved_=savedUiScale(config);uiScaleDraft_=uiMetrics_.scalePercent();
@@ -722,6 +723,7 @@ void App::clear() {
   readReset();
   onboarding_.reset();modalButtons_.clear();modalScroll_=nullptr;
   contextMenuPanel_=contextMenuList_=nullptr;contextMenuKind_.clear();contextMenuOpening_=false;
+  backupControls_.clear();backupProgress_=nullptr;
   updateActions_.clear(); updateProgress_=updateProgressText_=updateTransferText_=nullptr;
   feedbackActions_.clear();
   readerDown_ = readerPointer_ = readerVertical_ = readerSettle_ = false;
@@ -737,7 +739,8 @@ void App::clear() {
   pageHeading_ = pageHeader_ = pageContent_ = nullptr;
   pageActions_.clear();
   transferProgress_ = nullptr;
-  scanWarning_ = scanHolder_ = scanImage_ = scanLabel_ = scanUse_ = scanHint_ = nullptr;
+  scanWarningText_.clear();
+  scanWarning_ = scanHolder_ = scanImage_ = scanUse_ = scanCancel_ = scanHint_ = nullptr;
   chatHeader_ = chatTitle_ = nullptr;
   historyRows_.clear();navigationFooter_.clear();
   historyCaptions_.clear();historyActions_.clear();
@@ -816,7 +819,7 @@ void App::build() {
     onboardingPage();builtView_=view_;builtPageKey_=pageKey();syncScanner();syncBackPolicy();return;
   }
   lv_obj_t *navigation=nullptr;
-  if(view_!="crop"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", layout().portrait()?layout().navigationX():uiMetrics_.dp(16), layout().portrait()?layout().safeTop():uiMetrics_.dp(8), uiMetrics_.touchTarget(48), uiMetrics_.touchTarget(48), [this] {
+  if(view_!="crop"&&view_!="scan"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", layout().portrait()?layout().navigationX():uiMetrics_.dp(16), layout().portrait()?layout().safeTop():uiMetrics_.dp(8), uiMetrics_.touchTarget(48), uiMetrics_.touchTarget(48), [this] {
     if(editor_.active){editorAccept();return;}
     if (view_ == "chat") {
       if(!messageEdit_.empty())cancelMessageEdit();else toggleNavigation();
@@ -843,6 +846,8 @@ void App::build() {
     keyboardSettingsPage();
   else if (view_ == "update")
     updatePage();
+  else if(view_=="backup_restore")
+    backupPage();
   else if (view_ == "feedback")
     feedbackPage();
   else if (view_ == "transfer")
@@ -978,6 +983,13 @@ void App::show(const std::string &view) {
   if (view_ == "crop" && view != "crop")
     clearCrop();
   if (view_ == "scan" && view != "scan") {
+    if (view == "chat") {
+      const auto workspace=layout().scanWorkspace();
+      scanExitUse_=workspace.use;
+      scanExitCancel_=workspace.cancel;
+      scanExitContact_=lastTouch_.value("pressed",false);
+      input_.interrupt();
+    }
     if (view == "chat" && scanResult_.value("type", std::string()) == "finished" &&
         scanResult_.value("hardware_armed", false) && !scanConfirming_)
       scanner_.discard(scanId_);
@@ -985,7 +997,7 @@ void App::show(const std::string &view) {
       scanner_.eligible(false, session_);
     scanId_ = 0;
     scanResult_ = Json::object();
-    scanConfirming_ = false;
+    scanConfirming_ = scanCancelPending_ = false;
   }
   closeNavigation(false);
   closeAttachments();
@@ -999,9 +1011,13 @@ void App::show(const std::string &view) {
   }
   if (view_ == "camera" && view != "camera")
     camera_.stop();
+  const bool leavingScan=view_=="scan" && view=="chat";
   view_ = view;
   notice_.clear();
   build();
+  // Start the guard once the destination can receive touches. A contact
+  // that begins in the old footer is consumed all the way to release.
+  if (leavingScan) scanExitGuardUntil_=ticks()+350;
   if(settingsEnter&&screenObj_&&visible_&&inputFocused_) {
     if(settingsBackground)settingsBackground->show(0,0);
     lv_obj_move_foreground(screenObj_);slideSurfaceIn(screenObj_,screen_.width,0);
@@ -1548,8 +1564,8 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
           label(parent, (r.text.empty() ? "图片" : r.text) + " · 引用不可用", 0, 0, width, uiMetrics_.fontSize(UiFont::FormNote),
                 theme::palette().muted);
       } else if (r.link.find("http://") == 0 || r.link.find("https://") == 0 ||
-                 (!metadata.value("web_records", Json::array()).empty() &&
-                  r.link.find("file://") == 0)) {
+                 metadata.value("web_image_inspection_required",Json()) == Json(true) ||
+                 !metadata.value("web_records", Json::array()).empty()) {
         label(parent, (r.text.empty() ? "图片" : r.text) + " · 请使用检索图片引用", 0, 0, width, uiMetrics_.fontSize(UiFont::FormNote),
               theme::palette().muted);
       } else {
@@ -1632,9 +1648,11 @@ void App::replyContent(lv_obj_t *parent, const std::string &text, int width,
   }
 }
 void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::string &source,
-                            int width,bool readOnly,int lastAssistant,int64_t questionSeq) {
-  webMessageMetadata_.clear();
-  replyChoiceRows_=readOnly?Json::object():db_.replyChoices(source);
+                            int width,bool readOnly,int lastAssistant,int64_t questionSeq,bool liveOnly) {
+  if (!liveOnly) {
+    webMessageMetadata_.clear();
+    replyChoiceRows_=readOnly?Json::object():db_.replyChoices(source);
+  }
   const auto reasoningMode=reasoningDisplay_;
   lv_obj_t *photoGroup = nullptr;
   for (const auto &m : messages) {
@@ -1863,6 +1881,21 @@ void App::toggleReasoning(const std::string &id, bool expanded) {
   if (found == reasoningControls_.end()) return;
   auto &control = found->second;
   if (expanded) expandedReasoning_.insert(id); else expandedReasoning_.erase(id);
+  if (expanded && view_=="chat" && generating_ && id==assistant_) {
+    const auto search=reasoningSearchText(reasoningMetadata_,true);
+    if (control.text!=reasoning_ || control.searchText!=search) {
+      if (control.detail) {
+        motion::cancel(control.detail);
+        rasters_.erase(std::remove_if(rasters_.begin(),rasters_.end(),[&](const Raster &r) {
+          return r.owner==control.detail;
+        }),rasters_.end());
+        lv_obj_delete(control.detail);
+        control.detail=nullptr;
+      }
+      control.text=reasoning_;
+      control.searchText=search;
+    }
+  }
   if (!control.detail) {
     control.detail = box(control.wrap, 0, 0, control.width, LV_SIZE_CONTENT);
     lv_obj_set_scrollable(control.detail, false);
@@ -1887,6 +1920,7 @@ void App::renderMessages(bool bottom, bool cached) {
     return;
   }
   chatRenderPending_ = chatRefreshPending_ = false;
+  ++chatFullRenders_;
   const int scroll = chatScroll_;
   const bool follow = messageOffset_ == 0 && (bottom || chatFollowing_);
   const bool previousLayout = chatLayout_;
@@ -1913,7 +1947,7 @@ void App::renderMessages(bool bottom, bool cached) {
              .empty();
   int width = layout().chatMessageWidth();
   if (!cached) refreshChatTitle();
-  const auto questionSeq=db_.query("SELECT coalesce(min(seq),?) seq FROM chat_messages WHERE session_id=? AND role='user' AND (length(trim(coalesce(output_text,'')))>0 OR message_type='image')",{INT64_MAX,session_})[0]["seq"].get<int64_t>();
+  chatQuestionSeq_=db_.query("SELECT coalesce(min(seq),?) seq FROM chat_messages WHERE session_id=? AND role='user' AND (length(trim(coalesce(output_text,'')))>0 OR message_type='image')",{INT64_MAX,session_})[0]["seq"].get<int64_t>();
   bool more = int(messages.size()) >= 30;
   if (more)
     button(messageContent_, "加载更早消息", 0, 0, width, uiMetrics_.dp(35), [this] {
@@ -1936,7 +1970,7 @@ void App::renderMessages(bool bottom, bool cached) {
   auto visibleRows=messages;
   if(messageEdit_.empty()&&messageOffset_==0)
     for(const auto &image:draftRows())visibleRows.push_back(image);
-  renderMessageRows(messageContent_,visibleRows,session_,width,false,lastAssistant,questionSeq);
+  renderMessageRows(messageContent_,visibleRows,session_,width,false,lastAssistant,chatQuestionSeq_);
   syncReplyControls();
   if(!messageEdit_.empty()) {
     auto banner=box(messageContent_,0,0,width,uiMetrics_.dp(44),theme::palette().background);
@@ -1964,24 +1998,58 @@ void App::renderMessages(bool bottom, bool cached) {
   refreshImages();
 }
 void App::renderLiveMessage() {
-  if (reasoningMetadata_.value("reasoning_observed", false) ||
-      !reasoning_.empty()) {
-    renderMessages(false, true);
+  if (!messageContent_)
     return;
-  }
-  if (!liveContent_ || !messageContent_)
-    return;
+  const bool hasReasoning = reasoningMetadata_.value("reasoning_observed", false) ||
+    !reasoning_.empty() || reasoningControls_.count(assistant_);
   const int scroll = chatScroll_;
   const bool previousLayout = chatLayout_;
+  const auto started = ticks();
   chatLayout_ = true;
-  rasters_.erase(std::remove_if(rasters_.begin(), rasters_.end(),
-                                [this](const Raster &r) {
-                                  return r.owner == liveContent_;
-                                }),
-                 rasters_.end());
-  lv_obj_clean(liveContent_);
-  replyContent(liveContent_, output_, lv_obj_get_width(liveContent_),
-               assistant_, true);
+  if (hasReasoning) {
+    const auto row = scaleMessageRows_.find(assistant_);
+    const auto message = std::find_if(rows_.begin(),rows_.end(),[this](const Json &item) {
+      return item.at("id") == assistant_;
+    });
+    if (row == scaleMessageRows_.end() || message == rows_.end()) {
+      // The current reply may be outside the displayed history page.
+      chatLayout_ = previousLayout;
+      return;
+    }
+    auto oldRow = row->second;
+    const int index = lv_obj_get_index(oldRow);
+    const auto belongsToRow = [oldRow](lv_obj_t *object) {
+      for (auto p=object;p;p=lv_obj_get_parent(p))
+        if (p==oldRow) return true;
+      return false;
+    };
+    rasters_.erase(std::remove_if(rasters_.begin(),rasters_.end(),[&](const Raster &r) {
+      return belongsToRow(r.owner);
+    }),rasters_.end());
+    reasoningHeaders_.erase(std::remove_if(reasoningHeaders_.begin(),reasoningHeaders_.end(),
+      belongsToRow),reasoningHeaders_.end());
+    reasoningControls_.erase(assistant_);
+    expandedReasoning_.erase(assistant_);
+    scaleMessageRows_.erase(row);
+    liveContent_=nullptr;
+    lv_obj_delete(oldRow);
+    renderMessageRows(messageContent_,Json::array({*message}),session_,layout().chatMessageWidth(),
+                      false,lastAssistantSeq_,chatQuestionSeq_,true);
+    lv_obj_move_to_index(scaleMessageRows_.at(assistant_),index);
+    syncReplyControls();
+    ++liveRowRenders_;
+  } else if (liveContent_) {
+    rasters_.erase(std::remove_if(rasters_.begin(), rasters_.end(),
+                                  [this](const Raster &r) {
+                                    return r.owner == liveContent_;
+                                  }),rasters_.end());
+    lv_obj_clean(liveContent_);
+    replyContent(liveContent_, output_, lv_obj_get_width(liveContent_), assistant_, true);
+  } else {
+    chatLayout_ = previousLayout;
+    return;
+  }
+  ++liveRenders_;
   lv_obj_update_layout(messageContent_);
   lv_obj_scroll_to_y(body_, chatFollowing_ ? LV_COORD_MAX : scroll,
                      LV_ANIM_OFF);
@@ -1990,6 +2058,7 @@ void App::renderLiveMessage() {
   updateChatControls(true);
   paintVisible();
   refreshImages();
+  liveRenderMaxMs_ = std::max(liveRenderMaxMs_, uint64_t(ticks()-started));
 }
 void App::flushChatRender() {
   if (view_ != "chat" || readerInteracting()) return;
@@ -2005,10 +2074,16 @@ void App::flushChatRender() {
              [this, message, session] { events_.push("retry_request", {{"id", message}, {"session", session}}); });
     }
   } else if ((chatRenderPending_ || dirty_) && ticks() >= renderDue_) {
-    renderDue_ = ticks() + 100;
+    const auto started = ticks();
     const bool full = chatRenderPending_, refresh = chatRefreshPending_;
     dirty_ = false;
     if (full) renderMessages(false, !refresh); else renderLiveMessage();
+    // Leave time for touch and display when a long answer takes longer to lay out.
+    // Cheap updates retain the existing cadence; deltas keep accumulating in output_.
+    const auto finished = ticks();
+    const auto idle = std::max<int64_t>(display_.refreshPeriod(),
+                                      std::min<int64_t>(100,finished-started));
+    renderDue_ = std::max(started + 100, finished + idle);
   }
   if (chatImagesPending_) { chatImagesPending_ = false; refreshImages(); }
 }
@@ -2125,6 +2200,7 @@ void App::refreshImages() {
   }
 }
 std::string App::pageKey() const {
+  if(view_=="backup_restore")return view_+":"+backupScreen_+":"+std::to_string(backupConflict_);
   if (view_ == "update") return view_ + ":" + updateState_.value("status",std::string()) + ":" + std::to_string(updateState_.value("note_index",size_t(0))) + ":" + std::to_string(updateState_.value("note_page",size_t(0)));
   if (view_ == "feedback") return view_ + ":" + feedbackView_ + ":" + std::to_string(feedbackPreviewPage_);
   if (view_ == "provider_models") return view_+":"+providerModelsId_;
@@ -2381,6 +2457,7 @@ void App::settingsPage() {
   const auto idle = httpIdleSeconds();
   const auto idleText = idle < 60 ? std::to_string(idle) + "秒" : std::to_string(idle/60) + "分" + (idle%60 ? std::to_string(idle%60)+"秒" : "");
   row("http_idle", "连接保留时间", idleText + " · 全应用", [this] { show("http_settings"); });
+  row("backup_restore","还原备份","增量添加 · 已有项目逐项确认",[this]{events_.push("backup_action",{{"action","open"}});});
   row("update", "检查更新", std::string("当前 ")+PENCHAT_VERSION+" · 在线安装新版本", [this] { openUpdate(true); });
   const auto pending = feedback_ ? feedback_->state().value("pending", size_t(0)) : 0;
   row("feedback", "问题反馈", std::to_string(pending) + " 份待处理 · 诊断与机型适配",
@@ -2454,6 +2531,7 @@ void App::reasoningDisplayPicker() {
     [this](const std::string &key){events_.push("reasoning_display",{{"mode",key}});});
 }
 void App::goBack() {
+  if (view_=="scan") {cancelScanReview();return;}
   if(!themeRequest_.empty()||!refreshRequest_.empty())return;
   if(view_=="ui_scale"&&!uiScaleRequest_.empty())return;
   if(view_=="font_size"&&!fontRequest_.empty())return;
@@ -2467,6 +2545,7 @@ void App::goBack() {
   }
   if(view_=="onboarding"){if(onboardingReplay_)onboardingAction("finish");else onboardingAction("back");return;}
   if(onboardingConfig_&&view_=="provider"&&providerForm_.empty()){onboardingConfig_=false;show("onboarding");return;}
+  if(view_=="backup_restore"){backups_->cancel();backupReload_=false;show("settings");return;}
   if (view_ == "update") { updateBack(); return; }
   if (view_ == "feedback") {
     feedback_->request("keys.cancel");
@@ -2841,23 +2920,32 @@ void App::sendPrepared(Json model, Json input, const std::string &retryId,
   build();
 }
 void App::storeImage(const Json &image, std::function<void(bool)> completion) {
-  if (imageStoreBusy_ || messageEditBusy_ || replyBusy_)
+  if (imageStoreBusy_ || messageEditBusy_ || replyBusy_) {
+    if (completion) completion(false);
     return;
+  }
   if (imageStoreWorker_.joinable())
     imageStoreWorker_.join();
   imageStoreBusy_ = true;
   imageStoreCompletion_ = std::move(completion);
   const auto session = session_;
-  saveDraft();db_.flush();
+  saveDraft();
   const auto draftSnapshot=draftState_;
   const auto editToken=messageEdit_.empty()?std::string():messageEditToken_;
-  modal("正在保存图片", "图片准备完成后会自动返回，请稍候…");
+  if (view_!="scan")
+    modal("正在保存图片", "图片准备完成后会自动返回，请稍候…");
   imageStoreWorker_ = std::thread([this, image, session,editToken,draftSnapshot] {
     bool ok = true;
-    Json asset=Json::object();std::vector<std::string> created;
+    Json asset=Json::object();
+    std::vector<std::string> created;
     try {
-      if(editToken.empty())db_.addDraftImage(draftSnapshot,image);
-      else {
+      if(image.value("source",std::string())!="scan" || !editToken.empty())
+        db_.flush();
+      if(editToken.empty()) {
+        // The draft text is already queued ahead of the attachment on the
+        // DB worker. Return the committed attachment with its draft identity.
+        asset=db_.addDraftImage(draftSnapshot,image);
+      } else {
         const auto directory=join(dataDir_,".message-edit");
         ensureDirectory(directory);
         struct stat st{};
@@ -2873,7 +2961,9 @@ void App::storeImage(const Json &image, std::function<void(bool)> completion) {
         asset["source_type"]=image.value("source",std::string("camera"));asset["metadata_json"]=image.value("metadata",Json::object()).dump();
       }
     } catch (...) {ok=false;for(const auto &path:created){unlink(path.c_str());unlink((path+".part").c_str());}}
-    events_.push("image_stored", {{"ok", ok}, {"session", session},{"edit_token",editToken},{"asset",asset}});
+    events_.push("image_stored", {{"ok", ok}, {"session", session},{"edit_token",editToken},
+      {"asset",std::move(asset)},{"draft_key",draftSnapshot.value("key",std::string())},
+      {"draft_epoch",draftSnapshot.value("epoch",uint64_t(0))}});
   });
 }
 void App::attach(const Json &image) {
@@ -2894,6 +2984,7 @@ void App::attach(const Json &image) {
   });
 }
 void App::cancelNativeInteraction(bool preserveSettledReadSelection) {
+  scanExitContact_=false;
   chatBottomState_.pause();
   // A short touch-only lease gap is not a page/focus transition. Keep a
   // completed read selection, but never carry an active drag or menu press.
@@ -3247,6 +3338,7 @@ void App::shutdown() {
   if (updatePrepareWorker_.joinable()) updatePrepareWorker_.join();
   if (transfer_)
     transfer_->stop();
+  if(backups_)backups_->stop(backupExit_);
   if (imageStoreWorker_.joinable())
     imageStoreWorker_.join();
   if(messageEditWorker_.joinable())messageEditWorker_.join();
@@ -3284,6 +3376,18 @@ void App::shutdown() {
     db_.setting("export_cleanup_failed", true);
 }
 void App::routeTouch(const Json &m) {
+  const bool scanExitDown=m.value("pressed",false), scanExitCancelled=m.value("cancelled",false);
+  if (scanExitContact_) {
+    if (!scanExitDown || scanExitCancelled) scanExitContact_=false;
+    return;
+  }
+  if (view_=="chat" && scanExitDown && !scanExitCancelled && ticks()<scanExitGuardUntil_) {
+    const int x=m.value("x",0),y=m.value("y",0);
+    if (scanExitUse_.contains(x,y) || scanExitCancel_.contains(x,y)) {
+      scanExitContact_=true;
+      return;
+    }
+  }
   if(modal_) {
     if(m.value("cancelled",false))input_.cancel();
     else input_.touch(m.value("x",0),m.value("y",0),m.value("pressed",false));
@@ -3458,6 +3562,12 @@ void App::handle(const Json &m) {
         recordInputFocus(InputFocusTrace::InputApplied,after.active,after.sequence);
       updateInputFocus();
     }
+    return;
+  }
+  if(type=="backup.return") {backupReturn(m);return;}
+  if(type=="update.open") {rollbackRequest_.clear();openUpdate(false);return;}
+  if(type=="rescue.open.result") {
+    if(!rollbackRequest_.empty()&&m.value("operation",std::string())==rollbackRequest_){rollbackRequest_.clear();modal("版本回退未打开","未能安全停止当前运行，请稍后重试。保存的数据未被删除。");}
     return;
   }
   if(type=="update.install.result") {updater_->request("install_result",m);return;}
@@ -3735,6 +3845,9 @@ void App::tick() {
     }
     if(e.type=="onboarding_action"){if(e.data.value("step",-1)==onboardingStep_)onboardingAction(e.data.value("action",std::string()));continue;}
     if(e.type=="open_onboarding"){openOnboarding();continue;}
+    if(e.type=="backup_action"){backupAction(e.data.value("action",std::string()),e.data);continue;}
+    if(e.type=="backup_result"||e.type=="backup_error"||e.type=="backup_progress"){backupEvent(e);continue;}
+    if (e.type == "update_rollback_open") {openRollback();continue;}
     if (e.type == "update_release_fault") { feedback_->request("update_fault",e.data); continue; }
     if (e.type == "update_state" || e.type == "update_prepared") { updateEvent(e); continue; }
     if (e.type == "feedback_state") { feedbackEvent(e); continue; }
@@ -3759,10 +3872,14 @@ void App::tick() {
       auto callback = std::move(imageStoreCompletion_);
       imageStoreCompletion_ = {};
       bool ok = e.data.value("ok", false);
-      if(ok&&e.data.value("session",std::string())==session_&&messageEdit_.empty()) {
-        const auto saved=db_.draft(draftState_.at("key"));draftState_["images"]=saved.at("images");
+      const auto editToken=e.data.value("edit_token",std::string());
+      if(ok&&editToken.empty()&&e.data.value("session",std::string())==session_&&messageEdit_.empty()) {
+        const auto &image=e.data.at("asset");
+        if(e.data.at("draft_key")==draftState_.at("key") &&
+           e.data.at("draft_epoch")==draftState_.at("epoch") &&
+           !draftImage(image.at("id").get<std::string>()))
+          draftState_.at("images").push_back(image);
       }
-      auto editToken=e.data.value("edit_token",std::string());
       if(!editToken.empty()&&ok) {
         auto asset=e.data.at("asset");
         if(editToken==messageEditToken_&&!messageEdit_.empty()) {
@@ -3808,6 +3925,13 @@ void App::tick() {
     if(replyEvent(e))continue;
     if (sessionInfoEvent(e)) continue;
     if(messageEvent(e))continue;
+    if (e.type=="cancel_scan_review") {
+      if (view_=="scan" && scanCancelPending_ && e.data.value("scan",uint64_t(0))==scanId_ &&
+          e.data.value("generation",uint64_t(0))==scanGeneration_ &&
+          e.data.value("session",std::string())==scanSession_)
+        show("chat");
+      continue;
+    }
     if(e.type=="image_scan_open") {
       if(e.data.value("scan",uint64_t(0))==scanId_ && e.data.value("generation",uint64_t(0))==scanGeneration_ &&
          e.data.value("session",std::string())==scanSession_)viewScanResult();
@@ -3985,12 +4109,35 @@ void App::tick() {
                e.type == "cancelled" || e.type == "network_error") {
       if (e.data.value("generation", -1) != networkGeneration_ || !generating_)
         continue;
+      bool redraw=true;
       if (e.type == "response_state") {
-        output_ = e.data.value("output", std::string());
-        reasoning_ = e.data.value("reasoning", std::string());
-        reasoningMetadata_ = e.data.value("metadata", Json::object());
+        auto output=e.data.value("output", std::string());
+        auto reasoning=e.data.value("reasoning", std::string());
+        auto metadata=e.data.value("metadata", Json::object());
+        const auto control=reasoningControls_.find(assistant_);
+        if (control!=reasoningControls_.end() && !control->second.expanded &&
+            output==output_ && !reasoning.empty() && !reasoning_.empty()) {
+          redraw=false;
+          for (const auto key:{"reasoning_observed","reasoning_complete","stream_waiting",
+                               "web_pending","web_records","web_sources","web_images",
+                               "web_image_inspection_required","imported_reference"}) {
+            const auto old=reasoningMetadata_.find(key), next=metadata.find(key);
+            if ((old==reasoningMetadata_.end())!=(next==metadata.end()) ||
+                (old!=reasoningMetadata_.end() && *old!=*next)) {redraw=true;break;}
+          }
+          if (!output.empty() && metadata.value("reasoning_complete",false) &&
+              !metadata.value("web_pending",false)) {
+            const auto seconds=[](const Json &m)->int64_t {
+              return m.contains("reasoning_duration_ms")?m.at("reasoning_duration_ms").get<int64_t>()/1000:-1;
+            };
+            redraw=redraw || seconds(reasoningMetadata_)!=seconds(metadata);
+          }
+        }
+        output_=std::move(output);
+        reasoning_=std::move(reasoning);
+        reasoningMetadata_=std::move(metadata);
       }
-      dirty_ = true;
+      dirty_=dirty_ || redraw;
       persistDirty_ = true;
       if (e.type == "done" || e.type == "cancelled" ||
           e.type == "network_error") {
@@ -4076,12 +4223,13 @@ void App::tick() {
   }
   if(modal_&&chatControls_&&contextMenuKind_!="image-delete")lv_obj_set_hidden(chatControls_,true);
   if(onboarding_)onboarding_->tick(visible_&&!keyboard_&&!editor_.active);
+  backupTick();
   updateTick();
   if(updateExit_)return;
   syncBackPolicy();
   composerShortcutTick();
   settleReader();
-  if(!onboardingActive_&&!replyBusy_&&!contextRegenerating_)tickTitles();
+  if(!onboardingActive_&&!replyBusy_&&!contextRegenerating_&&view_!="backup_restore")tickTitles();
   if (persistDirty_ && !saveInFlight_ && ticks() >= persistDue_)
     persistReply("streaming");
   flushChatRender();
@@ -4251,12 +4399,14 @@ Json App::diagnostics() const {
           {"maximum", anthropicProtocol(modelForm_) ? Json(modelForm_.value("max_output_tokens", anthropicMaxOutput(modelForm_))) : Json()},
           {"context", modelForm_.value("context_budget", contextBudget(modelForm_))},
           {"vision", modelForm_.value("vision", objectField(modelForm_, "capabilities_json").value("vision", Json()))}}) : Json::object()},
+      {"backup_restore",[this,&bounds]{Json controls=Json::object();for(const auto &c:backupControls_)controls[c.first]=bounds(c.second);return Json{{"screen",backupScreen_},{"message",backupMessage_},{"busy",backups_&&backups_->busy()},{"items",backupItems_},{"plan",backupPlan_},{"conflict",backupConflict_},{"all",backupAll_},{"decisions",backupDecisions_},{"controls",controls}};}()},
       {"update", [this] {
         Json actions=Json::object();for(const auto &item:updateActions_){lv_area_t a;lv_obj_get_coords(item.second,&a);actions[item.first]={a.x1,a.y1,a.x2,a.y2};}
+        if(rollbackContinue_){lv_area_t a;lv_obj_get_coords(rollbackContinue_,&a);actions["rollback_continue"]={a.x1,a.y1,a.x2,a.y2};}
         return Json{{"status",updateState_.value("status",std::string())},{"current",PENCHAT_VERSION},
           {"target",updateState_.value("release",Json::object()).value("version",std::string())},
           {"weak",updateState_.value("release",Json::object()).value("weak",false)},
-          {"suppressed",updateState_.value("suppressed",false)},{"progress",updateState_.value("progress",Json::object())},
+          {"rollback_pending",!rollbackRequest_.empty()},{"suppressed",updateState_.value("suppressed",false)},{"progress",updateState_.value("progress",Json::object())},
           {"notes",updateState_.value("notes",Json::array()).size()},{"note_index",updateState_.value("note_index",size_t(0))},
           {"note_page",updateState_.value("note_page",size_t(0))},{"actions",actions}};
       }()},
@@ -4284,12 +4434,15 @@ Json App::diagnostics() const {
       {"scan_result", scanResult_},
       {"scan_latency",{{"finished",scanFinishedAt_},{"prepared",scanPreparedAt_},{"decoded",scanDecodedAt_},{"export_us",scanExportUs_},
         {"view_clicked",scanViewClickedAt_},{"view_loaded",scanViewLoadedAt_},
-        {"confirm_clicked",scanConfirmClickedAt_},{"stored",scanStoredAt_}}},
+        {"confirm_clicked",scanConfirmClickedAt_},{"exported",scanExportedAt_},{"stored",scanStoredAt_},
+        {"chat_built",scanChatBuiltAt_},{"export",scanExportTiming_}}},
       {"scan_preview_area", [this] {
         if(!scanHolder_)return Json::array();
         lv_area_t a;lv_obj_get_coords(scanHolder_,&a);return Json::array({a.x1,a.y1,a.x2,a.y2});
       }()},
-      {"scan_warning", scanWarning_ && !lv_obj_is_hidden(scanWarning_)?lv_label_get_text(scanWarning_):""},
+      {"scan_actions",{{"use",bounds(scanUse_)},{"cancel",bounds(scanCancel_)}}},
+      {"scan_warning", scanWarningText_},
+      {"scan_warning_bounds", bounds(scanWarning_ && !lv_obj_is_hidden(scanWarning_)?scanWarning_:nullptr)},
       {"scan_released", scanner_.released()},
       {"send_center_x2", send.x1 + send.x2},
       {"send_center_y2", send.y1 + send.y2},
@@ -4332,6 +4485,8 @@ Json App::diagnostics() const {
       {"reader_vertical", readerVertical_},
       {"at_latest_bottom", atLatestBottom()},
       {"chat_render_pending", dirty_ || chatRenderPending_ || !chatFinishPending_.empty()},
+      {"chat_render_work",{{"full",chatFullRenders_},{"live",liveRenders_},
+                            {"live_row",liveRowRenders_},{"live_max_ms",liveRenderMaxMs_}}},
       {"attachments", attachments_ != nullptr},
       {"attachment_above_keyboard", !editorRoot_ || (attachments_ && popupKind_=="attachments" &&
         lv_obj_get_parent(attachments_)==lv_obj_get_parent(editorRoot_) && lv_obj_get_index(attachments_)>lv_obj_get_index(editorRoot_))},

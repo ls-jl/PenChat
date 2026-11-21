@@ -31,6 +31,26 @@ void App::beginUpdate() {
   updateSnapshot_=updateSnapshot();
   updater_->request("download",{{"allow_weak",updateState_.value("release",Json::object()).value("weak",false)},{"snapshot",updateSnapshot_}});
 }
+void App::beginRollback() {
+  if(!rollbackRequest_.empty())return;
+  const auto status=updateState_.value("status",std::string());
+  if(status=="downloading"||status=="verifying"||status=="ready"||status=="installing")return;
+  if(generating_||contextBusy_||imageStoreBusy_||editor_.active||keyboard_||!messageEdit_.empty()||saveInFlight_||persistDirty_){modal("暂时无法回退","请先结束生成、输入或图片处理，再进行版本回退。");return;}
+  modal("版本回退", "老版本可能与现有聊天数据不兼容，导致数据丢失。");
+  lv_obj_update_layout(modal_);
+  rollbackContinue_=button(modal_,"继续",lv_obj_get_width(modal_)-uiMetrics_.dp(230),lv_obj_get_height(modal_)-uiMetrics_.dp(66),uiMetrics_.dp(100),uiMetrics_.touchTarget(),[this]{events_.push("update_rollback_open");});
+  lv_obj_add_event_cb(rollbackContinue_,[](lv_event_t *e){static_cast<App *>(lv_event_get_user_data(e))->rollbackContinue_=nullptr;},LV_EVENT_DELETE,this);
+}
+void App::openRollback() {
+  // Confirmation runs on the next UI tick, outside the LVGL click callback.
+  if(view_!="update"||!modal_||!rollbackContinue_||!visible_||!rollbackRequest_.empty())return;
+  const auto status=updateState_.value("status",std::string());
+  if(status=="downloading"||status=="verifying"||status=="ready"||status=="installing")return;
+  lv_obj_delete(modal_);
+  updater_->cancel();
+  rollbackRequest_=uid("version-rollback");
+  bridge_.send("rescue.open",{{"operation",rollbackRequest_}});
+}
 void App::updateBack() {
   const auto status=updateState_.value("status",std::string());
   if(status=="ready"||status=="installing")return;
@@ -122,6 +142,7 @@ void App::updatePage() {
   if(updateState_.contains("ticket")&&state!="installed") {
     action("retry_install","重试已下载的安装包",uiMetrics_.dp(10),y,width,[this]{updater_->request("retry_install",{{"snapshot",updateSnapshot()}});});y += uiMetrics_.dp(64);
   }
+  action("rollback","版本回退",uiMetrics_.dp(10),y,width,[this]{beginRollback();});y += uiMetrics_.dp(64);
   const auto notes=updateState_.value("notes",Json::array());const auto index=updateState_.value("note_index",size_t(0)),page=updateState_.value("note_page",size_t(0));
   if(!notes.empty()&&index<notes.size()) {
     readableLabel(pageContent_,notes[index].value("version",std::string())+" 更新说明 · "+std::to_string(index+1)+"/"+std::to_string(notes.size()),uiMetrics_.dp(10),y,width,uiMetrics_.fontSize(UiFont::SettingsTitle));y += uiMetrics_.dp(32);

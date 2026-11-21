@@ -87,6 +87,7 @@ struct Engine::Impl {
         std::deque<FramePtr> raw, prepared, window;
         FramePtr first;
         Selection selector;
+        penchat_scan::DarkPaperTone lastDarkPaper;
         WindowGeometry geometry;
         GeometryQuality quality;
         bool sealed = false, preprocessed = false, npuSealed = false, capacity = false, haveBatch = false;
@@ -202,12 +203,22 @@ struct Engine::Impl {
         resizeCamera(upright, match, 80, 144);
         cv::Mat small;
         resizeCamera(upright, small, 160, 288);
-        try {
+        if (s->result->config.liftDarkPaper) {
+            penchat_scan::PaperHistogram histogram;
+            for (int y = 0; y < small.rows; y += 4)
+                for (int x = 0; x < small.cols; x += 4)
+                    histogram.add(small.ptr<std::uint8_t>(y)[x]);
+            f->darkPaper = penchat_scan::DarkPaperTone::estimate(histogram);
+            f->darkPaper.stabilize(s->lastDarkPaper);
+            s->lastDarkPaper = f->darkPaper;
+        }
+        // Estimate before queueing the frame. Apply only to the stitch input,
+        // keeping the original sensor pixels available for unlocated frames.
+        if (!f->darkPaper.enabled()) try {
             f->brightness = pen_photo::brightness_neon(small.ptr<std::uint8_t>(), 160, 288,
                                                        s->result->config.calibration->gain.data(),
                                                        brightnessScratch);
         } catch (const std::runtime_error &) {
-            f->photoValid = false;
             f->brightness = 1;
             emit(s, Event::Kind::Error, "insufficient_paper_background_retained", f);
         }
@@ -620,9 +631,11 @@ struct Engine::Impl {
                         correctedPages.clear(); correctedPages.allocate(bytes, budget, budget->other);
                     }
                     cv::Mat corrected(f->height, f->width, CV_8UC1, correctedPages.bytes());
-                    pen_photo::apply_neon(f->y(), corrected.ptr<std::uint8_t>(),
-                                          std::size_t(f->width) * f->height, reinterpret_cast<const float *>(r.rawGain.bytes()),
-                                          f->brightness);
+                    if (f->darkPaper.enabled())
+                        f->darkPaper.apply(f->y(), corrected.ptr<std::uint8_t>(), bytes);
+                    else
+                        pen_photo::apply_neon(f->y(), corrected.ptr<std::uint8_t>(), bytes,
+                                              reinterpret_cast<const float *>(r.rawGain.bytes()), f->brightness);
                     auto small = rawToWork(f->width, f->height, r.config.rotation);
                     int ow = f->width, oh = f->height;
                     if (r.config.rotation == Rotation::Clockwise90 ||

@@ -50,6 +50,12 @@ int main(int argc, char **argv) {
     bool rejected = false; try { chemistryTex(source); } catch (...) { rejected = true; }
     assert(rejected);
   }
+  assert(chemistryTex(R"(\ce{Fe3+})").find("^{3+}")!=std::string::npos);
+  assert(chemistryTex(R"(\ce{NH4+})").find("_{4}^{+}")!=std::string::npos);
+  const auto hydrate=chemistryTex(R"(\ce{CuSO4.5H2O})");assert(hydrate.find("_{4.5}")==std::string::npos&&hydrate.find("\\cdot")!=std::string::npos);
+  const auto isotope=chemistryTex(R"(\ce{^227_90Th+})");assert(isotope.find("{}^{227}_{90}")==1);
+  assert(chemistryTex(R"(\ce{Fe^{III}})").find("\\mathrm{III}")!=std::string::npos);
+  assert(chemistryTex(R"(\ce{NO_x})").find("_{x}")!=std::string::npos);
   const auto bare = parseMarkdown(R"(\ce{H2O})");
   assert(bare.blocks[0].runs[0].style & Math);
   for (const auto &source : {std::string("`\\ce{H2O}`"), std::string("```tex\n\\ce{H2O}\n```\n")}) {

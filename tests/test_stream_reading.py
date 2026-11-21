@@ -263,8 +263,86 @@ def manual_collapse_retains_reader_drag():
         finally:a.close()
     print('Reader drag during disclosure completion stays detached from the latest bottom.',flush=True)
 
+def thinking_updates_keep_history():
+    Stream.commands=queue.Queue()
+    with http.server.ThreadingHTTPServer(('127.0.0.1',0),Stream) as server,tempfile.TemporaryDirectory(prefix='penchat-s6-live-work-') as tmp:
+        p=pathlib.Path(tmp);t.port=server.server_port
+        threading.Thread(target=server.serve_forever,daemon=True).start();seed(p,t.port)
+        with sqlite3.connect(p/'penchat.db') as db:
+            db.execute("insert into chat_sessions(id,title,status,created_at,updated_at,last_message_at) values('s','S6 live work','active',1,1,1)")
+            for key,value in [('active_session_id','s'),('auto_title_enabled',False),('reasoning_display','always'),('ui_refresh_hz',60)]:
+                db.execute('insert or replace into app_settings values(?,?,1)',(key,json.dumps(value)))
+            for seq in range(1,21):
+                role='assistant' if seq%2==0 else 'user'
+                text=('## 历史段落\n\n已完成的回答 **不应重建**。\n\n'*6 if role=='assistant' else '历史问题')
+                db.execute("insert into chat_messages(id,session_id,seq,role,status,message_type,output_text,created_at,updated_at) values(?,'s',?,?,'complete','text',?,1,1)",(f'old-{seq}',seq,role,text))
+        a=t.Native(BINARY,p,screen={'width':640,'height':260,'direction':0})
+        try:
+            a.edit('测试流式刷新');a.tap(588,226)
+            t.wait_for(lambda:a.diag()['receiving_reply'])
+            before=a.diag()['chat_render_work']
+            for i in range(4):
+                count=a.diag()['chat_render_work']['live_row']
+                Stream.commands.put(('thought',f'思考段落 {i}\n\n'))
+                t.wait_for(lambda:a.diag()['chat_render_work']['live_row']>count)
+            answer='\n\n'.join(f'回答段落 {i}。' for i in range(25))
+            Stream.commands.put(('text',answer))
+            t.wait_for(lambda:a.diag()['output_length']==len(answer.encode()) and not a.diag()['chat_render_pending'])
+            state=a.diag()
+            assert state['chat_render_work']['full']==before['full'],(before,state['chat_render_work'])
+            assert state['reply_actions']['rows']['old-20']['copy_enabled']
+            assert state['reasoning_header_count']==1 and state['following_latest']
+            Stream.commands.put(('done',''));t.wait_for(lambda:not a.diag()['generating'] and not a.diag()['chat_render_pending'])
+            assert a.read_messages()[-1][2]==answer
+            print('S6-shaped stream: four reasoning updates and long answer preserve all historical rows',state['chat_render_work'],flush=True)
+        finally:Stream.commands.put(('cut',''));a.close()
+
+def hidden_deltas_skip_layout():
+    Stream.commands=queue.Queue()
+    with http.server.ThreadingHTTPServer(('127.0.0.1',0),Stream) as server,tempfile.TemporaryDirectory() as tmp:
+        t.port=server.server_port;p=pathlib.Path(tmp);seed(p,t.port)
+        threading.Thread(target=server.serve_forever,daemon=True).start()
+        with sqlite3.connect(p/'penchat.db') as db:
+            for key,value in [('reasoning_display','collapsed'),('auto_title_enabled',False)]:
+                db.execute('insert or replace into app_settings values(?,?,1)',(key,json.dumps(value)))
+        a=t.Native(BINARY,p)
+        try:
+            a.edit('hidden delta');a.tap(908,232)
+            Stream.commands.put(('thought','first'))
+            t.wait_for(lambda:a.diag()['reasoning_controls'])
+            before=a.diag()['chat_render_work']
+            more='\n\n'.join('hidden paragraph '+str(i) for i in range(15))
+            Stream.commands.put(('thought',more))
+            with sqlite3.connect(p/'penchat.db') as db:
+                t.wait_for(lambda:db.execute("select 1 from chat_messages where reasoning_text=?",('first'+more,)).fetchone())
+            state=a.diag()
+            assert state['chat_render_work']['live_row']==before['live_row'] and not state['chat_render_pending']
+            b=state['reasoning_controls'][0]['arrow']
+            a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
+            t.wait_for(lambda:a.diag()['reasoning_controls'][0]['angle']==900)
+            detail=a.diag()['reasoning_controls'][0]['detail']
+            assert detail[3]-detail[1]>300
+            previous_height=detail[3]-detail[1]
+            def toggle():
+                box=a.diag()['reasoning_controls'][0]['arrow']
+                a.tap((box[0]+box[2])//2,(box[1]+box[3])//2)
+            toggle();t.wait_for(lambda:a.diag()['reasoning_controls'][0]['angle']==0)
+            before=a.diag()['chat_render_work']
+            Stream.commands.put(('thought',more))
+            with sqlite3.connect(p/'penchat.db') as db:
+                t.wait_for(lambda:db.execute("select 1 from chat_messages where reasoning_text=?",('first'+more+more,)).fetchone())
+            assert a.diag()['chat_render_work']['live_row']==before['live_row']
+            toggle();t.wait_for(lambda:a.diag()['reasoning_controls'][0]['angle']==900)
+            detail=a.diag()['reasoning_controls'][0]['detail']
+            assert detail[3]-detail[1]>previous_height
+            Stream.commands.put(('done',''));t.wait_for(lambda:not a.diag()['generating'])
+        finally:Stream.commands.put(('cut',''));a.close()
+    print('Hidden reasoning: persisted delta without row rebuild, latest paragraphs visible on expand.',flush=True)
+
 if __name__=='__main__':
     run(960,266,'responses');run(936,280,'chat',True)
+    thinking_updates_keep_history()
+    hidden_deltas_skip_layout()
     for mode in ['done','stop','cut']:
         short_and_terminal(mode);waiting_terminal(mode)
     older_copy_and_horizontal()

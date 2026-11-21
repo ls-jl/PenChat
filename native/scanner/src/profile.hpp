@@ -31,6 +31,7 @@ struct OpticalSpec {
   OpticalRotation rotation = OpticalRotation::CounterClockwise90;
   CalibrationKind calibration = CalibrationKind::SpatialMap;
   std::string metadata = "demo_gain.json", gain = "demo_gain_160x288.f32", version;
+  bool liftDarkPaper = false;
 };
 struct InferenceSpec {
   RuntimeKind runtime = RuntimeKind::SystemRknn;
@@ -161,6 +162,7 @@ inline const std::array<ProfileRegistration,5> &scanProfiles() {
       {"platform-led_control-event"},{},-1,-1,GpioOwnership::RestoreExisting,KeyDiscovery::NameAndCode};
     s6.homeName="gpio-keys";
     s6.optics={OpticalRotation::None,CalibrationKind::Neutral,"","","s6-pag7920-optical-region-neutral-v4"};
+    s6.optics.liftDarkPaper=true;
     s6.inference={RuntimeKind::Cvi,RuntimeCompatibility::None,"pintu_rgb32_int8.cvimodel",""};
     s6.handoff={false,true,true};
     return std::array<ProfileRegistration,5>{{

@@ -15,7 +15,7 @@ struct CompositeStats {
   unsigned nativeFrames = 0, taps = 0, epoch = 0, elapsedMs = 0;
   std::size_t sharedBytes = 0;
   double copyMedianMs = 0, blendMedianMs = 0, presentMedianMs = 0;
-  std::string reason;
+  std::string reason,profile,firmwareSha;
 };
 class Composite {
 public:

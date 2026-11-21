@@ -41,8 +41,13 @@ DEVICES = {
 }
 RELEASE = 'release-'+APP['version']
 OUT = ROOT/'.work'/RELEASE/'devices'
+def scoped_output(path):
+  value=pathlib.Path(path).resolve();base=(ROOT/'.work').resolve()
+  assert value!=base and base in value.parents,'Acceptance output must stay in a task subdirectory of .work'
+  return value
 # Reuse individual feature fixtures, never acceptance.py on original user data.
 FEATURES = {
+  'backup-restore': 'Isolated incremental backup restore, conflicts, cancel, invalid files and native reload',
   'resource-residency': 'Control center retains underlay/worker/model and observes but gates pen input',
   'scan-original': 'Real scan result original PNG, reopen cache and no persistence/send',
   'scan-confirm-latency': 'S6 paper original/reopen plus explicit isolated save timing and exact stored file hash; never sends',
@@ -53,7 +58,7 @@ FEATURES = {
   'official-editing-dark': 'Y07 retained official editing with opaque dark handoff backing',
   'official-editing': 'Y07 retained IME cursor, selection, copy/cut/paste, local single send and light boundary pixels',
   'scanner-cycles': 'Twenty profile-verified real capture/discard, resident worker and guardian return cycles; no optical claim',
-  'smoke': 'Native identity, Falcon geometry, reader/drawer and all 26 Settings rows',
+  'smoke': 'Native identity, Falcon geometry, reader/drawer and all 27 Settings rows',
   'keyboard-review': 'Light keyboard, composer growth and drawer before/after screenshots',
   'global-font-preedit': '75/100/150 global UI fonts and Wide/Portrait floating preedit with real candidate touches',
   'font-persistence': 'Save text150 with unchanged UIscale, native restart verify, then reset100 and restart verify',
@@ -215,6 +220,8 @@ class ReleaseDevice(ScopedDevice):
     super().__init__(serial, package)
     self.name = DEVICES[serial]
     self.features = features
+    if 'backup-restore' in features:
+      assert features == ['backup-restore'], 'Backup restoration needs its own isolated scope'
     if 'scan-original-codec' in features:
       assert features == ['scan-original-codec'], 'The saved-scan codec fixture needs its own isolated scope'
     self.discard_input = discard_input
@@ -421,6 +428,15 @@ class ReleaseDevice(ScopedDevice):
   def launch(self):
     # Keep the source helper's foreground stability guard. A retained Falcon
     # launcher may expose its supported Retry action after native termination.
+    if self.serial == 'MEB0400008900794' and self.key_helper_ready:
+      if self.sh('cat /sys/class/backlight/backlight/bl_power') != '0':
+        power = next(block for block in self.sh('cat /proc/bus/input/devices').split('\n\n')
+                     if 'Name="rk805 pwrkey"' in block)
+        event = '/dev/input/'+re.search(r'Handlers=.*\b(event\d+)\b',power)[1]
+        node = '/dev/input/by-path/rk805-pwrkey'
+        assert self.sh('readlink -f '+node) == event
+        self.sh(self.key_helper+' '+node+' 116 1 100 300')
+        self.wait(lambda:self.sh('cat /sys/class/backlight/backlight/bl_power') == '0',5)
     if self.serial in ('MEA2300009007113','7G12000010905426') and self.key_helper_ready:
       backlight='/sys/class/backlight/'+('dcs-backlight' if self.serial=='7G12000010905426' else 'backlight')+'/actual_brightness'
       for _ in range(2):
@@ -429,6 +445,13 @@ class ReleaseDevice(ScopedDevice):
         self.sh(self.key_helper+' /dev/input/by-path/rk805-pwrkey 116 1 100 300')
         time.sleep(.4)
       assert int(self.sh('cat '+backlight)) > 5, 'Device did not wake with its paired power key'
+    if self.s6 and self.key_helper_ready and self.sh('cat /sys/class/backlight/backlight/bl_power')!='0':
+      config=json.loads(self.sh('cat /usr/configs/hal_key_config.json'))['Plum_V0']
+      assert int(config['power_key_code'])==116
+      node='/dev/input/by-path/'+config['power_key_id']
+      assert self.sh('test -c '+shlex.quote(node)+' && echo yes')=='yes'
+      self.sh(self.key_helper+' '+shlex.quote(node)+' 116 1 100 300');time.sleep(.4)
+      assert self.sh('cat /sys/class/backlight/backlight/bl_power')=='0','S6 did not wake; no touch permitted'
     # S6's brightness=5 can still be interactive; superclass readiness checks
     # its actual focus/evdev lease instead of treating this value as sleep.
     self.sh('miniapp_cli start '+APP['appid'])
@@ -451,7 +474,7 @@ class ReleaseDevice(ScopedDevice):
     self.settings()
     self.capture('smoke-settings-top')
     rows = self.state()['settings']['rows']
-    assert len(rows) == 26, ('Settings row count', len(rows), list(rows))
+    assert len(rows) == 27 and 'backup_restore' in rows, ('Settings row count', len(rows), list(rows))
     reachable = []
     for name in rows:
       bounds = self.reveal(lambda d, name=name: d['settings']['rows'][name]['bounds'])
@@ -926,7 +949,7 @@ class ReleaseDevice(ScopedDevice):
     # Existing feature isolation must be recovered rather than hidden by another
     # wrapper. All locations belong only to this app and this public transfer root.
     candidates = [self.saved, self.public_saved]
-    for suffix in ('display-acceptance-saved', 'dpi-acceptance-saved', 'refresh-bottom-saved', 'release-0.3.1-saved'):
+    for suffix in ('display-acceptance-saved', 'dpi-acceptance-saved', 'refresh-bottom-saved', 'release-0.3.1-saved', 'backup-restore-acceptance-saved', RELEASE+'-saved'):
       candidates.extend((self.data+'.'+suffix, self.public+'.'+suffix))
     assert self.sh(' && '.join('test ! -e '+shlex.quote(p) for p in candidates)+' && echo safe') == 'safe', 'Prior fixture requires recovery'
     had_data = self.sh('test -d '+self.data+' && echo yes || true') == 'yes'
@@ -958,7 +981,11 @@ class ReleaseDevice(ScopedDevice):
       self.sh('mkdir -p '+self.data)
       with tempfile.TemporaryDirectory(prefix='penchat-release-') as temp:
         folder = pathlib.Path(temp)
-        self.fixture(folder/'penchat.db')
+        if self.features == ['backup-restore']:
+          from backup_restore_acceptance import prepare_fixture
+          prepare_fixture(self, folder/'penchat.db')
+        else:
+          self.fixture(folder/'penchat.db')
         if self.features == ['scan-original-codec']:
           from release_scan_original import codec_fixture
           codec_fixture(self,folder)
@@ -1048,7 +1075,10 @@ class ReleaseDevice(ScopedDevice):
         self.result['checks'].append(entry)
         self.record()
         try:
-          if feature == 'smoke':
+          if feature == 'backup-restore':
+            from backup_restore_acceptance import exercise
+            entry['evidence'] = exercise(self)
+          elif feature == 'smoke':
             entry['evidence'] = self.smoke()
           elif feature == 'keyboard-review':
             entry['evidence'] = self.keyboard_review()
@@ -1250,10 +1280,12 @@ class ReleaseDevice(ScopedDevice):
 
 
 def main():
+  global OUT
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument('--plan', action='store_true', help='Emit coverage without invoking adb')
   parser.add_argument('--serial', choices=tuple(DEVICES))
   parser.add_argument('--package', type=pathlib.Path)
+  parser.add_argument('--output-dir',type=pathlib.Path,help='Task artifact directory under .work; does not change device isolation or locks')
   parser.add_argument('--discard-pending-input', action='store_true', help='Explicitly authorized: discard unsent editor/draft; preserve saved user data')
   parser.add_argument('--discard-pending-images', action='store_true', help='Separate explicit authorization: abandon temporary scan/image work; saved DB/assets still restored')
   parser.add_argument('--official-controller-file', type=pathlib.Path, help='Append-only host command file for reconnectable owned official controls')
@@ -1261,6 +1293,7 @@ def main():
   parser.add_argument('--manual-paper-scan', action='store_true', help='Wait for a user paper scan instead of injecting the pen key; scan-original scope only')
   parser.add_argument('--features', nargs='+', choices=tuple(FEATURES), default=['smoke'])
   args = parser.parse_args()
+  if args.output_dir:OUT=scoped_output(args.output_dir)
   if args.plan:
     print(json.dumps({'devices': DEVICES, 'features': FEATURES,
                       'manual_pending': ['All visual screenshots need user review',

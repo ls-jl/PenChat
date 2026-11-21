@@ -13,7 +13,12 @@ inline LayoutClass classifyLayout(int width, int height) {
 
 // Geometry is measured from the loaded Falcon logical screen, never a device
 // resolution fallback. Sensor/photo dimensions are independent of these regions.
-struct LayoutRect { int x,y,width,height; };
+struct LayoutRect {
+  int x,y,width,height;
+  bool contains(int px,int py) const {
+    return px>=x && px<x+width && py>=y && py<y+height;
+  }
+};
 // Provisional Y07 optical mask. Geometry is always logical, and the explicit
 // capability must never be inferred from the resolution or aspect ratio.
 struct ScreenSafety {
@@ -42,8 +47,9 @@ struct ScreenSafety {
   }
 };
 struct ScanWorkspace {
-  LayoutRect caption, preview, warning, use, cancel;
-  int captionFloor, previewBottom;
+  // The warning is reader-local. The preview and controls use screen coordinates.
+  LayoutRect preview, warning, use, cancel;
+  int previewBottom;
 };
 struct CameraWorkspace {
   LayoutRect preview, direction, shutter, turn;
@@ -98,16 +104,22 @@ struct AppLayout {
   int modalX() const { return dp(portrait()?12:84); }
   int modalWidth() const { return std::max(1,width - dp(portrait()?24:92)); }
   ScanWorkspace scanWorkspace() const {
-    if(portrait()) {
-      if(!safety().enabled())return {{dp(72),dp(16),width-dp(88),dp(24)},{dp(10),dp(56),width-dp(20),height-dp(186)},
-        {dp(16),dp(28),width-dp(32),dp(24)},{dp(16),height-dp(112),width-dp(32),dp(44)},{dp(16),height-dp(58),width-dp(32),dp(44)},dp(48),height-dp(130)};
-      const int control=metrics.touchTarget(),top=safeTop(),cancelY=height-safeBottom()-control,useY=cancelY-control-dp(8);
-      return {{navigationX()+dp(56),top+dp(8),width-navigationX()-dp(80),dp(24)},
-        {dp(10),top+dp(48),width-dp(20),useY-top-dp(64)},{dp(16),top+dp(28),width-dp(32),dp(24)},
-        edgeRect({dp(16),useY,width-dp(32),control}),edgeRect({dp(16),cancelY,width-dp(32),control}),top+dp(40),useY-dp(16)};
-    }
-    return {{dp(10),0,width-dp(120),dp(24)},{dp(10),dp(32),width-dp(330),height-dp(88)},
-      {dp(10),dp(28),width-dp(330),dp(24)},{width-dp(305),dp(32),dp(200),dp(44)},{width-dp(305),dp(86),dp(200),dp(44)},dp(28),height-dp(56)};
+    const int control=metrics.touchTarget(),gap=dp(12);
+    const int rowY=height-safeBottom()-control;
+    const int side=std::max(dp(16),edgeSide(rowY,control));
+    const int buttonWidth=std::max(1,std::min(dp(200),(width-2*side-gap)/2));
+    const int left=(width-2*buttonWidth-gap)/2;
+    const LayoutRect use{left,rowY,buttonWidth,control},cancel{left+buttonWidth+gap,rowY,buttonWidth,control};
+    const int top=portrait()?safeTop():dp(4);
+    const int bottom=rowY-dp(12);
+    const int warningInset=std::max(dp(16),edgeSide(top,metrics.touchTarget()));
+    return {scanPreview(top,bottom),{warningInset,top,
+      std::max(1,width-2*warningInset),0},use,cancel,bottom};
+  }
+  LayoutRect scanPreview(int top,int bottom) const {
+    const int h=std::max(1,bottom-top);
+    const int side=safety().sideInset(top,h);
+    return {side,top,std::max(1,width-2*side),h};
   }
   CameraWorkspace cameraWorkspace(int w,int h,bool quarterTurn) const {
     if(portrait()||quarterTurn) {

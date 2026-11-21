@@ -14,10 +14,11 @@ def close_viewer(d):
  d.wait(lambda:not d.state()['image_viewer']['open'])
 
 def run(d):
- assert d.s6
+ from release_scanner_cycles import PROFILES
+ profile,width,height=PROFILES[d.serial]
  d.chat();d.wait(lambda:d.state()['scanner'].get('type')=='ready' and d.state()['scanner'].get('model_ready'),90)
  pid=d.pid();r=d.state()['scanner'];worker=r['worker_pid']
- assert r['profile']=='s6-pag7920' and [r['sensor_width'],r['sensor_height']]==[320,240]
+ assert r['profile']==profile and [r['sensor_width'],r['sensor_height']]==[width,height]
  manual=getattr(d,'manual_paper_scan',False)
  if manual:
   initial=d.state()['scan_id']
@@ -27,7 +28,8 @@ def run(d):
    return s['scan_result'] if s['scan_id']>initial and s['scan_result'].get('type')=='finished' else None
   result=d.wait(completed,600)
  else:
-  d.sh(d.key_helper+' /dev/input/by-path/platform-led_control-event 134 1 500 100')
+  key='platform-led_control-event' if d.s6 else 'led_control'
+  d.sh(d.key_helper+' /dev/input/by-path/'+key+' 134 1 500 100')
   result=d.wait(lambda:(s['scan_result'] if (s:=d.state())['scan_result'].get('type')=='finished' else None),120)
  (d.out/'scan-result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
  assert result['usable'],{'stage':'scan_result','reason':result.get('reason'),'counts':result.get('counts')}
@@ -58,7 +60,7 @@ def run(d):
   d.capture('scan-original-'+str(cycle))
   close_viewer(d)
  assert d.pid()==pid and d.state()['scanner']['worker_pid']==worker
- return {'profile':r['profile'],'sensor_geometry':[320,240],'original_cycles':rows,'result_preserved':True,'scan_id':scan,'no_confirmation_or_send':True,'manual_paper_scan':manual,'scan_result':result,'paper_quality':'User forward paper scan; optical quality requires separate review' if manual else 'Not measured; source is automatic sensor capture'}
+ return {'profile':r['profile'],'sensor_geometry':[width,height],'original_cycles':rows,'result_preserved':True,'scan_id':scan,'no_confirmation_or_send':True,'manual_paper_scan':manual,'scan_result':result,'paper_quality':'User forward paper scan; optical quality requires separate review' if manual else 'Not measured; source is automatic sensor capture'}
 
 
 def latency(d):
@@ -66,19 +68,25 @@ def latency(d):
  import sqlite3
  from release_lifecycle import pull_database
  evidence=run(d)
- assert d.s6 and (d.w,d.h)==(640,260) and d.state()['ui_scale']['applied']==100
+ assert d.state()['ui_scale']['applied']==100
  original=next(line.split()[0] for line in evidence['original_cycles'][0]['files_sha256'].splitlines() if not line.endswith('.preview.png'))
  generation=d.state()['scanner']['generation']
- d.touch(d.w-205,54)
+ actions=d.state()['scan_actions'];use,cancel=actions['use'],actions['cancel']
+ assert use[1]==cancel[1] and use[3]==cancel[3] and use[2]<cancel[0]
+ assert abs(use[0]+cancel[2]-(d.w-1))<=2 and use[1]>d.h//2
+ d.capture('scan-review-bottom-actions')
+ d.tap(use)
  s=d.wait(lambda:(s if (s:=d.state())['view']=='chat' and s['scan_latency']['stored'] else None),60)
  assert not s['generating'] and s['scanner']['generation']==generation
  backup=d.out/'confirmed-fixture.db';pull_database(d.serial,d.data,backup,d.sh)
  with sqlite3.connect(backup) as db:
-  assert db.execute('select count(*) from chat_messages').fetchone()[0]==2
-  assets=db.execute('select stored_path,display_src,width,height,source_type from message_assets').fetchall()
- assert len(assets)==1 and assets[0][4]=='scan'
- stored,preview,width,height,_=assets[0]
- assert stored.startswith(d.data+'/assets/') and preview.startswith(d.data+'/assets/')
+  assert db.execute('select count(*) from chat_messages').fetchone()[0]==1
+  attachments=db.execute("select image_json from draft_attachments where draft_key='refresh-bottom'").fetchall()
+ assert len(attachments)==1
+ image=json.loads(attachments[0][0])
+ stored,preview,width,height=(image[key] for key in ('path','previewPath','width','height'))
+ owned=pathlib.PurePosixPath(d.data)/'assets-drafts'
+ assert owned in pathlib.PurePosixPath(stored).parents and owned in pathlib.PurePosixPath(preview).parents
  assert d.sh('sha256sum '+stored).split()[0]==original
  evidence['review_stage_no_confirmation_or_send']=evidence.pop('no_confirmation_or_send')
  evidence.update(confirmed_into_isolated_fixture=True,network_send=False,stored_original_sha256=original,

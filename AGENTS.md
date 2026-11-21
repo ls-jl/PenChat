@@ -144,6 +144,14 @@ released scanner at keyboard frequency.
 
 ## Builds and checks
 
+Build caches and intermediate artifacts must stay on disk, normally under
+`build/` or `.work/build-cache/`. Do not relocate builds into `/tmp`/tmpfs to
+avoid disk pressure: tmpfs may spill into swap. At build/task completion, clean
+obsolete, reproducible object/archive/test binaries and duplicate staging trees;
+retain source, pinned dependencies/model originals, logs, acceptance evidence,
+user-data backups and delivered packages. Never clean an active build or another
+task's runtime files.
+
 Read README.md for toolchain prerequisites. `npm run build:host` builds host tests;
 `npm run build:native` cross-builds the executable and launcher; `npm test` runs
 bridge, native and actual-process integration tests. During development, run only
@@ -514,6 +522,10 @@ keep an edit snapshot for cancellation, never persist previews. Do not hide an I
 window from inside its own completion callback; defer completion to the next turn.
 Only dismiss the system panel while our app owns the foreground. Do not restore
 system pinyin borrowing or copy its dictionary.
+CVI-S basic UI admission is shared by hardware-family identity, ARM32 hard-float
+ABI and an exact verified Falcon display profile, not the S6/Plum product name.
+Keep unknown firmware/ABI rejection and independent scan/photo admission. See
+docs/CVI-COMPATIBILITY.md; other models are not certified without device evidence.
 S6 adaptation is integrated on dev. S6
 JDA0700006552216 is an explicit CV1826/ARMv7 target; reuse the accepted CVI INT8
 bundle and public runtime in place, never load RKNN or copy device libraries into

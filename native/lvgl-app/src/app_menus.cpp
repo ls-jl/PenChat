@@ -19,6 +19,7 @@ void App::fitAttachmentEditor(LayoutRect &area) const {
 }
 
 void App::closeAttachments() {
+  cancelEffortSliders(attachments_);
   if(effortPreview_){effortPreview_=false;syncEffortGauge();}
   if (popupKind_ == "attachments") { ++sessionInfoGeneration_; sessionInfoPending_ = false; }
   contextUsageArc_ = contextUsageLabel_ = nullptr;
@@ -319,8 +320,8 @@ void App::effortPicker() {
   auto capsule=box(panel,uiMetrics_.dp(16),uiMetrics_.dp(60),area.width-uiMetrics_.dp(32),uiMetrics_.dp(60),theme::palette().popup);
   lv_obj_set_scrollable(capsule,false);lv_obj_set_style_radius(capsule,LV_RADIUS_CIRCLE,0);
   auto slider=createEffortSlider(capsule,uiMetrics_.dp(8),uiMetrics_.dp(8),area.width-uiMetrics_.dp(48),
-      int(options.size()),initial,uiMetrics_,[this,title,options](int index,EffortSliderEvent event){
-        lv_label_set_text(title,effortCaption(options[index]).c_str());
+      int(options.size()),initial,uiMetrics_,[this,title,options,explicitEffort](int index,EffortSliderEvent event){
+        lv_label_set_text(title,event==EffortSliderEvent::Cancel&&!explicitEffort?"跟随服务商默认 · 推理强度":effortCaption(options[index]).c_str());
         if(event==EffortSliderEvent::Preview) {
           effortPreview_=true;
           const auto placement=effortGaugePlacement(options,index);

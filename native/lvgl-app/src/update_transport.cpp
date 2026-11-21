@@ -20,6 +20,9 @@ Config Config::build() {
   value.autoCheck=false;
   if(const auto path=getenv("PENCHAT_TEST_UPDATE_CONFIG")) {
     const auto json=Json::parse(fileText(path,16384));
+    value.platform=json.value("platform",value.platform);
+    if(value.platform!="rk3562"&&value.platform!="cv1826-s")throw std::runtime_error("Unknown update platform");
+    value.root=value.platform=="cv1826-s"?"https://cdn.ls-jl.cn/penchat-cvi-s/":"https://cdn.ls-jl.cn/penchat-rk/";
     value.root=json.value("root",value.root);value.nodes=json.value("nodes",value.nodes);
     value.autoCheck=json.value("auto",true);
     value.current=json.value("current",value.current);value.appId=json.value("appid",value.appId);

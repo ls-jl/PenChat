@@ -2,15 +2,15 @@
 #include <iostream>
 using namespace penchat;
 int main(int argc,char **argv) {
-  if(argc==6&&std::string(argv[1])=="--validate") {
+  if((argc==6||argc==7)&&std::string(argv[1])=="--validate") {
     std::atomic<bool> cancel{false};
-    try{std::cout<<updates::validatePackage(argv[2],argv[3],argv[4],argv[5],cancel).dump()<<std::endl;return 0;}
+    try{std::cout<<updates::validatePackage(argv[2],argv[3],argv[4],argv[5],cancel,argc==7?argv[6]:"").dump()<<std::endl;return 0;}
     catch(const std::exception &e){std::cout<<Json{{"error",e.what()}}.dump()<<std::endl;return 1;}
   }
   if(argc!=3)return 2;
   try {
     const auto json=Json::parse(fileText(argv[1],16384));updates::Config config;
-    config.root=json.at("root");config.nodes=json.value("nodes",std::vector<std::string>{});
+    config.root=json.at("root");config.platform=json.value("platform",config.platform);config.nodes=json.value("nodes",std::vector<std::string>{});
     config.current=json.value("current",std::string("0.2.20"));config.appId=json.value("appid",std::string(PENCHAT_APP_ID));config.autoCheck=json.value("auto",false);
     ensureDirectory(argv[2]);Events events;Updater updater(events,argv[2],config);Json faults=Json::array();
     std::string line;

@@ -16,7 +16,11 @@
       "name": "microtex",
       "revision": "0e3707f6dafebb121d98b53c64364d16fefe481d",
       "url": "https://codeload.github.com/NanoMichael/MicroTeX/tar.gz/0e3707f6dafebb121d98b53c64364d16fefe481d",
-      "sha256": "47476269d29c41df322bce6bdd2daa7017cc50b9eda841b2bec1767dba28daa6"
+      "sha256": "47476269d29c41df322bce6bdd2daa7017cc50b9eda841b2bec1767dba28daa6",
+      "source_overlays": {
+        "manifest": "microtex-overlays.json",
+        "sha256": "3d73af8a3578473f0477e76f6c24c5327be5a9caa05e930475fdfc6ff21ad55e"
+      }
     },
     {
       "name": "tinyxml2",

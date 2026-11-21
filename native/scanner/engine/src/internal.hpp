@@ -1,5 +1,6 @@
 #pragma once
 #include "geometry_decoder.hpp"
+#include "pen_stream/dark_paper.hpp"
 #include "pen_stream/stream.hpp"
 #include <atomic>
 #include <deque>
@@ -138,7 +139,7 @@ struct Frame {
     std::uint64_t sequence = 0, index = std::uint64_t(-1);
     std::int64_t timestamp = 0;
     float brightness = 1;
-    bool photoValid = true;
+    penchat_scan::DarkPaperTone darkPaper;
     ~Frame() {
         if (budget)
             --budget->frameCount;

@@ -104,6 +104,7 @@ def main():
     member = payload['runtime']
     assert member.startswith('assets/runtime/') and '..' not in member
     launcher = archive.read(member)
+    native_main = archive.read('assets/bin/penchat-lvgl')
     assert sha(launcher) == payload['runtime_sha256']
     assert launcher[:5] == b'\x7fELF'+bytes([bits//32]) and struct.unpack_from('<H', launcher, 18)[0] == machine
     libraries=[n for n in archive.namelist() if n.startswith('libs/') and n.endswith('.so')]
@@ -185,6 +186,9 @@ def main():
         # A tiny owned marker loads the exact package runtime through the same
         # versioned factory as rescue; the main runtime is never auto-loaded.
         libdir=directory/'libs'/('arm' if bits==32 else 'arm64');libdir.mkdir()
+        # The stricter installer checks the real target ELF even for this owned
+        # fixture. It remains an unused asset; this page never starts native UI.
+        native_asset=directory/'assets/bin/penchat-lvgl';native_asset.parent.mkdir(parents=True,exist_ok=True);native_asset.write_bytes(native_main)
         runtime_asset=directory/'assets/runtime/libpenchat_selftest_runtime.so';runtime_asset.parent.mkdir(parents=True,exist_ok=True);runtime_asset.write_bytes(launcher)
         shutil.copy2(marker_so,libdir/marker_so.name)
         shutil.copy(ROOT/'src/app.js', directory/'src/app.js')

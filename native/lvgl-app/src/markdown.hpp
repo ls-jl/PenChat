@@ -12,9 +12,18 @@ enum Style {
   DisplayMath = 32,
   Image = 64
 };
+struct FormulaRow {
+  std::vector<std::string> cells;
+  std::string tag,gapBefore,kind;
+  bool prose=false,compact=false,first=true,last=true;
+  bool tagStar=false,showTag=false;
+};
 struct Run {
   std::string text, link;
   int style = 0;
+  std::vector<FormulaRow> formulaRows;
+  std::string mathKind;
+  bool bareMath=false,mathInvalid=false;
 };
 struct Block {
   std::string kind = "p", marker;
@@ -32,6 +41,8 @@ struct Block {
 struct Document {
   std::string source;
   std::vector<Block> blocks;
+  std::map<std::string,std::string> formulaLabels;
+  std::vector<std::string> formulaDiagnostics;
 };
 Document parseMarkdown(const std::string &text, bool streaming = false);
 struct Bitmap {
@@ -77,6 +88,7 @@ class RichText {
   std::unique_ptr<Impl> p_;
   std::shared_ptr<const Bitmap> formulaShared(const std::string &text, int size,
                                              uint32_t foreground);
+  std::shared_ptr<const Bitmap> formulaRunShared(const Run &,int size,uint32_t foreground,int width);
   Bitmap paintPrepared(const Block &block, int width, const RichLayout &info,
                        const RichWindow &window, int size, bool subdued);
 

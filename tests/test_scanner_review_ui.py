@@ -76,7 +76,7 @@ def run():
                     t.wait_for(lambda:a.diag()['image_viewer'].get('loaded',False))
                     a.tap(w-38,30);t.wait_for(lambda:not a.diag()['image_viewer']['open'])
                     # Cancel returns to chat without sending or persisting anything.
-                    a.tap(w//2,h-36) if h>w else a.tap(w-205,108)
+                    b=a.diag()['scan_actions']['cancel'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
                     t.wait_for(lambda:a.diag()['view']=='chat')
                     t.wait_for(lambda:not list((root/'.scan-pending').glob('*')))
                     press(a);a.send('scanner.test',command='test.press',pressed=False)

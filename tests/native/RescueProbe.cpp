@@ -7,7 +7,7 @@ int main(int argc,char **argv){
   try{
     std::string line;std::getline(std::cin,line);const auto input=Json::parse(line);
     penchat::rescue::Config c;c.root=input.at("root");c.endpoint=input.value("endpoint",std::string());c.token="FAKE_RESCUE_TOKEN";
-    c.fixture={{"platform",input.value("platform",std::string("rk3562"))},{"screen",{{"width",960},{"height",266}}},{"abi_bits",64},{"payload",{{"platform","rk3562"}}}};
+    c.fixture={{"platform",input.value("platform",std::string("rk3562"))},{"screen",{{"width",960},{"height",266}}},{"abi_bits",input.value("abi_bits",64)},{"catalog_compatible",input.value("abi_bits",64)==64},{"payload",{{"platform","rk3562"}}}};
     c.retryUnitMs=input.value("retry_unit_ms",1);
     penchat::rescue::Service service(input.at("workspace"),input.at("data"),input.at("public"),c);
     std::cout<<service.bootstrap().dump()<<std::endl;

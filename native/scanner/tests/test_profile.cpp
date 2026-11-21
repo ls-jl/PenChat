@@ -1,4 +1,5 @@
 #include "board_config.hpp"
+#include <pen_stream/dark_paper.hpp>
 #include "start_policy.hpp"
 #include <cassert>
 #include <iostream>
@@ -20,6 +21,41 @@ int main() {
   assert(sensorRegion(y02).width==640&&sensorRegion(y02).height==480);
   assert(sensorRegion(orange).width==496&&sensorRegion(orange).height==360);
   const auto y07=scanProfile("Rockchip RK3562 Y07 LP4 V10 Board","sc2356");
+  assert(s6.optics.liftDarkPaper && !orange.optics.liftDarkPaper &&
+         !y02.optics.liftDarkPaper && !y07.optics.liftDarkPaper);
+  {
+    PaperHistogram dark;
+    for (int i=0;i<256;++i) dark.add(i<64?6:37);
+    const auto tone=DarkPaperTone::estimate(dark);
+    assert(tone.enabled() && tone.paper==37 && tone.target==148);
+    const uint8_t source[]={0,6,37,96,160,255};
+    uint8_t corrected[sizeof(source)]{};
+    tone.apply(source,corrected,sizeof(source));
+    assert(corrected[0]==0 && corrected[1]==24 && corrected[2]==148);
+    assert(corrected[3]>corrected[2] && corrected[4]>corrected[3] && corrected[5]==250);
+    PaperHistogram uniform,bright,glare,nearBlack;
+    for (int i=0;i<256;++i) {
+      glare.add(i<26?255:i<90?6:37);
+      nearBlack.add(i<26?255:4);
+    }
+    assert(glare.percentile(95)==255 && DarkPaperTone::estimate(glare).target==148);
+    assert(!DarkPaperTone::estimate(nearBlack).enabled());
+    DarkPaperTone jitter{74,160};
+    jitter.stabilize(DarkPaperTone{68,136});
+    assert(jitter.target==157);
+    DarkPaperTone newPaper{37,148};
+    newPaper.stabilize(jitter);
+    assert(newPaper.target==148);
+    DarkPaperTone clipped{255,0};
+    clipped.stabilize(newPaper);
+    assert(!clipped.enabled());
+    for (int i=0;i<256;++i) {
+      uniform.add(4);
+      bright.add(i<64?6:210);
+    }
+    assert(!DarkPaperTone::estimate(uniform).enabled());
+    assert(!DarkPaperTone::estimate(bright).enabled());
+  }
   assert(y07.id=="y07-sc2356"&&y07.width==752&&y07.height==440);
   assert(y07.light==ScanLight::LedClass&&!y07.ledBrightness.empty());
   assert(y07.ledOnValue=="1"); // Vendor white-light mode, never LED_FULL (255).

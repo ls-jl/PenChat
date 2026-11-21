@@ -1,12 +1,48 @@
 #include "context.hpp"
 #include "database.hpp"
+#include "backup_restore.hpp"
 #include "presets.hpp"
 #include "reasoning.hpp"
 #include <sqlite3.h>
 #include <stdexcept>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
 namespace penchat {
+void Database::restoreSnapshot(const std::string &path) {
+  flush();
+  perform([this,path] {
+    {std::lock_guard<std::mutex> lock(jobsMutex_);if(!pendingSaves_.empty()||!failedSaves_.empty()||!scheduledDrafts_.empty())throw BackupRestoreError("当前仍有未保存内容，请先重试保存");}
+    sqlite3 *copy=nullptr;
+    if(sqlite3_open_v2(path.c_str(),&copy,SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE|SQLITE_OPEN_EXCLUSIVE,nullptr)!=SQLITE_OK){if(copy)sqlite3_close(copy);throw std::runtime_error("无法创建还原校验快照");}
+    auto backup=sqlite3_backup_init(copy,"main",db_,"main");
+    const int rc=backup?sqlite3_backup_step(backup,-1):SQLITE_ERROR;
+    const int end=backup?sqlite3_backup_finish(backup):SQLITE_ERROR;
+    if(rc==SQLITE_DONE&&end==SQLITE_OK&&sqlite3_exec(copy,"PRAGMA journal_mode=DELETE",nullptr,nullptr,nullptr)!=SQLITE_OK){sqlite3_close(copy);throw BackupRestoreError("无法封存当前数据库快照");}
+    sqlite3_close(copy);
+    if(rc!=SQLITE_DONE||end!=SQLITE_OK){unlink(path.c_str());throw std::runtime_error("还原校验快照不完整");}
+    chmod(path.c_str(),0600);const int fd=open(path.c_str(),O_RDONLY|O_NOFOLLOW|O_CLOEXEC);const bool synced=fd>=0&&fsync(fd)==0;if(fd>=0)close(fd);
+    if(!synced)throw std::runtime_error("还原快照无法同步");
+    ++assetLeases_;return Json();
+  });
+}
+Json Database::restoreRead(const std::function<Json(sqlite3 *)> &read) {
+  return perform([this,&read]{return read(db_);});
+}
+Json Database::restoreTransaction(const std::function<Json()> &apply) {
+  flush();
+  return perform([this,&apply] {
+    execute("BEGIN IMMEDIATE");
+    try {
+      auto result=apply();
+      if(!query("PRAGMA foreign_key_check").empty())throw std::runtime_error("还原后的数据关联校验失败");
+      execute("COMMIT");
+      settingsCache_=modelsCache_=Json();sessionCursors_.clear();messageCursors_.clear();
+      saveVersions_.clear();failedSaves_.clear();
+      return result;
+    }catch(...){auto error=std::current_exception();try{execute("ROLLBACK");}catch(...){}std::rethrow_exception(error);}
+  });
+}
 void Database::transferSnapshot(const std::string &path) {
   perform([this, path] {
     sqlite3 *copy = nullptr;

@@ -1,14 +1,17 @@
 // View/controller only. Network, archive and backup work belongs to the SO.
 export class RescueController {
   constructor(adapter) { this.a=adapter;this.job='';this.submitted=new Set();this.disposed=false;this.pending=false;this.cancelGeneration=0;this.timer=null;this.releaseWait=null }
-  async prepare(release) {
+  async prepare(release, options = {}) {
     if(this.pending||this.disposed)return
+    const backup=options.backup!==false
+    if(!backup&&options.skipBackupConfirmed!==true){this.a.error('不备份回退需要再次确认数据丢失风险');return}
+    const args={id:release.id,force:release.compatible!==true,backup,skip_backup_confirmed:!backup}
     this.pending=true
     const generation=this.cancelGeneration
     try {
       await this.a.stop();if(this.disposed||generation!==this.cancelGeneration)return
-      const result=this.a.bridge.request('prepare',{id:release.id,force:release.compatible!==true});this.job=result.job
-    }catch(err){this.a.error(err&&err.message||'无法准备降级安装')}
+      const result=this.a.bridge.request('prepare',args);this.job=result.job
+    }catch(err){this.a.error(err&&err.message||'无法准备版本回退安装')}
     finally{this.pending=false}
   }
   async check() {
@@ -41,9 +44,9 @@ export class RescueController {
         this.a.bridge.install(ticket).then(value=>{this.a.clearTimeout(this.timer);resolve(value)},error=>{this.a.clearTimeout(this.timer);resolve({failed:true,message:error&&error.message})})
       })
       if(this.disposed)return
-      if(result&&typeof result.res==='number'&&result.res!==0){this.a.error('安装失败（'+result.res+'），原数据和备份已保留');return}
+      if(result&&typeof result.res==='number'&&result.res!==0){this.a.error('安装失败（'+result.res+'）。'+(ticket.backup_skipped?'本次未创建备份，应用未主动清空原数据。':'原数据和备份已保留。'));return}
       const verified=await this.check()
-      if(!verified&&result&&result.failed)this.a.error(result.message||'安装结果待核对；不会自动重复安装，备份已保留')
+      if(!verified&&result&&result.failed)this.a.error(result.message||('安装结果待核对；不会自动重复安装。'+(ticket.backup_skipped?'本次未创建备份。':'备份已保留。')))
     }catch(err){if(!this.disposed)this.a.error(err&&err.message||'安装未完成，请核对结果')}
   }
   cancel(){this.cancelGeneration++;this.job='';this.a.bridge.cancel()}

@@ -13,10 +13,17 @@ def check(a,w,h,name):
     t.wait_for(lambda:a.diag()['attachments'])
     time.sleep(.18) # Measure the resting viewport after its 150ms entry.
     d=a.diag();menu=d['attachment_viewport'];composer=d['composer_bounds'];count=len(d['attachment_actions'])
-    assert menu[0]==composer[0] and menu[3]>=composer[3]+10,(menu,composer)
+    assert menu[0]==composer[0],(menu,composer)
     assert 0<=menu[0]<menu[2]<w and 0<=menu[1]<menu[3]<h,menu
-    assert menu[3]-menu[1]+1==min(count*44+8,h-8),d['attachment_actions']
-    if active:assert d['attachment_above_keyboard']
+    if active and d['editor']['docked']:
+        editor=d['editor'];height=editor['coordinate_space']['height']
+        panel=(editor['panel_top']*h+height-1)//height
+        top=max(d['safe_insets'][1],8)
+        assert menu[3]<panel and d['attachment_above_keyboard'],(menu,panel)
+        assert menu[3]-menu[1]+1==min(count*44+8,max(1,panel-top-8))
+    else:
+        assert menu[3]>=composer[3]+10,(menu,composer)
+        assert menu[3]-menu[1]+1==min(count*44+8,h-8),d['attachment_actions']
     assert d['editor']['active']==active and d['editor']['preedit_length']==preedit and d['draft_length']==draft
     capture(a,OUT,f'{w}-{name}')
     # Reveal the final option by scrolling only this menu; never scroll the chat.

@@ -8,7 +8,7 @@ function fixture(){
 }
 test('explicit force applies only to a selected incompatible release after stopping native',async()=>{
  const f=fixture();await f.controller.prepare({id:'sha',compatible:false})
- assert.deepEqual(JSON.parse(JSON.stringify(f.calls)),[['stop'],['prepare',{id:'sha',force:true}]])
+ assert.deepEqual(JSON.parse(JSON.stringify(f.calls)),[['stop'],['prepare',{id:'sha',force:true,backup:true,skip_backup_confirmed:false}]])
 })
 test('stale job or unconfirmed old prepared ticket never installs',async()=>{
  const f=fixture();await f.controller.tick({status:'ready_to_install',job:'old',ticket:{operation:'op'}});assert(!f.calls.some(c=>c[0]==='install'))
@@ -52,4 +52,20 @@ test('concurrent result checks reuse one verification and reopen once',async()=>
 test('leaving a retry cancels its pending job after an earlier submission',async()=>{
  const f=fixture();f.controller.submitted.add('old');await f.controller.prepare({id:'sha',compatible:true});f.controller.dispose()
  assert(f.calls.some(c=>c[0]==='cancel'))
+})
+
+test('direct rollback needs a second confirmation and freezes its options before stop',async()=>{
+ const f=fixture();await f.controller.prepare({id:'sha',compatible:true},{backup:false})
+ assert(!f.calls.some(c=>c[0]==='stop'||c[0]==='prepare'))
+ let release;f.controller.a.stop=()=>new Promise(resolve=>{release=resolve})
+ const options={backup:false,skipBackupConfirmed:true};const pending=f.controller.prepare({id:'sha',compatible:false},options)
+ options.backup=true;release();await pending
+ const args=f.calls.find(c=>c[0]==='prepare')[1]
+ assert.equal(args.backup,false);assert.equal(args.skip_backup_confirmed,true);assert.equal(args.force,true)
+})
+test('failed direct installation never claims that a backup exists',async()=>{
+ const f=fixture();await f.controller.prepare({id:'sha',compatible:true},{backup:false,skipBackupConfirmed:true})
+ const pending=f.controller.tick({status:'ready_to_install',job:'job-1',ticket:{operation:'direct',backup_skipped:true}})
+ f.resolve({res:5});await pending
+ const message=f.calls.find(c=>c[0]==='error')[1];assert(message.includes('未创建备份'));assert(!message.includes('备份已保留'))
 })

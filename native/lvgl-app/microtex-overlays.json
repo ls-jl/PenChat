@@ -1,0 +1,44 @@
+{
+  "format": 1,
+  "upstream_revision": "0e3707f6dafebb121d98b53c64364d16fefe481d",
+  "files": [
+    {
+      "source": "src/atom/atom_matrix.cpp",
+      "source_sha256": "59002c4336b920e861c8736d225c6023e0300ec81e3edb28374cde4d108de758",
+      "replacements": [
+        {
+          "before": "  Environment& env = e;\n  const int rows",
+          "after": "  // Keep a separate owner: assigning *e.copy() back to e destroys the\n  // copy while its shared_ptr members are still being read (smallmatrix).\n  sptr<Environment> smallEnvironment;\n  if (_matType == MatrixType::smallMatrix) {\n    smallEnvironment = e.copy();\n    smallEnvironment->setStyle(TexStyle::script);\n  }\n  Environment& env = smallEnvironment ? *smallEnvironment : e;\n  const int rows"
+        },
+        {
+          "before": "  if (_matType == MatrixType::smallMatrix) {\n    env = *(e.copy());\n    env.setStyle(TexStyle::script);\n  } /* else if (_matType == MatrixType::matrix) {\n    env = *(e.copy());\n    env.setStyle(STYLE_TEXT);\n  }*/",
+          "after": ""
+        }
+      ],
+      "output_sha256": "39aaff9d90899dad0bab49228d4a9a5d8cc4ad58a5706cfc2c5c1c58850d241e"
+    },
+    {
+      "source": "src/render.cpp",
+      "source_sha256": "da76021a9e081798b5378b846c684ae1f57c252ba286c591bf55e47dbbbf5c1f",
+      "replacements": [
+        {
+          "before": "  Environment* env;",
+          "after": "  std::unique_ptr<Environment> env;"
+        },
+        {
+          "before": "    env = new Environment(_style, tf, _widthUnit, _textWidth);",
+          "after": "    env.reset(new Environment(_style, tf, _widthUnit, _textWidth));"
+        },
+        {
+          "before": "    env = new Environment(_style, tf);",
+          "after": "    env.reset(new Environment(_style, tf));"
+        },
+        {
+          "before": "  delete env;\n  return render;",
+          "after": "  return render;"
+        }
+      ],
+      "output_sha256": "2f6887882bc6393381465dfea47929a43281e884f90f8c8c9fdc5f9f765bb460"
+    }
+  ]
+}

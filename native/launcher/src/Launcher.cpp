@@ -1,5 +1,6 @@
 #include "jquick_config.h"
 #include "RuntimeIdentity.hpp"
+#include "../../platform/identity.hpp"
 #include "JQuickContext.h"
 #include "jqutil_v2/jqutil.h"
 #include "jsmodules/JSCModuleExtension.h"
@@ -32,9 +33,9 @@ void pinDisplayRelay() {
   if(pinned)return;
   Dl_info info{};
   if(!dladdr(reinterpret_cast<void*>(&pinDisplayRelay),&info)||!info.dli_fname)
-    throw std::runtime_error("Cannot identify S6 display adapter");
+    throw std::runtime_error("Cannot identify CVI display adapter");
   pinned=dlopen(info.dli_fname,RTLD_NOW|RTLD_NODELETE);
-  if(!pinned)throw std::runtime_error("Cannot retain S6 display adapter");
+  if(!pinned)throw std::runtime_error("Cannot retain CVI display adapter");
 }
 #endif
 void saveInstallTicket(const std::string &path,const penchat::Json &ticket) {
@@ -194,7 +195,7 @@ public:
       std::lock_guard<std::mutex> lock(mutex_);
       if(installations_.count(operation)||installations_.size()>=8)throw std::runtime_error("Installation already submitted");
       std::atomic<bool> cancel{false};
-      penchat::updates::validatePackage(path,ownId_,version,ticket.at("sha256"),cancel);
+      penchat::updates::validatePackage(path,ownId_,version,ticket.at("sha256"),cancel,penchat::updates::buildPlatform());
       // Use exported Falcon methods, never object offsets, fixed addresses,
       // a forged app identity, system-policy modifications or a child command.
       using Instance=void *(*)();
@@ -246,7 +247,7 @@ public:
 #else
     const bool executableMatches=penchat::runtimeExecutableMatches(binary.c_str(),64,183);
 #endif
-    if(!executableMatches){info.postError("原生程序不存在或架构不匹配，请使用降级");return;}
+    if(!executableMatches){info.postError("原生程序不存在或架构不匹配，请使用版本回退");return;}
 #endif
     chmod(binary.c_str(), 0755);
     int pair[2];
@@ -256,13 +257,12 @@ public:
     }
 #ifdef PENCHAT_CVI_PLATFORM
     try {
-      const auto model=penchat::fileText("/proc/device-tree/model",4096);
-      if(ownId_!=PENCHAT_APP_ID || model.find("Cv1826")==std::string::npos || model.find("Plum")==std::string::npos)
-        throw std::runtime_error("S6 compositor device/application identity mismatch");
+      const auto hardware=penchat::platform::identify(penchat::fileText("/proc/device-tree/model",4096),penchat::fileText("/proc/device-tree/compatible",4096));
+      if(ownId_!=PENCHAT_APP_ID||hardware.family!=penchat::platform::Family::Cvi)
+        throw std::runtime_error("CVI compositor hardware/application identity mismatch");
       const auto screen=penchat::Screen::fromConfig(penchat::Json::parse(penchat::fileText("/etc/miniapp/resources/cfg.json",65536)),true);
+      const auto slot=penchat_compositor::locateCviDisplay();
       pinDisplayRelay();
-      const auto slot=penchat_compositor::locate("libfalcon.so","_ZN7greenui7post_fbEPvRKNS_4RectEii",
-          "11e46687d3c7301d3049d02d84144ee37e5a9994ca5ec1e9f5eaf278db92519b");
       penchat_compositor::Composite::instance().start(slot,screen.width,screen.height,[&](int socket,int shared) {
         pid_=penchat_compositor::spawnApplication(binary,socket,shared,pair[1],data,workspace);
         return pid_;
@@ -365,7 +365,7 @@ public:
     const auto compositor=penchat_compositor::Composite::instance().stats();
     state["display_frames"]=int(compositor.outputFrames);state["system_frames"]=int(compositor.systemFrames);
     state["display_focused"]=compositor.focused;state["display_restored"]=compositor.originalRestored;
-    state["display_reason"]=compositor.reason;
+    state["display_reason"]=compositor.reason;state["display_profile"]=compositor.profile;state["display_firmware_sha256"]=compositor.firmwareSha;
 #endif
     info.GetReturnValue().Set(state);
   }

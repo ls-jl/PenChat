@@ -93,12 +93,18 @@ struct UiControlsTest {
       assert(lv_obj_get_width(send)==layout.composerSendDiameter());
       for (int i=0;i<count;++i) {
         auto child=lv_obj_get_child(a.chatControls_,i);
+        // The first portrait child paints the full-width keyboard backing.
+        if(layout.portrait() && i==0) {
+          assert(!lv_obj_has_flag(child,LV_OBJ_FLAG_CLICKABLE));
+          assert(lv_obj_get_width(child)==a.screen_.width);
+          continue;
+        }
         assert(lv_obj_get_x(child)>=0 && lv_obj_get_y(child)>=0);
         assert(lv_obj_get_x(child)+lv_obj_get_width(child)<=layout.composerWidth());
         assert(lv_obj_get_y(child)+lv_obj_get_height(child)<=a.chatComposerHeight());
       }
       if(gauge) {
-        auto gaugeButton=lv_obj_get_child(a.chatControls_,1);
+        auto gaugeButton=a.composerGauge_;
         assert(lv_obj_get_x(gaugeButton)+lv_obj_get_width(gaugeButton)<=lv_obj_get_x(send));
       }
     }
