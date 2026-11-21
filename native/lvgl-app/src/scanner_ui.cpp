@@ -82,7 +82,8 @@ void App::scanPage() {
                      theme::palette().muted);
   lv_label_set_long_mode(scanLabel_, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_height(scanLabel_, font(uiMetrics_.fontSize(UiFont::FormCaption))->line_height);
-  auto holder = box(body_,workspace.preview.x,workspace.preview.y,workspace.preview.width,workspace.preview.height,theme::palette().surface);
+  auto holder = box(screenObj_,workspace.preview.x,workspace.preview.y,workspace.preview.width,workspace.preview.height);
+  lv_obj_set_style_bg_opa(holder,LV_OPA_TRANSP,0);
   scanHolder_=holder;
   scanWarning_=label(body_,"",uiMetrics_.dp(10),uiMetrics_.dp(28),screen_.width-uiMetrics_.dp(120),uiMetrics_.fontSize(UiFont::FormHint),theme::palette().danger);
   lv_obj_set_hidden(scanWarning_,true);
@@ -93,33 +94,28 @@ void App::scanPage() {
   }, LV_EVENT_CLICKED, this);
   lv_obj_set_scrollable(holder, false);
   scanImage_ = imageWidget(holder);
-  if (auto frame = scanner_.preview(scanId_)) {
-    texture(scanImage_, frame);
-    lv_image_set_scale(scanImage_,
-                       std::min(256, std::min((lv_obj_get_width(holder)-uiMetrics_.dp(8)) * 256 / frame->width,
-                                              (lv_obj_get_height(holder)-uiMetrics_.dp(8)) * 256 / frame->height)));
-  }
-  lv_obj_center(scanImage_);
   bool usable = scanResult_.value("usable", false);
   const bool partial = scanResult_.value("status", 1) != 1;
   scanUse_ = button(screenObj_, !usable ? (scanResult_.empty() ? "等待扫描结果" : "无可用图像") : partial ? "使用部分图像" : "使用图片", workspace.use.x, workspace.use.y,
                     workspace.use.width, workspace.use.height, [this] {
-                      if (scanConfirming_ || scanConfirmed_ == scanId_ ||
+                      if (scanConfirming_ || scanCancelPending_ || scanConfirmed_ == scanId_ ||
                           !scanResult_.value("usable", false))
                         return;
                       scanConfirming_ = true;
                       scanConfirmClickedAt_=ticks();
                       lv_obj_set_clickable(scanUse_, false);
+                      lv_obj_set_clickable(scanCancel_, false);
                       lv_label_set_text(scanLabel_, "正在保存扫描图片…");
                       scanner_.confirm(scanId_);
                     });
-  lv_obj_set_clickable(scanUse_, usable && !scanConfirming_);
+  lv_obj_set_clickable(scanUse_, usable && !scanConfirming_ && !scanCancelPending_);
   if (usable) primary(scanUse_);
   else {
     lv_obj_set_style_bg_color(scanUse_, lv_color_hex(theme::palette().surface), 0);
     lv_obj_set_style_text_color(lv_obj_get_child(scanUse_, 0), lv_color_hex(theme::palette().muted), 0);
   }
-  scanCancel_=button(screenObj_, "取消", workspace.cancel.x, workspace.cancel.y, workspace.cancel.width, workspace.cancel.height, [this] { show("chat"); });
+  scanCancel_=button(screenObj_, "取消", workspace.cancel.x, workspace.cancel.y, workspace.cancel.width, workspace.cancel.height, [this] { cancelScanReview(); });
+  lv_obj_set_clickable(scanCancel_,!scanConfirming_ && !scanCancelPending_);
   if (!scanResult_.empty()) {
     auto c = scanResult_.value("counts", Json::object());
     std::string text;
@@ -145,9 +141,29 @@ void App::scanPage() {
       lv_label_set_long_mode(scanLabel_,LV_LABEL_LONG_MODE_WRAP);
       lv_obj_set_height(scanLabel_,LV_SIZE_CONTENT);
     }
-    lv_label_set_text(scanLabel_, text.c_str());
-    updateScanWarning(c);
+    lv_label_set_text(scanLabel_, scanConfirming_ ? "正在保存扫描图片…" : text.c_str());
   }
+  updateScanWarning(scanResult_.value("counts",Json::object()));
+}
+void App::cancelScanReview() {
+  if (scanConfirming_ || scanCancelPending_) return;
+  scanCancelPending_ = true;
+  if (scanUse_) lv_obj_set_clickable(scanUse_,false);
+  if (scanCancel_) lv_obj_set_clickable(scanCancel_,false);
+  events_.push("cancel_scan_review",{{"scan",scanId_},{"generation",scanGeneration_},{"session",scanSession_}});
+}
+void App::refreshScanPreview() {
+  if (!scanImage_) return;
+  auto frame=scanner_.preview(scanId_);
+  if (!frame) return;
+  lv_obj_update_layout(scanHolder_);
+  const int width=lv_obj_get_width(scanHolder_),height=lv_obj_get_height(scanHolder_);
+  const auto scale=std::min(width*LV_SCALE_NONE/frame->width,height*LV_SCALE_NONE/frame->height);
+  lv_obj_set_hidden(scanImage_,scale<1);
+  if (scale<1) return;
+  texture(scanImage_,frame);
+  lv_image_set_scale(scanImage_,scale);
+  lv_obj_center(scanImage_);
 }
 void App::updateScanWarning(const Json &counts) {
   if(!scanWarning_ || !scanHolder_)return;
@@ -161,16 +177,19 @@ void App::updateScanWarning(const Json &counts) {
   lv_label_set_text(scanWarning_,("本次漏采"+std::to_string(lost)+"帧，请放大检查是否有缺字、重影或错位。").c_str());
   lv_obj_set_hidden(scanWarning_,!lost);lv_obj_update_layout(scanWarning_);
   const int extra=lost?lv_obj_get_height(scanWarning_)+uiMetrics_.dp(8):0;
-  const int holderTop=top+extra+uiMetrics_.dp(4);
-  lv_obj_set_y(scanHolder_,holderTop);
-  lv_obj_set_height(scanHolder_,std::max(uiMetrics_.dp(24),workspace.previewBottom-holderTop));
-  if(auto frame=scanner_.preview(scanId_)) {
-    lv_image_set_scale(scanImage_,std::min(256,std::min((lv_obj_get_width(scanHolder_)-uiMetrics_.dp(8))*256/frame->width,
-      (lv_obj_get_height(scanHolder_)-uiMetrics_.dp(8))*256/frame->height)));lv_obj_center(scanImage_);
-  }
+  // Long warnings scroll in the caption reader instead of pushing the
+  // picture out of a short viewport at large text sizes.
+  const int minimumPreview=std::min(workspace.preview.height,uiMetrics_.dp(72));
+  const int holderTop=std::min(workspace.previewBottom-minimumPreview,
+      std::max(workspace.preview.y,top+extra+uiMetrics_.dp(4)));
+  lv_obj_set_height(body_,holderTop);
+  const auto area=layout().scanPreview(holderTop,workspace.previewBottom);
+  lv_obj_set_pos(scanHolder_,area.x,area.y);
+  lv_obj_set_size(scanHolder_,area.width,area.height);
+  refreshScanPreview();
 }
 void App::viewScanResult() {
-  if(view_!="scan" || imageViewer_ || scanConfirming_ || !scanResult_.value("usable",false) ||
+  if(view_!="scan" || imageViewer_ || scanConfirming_ || scanCancelPending_ || !scanResult_.value("usable",false) ||
      scanResult_.value("type",std::string())!="finished" || !visible_)return;
   scanViewClickedAt_=ticks();scanViewLoadedAt_=0;
   openImageViewer(scanOriginalPath_,true);scanViewRequest_=scanner_.prepareReview(scanId_);
@@ -230,8 +249,8 @@ void App::scanEvent(const Event &event) {
   if (event.type == "scan_error") {
     if (view_ == "scan") {
       if(viewerScanResult_)closeImageViewer(false);
-      scanResult_ = {{"usable", false},
-                     {"error", j.value("error", std::string("扫描失败"))}};
+      if (!scanConfirming_) scanResult_ = {{"usable",false}};
+      scanResult_["error"] = j.value("error",std::string("扫描失败"));
       scanConfirming_ = false;
       build();
     }
@@ -268,13 +287,7 @@ void App::scanEvent(const Event &event) {
     lv_label_set_text(viewerStatus_,"正在加载原图…");refreshImageViewer();return;
   }
   if (event.type == "scan_preview" && scanImage_) {
-    if (auto frame = scanner_.preview(scanId_)) {
-      texture(scanImage_, frame);
-      lv_image_set_scale(scanImage_,
-                         std::min(256, std::min((lv_obj_get_width(lv_obj_get_parent(scanImage_))-uiMetrics_.dp(8)) * 256 / frame->width,
-                                                (lv_obj_get_height(lv_obj_get_parent(scanImage_))-uiMetrics_.dp(8)) * 256 / frame->height)));
-      lv_obj_center(scanImage_);
-    }
+    refreshScanPreview();
   } else if (event.type == "scan_progress" && scanLabel_) {
     auto c = j.value("counts", Json::object());
     auto text = std::string(j.value("phase", std::string()) == "processing" ? "拼接中 · 选中 " : "正向扫描 · 选中 ") + std::to_string(c.value("selected", uint64_t(0))) +
@@ -300,15 +313,16 @@ void App::scanEvent(const Event &event) {
       const auto session = session_;
       storeImage(image, [this, scan, session](bool ok) {
         scanConfirming_ = false;
-        if (!ok)
+        if (!ok) {
+          if (view_=="scan" && scanId_==scan && session==session_) build();
           return;
+        }
         scanStoredAt_=ticks();
         scanConfirmed_ = scan;
         if (session != session_) {scanner_.discard(scan);return;}
-        show("chat");
         chatFollowing_ = true;
         messageOffset_ = 0;
-        build();
+        show("chat");
         if (db_.settings()
                 .value("penchat_settings", Json::object())
                 .value("autoSendCapturedContent", false) &&

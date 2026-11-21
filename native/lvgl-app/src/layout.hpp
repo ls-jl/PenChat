@@ -13,7 +13,12 @@ inline LayoutClass classifyLayout(int width, int height) {
 
 // Geometry is measured from the loaded Falcon logical screen, never a device
 // resolution fallback. Sensor/photo dimensions are independent of these regions.
-struct LayoutRect { int x,y,width,height; };
+struct LayoutRect {
+  int x,y,width,height;
+  bool contains(int px,int py) const {
+    return px>=x && px<x+width && py>=y && py<y+height;
+  }
+};
 // Provisional Y07 optical mask. Geometry is always logical, and the explicit
 // capability must never be inferred from the resolution or aspect ratio.
 struct ScreenSafety {
@@ -42,7 +47,7 @@ struct ScreenSafety {
   }
 };
 struct ScanWorkspace {
-  // Reader-local content; use/cancel are fixed screen-canvas coordinates.
+  // Caption and warning are reader-local. The preview and controls use screen coordinates.
   LayoutRect caption, preview, warning, use, cancel;
   int captionFloor, previewBottom;
 };
@@ -106,11 +111,18 @@ struct AppLayout {
     const int left=(width-2*buttonWidth-gap)/2;
     const LayoutRect use{left,rowY,buttonWidth,control},cancel{left+buttonWidth+gap,rowY,buttonWidth,control};
     const int top=portrait()?safeTop():0;
-    const int previewTop=portrait()?top+dp(48):dp(32),bottom=rowY-dp(12);
+    const int previewTop=(portrait()?top:dp(8))+metrics.touchTarget(48)+dp(4);
+    const int bottom=rowY-dp(12);
+    const auto preview=scanPreview(previewTop,bottom);
     const LayoutRect caption=portrait()?LayoutRect{navigationX()+dp(56),top+dp(8),width-navigationX()-dp(80),dp(24)}
-      :LayoutRect{dp(10),0,bodyWidth()-dp(20),dp(24)};
-    return {caption,{dp(10),previewTop,bodyWidth()-dp(20),std::max(1,bottom-previewTop)},
-      {dp(10),top+dp(28),bodyWidth()-dp(20),dp(24)},use,cancel,portrait()?top+dp(40):dp(28),bottom};
+      :LayoutRect{dp(10),dp(4),bodyWidth()-dp(20),dp(24)};
+    return {caption,preview,{dp(10),top+dp(28),bodyWidth()-dp(20),dp(24)},
+      use,cancel,portrait()?top+dp(40):dp(28),bottom};
+  }
+  LayoutRect scanPreview(int top,int bottom) const {
+    const int h=std::max(1,bottom-top);
+    const int side=safety().sideInset(top,h);
+    return {side,top,std::max(1,width-2*side),h};
   }
   CameraWorkspace cameraWorkspace(int w,int h,bool quarterTurn) const {
     if(portrait()||quarterTurn) {

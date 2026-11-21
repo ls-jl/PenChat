@@ -249,7 +249,10 @@ class App {
   uint64_t scanId_ = 0, scanGeneration_ = 0, scanConfirmed_ = 0;
   std::string scanSession_;
   Json scanResult_ = Json::object();
-  bool scanConfirming_ = false;
+  bool scanConfirming_ = false, scanCancelPending_ = false;
+  bool scanExitContact_ = false;
+  uint64_t scanExitGuardUntil_ = 0;
+  LayoutRect scanExitUse_{}, scanExitCancel_{};
   uint64_t scanViewRequest_ = 0;
   std::string scanOriginalPath_,scanOriginalKey_;
   uint64_t scanFinishedAt_=0,scanPreparedAt_=0,scanDecodedAt_=0,scanViewClickedAt_=0,scanViewLoadedAt_=0;
@@ -264,6 +267,8 @@ class App {
   std::function<void()> afterScanRelease_;
   void syncScanner();
   void scanPage();
+  void refreshScanPreview();
+  void cancelScanReview();
   void scanEvent(const Event &);
   void whenScannerReleased(std::function<void()>);
   RichText rich_;

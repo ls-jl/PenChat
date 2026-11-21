@@ -982,6 +982,13 @@ void App::show(const std::string &view) {
   if (view_ == "crop" && view != "crop")
     clearCrop();
   if (view_ == "scan" && view != "scan") {
+    if (view == "chat") {
+      const auto workspace=layout().scanWorkspace();
+      scanExitUse_=workspace.use;
+      scanExitCancel_=workspace.cancel;
+      scanExitContact_=lastTouch_.value("pressed",false);
+      input_.interrupt();
+    }
     if (view == "chat" && scanResult_.value("type", std::string()) == "finished" &&
         scanResult_.value("hardware_armed", false) && !scanConfirming_)
       scanner_.discard(scanId_);
@@ -989,7 +996,7 @@ void App::show(const std::string &view) {
       scanner_.eligible(false, session_);
     scanId_ = 0;
     scanResult_ = Json::object();
-    scanConfirming_ = false;
+    scanConfirming_ = scanCancelPending_ = false;
   }
   closeNavigation(false);
   closeAttachments();
@@ -1003,9 +1010,13 @@ void App::show(const std::string &view) {
   }
   if (view_ == "camera" && view != "camera")
     camera_.stop();
+  const bool leavingScan=view_=="scan" && view=="chat";
   view_ = view;
   notice_.clear();
   build();
+  // Start the guard once the destination can receive touches. A contact
+  // that begins in the old footer is consumed all the way to release.
+  if (leavingScan) scanExitGuardUntil_=ticks()+350;
   if(settingsEnter&&screenObj_&&visible_&&inputFocused_) {
     if(settingsBackground)settingsBackground->show(0,0);
     lv_obj_move_foreground(screenObj_);slideSurfaceIn(screenObj_,screen_.width,0);
@@ -2460,6 +2471,7 @@ void App::reasoningDisplayPicker() {
     [this](const std::string &key){events_.push("reasoning_display",{{"mode",key}});});
 }
 void App::goBack() {
+  if (view_=="scan") {cancelScanReview();return;}
   if(!themeRequest_.empty()||!refreshRequest_.empty())return;
   if(view_=="ui_scale"&&!uiScaleRequest_.empty())return;
   if(view_=="font_size"&&!fontRequest_.empty())return;
@@ -2848,21 +2860,25 @@ void App::sendPrepared(Json model, Json input, const std::string &retryId,
   build();
 }
 void App::storeImage(const Json &image, std::function<void(bool)> completion) {
-  if (imageStoreBusy_ || messageEditBusy_ || replyBusy_)
+  if (imageStoreBusy_ || messageEditBusy_ || replyBusy_) {
+    if (completion) completion(false);
     return;
+  }
   if (imageStoreWorker_.joinable())
     imageStoreWorker_.join();
   imageStoreBusy_ = true;
   imageStoreCompletion_ = std::move(completion);
   const auto session = session_;
-  saveDraft();db_.flush();
+  saveDraft();
   const auto draftSnapshot=draftState_;
   const auto editToken=messageEdit_.empty()?std::string():messageEditToken_;
-  modal("正在保存图片", "图片准备完成后会自动返回，请稍候…");
+  if (view_!="scan")
+    modal("正在保存图片", "图片准备完成后会自动返回，请稍候…");
   imageStoreWorker_ = std::thread([this, image, session,editToken,draftSnapshot] {
     bool ok = true;
     Json asset=Json::object();std::vector<std::string> created;
     try {
+      db_.flush();
       if(editToken.empty())db_.addDraftImage(draftSnapshot,image);
       else {
         const auto directory=join(dataDir_,".message-edit");
@@ -2901,6 +2917,7 @@ void App::attach(const Json &image) {
   });
 }
 void App::cancelNativeInteraction(bool preserveSettledReadSelection) {
+  scanExitContact_=false;
   chatBottomState_.pause();
   // A short touch-only lease gap is not a page/focus transition. Keep a
   // completed read selection, but never carry an active drag or menu press.
@@ -3292,6 +3309,18 @@ void App::shutdown() {
     db_.setting("export_cleanup_failed", true);
 }
 void App::routeTouch(const Json &m) {
+  const bool scanExitDown=m.value("pressed",false), scanExitCancelled=m.value("cancelled",false);
+  if (scanExitContact_) {
+    if (!scanExitDown || scanExitCancelled) scanExitContact_=false;
+    return;
+  }
+  if (view_=="chat" && scanExitDown && !scanExitCancelled && ticks()<scanExitGuardUntil_) {
+    const int x=m.value("x",0),y=m.value("y",0);
+    if (scanExitUse_.contains(x,y) || scanExitCancel_.contains(x,y)) {
+      scanExitContact_=true;
+      return;
+    }
+  }
   if(modal_) {
     if(m.value("cancelled",false))input_.cancel();
     else input_.touch(m.value("x",0),m.value("y",0),m.value("pressed",false));
@@ -3825,6 +3854,13 @@ void App::tick() {
     if(replyEvent(e))continue;
     if (sessionInfoEvent(e)) continue;
     if(messageEvent(e))continue;
+    if (e.type=="cancel_scan_review") {
+      if (view_=="scan" && scanCancelPending_ && e.data.value("scan",uint64_t(0))==scanId_ &&
+          e.data.value("generation",uint64_t(0))==scanGeneration_ &&
+          e.data.value("session",std::string())==scanSession_)
+        show("chat");
+      continue;
+    }
     if(e.type=="image_scan_open") {
       if(e.data.value("scan",uint64_t(0))==scanId_ && e.data.value("generation",uint64_t(0))==scanGeneration_ &&
          e.data.value("session",std::string())==scanSession_)viewScanResult();

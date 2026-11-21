@@ -31,12 +31,28 @@ def run():
                             assert abs(u[0]+c[2]+1-w)<=1,(w,scale,u,c)
                             assert u[3]-u[1]+1>=44 and c[3]-c[1]+1>=44
                             assert 0<=u[0]<u[2]<w and 0<=c[0]<c[2]<w and 0<=u[1]<u[3]<h
-                            assert d['reader_height']<u[1] and min(d['reader_height']-1,d['scan_preview_area'][3])<u[1]
+                            preview=d['scan_preview_area']
+                            assert d['reader_height']==preview[1] and preview[3]<u[1]
+                            assert preview[3]-preview[1]+1>=60
+                            if w>h:
+                                assert preview[0]==0 and preview[2]==w-1
+                                assert preview[1]>round((8+48)*scale/100)
                             assert h-u[3]<=max(80,h//10)
                             image=folder/'lvgl-diagnostic.png';app.process.send_signal(signal.SIGUSR1)
                             t.wait_for(lambda:image.exists() and image.read_bytes().endswith(b'IEND\xaeB`\x82'))
                             (OUT/f'scan-{w}-{scale}-{theme}.png').write_bytes(image.read_bytes())
                             scan_action(app,'cancel');t.wait_for(lambda:app.diag()['view']=='chat')
+                            if w==640 and scale==100:
+                                x,y=(c[0]+c[2])//2,(c[1]+c[3])//2
+                                # Start immediately after cancel, then release
+                                # after the guard expires. Only a fresh tap can edit.
+                                app.send('touch',x=x,y=y,pressed=True)
+                                time.sleep(.36)
+                                app.send('touch',x=x,y=y,pressed=False)
+                                time.sleep(.06)
+                                assert not app.diag()['editor']['active']
+                                app.tap(x,y)
+                                assert app.diag()['editor']['active'],(x,y)
                             assert not app.read_messages() and app.diag()['summary']['sessions']==0
                             rows.append(dict(width=w,height=h,scale=scale,theme=theme,partial=partial,passed=True))
                         finally:app.close()

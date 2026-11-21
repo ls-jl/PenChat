@@ -22,7 +22,11 @@ for w,h in [(960,266),(640,260),(568,1210)]:
    a.tap(w-38,30);ui.wait_for(lambda:not a.diag()['image_viewer']['open'])
    # Retain originals through the save modal and commit exactly once.
    b=a.diag()['scan_actions']['use'];a.tap((b[0]+b[2])//2,(b[1]+b[3])//2)
-   ui.wait_for(lambda:a.diag()['view']=='chat');s=a.diag()
+   ui.wait_for(lambda:a.diag()['view']=='chat')
+   if w==640:
+    a.tap((b[0]+b[2])//2,(b[1]+b[3])//2,wait_motion=False)
+    assert not a.diag()['editor']['active']
+   s=a.diag()
    assert not a.read_messages() and s['summary']['sessions']==0
    with __import__('sqlite3').connect(pathlib.Path(folder)/'penchat.db') as db:
     assert db.execute('select count(*) from draft_attachments').fetchone()[0]==1
