@@ -1564,8 +1564,8 @@ void App::richMessage(lv_obj_t *parent, const std::string &text, int width,
           label(parent, (r.text.empty() ? "图片" : r.text) + " · 引用不可用", 0, 0, width, uiMetrics_.fontSize(UiFont::FormNote),
                 theme::palette().muted);
       } else if (r.link.find("http://") == 0 || r.link.find("https://") == 0 ||
-                 (!metadata.value("web_records", Json::array()).empty() &&
-                  r.link.find("file://") == 0)) {
+                 metadata.value("web_image_inspection_required",Json()) == Json(true) ||
+                 !metadata.value("web_records", Json::array()).empty()) {
         label(parent, (r.text.empty() ? "图片" : r.text) + " · 请使用检索图片引用", 0, 0, width, uiMetrics_.fontSize(UiFont::FormNote),
               theme::palette().muted);
       } else {

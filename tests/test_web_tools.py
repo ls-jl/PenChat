@@ -3,7 +3,7 @@
 Uses a local AI fixture and an isolated fake worker; never contacts search engines.
 """
 import base64, hashlib, http.server, json, os, pathlib, socket, struct, subprocess
-import tempfile, threading, unittest
+import re, tempfile, threading, unittest
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 PROBE=ROOT/'build/host/penchat-network-probe'
 PNG=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7V8AAAAASUVORK5CYII=')
@@ -16,8 +16,16 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         number=sum('tools' in r for r in self.requests); chat=self.protocol=='chat'; anthropic=self.protocol=='anthropic'
         compression='PenChat_CONTEXT_CHECKPOINT_V2' in json.dumps(body)
         arguments={'query':'fixture search'}
-        if self.mode=='image': name='web_read_image';arguments={'page_id':1,'link_id':1,'inspect':False}
+        image_mode=self.mode.startswith('image')
+        if image_mode:
+            name='web_read_image';arguments={'page_id':1,'link_id':1}
+            if self.mode!='image-omit':arguments['inspect']=False
         else:name='web_search'
+        if self.mode=='image-rejected' and number==2:
+            data=json.dumps({'error':{'message':'fixture cannot decode image'}}).encode()
+            self.send_response(400);self.send_header('Content-Type','application/json')
+            self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
+            return
         if not compression and ((number==1 and self.mode not in ('direct','syntax')) or (self.mode=='long' and number<=26) or (self.mode=='compact' and number<=4)):
             if anthropic: answer={'type':'message','role':'assistant','content':[{'type':'tool_use','id':'call_1','name':name,'input':arguments}],'stop_reason':'tool_use','usage':{'input_tokens':8,'output_tokens':2}}
             elif chat: answer={'choices':[{'index':0,'message':{'role':'assistant','content':None,'tool_calls':[{'id':'call_1','type':'function','function':{'name':name,'arguments':json.dumps(arguments)}}]},'finish_reason':'tool_calls'}],'usage':{'prompt_tokens':8,'completion_tokens':2}}
@@ -27,7 +35,11 @@ class Fixture(http.server.BaseHTTPRequestHandler):
                 elif chat:answer['choices'][0]['message']['tool_calls'][0]['id']='call_'+str(number)
                 else:answer['output'][0].update(id='fc'+str(number),call_id='call_'+str(number))
         else:
-            text='![fixture](penchat-image:img_1)' if self.mode=='image' else 'Fixture answer [source](https://example.org/)'
+            text='Fixture answer [source](https://example.org/)'
+            if image_mode:
+                supplied=re.search(r'penchat-image:(img_[a-f0-9]{24})',json.dumps(body))
+                ref=supplied.group(1) if supplied else 'img_1'
+                text+=f'\n\n![fixture](penchat-image:{ref})'
             if compression:text='Checkpoint: preserve discovered facts and continue search.'
             if self.mode=='syntax':text='Useful preface\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="web_open">\n{"url":"https://example.org/"}'
             if anthropic:answer={'type':'message','role':'assistant','content':[{'type':'text','text':text}],'stop_reason':'end_turn','usage':{'input_tokens':20,'output_tokens':4}}
@@ -88,8 +100,10 @@ while True:
  data=json.dumps({'request':q['request'],'ok':True,'result':r}).encode();s.sendall(struct.pack('!I',len(data))+data)
 ''');worker.chmod(0o700)
             if mode != 'compact':worker.write_text(worker.read_text().replace("'Reference text' * 500", "'Reference text'"))
+            if mode=='image-invalid':
+                worker.write_text(worker.read_text().replace(base64.b64encode(PNG).decode(), 'aW52YWxpZA=='))
             Fixture.requests=[];Fixture.protocol=protocol;Fixture.mode=mode
-            model={'id':'fixture','name':'fixture','provider_id':'fixture','base_url':f'http://127.0.0.1:{self.server.server_port}', 'api_key':'fake-key','system_prompt':'Custom session preference: answer in English.','web_enabled':True,'web_binary':str(worker),'web_asset_root':str(path/'assets'), 'provider_metadata':{'api':protocol,'compatibility':{'enabled':True,'streaming':stream}},'capabilities_json':{'vision':False,'reasoning':{'mode':'off','levels':{}}}}
+            model={'id':'fixture','name':'fixture','provider_id':'fixture','base_url':f'http://127.0.0.1:{self.server.server_port}', 'api_key':'fake-key','system_prompt':'Custom session preference: answer in English.','web_enabled':True,'web_binary':str(worker),'web_asset_root':str(path/'assets'), 'provider_metadata':{'api':protocol,'compatibility':{'enabled':True,'streaming':stream}},'capabilities_json':{'vision':mode.startswith('image') and mode!='image-text','reasoning':{'mode':'off','levels':{}}}}
             request={'model':model}
             if mode == 'compact':
                 model['capabilities_json']['context_budget'] = 16384
@@ -136,10 +150,18 @@ while True:
                 self.assertIn('DSML',state['output'])
                 self.assertEqual(len(state['metadata']['web_records']),0)
                 return
+            if mode=='image-rejected':
+                self.assertTrue(any(e['type']=='network_error' for e in data),data)
+                states=[e['data'] for e in data if e['type']=='response_state']
+                self.assertTrue(states)
+                self.assertTrue(all(not state['metadata']['web_images'] for state in states))
+                self.assertIn(base64.b64encode(PNG).decode(),json.dumps(Fixture.requests[1]))
+                return
             self.assertEqual(sum(e['type']=='done' for e in data),1,data)
             self.assertFalse(any(e['type'] in ('network_error','exception') for e in data),data)
             state=next(e['data'] for e in data if e['type']=='response_state')
             self.assertFalse(state['metadata'].get('web_pending',False))
+            self.assertTrue(state['metadata']['web_image_inspection_required'])
             if mode == 'compact':return
             self.assertEqual(len(Fixture.requests),1 if mode=='direct' else 2)
             self.assertNotIn('fake-key',json.dumps(state))
@@ -147,14 +169,26 @@ while True:
             if mode!='direct':
                 self.assertEqual(state['metadata']['usage']['output_tokens'],6)
                 second=Fixture.requests[1]
-                if protocol=='chat':self.assertEqual(second['messages'][-1]['role'],'tool');self.assertEqual(second['messages'][-1]['tool_call_id'],'call_1')
+                if protocol=='chat':
+                    tool=second['messages'][-2 if mode in ('image','image-omit') else -1]
+                    self.assertEqual(tool['role'],'tool');self.assertEqual(tool['tool_call_id'],'call_1')
                 elif protocol=='anthropic':self.assertEqual(second['messages'][-1]['content'][0]['tool_use_id'],'call_1')
                 else:self.assertEqual(second['input'][-1]['call_id'],'call_1');self.assertFalse(second['store'])
-            if mode=='image':
+            if mode in ('image','image-omit'):
+                self.assertIn(base64.b64encode(PNG).decode(),json.dumps(Fixture.requests[1]))
                 self.assertEqual(len(state['metadata']['web_images']),1)
-                image=state['metadata']['web_images'][0];self.assertEqual(pathlib.Path(image['path']).read_bytes(),PNG)
+                image=state['metadata']['web_images'][0]
+                self.assertRegex(image['ref'],r'^img_[a-f0-9]{24}$')
+                self.assertIn('penchat-image:'+image['ref'],state['output'])
+                self.assertEqual(pathlib.Path(image['path']).read_bytes(),PNG)
                 self.assertEqual(image['sha256'],hashlib.sha256(PNG).hexdigest())
                 self.assertNotIn(base64.b64encode(PNG).decode(),json.dumps(state))
+            elif mode in ('image-text','image-invalid'):
+                self.assertEqual(state['metadata']['web_images'],[])
+                self.assertEqual(state['metadata']['web_records'][0]['status'],'error')
+                self.assertNotIn('image_ref',state['metadata']['web_records'][0]['result'])
+                self.assertNotIn(base64.b64encode(PNG).decode(),json.dumps(Fixture.requests[1]))
+                self.assertFalse((path/'assets').exists())
     def test_compaction_three_protocols(self):
         for protocol in ['responses', 'chat', 'anthropic']:
             with self.subTest(protocol=protocol):
@@ -165,7 +199,16 @@ while True:
             for stream in (True,False):
                 with self.subTest(protocol=protocol,stream=stream):self.run_case(protocol,stream)
     def test_direct_no_search(self):self.run_case('chat',mode='direct')
-    def test_text_model_inline_image(self):self.run_case('responses',mode='image')
+    def test_image_references_require_vision(self):
+        for protocol in ('responses','chat','anthropic'):
+            with self.subTest(protocol=protocol):
+                self.run_case(protocol,mode='image')
+                self.run_case(protocol,False,mode='image-omit')
+                self.run_case(protocol,mode='image-text')
+    def test_unsupported_image_has_no_reference(self):
+        self.run_case('responses',mode='image-invalid')
+    def test_failed_visual_round_does_not_promote_image(self):
+        self.run_case('responses',mode='image-rejected')
     def test_no_answer_wide_call_count_limit(self):
         for protocol in ('responses','chat','anthropic'):
             for stream in (True,False):

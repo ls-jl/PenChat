@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Offline inline web-image layout regression for all three layout classes."""
-import json, os, pathlib, sqlite3, struct, tempfile, zlib
+import base64, json, os, pathlib, sqlite3, struct, tempfile, zlib
 import test_lvgl_app as t
 from image_gestures import capture
 
@@ -13,7 +13,7 @@ def png(path, width, height):
     rows = b''.join(b'\0'+bytes([40+y*160//height, 150, 210])*width for y in range(height))
     path.write_bytes(b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR', struct.pack('>2I5B', width, height, 8, 2, 0, 0, 0))+chunk(b'IDAT', zlib.compress(rows))+chunk(b'IEND', b''))
 
-def fixture(folder):
+def fixture(folder, include_unverified=False):
     schema = (t.ROOT/'native/lvgl-app/src/schema.hpp').read_text().split('R"SQL(')[1].split(')SQL"')[0]
     (folder/'assets').mkdir()
     images = []
@@ -25,12 +25,18 @@ def fixture(folder):
         db.executescript(schema)
         db.execute("insert into chat_sessions(id,title,status,created_at,updated_at,last_message_at) values('fixture','Inline images','active',1,1,1)")
         db.execute("insert into app_settings values('active_session_id','\"fixture\"',1)")
-        db.execute("insert into chat_messages(id,session_id,seq,role,status,message_type,output_text,metadata_json,created_at,updated_at) values('reply','fixture',1,'assistant','complete','text',?,?,1,1)", ('![Portrait](penchat-image:img_1)\n\n![Landscape](penchat-image:img_2)', json.dumps({'web_images':images})))
+        answer = '![Portrait](penchat-image:img_1)\n\n![Landscape](penchat-image:img_2)'
+        metadata = {'web_images': images}
+        if include_unverified:
+            fake = base64.b64encode((folder/'assets/img_1.img').read_bytes()).decode()
+            answer += f'\n\n![Unverified](data:image/png;base64,{fake})\n\n![Guessed](penchat-image:img_3)'
+            metadata['web_image_inspection_required'] = True
+        db.execute("insert into chat_messages(id,session_id,seq,role,status,message_type,output_text,metadata_json,created_at,updated_at) values('reply','fixture',1,'assistant','complete','text',?,?,1,1)", (answer, json.dumps(metadata)))
 
 def run(width, height):
     with tempfile.TemporaryDirectory(prefix='penchat-web-images-') as directory:
         folder = pathlib.Path(directory)
-        fixture(folder)
+        fixture(folder, include_unverified=True)
         app = t.Native(BINARY, folder, seed_model=False, screen={'width':width,'height':height,'direction':0})
         try:
             t.wait_for(lambda:len(app.diag()['chat_images'])==2)

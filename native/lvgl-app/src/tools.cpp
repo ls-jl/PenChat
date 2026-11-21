@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <iomanip>
 #include <openssl/sha.h>
+#include <openssl/rand.h>
 #include <poll.h>
 #include <set>
 #include <signal.h>
@@ -59,11 +60,12 @@ Json webToolDefinitions() {
       {{"page_id", page}, {"text", {{"type", "string"}, {"maxLength", 1024}}}},
       Json::array({"page_id", "text"}));
   add("web_read_image",
-      "Fetch an actual returned image link. Returns an image_ref usable inline as "
-      "![caption](penchat-image:img_N). inspect=true additionally supplies pixels only on vision "
-      "models. Without pixels do not claim to have visually inspected the image. At most 4 images, "
-      "2MiB each.",
-      {{"page_id", page}, {"link_id", page}, {"inspect", {{"type", "boolean"}}}},
+      "Fetch a returned image link and supply its pixels together with an image_ref. Requires "
+      "vision. Inspect the pixels and cite with the returned Markdown only if the visible subject "
+      "matches the request. If inspection is unavailable or uncertain, cite the source page instead. "
+      "At most 4 images, 2MiB each.",
+      {{"page_id", page}, {"link_id", page}, {"inspect", {{"type", "boolean"},
+        {"description", "Legacy option. Successful calls always supply pixels."}}}},
       Json::array({"page_id", "link_id"}));
   return result;
 }
@@ -216,6 +218,8 @@ Json WebProcess::call(const std::string &name, const Json &arguments, std::atomi
 }
 Json publicWebMetadata(const Json &metadata) {
   Json out = Json::object();
+  if (metadata.value("web_image_inspection_required",Json()) == Json(true))
+    out["web_image_inspection_required"] = true;
   if (metadata.contains("tool_compaction")) out["tool_compaction"] = publicContext(metadata["tool_compaction"]);
   if (metadata.contains("public_tool_exchanges")) out["public_tool_exchanges"] = metadata["public_tool_exchanges"];
   auto strings = [](const Json &input, std::initializer_list<const char *> keys) {
@@ -276,13 +280,44 @@ Json publicWebMetadata(const Json &metadata) {
   return out;
 }
 namespace {
+std::string hexBytes(const unsigned char *bytes, size_t size) {
+  std::ostringstream text;
+  for (size_t i = 0; i < size; ++i)
+    text << std::hex << std::setfill('0') << std::setw(2) << int(bytes[i]);
+  return text.str();
+}
 std::string digest(const std::string &bytes) {
   unsigned char hash[SHA256_DIGEST_LENGTH];
   SHA256(reinterpret_cast<const unsigned char *>(bytes.data()), bytes.size(), hash);
-  std::ostringstream text;
-  for (auto c : hash)
-    text << std::hex << std::setfill('0') << std::setw(2) << int(c);
-  return text.str();
+  return hexBytes(hash, sizeof(hash));
+}
+std::string imageReference() {
+  // An invented reference in an earlier model round must never become valid
+  // just because a later tool call loaded an unrelated image.
+  unsigned char token[12];
+  if (RAND_bytes(token, sizeof(token)) != 1)
+    throw std::runtime_error("无法创建图片引用");
+  return "img_" + hexBytes(token, sizeof(token));
+}
+void collectImagePaths(const Json &node, std::set<std::string> &paths) {
+  if (node.is_array()) {
+    for (const auto &part : node)
+      collectImagePaths(part, paths);
+    return;
+  }
+  if (!node.is_object())
+    return;
+  const auto type = node.find("type");
+  if (type != node.end() && *type == "input_image") {
+    paths.insert(node.at("image_url").get<std::string>());
+    return;
+  }
+  const auto role = node.find("role");
+  const auto content = node.find(type != node.end() && *type == "function_call_output" ? "output" : "content");
+  if (content != node.end() &&
+      ((type != node.end() && (*type == "function_call_output" || *type == "tool_result")) ||
+       (role != node.end() && *role == "user")))
+    collectImagePaths(*content, paths);
 }
 std::string decode64(const std::string &input) {
   if (input.size() > 2800000)
@@ -313,10 +348,11 @@ std::string decode64(const std::string &input) {
 void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &events,
                     int generation, std::function<Json(const Json &)> compact) {
   Json metadata = Json::object(), records = Json::array(), sources = Json::array(),
-       images = Json::array(), replay = Json::array();
+       images = Json::array(), inspectedImages = Json::array(), replay = Json::array();
   Json usageRounds = Json::array(), exchanges = Json::array(), publicExchanges = Json::array(), compaction;
   std::string output, reasoning;
-  std::set<std::string> calls;
+  std::set<std::string> calls, inspectedRefs;
+  const bool vision = objectField(model, "capabilities_json").value("vision", Json()) == Json(true);
   const auto start = ticks();
   int64_t toolTime = 0, firstBody = 0;
   WebProcess web(model.at("web_binary").get<std::string>());
@@ -378,9 +414,10 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
   }
   auto publish = [&] {
     metadata["web_pending"] = webPending;
+    metadata["web_image_inspection_required"] = true;
     metadata["web_sources"] = sources;
     metadata["web_records"] = records;
-    metadata["web_images"] = images;
+    metadata["web_images"] = inspectedImages;
     metadata["tool_replay_input"] = replay;
     metadata["tool_exchanges"] = exchanges;
     metadata["public_tool_exchanges"] = publicExchanges;
@@ -416,6 +453,11 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
         throw std::runtime_error("工具资料达到模型上下文预算，请压缩上下文后重试");
       const auto prefix = output.empty() ? std::string() : output + "\n\n",
                  thoughts = reasoning.empty() ? std::string() : reasoning + "\n";
+      // Compaction may change the continuation's input. Only expose images
+      // that actually accompanied a model response in this answer.
+      std::set<std::string> roundImagePaths;
+      if (inspectedRefs.size() < images.size())
+        collectImagePaths(input, roundImagePaths);
       Json final, terminal;
       std::string terminalType;
       Events local([&](const Event &event) {
@@ -424,6 +466,13 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
           const auto body = event.data.value("output", std::string()),
                      thought = event.data.value("reasoning", std::string());
           if (!body.empty()) {
+            if (!roundImagePaths.empty()) {
+              for (const auto &image : images)
+                if (roundImagePaths.count(image.at("path").get<std::string>()) &&
+                    inspectedRefs.insert(image.at("ref").get<std::string>()).second)
+                  inspectedImages.push_back(image);
+              roundImagePaths.clear();
+            }
             output = prefix + body;
             if (!firstBody)
               firstBody = std::max<int64_t>(1, ticks() - start);
@@ -530,6 +579,8 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
           if (allowed <= 0)
             throw std::runtime_error("本次请求已超时");
 
+          if (name == "web_read_image" && !vision)
+            throw std::runtime_error("模型未启用视觉能力，无法查看或引用图片；请引用来源网页");
           toolTimeout = int(allowed);
           value = registry.execute(name, args);
           auto addSource = [&](const Json &s) {
@@ -586,8 +637,12 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
               const auto root = model.at("web_asset_root").get<std::string>();
               ensureDirectory(root);
               path = join(root, "web-" + hash + ".img");
+              ref = imageReference();
               atomicText(path, bytes);
-              ref = "img_" + std::to_string(images.size() + 1);
+              std::string checked, error;
+              if (!camera::imageDataUrl(path, &checked, &error) ||
+                  (anthropicProtocol(model) && checked.compare(0, 15, "data:image/bmp;") == 0))
+                throw std::runtime_error("图片格式不支持视觉查看，请引用来源网页");
               images.push_back({{"ref", ref},
                                 {"path", path},
                                 {"sha256", hash},
@@ -599,23 +654,13 @@ void streamToolChat(Json model, Json input, std::atomic<bool> &cancel, Events &e
                                 {"width", width},
                                 {"height", height}});
             }
-            if (args.value("inspect", false)) {
-              if (objectField(model, "capabilities_json").value("vision", Json()) != Json(true))
-                throw std::runtime_error("图片已准备，但此模型未声明视觉能力，不能读取画面");
-              validateModelImages(
-                  model,
-                  Json::array({{{"role", "user"},
-                                {"content",
-                                 Json::array({{{"type", "input_image"}, {"image_url", path}}})}}}));
-              std::string checked, error;
-              if (!camera::imageDataUrl(path, &checked, &error))
-                throw std::runtime_error("图片无法解码");
-              imageUrl = path;
-            }
+            // Preserve compatibility with callers that still pass inspect,
+            // but success always includes pixels, even for inspect=false.
+            imageUrl = path;
             value = {{"image_ref", ref},
                      {"markdown", "![图片说明](penchat-image:" + ref + ")"},
                      {"source_url", value.value("source_url", std::string())},
-                     {"pixels_supplied", !imageUrl.empty()}};
+                     {"pixels_supplied", true}};
           }
         } catch (const std::exception &e) {
           if (cancel)
