@@ -58,7 +58,7 @@ FEATURES = {
   'official-editing-dark': 'Y07 retained official editing with opaque dark handoff backing',
   'official-editing': 'Y07 retained IME cursor, selection, copy/cut/paste, local single send and light boundary pixels',
   'scanner-cycles': 'Twenty profile-verified real capture/discard, resident worker and guardian return cycles; no optical claim',
-  'smoke': 'Native identity, Falcon geometry, reader/drawer and all 26 Settings rows',
+  'smoke': 'Native identity, Falcon geometry, reader/drawer and all 27 Settings rows',
   'keyboard-review': 'Light keyboard, composer growth and drawer before/after screenshots',
   'global-font-preedit': '75/100/150 global UI fonts and Wide/Portrait floating preedit with real candidate touches',
   'font-persistence': 'Save text150 with unchanged UIscale, native restart verify, then reset100 and restart verify',
@@ -474,7 +474,7 @@ class ReleaseDevice(ScopedDevice):
     self.settings()
     self.capture('smoke-settings-top')
     rows = self.state()['settings']['rows']
-    assert len(rows) == 26, ('Settings row count', len(rows), list(rows))
+    assert len(rows) == 27 and 'backup_restore' in rows, ('Settings row count', len(rows), list(rows))
     reachable = []
     for name in rows:
       bounds = self.reveal(lambda d, name=name: d['settings']['rows'][name]['bounds'])
@@ -949,7 +949,7 @@ class ReleaseDevice(ScopedDevice):
     # Existing feature isolation must be recovered rather than hidden by another
     # wrapper. All locations belong only to this app and this public transfer root.
     candidates = [self.saved, self.public_saved]
-    for suffix in ('display-acceptance-saved', 'dpi-acceptance-saved', 'refresh-bottom-saved', 'release-0.3.1-saved'):
+    for suffix in ('display-acceptance-saved', 'dpi-acceptance-saved', 'refresh-bottom-saved', 'release-0.3.1-saved', 'backup-restore-acceptance-saved', RELEASE+'-saved'):
       candidates.extend((self.data+'.'+suffix, self.public+'.'+suffix))
     assert self.sh(' && '.join('test ! -e '+shlex.quote(p) for p in candidates)+' && echo safe') == 'safe', 'Prior fixture requires recovery'
     had_data = self.sh('test -d '+self.data+' && echo yes || true') == 'yes'
