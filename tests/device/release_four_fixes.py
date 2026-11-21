@@ -250,7 +250,11 @@ def run_chat(d,credential):
     replace(d,path)
     for index,(prompt,answer) in enumerate(prompts):
       start=time.monotonic();send(d,'' if index==0 else prompt);row=finished(d)
-      meta=json.loads(row[4]);assert answer in row[2] and row[3] and meta.get('reasoning_observed')
+      meta=json.loads(row[4])
+      # DeepSeek may format the same integer as 1073 or 1,073.
+      numbers=re.findall(r'(?<!\d)(?:\d{1,3}(?:,\d{3})+|\d+)(?!\d)',row[2])
+      assert answer in {number.replace(',','') for number in numbers}
+      assert row[3] and meta.get('reasoning_observed')
       results.append({'prompt':prompt,'answer_present':True,'reasoning_chars':len(row[3]),'output_chars':len(row[2]),'seconds':round(time.monotonic()-start,2),'http_status':meta.get('http',{}).get('status')});d.capture('real-deepseek-'+str(index))
       (d.out/'real-ds-chat-progress.json').write_text(json.dumps(results,ensure_ascii=False,indent=2)+'\n')
     assert _rows(d,'select count(*) from chat_messages where role=? and session_id=?',('user',SESSION))[0][0]==3
