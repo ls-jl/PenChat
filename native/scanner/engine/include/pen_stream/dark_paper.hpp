@@ -28,15 +28,10 @@ struct PaperHistogram {
 
 struct DarkPaperTone {
   int paper = 0, target = 0;
-  std::array<uint8_t, 256> table{};
 
   bool enabled() const { return target > paper; }
 
-  static DarkPaperTone estimate(const uint8_t *pixels, const uint8_t *mask, size_t size) {
-    PaperHistogram hist;
-    for (size_t i = 0; i < size; ++i)
-      if (mask[i]) hist.add(pixels[i]);
-
+  static DarkPaperTone estimate(const PaperHistogram &hist) {
     DarkPaperTone tone;
     tone.paper = hist.percentile(95);
     const int span = tone.paper - hist.percentile(10);
@@ -44,15 +39,15 @@ struct DarkPaperTone {
     // correction as the paper approaches 120, and cap lift at four times.
     if (hist.count < 128 || span < 10 || tone.paper >= 120) return tone;
     tone.target = std::min({160, 240 - tone.paper, 4 * tone.paper});
-    for (unsigned i = 0; i < tone.table.size(); ++i)
-      tone.table[i] = uint8_t(std::min(250, (int(i) * tone.target + tone.paper / 2) / tone.paper));
     return tone;
   }
 
-  void apply(uint8_t *pixels, const uint8_t *mask, size_t size) const {
-    if (!enabled()) return;
+  void apply(const uint8_t *source, uint8_t *output, size_t size) const {
+    std::array<uint8_t, 256> table;
+    for (unsigned i = 0; i < table.size(); ++i)
+      table[i] = uint8_t(std::min(250, (int(i) * target + paper / 2) / paper));
     for (size_t i = 0; i < size; ++i)
-      if (mask[i]) pixels[i] = table[pixels[i]];
+      output[i] = table[source[i]];
   }
 };
 }

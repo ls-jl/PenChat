@@ -8,7 +8,7 @@
 #include "protocol.hpp"
 #include "sequence_gap.hpp"
 #include "capture_timing.hpp"
-#include "dark_paper.hpp"
+#include <pen_stream/dark_paper.hpp>
 #include <array>
 #include <algorithm>
 #include <chrono>
@@ -550,8 +550,7 @@ class Worker {
     if (!r)
       return;
     const auto generation = generation_, scan = scan_;
-    const bool lift = final && profile_.optics.liftDarkPaper;
-    preview_.request([r, generation, scan, lift] {
+    preview_.request([r, generation, scan] {
       auto b = r->bounds();
       if (b.width < 1 || b.height < 1)
         return std::unique_ptr<PreviewFrame>{};
@@ -569,9 +568,6 @@ class Worker {
       if (r->readPreview(frame->width, frame->height, frame->pixels.data(),
                           mask.data(), frame->pixels.size()) != Code::Ok)
         return std::unique_ptr<PreviewFrame>{};
-      if (lift)
-        DarkPaperTone::estimate(frame->pixels.data(), mask.data(), mask.size())
-          .apply(frame->pixels.data(), mask.data(), mask.size());
       return frame;
     }, final);
   }
@@ -657,10 +653,9 @@ class Worker {
           {"captureEndedUs", sourceCutoffUs_},
           {"releaseObservedUs", releaseObservedUs_}}}};
     const auto result=result_;
-    const bool lift = profile_.optics.liftDarkPaper;
-    if (lift) image["metadata"]["paper_exposure"] = exposure_.info(lightRequestedUs_);
+    if (profile_.optics.liftDarkPaper) image["metadata"]["paper_exposure"] = exposure_.info(lightRequestedUs_);
     exportCancel_=false;exportStartedUs_=clockUs();
-    exportTask_=std::async(std::launch::async,[this,result,image,b,lift]() mutable {
+    exportTask_=std::async(std::launch::async,[this,result,image,b]() mutable {
       try {
 #ifdef SCANNER_TEST_SOURCE
         if(mock_)if(const char *delay=getenv("PENCHAT_TEST_SCAN_EXPORT_MS")) {
@@ -671,37 +666,21 @@ class Worker {
         std::vector<uint8_t> mask(b.width);
         const double scale=std::min(1.,std::min(double(PreviewWidth)/b.width,double(PreviewHeight)/b.height));
         const int w=std::max(1,int(b.width*scale)),h=std::max(1,int(b.height*scale));
-        std::vector<uint8_t> preview,valid;
-        int64_t previewReadUs = 0;
-        auto readPreview = [&] {
-          const auto start = clockUs();
-          preview.resize(size_t(w)*h);
-          valid.resize(preview.size());
-          if (exportCancel_ || result->readPreview(w,h,preview.data(),valid.data(),preview.size())!=Code::Ok)
-            throw std::runtime_error("scan preview unavailable");
-          previewReadUs = clockUs() - start;
-        };
-        DarkPaperTone tone;
-        if (lift) {
-          // The finished review and export use the same nearest-sampled
-          // sealed canvas, validity mask, and tone curve.
-          readPreview();
-          tone = DarkPaperTone::estimate(preview.data(),valid.data(),valid.size());
-          tone.apply(preview.data(),valid.data(),valid.size());
-          image["metadata"]["dark_paper"]={{"p95",tone.paper},{"target",tone.target}};
-        }
         PngTiming originalTiming,previewTiming;int64_t rowUs=0;
         const auto originalStart=clockUs();
         writeGrayPng(image["path"],b.width,b.height,[&](int y,uint8_t *pixels) {
           const auto started=clockUs();
           if(exportCancel_ || result->readRow(y,pixels,mask.data(),b.width)!=Code::Ok)
             throw std::runtime_error("scan image preparation cancelled or unavailable");
-          if (lift) tone.apply(pixels,mask.data(),mask.size());
           rowUs+=clockUs()-started;
         },&originalTiming);
         const auto originalDone=clockUs();
         if(exportCancel_)throw std::runtime_error("scan image preparation cancelled");
-        if (!lift) readPreview();
+        const auto previewStart=clockUs();
+        std::vector<uint8_t> preview(size_t(w)*h),valid(preview.size());
+        if (result->readPreview(w,h,preview.data(),valid.data(),preview.size())!=Code::Ok)
+          throw std::runtime_error("scan preview unavailable");
+        const auto previewReadUs=clockUs()-previewStart;
         writeGrayPng(image["previewPath"],w,h,[&](int y,uint8_t *row) {
           if(exportCancel_)throw std::runtime_error("scan image preparation cancelled");
           memcpy(row,preview.data()+size_t(y)*w,w);
@@ -711,7 +690,6 @@ class Worker {
           {"original_png_rows_us",originalTiming.rowsUs},{"original_sync_us",originalTiming.syncUs},
           {"preview_read_us",previewReadUs},{"preview_png_rows_us",previewTiming.rowsUs},
           {"preview_sync_us",previewTiming.syncUs}};
-        if (lift) image["_prepare_timing"]["dark_paper"] = image["metadata"]["dark_paper"];
         return image;
       } catch(...) {
         for(const char *key:{"path","previewPath"}) {

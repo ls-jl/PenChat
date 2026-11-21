@@ -15,6 +15,7 @@ inline pen::stream::Config opticalConfig(const CaptureProfile &p, const std::str
   config.width=region.width; config.height=region.height;
   config.rotation=p.optics.rotation==OpticalRotation::None?Rotation::None:Rotation::CounterClockwise90;
   config.diagnosticAcceptAll=diagnostic;
+  config.liftDarkPaper=p.optics.liftDarkPaper;
   auto k=std::make_shared<Calibration>();
   k->rotation=config.rotation;
   k->sensorWidth=config.width; k->sensorHeight=config.height;

@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
 """One background original serves review/save; cancellation cannot lose a reply."""
-import os,pathlib,tempfile,time
+import os,pathlib,struct,tempfile,time
 from test_scanner_process import Scanner
 os.environ['PENCHAT_TEST_SCAN_EXPORT_MS']='200'
 for profile in ('orange','s6'):
  with tempfile.TemporaryDirectory(prefix='penchat-scan-prepared-') as folder:
   s=Scanner(folder,profile=profile)
   try:
-   s.press();s.frames(33);s.release();assert s.receive('finished')['usable']
+   s.press()
+   if profile=='s6':
+    for _ in range(32):s.send('test.frame',darkPaper=True)
+    live=s.receive('preview')
+    assert live['counts']['committed']>=24,live
+    _,w,h=struct.unpack_from('<III',s.memory)
+    pixels=s.memory[32:32+w*h]
+    assert pixels.count(148)>len(pixels)//3,sorted(set(pixels))
+   else:s.frames(33)
+   s.release();assert s.receive('finished')['usable']
    # Both requests arrive while the same preparation is deliberately pending.
    s.send('prepare_review');old=s.request
    s.send('cancel_review');s.send('prepare_review');review=s.request

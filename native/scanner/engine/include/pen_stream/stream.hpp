@@ -38,6 +38,7 @@ struct Config {
     std::shared_ptr<const Calibration> calibration;
     // Diagnostic only: bypass selection to exercise exact window boundaries.
     bool diagnosticAcceptAll = false;
+    bool liftDarkPaper = false;
 };
 struct SystemMemory {
     std::size_t total = 0, available = 0;
