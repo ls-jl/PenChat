@@ -1648,9 +1648,11 @@ void App::replyContent(lv_obj_t *parent, const std::string &text, int width,
   }
 }
 void App::renderMessageRows(lv_obj_t *parent,const Json &messages,const std::string &source,
-                            int width,bool readOnly,int lastAssistant,int64_t questionSeq) {
-  webMessageMetadata_.clear();
-  replyChoiceRows_=readOnly?Json::object():db_.replyChoices(source);
+                            int width,bool readOnly,int lastAssistant,int64_t questionSeq,bool liveOnly) {
+  if (!liveOnly) {
+    webMessageMetadata_.clear();
+    replyChoiceRows_=readOnly?Json::object():db_.replyChoices(source);
+  }
   const auto reasoningMode=reasoningDisplay_;
   lv_obj_t *photoGroup = nullptr;
   for (const auto &m : messages) {
@@ -1903,6 +1905,7 @@ void App::renderMessages(bool bottom, bool cached) {
     return;
   }
   chatRenderPending_ = chatRefreshPending_ = false;
+  ++chatFullRenders_;
   const int scroll = chatScroll_;
   const bool follow = messageOffset_ == 0 && (bottom || chatFollowing_);
   const bool previousLayout = chatLayout_;
@@ -1929,7 +1932,7 @@ void App::renderMessages(bool bottom, bool cached) {
              .empty();
   int width = layout().chatMessageWidth();
   if (!cached) refreshChatTitle();
-  const auto questionSeq=db_.query("SELECT coalesce(min(seq),?) seq FROM chat_messages WHERE session_id=? AND role='user' AND (length(trim(coalesce(output_text,'')))>0 OR message_type='image')",{INT64_MAX,session_})[0]["seq"].get<int64_t>();
+  chatQuestionSeq_=db_.query("SELECT coalesce(min(seq),?) seq FROM chat_messages WHERE session_id=? AND role='user' AND (length(trim(coalesce(output_text,'')))>0 OR message_type='image')",{INT64_MAX,session_})[0]["seq"].get<int64_t>();
   bool more = int(messages.size()) >= 30;
   if (more)
     button(messageContent_, "加载更早消息", 0, 0, width, uiMetrics_.dp(35), [this] {
@@ -1952,7 +1955,7 @@ void App::renderMessages(bool bottom, bool cached) {
   auto visibleRows=messages;
   if(messageEdit_.empty()&&messageOffset_==0)
     for(const auto &image:draftRows())visibleRows.push_back(image);
-  renderMessageRows(messageContent_,visibleRows,session_,width,false,lastAssistant,questionSeq);
+  renderMessageRows(messageContent_,visibleRows,session_,width,false,lastAssistant,chatQuestionSeq_);
   syncReplyControls();
   if(!messageEdit_.empty()) {
     auto banner=box(messageContent_,0,0,width,uiMetrics_.dp(44),theme::palette().background);
@@ -1980,24 +1983,58 @@ void App::renderMessages(bool bottom, bool cached) {
   refreshImages();
 }
 void App::renderLiveMessage() {
-  if (reasoningMetadata_.value("reasoning_observed", false) ||
-      !reasoning_.empty()) {
-    renderMessages(false, true);
+  if (!messageContent_)
     return;
-  }
-  if (!liveContent_ || !messageContent_)
-    return;
+  const bool hasReasoning = reasoningMetadata_.value("reasoning_observed", false) ||
+    !reasoning_.empty() || reasoningControls_.count(assistant_);
   const int scroll = chatScroll_;
   const bool previousLayout = chatLayout_;
+  const auto started = ticks();
   chatLayout_ = true;
-  rasters_.erase(std::remove_if(rasters_.begin(), rasters_.end(),
-                                [this](const Raster &r) {
-                                  return r.owner == liveContent_;
-                                }),
-                 rasters_.end());
-  lv_obj_clean(liveContent_);
-  replyContent(liveContent_, output_, lv_obj_get_width(liveContent_),
-               assistant_, true);
+  if (hasReasoning) {
+    const auto row = scaleMessageRows_.find(assistant_);
+    const auto message = std::find_if(rows_.begin(),rows_.end(),[this](const Json &item) {
+      return item.at("id") == assistant_;
+    });
+    if (row == scaleMessageRows_.end() || message == rows_.end()) {
+      // The current reply may be outside the displayed history page.
+      chatLayout_ = previousLayout;
+      return;
+    }
+    auto oldRow = row->second;
+    const int index = lv_obj_get_index(oldRow);
+    const auto belongsToRow = [oldRow](lv_obj_t *object) {
+      for (auto p=object;p;p=lv_obj_get_parent(p))
+        if (p==oldRow) return true;
+      return false;
+    };
+    rasters_.erase(std::remove_if(rasters_.begin(),rasters_.end(),[&](const Raster &r) {
+      return belongsToRow(r.owner);
+    }),rasters_.end());
+    reasoningHeaders_.erase(std::remove_if(reasoningHeaders_.begin(),reasoningHeaders_.end(),
+      belongsToRow),reasoningHeaders_.end());
+    reasoningControls_.erase(assistant_);
+    expandedReasoning_.erase(assistant_);
+    scaleMessageRows_.erase(row);
+    liveContent_=nullptr;
+    lv_obj_delete(oldRow);
+    renderMessageRows(messageContent_,Json::array({*message}),session_,layout().chatMessageWidth(),
+                      false,lastAssistantSeq_,chatQuestionSeq_,true);
+    lv_obj_move_to_index(scaleMessageRows_.at(assistant_),index);
+    syncReplyControls();
+    ++liveRowRenders_;
+  } else if (liveContent_) {
+    rasters_.erase(std::remove_if(rasters_.begin(), rasters_.end(),
+                                  [this](const Raster &r) {
+                                    return r.owner == liveContent_;
+                                  }),rasters_.end());
+    lv_obj_clean(liveContent_);
+    replyContent(liveContent_, output_, lv_obj_get_width(liveContent_), assistant_, true);
+  } else {
+    chatLayout_ = previousLayout;
+    return;
+  }
+  ++liveRenders_;
   lv_obj_update_layout(messageContent_);
   lv_obj_scroll_to_y(body_, chatFollowing_ ? LV_COORD_MAX : scroll,
                      LV_ANIM_OFF);
@@ -2006,6 +2043,7 @@ void App::renderLiveMessage() {
   updateChatControls(true);
   paintVisible();
   refreshImages();
+  liveRenderMaxMs_ = std::max(liveRenderMaxMs_, uint64_t(ticks()-started));
 }
 void App::flushChatRender() {
   if (view_ != "chat" || readerInteracting()) return;
@@ -2021,10 +2059,16 @@ void App::flushChatRender() {
              [this, message, session] { events_.push("retry_request", {{"id", message}, {"session", session}}); });
     }
   } else if ((chatRenderPending_ || dirty_) && ticks() >= renderDue_) {
-    renderDue_ = ticks() + 100;
+    const auto started = ticks();
     const bool full = chatRenderPending_, refresh = chatRefreshPending_;
     dirty_ = false;
     if (full) renderMessages(false, !refresh); else renderLiveMessage();
+    // Leave time for touch and display when a long answer takes longer to lay out.
+    // Cheap updates retain the existing cadence; deltas keep accumulating in output_.
+    const auto finished = ticks();
+    const auto idle = std::max<int64_t>(display_.refreshPeriod(),
+                                      std::min<int64_t>(100,finished-started));
+    renderDue_ = std::max(started + 100, finished + idle);
   }
   if (chatImagesPending_) { chatImagesPending_ = false; refreshImages(); }
 }
@@ -4403,6 +4447,8 @@ Json App::diagnostics() const {
       {"reader_vertical", readerVertical_},
       {"at_latest_bottom", atLatestBottom()},
       {"chat_render_pending", dirty_ || chatRenderPending_ || !chatFinishPending_.empty()},
+      {"chat_render_work",{{"full",chatFullRenders_},{"live",liveRenders_},
+                            {"live_row",liveRowRenders_},{"live_max_ms",liveRenderMaxMs_}}},
       {"attachments", attachments_ != nullptr},
       {"attachment_above_keyboard", !editorRoot_ || (attachments_ && popupKind_=="attachments" &&
         lv_obj_get_parent(attachments_)==lv_obj_get_parent(editorRoot_) && lv_obj_get_index(attachments_)>lv_obj_get_index(editorRoot_))},

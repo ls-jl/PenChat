@@ -505,6 +505,8 @@ class App {
   int64_t persistDue_ = 0;
   std::string reasoningDisplay_ = "collapsed";
   int lastAssistantSeq_ = 0;
+  int64_t chatQuestionSeq_ = INT64_MAX;
+  uint64_t chatFullRenders_ = 0, liveRenders_ = 0, liveRowRenders_ = 0, liveRenderMaxMs_ = 0;
   void persistReply(const std::string &status, const Json &error = Json());
   int64_t renderDue_ = 0, lastCameraFrame_ = 0;
   bool dirty_ = false;
@@ -702,7 +704,7 @@ class App {
   void albumPage();
   void renderMessages(bool bottom, bool cached = false);
   void renderMessageRows(lv_obj_t *parent,const Json &messages,const std::string &source,
-                         int width,bool readOnly,int lastAssistant,int64_t questionSeq);
+                         int width,bool readOnly,int lastAssistant,int64_t questionSeq, bool liveOnly=false);
   void richMessage(lv_obj_t *parent, const std::string &text, int width,
                    bool subdued = false, const std::string &context = "");
   void replyContent(lv_obj_t *parent, const std::string &text, int width,
