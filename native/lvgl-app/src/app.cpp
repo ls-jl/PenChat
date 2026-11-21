@@ -739,7 +739,7 @@ void App::clear() {
   pageHeading_ = pageHeader_ = pageContent_ = nullptr;
   pageActions_.clear();
   transferProgress_ = nullptr;
-  scanWarning_ = scanHolder_ = scanImage_ = scanLabel_ = scanUse_ = scanCancel_ = scanHint_ = nullptr;
+  scanWarning_ = scanHolder_ = scanImage_ = scanUse_ = scanCancel_ = scanHint_ = nullptr;
   chatHeader_ = chatTitle_ = nullptr;
   historyRows_.clear();navigationFooter_.clear();
   historyCaptions_.clear();historyActions_.clear();
@@ -818,7 +818,7 @@ void App::build() {
     onboardingPage();builtView_=view_;builtPageKey_=pageKey();syncScanner();syncBackPolicy();return;
   }
   lv_obj_t *navigation=nullptr;
-  if(view_!="crop"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", layout().portrait()?layout().navigationX():uiMetrics_.dp(16), layout().portrait()?layout().safeTop():uiMetrics_.dp(8), uiMetrics_.touchTarget(48), uiMetrics_.touchTarget(48), [this] {
+  if(view_!="crop"&&view_!="scan"&&(!layout().portrait()||view_=="chat"||photo)) navigation=icon(screenObj_, view_ == "chat" ? (messageEdit_.empty()?"menu":"close") : "back", layout().portrait()?layout().navigationX():uiMetrics_.dp(16), layout().portrait()?layout().safeTop():uiMetrics_.dp(8), uiMetrics_.touchTarget(48), uiMetrics_.touchTarget(48), [this] {
     if(editor_.active){editorAccept();return;}
     if (view_ == "chat") {
       if(!messageEdit_.empty())cancelMessageEdit();else toggleNavigation();

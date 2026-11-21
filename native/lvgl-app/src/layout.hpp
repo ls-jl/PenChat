@@ -47,9 +47,9 @@ struct ScreenSafety {
   }
 };
 struct ScanWorkspace {
-  // Caption and warning are reader-local. The preview and controls use screen coordinates.
-  LayoutRect caption, preview, warning, use, cancel;
-  int captionFloor, previewBottom;
+  // The warning is reader-local. The preview and controls use screen coordinates.
+  LayoutRect preview, warning, use, cancel;
+  int previewBottom;
 };
 struct CameraWorkspace {
   LayoutRect preview, direction, shutter, turn;
@@ -110,14 +110,11 @@ struct AppLayout {
     const int buttonWidth=std::max(1,std::min(dp(200),(width-2*side-gap)/2));
     const int left=(width-2*buttonWidth-gap)/2;
     const LayoutRect use{left,rowY,buttonWidth,control},cancel{left+buttonWidth+gap,rowY,buttonWidth,control};
-    const int top=portrait()?safeTop():0;
-    const int previewTop=(portrait()?top:dp(8))+metrics.touchTarget(48)+dp(4);
+    const int top=portrait()?safeTop():dp(4);
     const int bottom=rowY-dp(12);
-    const auto preview=scanPreview(previewTop,bottom);
-    const LayoutRect caption=portrait()?LayoutRect{navigationX()+dp(56),top+dp(8),width-navigationX()-dp(80),dp(24)}
-      :LayoutRect{dp(10),dp(4),bodyWidth()-dp(20),dp(24)};
-    return {caption,preview,{dp(10),top+dp(28),bodyWidth()-dp(20),dp(24)},
-      use,cancel,portrait()?top+dp(40):dp(28),bottom};
+    const int warningInset=std::max(dp(16),edgeSide(top,metrics.touchTarget()));
+    return {scanPreview(top,bottom),{warningInset,top,
+      std::max(1,width-2*warningInset),0},use,cancel,bottom};
   }
   LayoutRect scanPreview(int top,int bottom) const {
     const int h=std::max(1,bottom-top);

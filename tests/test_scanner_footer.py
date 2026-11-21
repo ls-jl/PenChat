@@ -34,9 +34,10 @@ def run():
                             preview=d['scan_preview_area']
                             assert d['reader_height']==preview[1] and preview[3]<u[1]
                             assert preview[3]-preview[1]+1>=60
+                            assert bool(d['scan_warning'])==partial
                             if w>h:
                                 assert preview[0]==0 and preview[2]==w-1
-                                assert preview[1]>round((8+48)*scale/100)
+                                if not partial: assert preview[1]<=round(4*scale/100)
                             assert h-u[3]<=max(80,h//10)
                             image=folder/'lvgl-diagnostic.png';app.process.send_signal(signal.SIGUSR1)
                             t.wait_for(lambda:image.exists() and image.read_bytes().endswith(b'IEND\xaeB`\x82'))

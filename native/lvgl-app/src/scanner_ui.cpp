@@ -76,16 +76,15 @@ void App::whenScannerReleased(std::function<void()> callback) {
 }
 void App::scanPage() {
   const auto workspace=layout().scanWorkspace();
-  lv_obj_set_height(body_,workspace.previewBottom);
+  lv_obj_set_x(body_,0);
+  lv_obj_set_size(body_,screen_.width,workspace.preview.y);
   lv_obj_set_scrollable(body_,true);
-  scanLabel_ = label(body_, "请从左向右扫描，松开笔头后完成拼接", workspace.caption.x, workspace.caption.y, workspace.caption.width, uiMetrics_.fontSize(UiFont::FormCaption),
-                     theme::palette().muted);
-  lv_label_set_long_mode(scanLabel_, LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_height(scanLabel_, font(uiMetrics_.fontSize(UiFont::FormCaption))->line_height);
   auto holder = box(screenObj_,workspace.preview.x,workspace.preview.y,workspace.preview.width,workspace.preview.height);
   lv_obj_set_style_bg_opa(holder,LV_OPA_TRANSP,0);
   scanHolder_=holder;
-  scanWarning_=label(body_,"",uiMetrics_.dp(10),uiMetrics_.dp(28),screen_.width-uiMetrics_.dp(120),uiMetrics_.fontSize(UiFont::FormHint),theme::palette().danger);
+  scanWarning_=label(body_,"",workspace.warning.x,workspace.warning.y,workspace.warning.width,
+    uiMetrics_.fontSize(UiFont::FormHint),theme::palette().danger);
+  lv_label_set_long_mode(scanWarning_,LV_LABEL_LONG_MODE_WRAP);
   lv_obj_set_hidden(scanWarning_,true);
   lv_obj_set_clickable(holder,true);
   lv_obj_add_event_cb(holder, [](lv_event_t *e) {
@@ -96,7 +95,7 @@ void App::scanPage() {
   scanImage_ = imageWidget(holder);
   bool usable = scanResult_.value("usable", false);
   const bool partial = scanResult_.value("status", 1) != 1;
-  scanUse_ = button(screenObj_, !usable ? (scanResult_.empty() ? "等待扫描结果" : "无可用图像") : partial ? "使用部分图像" : "使用图片", workspace.use.x, workspace.use.y,
+  scanUse_ = button(screenObj_, scanConfirming_ ? "保存中…" : !usable ? (scanResult_.empty() ? "等待扫描结果" : "无可用图像") : partial ? "使用部分图像" : "使用图片", workspace.use.x, workspace.use.y,
                     workspace.use.width, workspace.use.height, [this] {
                       if (scanConfirming_ || scanCancelPending_ || scanConfirmed_ == scanId_ ||
                           !scanResult_.value("usable", false))
@@ -105,7 +104,7 @@ void App::scanPage() {
                       scanConfirmClickedAt_=ticks();
                       lv_obj_set_clickable(scanUse_, false);
                       lv_obj_set_clickable(scanCancel_, false);
-                      lv_label_set_text(scanLabel_, "正在保存扫描图片…");
+                      lv_label_set_text(lv_obj_get_child(scanUse_,0), "保存中…");
                       scanner_.confirm(scanId_);
                     });
   lv_obj_set_clickable(scanUse_, usable && !scanConfirming_ && !scanCancelPending_);
@@ -116,34 +115,8 @@ void App::scanPage() {
   }
   scanCancel_=button(screenObj_, "取消", workspace.cancel.x, workspace.cancel.y, workspace.cancel.width, workspace.cancel.height, [this] { cancelScanReview(); });
   lv_obj_set_clickable(scanCancel_,!scanConfirming_ && !scanCancelPending_);
-  if (!scanResult_.empty()) {
-    auto c = scanResult_.value("counts", Json::object());
-    std::string text;
-    if (scanResult_.contains("error"))
-      text = scanReason(scanResult_["error"].get<std::string>());
-    else if (!usable)
-      text = scanResult_.value("reason", std::string()).empty()
-                 ? "没有可用图像，按下笔头即可重扫"
-                 : "扫描失败：" +
-                       scanReason(scanResult_.value("reason", std::string()));
-    else if (partial)
-      text = "扫描未完整完成：" +
-             scanReason(scanResult_.value("reason", std::string())) +
-             "；未定位帧 " + std::to_string(c.value("unlocated", uint64_t(0))) +
-             "，请确认。";
-    else
-      text = "拼接完成：选中 " +
-             std::to_string(c.value("selected", uint64_t(0))) + " 帧" +
-             (c.value("warnings", 0u) ? "，存在光照估计回退，请核对"
-                                      : "，请确认使用");
-    if(partial) {
-      lv_obj_set_width(scanLabel_,workspace.caption.width);
-      lv_label_set_long_mode(scanLabel_,LV_LABEL_LONG_MODE_WRAP);
-      lv_obj_set_height(scanLabel_,LV_SIZE_CONTENT);
-    }
-    lv_label_set_text(scanLabel_, scanConfirming_ ? "正在保存扫描图片…" : text.c_str());
-  }
   updateScanWarning(scanResult_.value("counts",Json::object()));
+  refreshScanPreview();
 }
 void App::cancelScanReview() {
   if (scanConfirming_ || scanCancelPending_) return;
@@ -168,20 +141,28 @@ void App::refreshScanPreview() {
 void App::updateScanWarning(const Json &counts) {
   if(!scanWarning_ || !scanHolder_)return;
   const auto lost=counts.value("dropped_raw",uint64_t(0));
+  const auto reason=scanResult_.value("reason",std::string());
+  std::string warning;
+  if (scanResult_.contains("error"))
+    warning=scanReason(scanResult_.at("error").get<std::string>());
+  else if (!scanResult_.empty() && !scanResult_.value("usable",false))
+    warning=reason.empty()?"没有可用图像，按下笔头即可重扫":"扫描失败："+scanReason(reason);
+  else if (scanResult_.value("status",1)!=1)
+    warning="扫描未完整完成："+scanReason(reason)+"；未定位帧 "+
+      std::to_string(counts.value("unlocated",uint64_t(0)))+"，请确认。";
+  if (lost) {
+    if (!warning.empty()) warning+='\n';
+    warning+="本次漏采"+std::to_string(lost)+"帧，请放大检查是否有缺字、重影或错位。";
+  }
+  if (warning==lv_label_get_text(scanWarning_)) return;
+  lv_label_set_text(scanWarning_,warning.c_str());
+  lv_obj_set_hidden(scanWarning_,warning.empty());
+  lv_obj_update_layout(scanWarning_);
   const auto workspace=layout().scanWorkspace();
-  lv_obj_update_layout(scanLabel_);
-  const int top=std::max(workspace.captionFloor,int(lv_obj_get_y(scanLabel_)+lv_obj_get_height(scanLabel_)+uiMetrics_.dp(8)));
-  lv_obj_set_pos(scanWarning_,workspace.warning.x,top);
-  lv_obj_set_width(scanWarning_,workspace.warning.width);
-  lv_label_set_long_mode(scanWarning_,LV_LABEL_LONG_MODE_WRAP);
-  lv_label_set_text(scanWarning_,("本次漏采"+std::to_string(lost)+"帧，请放大检查是否有缺字、重影或错位。").c_str());
-  lv_obj_set_hidden(scanWarning_,!lost);lv_obj_update_layout(scanWarning_);
-  const int extra=lost?lv_obj_get_height(scanWarning_)+uiMetrics_.dp(8):0;
-  // Long warnings scroll in the caption reader instead of pushing the
-  // picture out of a short viewport at large text sizes.
   const int minimumPreview=std::min(workspace.preview.height,uiMetrics_.dp(72));
-  const int holderTop=std::min(workspace.previewBottom-minimumPreview,
-      std::max(workspace.preview.y,top+extra+uiMetrics_.dp(4)));
+  const int warningBottom=workspace.warning.y+lv_obj_get_height(scanWarning_)+uiMetrics_.dp(8);
+  const int holderTop=warning.empty()?workspace.preview.y:
+    std::min(workspace.previewBottom-minimumPreview,warningBottom);
   lv_obj_set_height(body_,holderTop);
   const auto area=layout().scanPreview(holderTop,workspace.previewBottom);
   lv_obj_set_pos(scanHolder_,area.x,area.y);
@@ -288,17 +269,9 @@ void App::scanEvent(const Event &event) {
   }
   if (event.type == "scan_preview" && scanImage_) {
     refreshScanPreview();
-  } else if (event.type == "scan_progress" && scanLabel_) {
-    auto c = j.value("counts", Json::object());
-    auto text = std::string(j.value("phase", std::string()) == "processing" ? "拼接中 · 选中 " : "正向扫描 · 选中 ") + std::to_string(c.value("selected", uint64_t(0))) +
-                " 帧 · 已拼接 " +
-                std::to_string(c.value("committed", uint64_t(0))) + " 帧 · 待处理 " +
-                std::to_string(c.value("pending", uint64_t(0))) + " 帧";
-    lv_label_set_text(scanLabel_, text.c_str());
-    updateScanWarning(c);
-  } else if (event.type == "scan_processing" && scanLabel_)
-    lv_label_set_text(scanLabel_, "采集已结束，正在完成剩余拼接…");
-  else if (event.type == "scan_finished") {
+  } else if (event.type == "scan_progress") {
+    updateScanWarning(j.value("counts",Json::object()));
+  } else if (event.type == "scan_finished") {
     diagnosticRecord("scanner", "finished", j.value("counts",Json::object()));
     scanResult_ = j;
     scanFinishedAt_=ticks();
