@@ -69,16 +69,22 @@ def latency(d):
  assert d.s6 and (d.w,d.h)==(640,260) and d.state()['ui_scale']['applied']==100
  original=next(line.split()[0] for line in evidence['original_cycles'][0]['files_sha256'].splitlines() if not line.endswith('.preview.png'))
  generation=d.state()['scanner']['generation']
- d.touch(d.w-205,54)
+ actions=d.state()['scan_actions'];use,cancel=actions['use'],actions['cancel']
+ assert use[1]==cancel[1] and use[3]==cancel[3] and use[2]<cancel[0]
+ assert abs(use[0]+cancel[2]-(d.w-1))<=2 and use[1]>d.h//2
+ d.capture('scan-review-bottom-actions')
+ d.tap(use)
  s=d.wait(lambda:(s if (s:=d.state())['view']=='chat' and s['scan_latency']['stored'] else None),60)
  assert not s['generating'] and s['scanner']['generation']==generation
  backup=d.out/'confirmed-fixture.db';pull_database(d.serial,d.data,backup,d.sh)
  with sqlite3.connect(backup) as db:
-  assert db.execute('select count(*) from chat_messages').fetchone()[0]==2
-  assets=db.execute('select stored_path,display_src,width,height,source_type from message_assets').fetchall()
- assert len(assets)==1 and assets[0][4]=='scan'
- stored,preview,width,height,_=assets[0]
- assert stored.startswith(d.data+'/assets/') and preview.startswith(d.data+'/assets/')
+  assert db.execute('select count(*) from chat_messages').fetchone()[0]==1
+  attachments=db.execute("select image_json from draft_attachments where draft_key='refresh-bottom'").fetchall()
+ assert len(attachments)==1
+ image=json.loads(attachments[0][0])
+ stored,preview,width,height=(image[key] for key in ('path','previewPath','width','height'))
+ owned=pathlib.PurePosixPath(d.data)/'assets-drafts'
+ assert owned in pathlib.PurePosixPath(stored).parents and owned in pathlib.PurePosixPath(preview).parents
  assert d.sh('sha256sum '+stored).split()[0]==original
  evidence['review_stage_no_confirmation_or_send']=evidence.pop('no_confirmation_or_send')
  evidence.update(confirmed_into_isolated_fixture=True,network_send=False,stored_original_sha256=original,
