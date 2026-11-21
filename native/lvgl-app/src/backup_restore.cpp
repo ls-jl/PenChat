@@ -203,8 +203,8 @@ void validateDatabase(const Sql &source,const Sql &current){
     "SELECT 1 FROM draft_attachments GROUP BY draft_key,position HAVING count(*)>1 LIMIT 1",
     "SELECT 1 FROM reply_groups g WHERE NOT EXISTS(SELECT 1 FROM chat_messages m WHERE m.id=g.message_id AND m.session_id=g.session_id AND m.role='assistant') OR NOT EXISTS(SELECT 1 FROM reply_results r WHERE r.id=g.selected_id AND r.group_id=g.id) LIMIT 1",
     "SELECT 1 FROM reply_asset_refs a WHERE NOT EXISTS(SELECT 1 FROM reply_groups g WHERE g.id=a.group_id) OR NOT EXISTS(SELECT 1 FROM message_assets i WHERE i.id=a.asset_id) OR (a.owner_id!=a.group_id AND NOT EXISTS(SELECT 1 FROM reply_results r WHERE r.id=a.owner_id AND r.group_id=a.group_id)) LIMIT 1",
-    "SELECT count(*) n FROM providers WHERE is_default=1 HAVING count(*)>1",
-    "SELECT count(*) n FROM model_configs WHERE is_default=1 HAVING count(*)>1"
+    "SELECT 1 FROM providers WHERE is_default=1 LIMIT 1 OFFSET 1",
+    "SELECT 1 FROM model_configs WHERE is_default=1 LIMIT 1 OFFSET 1"
   };
   for(const auto &sql:checks)need(source.q(sql).empty(),"备份存在重复身份或缺失的数据关联");
   const auto currentCheck=current.q("PRAGMA integrity_check");need(currentCheck.size()==1&&currentCheck[0].begin().value()=="ok","当前数据库完整性检查失败，请先维护当前数据");

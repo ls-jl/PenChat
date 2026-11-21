@@ -122,6 +122,12 @@ class Restore(unittest.TestCase):
   original=(self.src/'penchat.db').read_bytes()
   for change in cases:
    (self.src/'penchat.db').write_bytes(original);sql(self.src,change);self.pack();p=self.open();self.assertIn('error',p.preview(self.id),change);p.close();self.probe=None
+ def test_duplicate_provider_and_model_defaults_are_rejected(self):
+  original=(self.src/'penchat.db').read_bytes()
+  cases=["insert into providers(id,name,type,base_url,created_at,updated_at,is_default) values('p2','Other','openai-compatible','https://invalid',1,1,1)","insert into model_configs(id,provider_id,name,display_name,model_type,created_at,updated_at,is_default) values('m2','p','other','Other','chat',1,1,1)"]
+  for change in cases:
+   (self.src/'penchat.db').write_bytes(original);sql(self.src,change);self.pack()
+   p=self.open();self.assertIn('error',p.preview(self.id));p.close();self.probe=None
  def test_shared_metadata_images_are_cloned_without_touching_private_response_items(self):
   for path,source in [(self.src,True),(self.data,False)]:
    with sqlite3.connect(path/'penchat.db') as db:
