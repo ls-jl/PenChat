@@ -178,7 +178,13 @@ def run_compression(d):
     assert 'opaque-covered' not in json.dumps(compression)
     # The current compactor preserves selected original user text. Covered
     # source text need not disappear, but opaque state must never be quoted.
-    for retained in cp.get('retained',[]):assert retained['text'] in json.dumps(answer)
+    answer_texts = [
+      part.get('text', '')
+      for item in answer.get('input', []) if item.get('role') == 'user'
+      for part in item.get('content', []) if isinstance(part, dict) and part.get('type') == 'input_text'
+    ]
+    for retained in cp.get('retained', []):
+      assert retained['text'] in answer_texts, 'Original retained user text missing from continuation'
     assert answer['reasoning']['effort'] == 'high'
     assert _rows(d, 'select count(*) from chat_messages where session_id=?', (cp['archive_id'],))[0][0] == 80
     assert _rows(d, "select count(*) from chat_sessions where status='archived'")[0][0] == 1
