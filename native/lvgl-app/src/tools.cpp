@@ -68,7 +68,7 @@ Json webToolDefinitions() {
       "Inspect the preview and cite only if its visible subject matches. Reuse a previously checked "
       "reference if still confident. If uncertain, cite the source page instead.",
       {{"page_id", page}, {"link_id", page}, {"inspect", {{"type", "boolean"},
-        {"description", "Legacy option. Successful calls always supply pixels."}}}},
+        {"description", "Legacy option. Ignored; each new image is previewed once."}}}},
       Json::array({"page_id", "link_id"}));
   return result;
 }
