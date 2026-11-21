@@ -47,6 +47,7 @@ def scoped_output(path):
   return value
 # Reuse individual feature fixtures, never acceptance.py on original user data.
 FEATURES = {
+  'backup-restore': 'Isolated incremental backup restore, conflicts, cancel, invalid files and native reload',
   'resource-residency': 'Control center retains underlay/worker/model and observes but gates pen input',
   'scan-original': 'Real scan result original PNG, reopen cache and no persistence/send',
   'scan-confirm-latency': 'S6 paper original/reopen plus explicit isolated save timing and exact stored file hash; never sends',
@@ -219,6 +220,8 @@ class ReleaseDevice(ScopedDevice):
     super().__init__(serial, package)
     self.name = DEVICES[serial]
     self.features = features
+    if 'backup-restore' in features:
+      assert features == ['backup-restore'], 'Backup restoration needs its own isolated scope'
     if 'scan-original-codec' in features:
       assert features == ['scan-original-codec'], 'The saved-scan codec fixture needs its own isolated scope'
     self.discard_input = discard_input
@@ -425,6 +428,15 @@ class ReleaseDevice(ScopedDevice):
   def launch(self):
     # Keep the source helper's foreground stability guard. A retained Falcon
     # launcher may expose its supported Retry action after native termination.
+    if self.serial == 'MEB0400008900794' and self.features == ['backup-restore'] and self.key_helper_ready:
+      if self.sh('cat /sys/class/backlight/backlight/bl_power') != '0':
+        power = next(block for block in self.sh('cat /proc/bus/input/devices').split('\n\n')
+                     if 'Name="rk805 pwrkey"' in block)
+        event = '/dev/input/'+re.search(r'Handlers=.*\b(event\d+)\b',power)[1]
+        node = '/dev/input/by-path/rk805-pwrkey'
+        assert self.sh('readlink -f '+node) == event
+        self.sh(self.key_helper+' '+node+' 116 1 100 300')
+        self.wait(lambda:self.sh('cat /sys/class/backlight/backlight/bl_power') == '0',5)
     if self.serial in ('MEA2300009007113','7G12000010905426') and self.key_helper_ready:
       backlight='/sys/class/backlight/'+('dcs-backlight' if self.serial=='7G12000010905426' else 'backlight')+'/actual_brightness'
       for _ in range(2):
@@ -969,7 +981,11 @@ class ReleaseDevice(ScopedDevice):
       self.sh('mkdir -p '+self.data)
       with tempfile.TemporaryDirectory(prefix='penchat-release-') as temp:
         folder = pathlib.Path(temp)
-        self.fixture(folder/'penchat.db')
+        if self.features == ['backup-restore']:
+          from backup_restore_acceptance import prepare_fixture
+          prepare_fixture(self, folder/'penchat.db')
+        else:
+          self.fixture(folder/'penchat.db')
         if self.features == ['scan-original-codec']:
           from release_scan_original import codec_fixture
           codec_fixture(self,folder)
@@ -1059,7 +1075,10 @@ class ReleaseDevice(ScopedDevice):
         self.result['checks'].append(entry)
         self.record()
         try:
-          if feature == 'smoke':
+          if feature == 'backup-restore':
+            from backup_restore_acceptance import exercise
+            entry['evidence'] = exercise(self)
+          elif feature == 'smoke':
             entry['evidence'] = self.smoke()
           elif feature == 'keyboard-review':
             entry['evidence'] = self.keyboard_review()
