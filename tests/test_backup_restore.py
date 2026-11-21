@@ -256,6 +256,33 @@ os._exit(77)
   p.p.stdin.write(json.dumps(dict(op='commit',choices=self.choices(plan)))+'\n');p.p.stdin.flush();self.assertEqual(p.p.wait(timeout=15),77);p.close();self.probe=None
   self.open();self.assertEqual(sql(self.data,"select output_text from chat_messages where id='message-conflict'")[0][0],'current text');self.assertEqual((self.pub/'same.txt').read_text(),'current file');self.assertFalse((self.pub/'new.txt').exists())
   receipt=json.loads((self.data/'.rescue/restore-receipt.json').read_text());self.assertFalse(receipt['ok'])
+ def test_exclusive_create_collision_preserves_competitor(self):
+  p=self.open({'PENCHAT_TEST_RESTORE_FAULT':'copy_collision'});plan=p.preview(self.id)
+  self.assertIn('error',p.cmd('commit',choices=self.choices(plan)))
+  parts=list(self.pub.rglob('.penchat-restore-*.part'))+list((self.data/'ime').rglob('.penchat-restore-*.part'))
+  self.assertEqual([f.read_text() for f in parts],['concurrent writer'])
+  self.assertEqual((self.pub/'same.txt').read_text(),'current file')
+ def test_interrupted_rollback_can_restart(self):
+  p=self.open({'PENCHAT_TEST_RESTORE_FAULT':'before_commit'});plan=p.preview(self.id)
+  p.p.stdin.write(json.dumps(dict(op='commit',choices=self.choices(plan)))+'\n');p.p.stdin.flush()
+  self.assertEqual(p.p.wait(timeout=15),77);p.close();self.probe=None
+  cmd=[str(BINARY),str(self.data),str(self.pub),'--init']
+  interrupted=subprocess.run(cmd,env=dict(os.environ,PENCHAT_TEST_RESTORE_FAULT='before_file_rename'),capture_output=True)
+  self.assertEqual(interrupted.returncode,77)
+  for _ in range(2):subprocess.run(cmd,check=True,capture_output=True)
+  self.assertEqual((self.pub/'same.txt').read_text(),'current file')
+  self.assertFalse((self.pub/'new.txt').exists())
+  self.assertFalse((self.data/'.rescue/restore-journal.json').exists())
+ def test_recovery_keeps_replaced_temporary_inode(self):
+  p=self.open({'PENCHAT_TEST_RESTORE_FAULT':'before_file_rename'});plan=p.preview(self.id)
+  p.p.stdin.write(json.dumps(dict(op='commit',choices=self.choices(plan)))+'\n');p.p.stdin.flush()
+  self.assertEqual(p.p.wait(timeout=15),77);p.close();self.probe=None
+  parts=list(self.pub.rglob('.penchat-restore-*.part'))+list((self.data/'ime').rglob('.penchat-restore-*.part'))
+  self.assertEqual(len(parts),1)
+  competing=parts[0].with_suffix('.other');competing.write_text('external');competing.replace(parts[0])
+  self.open()
+  self.assertEqual(parts[0].read_text(),'external')
+  self.assertEqual((self.pub/'same.txt').read_text(),'current file')
  def test_committed_interruption_finishes_without_repeating_restore(self):
   p=self.open({'PENCHAT_TEST_RESTORE_FAULT':'after_commit'});plan=p.preview(self.id);self.assertNotIn('error',plan,plan)
   p.p.stdin.write(json.dumps(dict(op='commit',choices=self.choices(plan)))+'\n');p.p.stdin.flush();self.assertEqual(p.p.wait(timeout=15),77);p.close();self.probe=None

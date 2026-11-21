@@ -94,21 +94,42 @@ void eraseAt(int parentFd,const std::string &name){
   else unlinkat(parentFd,name.c_str(),0);
 }
 void eraseTree(const std::string &p){if(!exists(p))return;const int fd=openSafe(parent(p),O_RDONLY|O_DIRECTORY);eraseAt(fd,p.substr(p.find_last_of('/')+1));close(fd);}
-void copyFile(const std::string &from,const std::string &to,const std::string &expected,uint64_t size,const std::atomic<bool> &cancel){
+void copyFile(const std::string &from,const std::string &to,const std::string &expected,uint64_t size,const std::atomic<bool> &cancel,
+              const std::string &ownerRecord={}){
   safe(from,true);dir(parent(to));space(parent(to),size);need(!exists(to),"还原暂存文件已存在");
   int in=openSafe(from,O_RDONLY),out=-1;
   need(in>=0,"备份文件无法打开");struct stat before{},after{};
   try{
     need(!fstat(in,&before)&&S_ISREG(before.st_mode)&&before.st_nlink==1&&uint64_t(before.st_size)==size,"备份文件大小已变化");
+#ifndef PENCHAT_NATIVE_DEVICE
+    if(const char *fault=getenv("PENCHAT_TEST_RESTORE_FAULT"))
+      if(std::string(fault)=="copy_collision" && to.find("/.penchat-restore-")!=std::string::npos){
+        const int competing=openSafe(to,O_WRONLY|O_CREAT|O_EXCL);
+        const char content[]="concurrent writer";
+        const auto written=write(competing,content,sizeof(content)-1);close(competing);
+        need(written==sizeof(content)-1,"测试文件写入失败");
+      }
+#endif
     out=openSafe(to,O_WRONLY|O_CREAT|O_EXCL);need(out>=0,"还原文件无法创建");
+    if(!ownerRecord.empty()){
+      struct stat owned{};
+      need(fstat(out,&owned)==0,"无法记录还原暂存文件");
+      durable(ownerRecord,{{"leaf",to.substr(to.find_last_of('/')+1)},
+                           {"device",uint64_t(owned.st_dev)},{"inode",uint64_t(owned.st_ino)}});
+    }
     SHA256_CTX ctx;SHA256_Init(&ctx);uint64_t total=0;char buffer[65536];
     for(;;){cancelled(cancel);ssize_t n=read(in,buffer,sizeof(buffer));if(n<0&&errno==EINTR)continue;need(n>=0,"备份文件读取失败");if(!n)break;
       need(uint64_t(n)<=size-total,"备份文件在读取时增长");SHA256_Update(&ctx,buffer,size_t(n));size_t off=0;
       while(off<size_t(n)){auto w=write(out,buffer+off,size_t(n)-off);if(w<0&&errno==EINTR)continue;need(w>0,"还原文件写入失败");off+=size_t(w);}total+=uint64_t(n);
     }
     need(total==size&&!fstat(in,&after)&&before.st_ino==after.st_ino&&before.st_size==after.st_size&&before.st_mtim.tv_sec==after.st_mtim.tv_sec&&before.st_mtim.tv_nsec==after.st_mtim.tv_nsec,"备份文件在复制时变化");
-    unsigned char raw[32];SHA256_Final(raw,&ctx);char hex[65]{};for(unsigned i=0;i<32;++i)std::snprintf(hex+i*2,3,"%02x",raw[i]);need(expected==hex,"备份文件校验失败");need(fsync(out)==0,"还原文件无法同步");close(out);out=-1;close(in);in=-1;syncDir(parent(to));
-  }catch(...){if(in>=0)close(in);if(out>=0)close(out);unlink(to.c_str());throw;}
+    unsigned char raw[32];SHA256_Final(raw,&ctx);char hex[65]{};for(unsigned i=0;i<32;++i)std::snprintf(hex+i*2,3,"%02x",raw[i]);need(expected==hex,"备份文件校验失败");need(fsync(out)==0,"还原文件无法同步");syncDir(parent(to));close(out);out=-1;close(in);in=-1;
+  }catch(...){if(in>=0)close(in);if(out>=0){
+      struct stat owned{},named{};
+      if(!fstat(out,&owned)&&!lstat(to.c_str(),&named)&&owned.st_dev==named.st_dev&&owned.st_ino==named.st_ino)
+        unlink(to.c_str());
+      close(out);
+    }throw;}
 }
 struct File {std::string name,hash;uint64_t size=0;bool directory=false;};
 struct Manifest {
@@ -391,9 +412,18 @@ void targetSafe(const std::string &path){
   }
 }
 void replaceFile(const std::string &source,const std::string &target,const std::string &hash,uint64_t size,const std::string &op,const std::atomic<bool> &cancel){
-  targetSafe(target);dir(parent(target));const auto leaf=".penchat-restore-"+shaText(target+op)+".part";const auto temporary=join(parent(target),leaf);need(!exists(temporary),"还原临时文件已存在");
-  copyFile(source,temporary,hash,size,cancel);testFault("before_file_rename");const int fd=openSafe(parent(target),O_RDONLY|O_DIRECTORY);
-  const bool ok=renameat(fd,leaf.c_str(),fd,target.substr(target.find_last_of('/')+1).c_str())==0;const bool sync=ok&&fsync(fd)==0;close(fd);if(!ok)unlink(temporary.c_str());need(ok&&sync,"还原文件替换或同步失败");
+  targetSafe(target);
+  dir(parent(target));
+  const auto prefix=".penchat-restore-"+shaText(target+op)+"-";
+  const auto leaf=uid(prefix)+".part";
+  const auto temporary=join(parent(target),leaf);
+  copyFile(source,temporary,hash,size,cancel,source+".owner");
+  testFault("before_file_rename");
+  const int fd=openSafe(parent(target),O_RDONLY|O_DIRECTORY);
+  const bool ok=renameat(fd,leaf.c_str(),fd,target.substr(target.find_last_of('/')+1).c_str())==0;
+  const bool synced=ok&&fsync(fd)==0;
+  close(fd);
+  need(ok&&synced,"还原文件替换或同步失败");
 }
 Json journalRead(const std::string &data,const std::string &publicRoot){
   const auto p=join(join(data,".rescue"),"restore-journal.json");const auto j=parse(readFile(p,16*1024*1024));
@@ -410,7 +440,29 @@ Json journalRead(const std::string &data,const std::string &publicRoot){
   return j;
 }
 void fileRollback(const Json &j,const std::string &data,const std::string &publicRoot,const std::atomic<bool> &cancel){
-  for(auto it=j["files"].rbegin();it!=j["files"].rend();++it){const auto &f=*it;const std::string target=f["target"];targetSafe(target);
+  for(auto it=j["files"].rbegin();it!=j["files"].rend();++it){
+    const auto &f=*it;
+    const std::string target=f.at("target");
+    targetSafe(target);
+    // A journal from an older version has no ownership receipt. Leave its
+    // unverified .part alone; each retry writes under a fresh name.
+    for(const auto key:{"old_path","new_path"}){
+      if(!f.contains(key))continue;
+      const auto record=f.at(key).get<std::string>()+".owner";
+      if(!exists(record))continue;
+      const auto owner=parse(readFile(record,2048));
+      const auto leaf=owner.at("leaf").get<std::string>();
+      need(relative(leaf)&&leaf.find('/')==std::string::npos&&
+           leaf.find(".penchat-restore-"+shaText(target+j.at("operation").get<std::string>())+"-")==0,
+           "还原暂存文件身份无效");
+      const auto temporary=join(parent(target),leaf);
+      struct stat st{};
+      if(lstat(temporary.c_str(),&st)==0 && S_ISREG(st.st_mode) &&
+         uint64_t(st.st_dev)==owner.at("device") && uint64_t(st.st_ino)==owner.at("inode")){
+        need(unlink(temporary.c_str())==0,"无法清理中断的还原临时文件");
+        syncDir(parent(temporary));
+      }
+    }
     if(f.value("had_old",false)){
       if(exists(target)&&hashFile(target,cancel)==f.at("old_hash"))continue;
       need(exists(target)&&hashFile(target,cancel)==f.at("new_hash"),"还原目标被其他操作修改，已保留事务记录");
@@ -419,7 +471,7 @@ void fileRollback(const Json &j,const std::string &data,const std::string &publi
       need(hashFile(target,cancel)==f.at("new_hash"),"新文件被其他操作修改，已保留事务记录");const int fd=openSafe(parent(target),O_RDONLY|O_DIRECTORY);const bool removed=unlinkat(fd,target.substr(target.find_last_of('/')+1).c_str(),0)==0;const bool synced=fsync(fd)==0;close(fd);need(removed&&synced,"无法回滚新增文件");
     }
   }
-  for(const auto &f:j["files"]){const std::string target=f.at("target");const auto temporary=join(parent(target),".penchat-restore-"+shaText(target+j.at("operation").get<std::string>())+".part");if(exists(temporary)){safe(temporary,true);need(unlink(temporary.c_str())==0,"无法清理中断的还原临时文件");syncDir(parent(temporary));}}
+
   // New asset names are never replacements. Keep any externally referenced
   // files; normal GC can collect otherwise unreferenced files after recovery.
   (void)data;(void)publicRoot;
