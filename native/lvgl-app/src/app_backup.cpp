@@ -89,6 +89,12 @@ void App::backupPage(){
     text("当前已有这个项目。替换会用备份中的整条聊天或整份配置覆盖它；跳过会保留当前内容。",UiFont::FormNote,theme::palette().muted);
     auto check=lv_checkbox_create(pageContent_);backupControls_["all"]=check;lv_checkbox_set_text(check,"全部冲突");lv_obj_set_pos(check,left,y);lv_obj_set_width(check,inner);
     lv_obj_set_style_text_font(check,font(uiMetrics_.fontSize(UiFont::SettingsTitle)),0);lv_obj_set_style_pad_all(check,uiMetrics_.dp(6),0);lv_obj_set_ext_click_area(check,uiMetrics_.dp(6));const int checkHeight=std::max(uiMetrics_.touchTarget(),int(font(uiMetrics_.fontSize(UiFont::SettingsTitle))->line_height)+2*uiMetrics_.dp(6));lv_obj_set_height(check,checkHeight);
+    lv_obj_set_style_text_color(check,lv_color_hex(theme::palette().text),0);
+    lv_obj_set_style_bg_color(check,lv_color_hex(theme::palette().surface),LV_PART_INDICATOR);
+    lv_obj_set_style_border_color(check,lv_color_hex(theme::palette().muted),LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(check,lv_color_hex(theme::palette().accent),LV_PART_INDICATOR|LV_STATE_CHECKED);
+    lv_obj_set_style_border_color(check,lv_color_hex(theme::palette().accent),LV_PART_INDICATOR|LV_STATE_CHECKED);
+    lv_obj_set_style_radius(check,uiMetrics_.dp(5),LV_PART_INDICATOR);
     if(backupAll_)lv_obj_add_state(check,LV_STATE_CHECKED);
     lv_obj_add_event_cb(check,[](lv_event_t *e){auto app=static_cast<App*>(lv_event_get_user_data(e));const auto found=app->backupControls_.find("all");if(found!=app->backupControls_.end()&&found->second==lv_event_get_target_obj(e))app->backupAll_=lv_obj_has_state(lv_event_get_target_obj(e),LV_STATE_CHECKED);},LV_EVENT_VALUE_CHANGED,this);
     y+=checkHeight+uiMetrics_.dp(12);

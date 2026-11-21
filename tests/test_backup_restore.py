@@ -231,7 +231,7 @@ os._exit(77)
   p=self.open({'PENCHAT_TEST_RESTORE_FAULT':'before_file_rename'});plan=p.preview(self.id)
   p.p.stdin.write(json.dumps(dict(op='commit',choices=self.choices(plan)))+'\n');p.p.stdin.flush()
   self.assertEqual(p.p.wait(timeout=15),77);p.close();self.probe=None
-  self.open();self.assertFalse(list(self.pub.rglob('.penchat-restore-*.part')))
+  self.open();self.assertFalse(list(self.pub.rglob('.penchat-restore-*.part')));self.assertFalse(list((self.data/'ime').rglob('.penchat-restore-*.part')))
   self.assertEqual((self.pub/'same.txt').read_text(),'current file')
   self.assertEqual(sql(self.data,"select title from chat_sessions where id='conflict'"),[('Current conflict',)])
  def test_process_interruption_recovers_from_durable_marker(self):
