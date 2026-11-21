@@ -39,7 +39,7 @@ def run():
                 app.send('scanner.test',command='test.press',pressed=True)
                 wait_for(lambda:app.diag()['view']=='scan')
                 snapshot(app,'capturing')
-                app.tap(40,32);wait_for(lambda:app.diag()['view']=='chat')
+                scan_action(app,'cancel');wait_for(lambda:app.diag()['view']=='chat')
                 finished=scan(app)
                 assert finished['scan_result']['usable']
                 assert finished['summary']['sessions']==0 and not app.read_messages()
@@ -98,7 +98,7 @@ def run():
                 app.send('scanner.test',command='test.press',pressed=True)
                 app.send('scanner.test',command='test.press',pressed=False)
                 assert app.diag()['scan_result']['counts']['received']==1 # Review protects a valid image.
-                app.tap(40,32);wait_for(lambda:app.diag()['view']=='chat')
+                scan_action(app,'cancel');wait_for(lambda:app.diag()['view']=='chat')
                 wait_for(lambda:app.diag()['scanner'].get('type')=='ready')
                 app.send('scanner.test',command='test.press',pressed=True)
                 wait_for(lambda:app.diag()['view']=='scan')

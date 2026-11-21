@@ -31,7 +31,30 @@ for w,h in [(960,266),(640,260),(568,1210)]:
    with __import__('sqlite3').connect(pathlib.Path(folder)/'penchat.db') as db:
     assert db.execute('select count(*) from draft_attachments').fetchone()[0]==1
    assert s['scanner']['generation']==generation
-   saved=s['scan_latency'];assert saved['stored']>=saved['confirm_clicked']>0
-   rows.append({'geometry':[w,h],'prepare_after_finished_ms':latency['prepared']-latency['finished'],'export_us':latency['export_us'],'decode_after_prepare_ms':latency['decoded']-latency['prepared'],'view_click_to_loaded_ms':view,'confirm_to_saved_ms':saved['stored']-saved['confirm_clicked']})
+   saved=s['scan_latency'];assert saved['chat_built']>=saved['stored']>=saved['exported']>=saved['confirm_clicked']>0
+   rows.append({'geometry':[w,h],'prepare_after_finished_ms':latency['prepared']-latency['finished'],'export_us':latency['export_us'],'decode_after_prepare_ms':latency['decoded']-latency['prepared'],'view_click_to_loaded_ms':view,'confirm_to_saved_ms':saved['stored']-saved['confirm_clicked'],'chat_build_ms':saved['chat_built']-saved['stored']})
   finally:a.close()
 print(json.dumps(rows),flush=True)
+
+# A tap immediately after sealing must use the in-flight export once and
+# then return to chat only after the attachment is committed.
+os.environ['PENCHAT_SCANNER_TEST_PROFILE']='s6'
+os.environ['PENCHAT_TEST_SCAN_EXPORT_MS']='800'
+with tempfile.TemporaryDirectory(prefix='penchat-s6-early-confirm-') as folder:
+ a=ui.Native(pathlib.Path(os.environ.get('PENCHAT_TEST_BINARY',ui.ROOT/'build/host/penchat-lvgl')),folder,official_adapter=False,screen={'width':640,'height':260})
+ try:
+  press(a);finish(a)
+  s=a.diag()
+  assert not s['scan_latency']['prepared']
+  b=s['scan_actions']['use'];x,y=(b[0]+b[2])//2,(b[1]+b[3])//2
+  a.tap(x,y,wait_motion=False)
+  pending=a.diag()
+  assert pending['view']=='scan' and pending['scan_latency']['confirm_clicked'] and not pending['scan_latency']['stored']
+  a.tap(x,y,wait_motion=False)
+  settled=ui.wait_for(lambda:(d if (d:=a.diag())['view']=='chat' else None))
+  latency=settled['scan_latency']
+  assert latency['confirm_clicked']<latency['exported']<=latency['stored']<=latency['chat_built']
+  with __import__('sqlite3').connect(pathlib.Path(folder)/'penchat.db') as db:
+   assert db.execute('select count(*) from draft_attachments').fetchone()[0]==1
+  print('S6 early confirm: visible review during preparation, one committed image, stable return',flush=True)
+ finally:a.close()

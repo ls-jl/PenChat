@@ -2877,11 +2877,16 @@ void App::storeImage(const Json &image, std::function<void(bool)> completion) {
     modal("正在保存图片", "图片准备完成后会自动返回，请稍候…");
   imageStoreWorker_ = std::thread([this, image, session,editToken,draftSnapshot] {
     bool ok = true;
-    Json asset=Json::object();std::vector<std::string> created;
+    Json asset=Json::object();
+    std::vector<std::string> created;
     try {
-      db_.flush();
-      if(editToken.empty())db_.addDraftImage(draftSnapshot,image);
-      else {
+      if(image.value("source",std::string())!="scan" || !editToken.empty())
+        db_.flush();
+      if(editToken.empty()) {
+        // The draft text is already queued ahead of the attachment on the
+        // DB worker. Return the committed attachment with its draft identity.
+        asset=db_.addDraftImage(draftSnapshot,image);
+      } else {
         const auto directory=join(dataDir_,".message-edit");
         ensureDirectory(directory);
         struct stat st{};
@@ -2897,7 +2902,9 @@ void App::storeImage(const Json &image, std::function<void(bool)> completion) {
         asset["source_type"]=image.value("source",std::string("camera"));asset["metadata_json"]=image.value("metadata",Json::object()).dump();
       }
     } catch (...) {ok=false;for(const auto &path:created){unlink(path.c_str());unlink((path+".part").c_str());}}
-    events_.push("image_stored", {{"ok", ok}, {"session", session},{"edit_token",editToken},{"asset",asset}});
+    events_.push("image_stored", {{"ok", ok}, {"session", session},{"edit_token",editToken},
+      {"asset",std::move(asset)},{"draft_key",draftSnapshot.value("key",std::string())},
+      {"draft_epoch",draftSnapshot.value("epoch",uint64_t(0))}});
   });
 }
 void App::attach(const Json &image) {
@@ -3806,10 +3813,14 @@ void App::tick() {
       auto callback = std::move(imageStoreCompletion_);
       imageStoreCompletion_ = {};
       bool ok = e.data.value("ok", false);
-      if(ok&&e.data.value("session",std::string())==session_&&messageEdit_.empty()) {
-        const auto saved=db_.draft(draftState_.at("key"));draftState_["images"]=saved.at("images");
+      const auto editToken=e.data.value("edit_token",std::string());
+      if(ok&&editToken.empty()&&e.data.value("session",std::string())==session_&&messageEdit_.empty()) {
+        const auto &image=e.data.at("asset");
+        if(e.data.at("draft_key")==draftState_.at("key") &&
+           e.data.at("draft_epoch")==draftState_.at("epoch") &&
+           !draftImage(image.at("id").get<std::string>()))
+          draftState_.at("images").push_back(image);
       }
-      auto editToken=e.data.value("edit_token",std::string());
       if(!editToken.empty()&&ok) {
         auto asset=e.data.at("asset");
         if(editToken==messageEditToken_&&!messageEdit_.empty()) {
@@ -4341,7 +4352,8 @@ Json App::diagnostics() const {
       {"scan_result", scanResult_},
       {"scan_latency",{{"finished",scanFinishedAt_},{"prepared",scanPreparedAt_},{"decoded",scanDecodedAt_},{"export_us",scanExportUs_},
         {"view_clicked",scanViewClickedAt_},{"view_loaded",scanViewLoadedAt_},
-        {"confirm_clicked",scanConfirmClickedAt_},{"stored",scanStoredAt_}}},
+        {"confirm_clicked",scanConfirmClickedAt_},{"exported",scanExportedAt_},{"stored",scanStoredAt_},
+        {"chat_built",scanChatBuiltAt_},{"export",scanExportTiming_}}},
       {"scan_preview_area", [this] {
         if(!scanHolder_)return Json::array();
         lv_area_t a;lv_obj_get_coords(scanHolder_,&a);return Json::array({a.x1,a.y1,a.x2,a.y2});

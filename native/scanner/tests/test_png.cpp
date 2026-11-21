@@ -18,22 +18,24 @@ int main() {
   const std::string small = std::string(directory) + "/small.png";
   const std::string large = std::string(directory) + "/large.png";
   try {
-    writeGrayPng(small, 4, 3, [](int y, uint8_t *row) {
-      for (int x = 0; x < 4; ++x)
-        row[x] = uint8_t(y * 4 + x);
-    });
-    png_image image{};
-    image.version = PNG_IMAGE_VERSION;
-    require(png_image_begin_read_from_file(&image, small.c_str()),
-            "decode PNG");
-    image.format = PNG_FORMAT_GRAY;
-    std::vector<uint8_t> decoded(PNG_IMAGE_SIZE(image));
-    require(image.width == 4 && image.height == 3, "PNG dimensions");
-    require(png_image_finish_read(&image, nullptr, decoded.data(), 0, nullptr),
-            "decode pixels");
-    png_image_free(&image);
-    for (unsigned i = 0; i < decoded.size(); ++i)
-      require(decoded[i] == i, "lossless grayscale rows");
+    for (const auto encoding : {PngEncoding::Standard, PngEncoding::Fast}) {
+      writeGrayPng(small, 4, 3, [](int y, uint8_t *row) {
+        for (int x = 0; x < 4; ++x)
+          row[x] = uint8_t(y * 4 + x);
+      }, nullptr, encoding);
+      png_image image{};
+      image.version = PNG_IMAGE_VERSION;
+      require(png_image_begin_read_from_file(&image, small.c_str()),
+              "decode PNG");
+      image.format = PNG_FORMAT_GRAY;
+      std::vector<uint8_t> decoded(PNG_IMAGE_SIZE(image));
+      require(image.width == 4 && image.height == 3, "PNG dimensions");
+      require(png_image_finish_read(&image, nullptr, decoded.data(), 0, nullptr),
+              "decode pixels");
+      png_image_free(&image);
+      for (unsigned i = 0; i < decoded.size(); ++i)
+        require(decoded[i] == i, "lossless grayscale rows");
+    }
     uint32_t random = 123456789;
     bool limited = false;
     try {
@@ -44,8 +46,8 @@ int main() {
           random ^= random << 5;
           row[x] = uint8_t(random);
         }
-      });
-    } catch (const std::runtime_error &) {
+      }, nullptr, PngEncoding::Fast);
+    } catch (const PngSizeLimit &) {
       limited = true;
     }
     require(limited, "16MiB encoded limit");

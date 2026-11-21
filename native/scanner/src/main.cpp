@@ -659,7 +659,8 @@ class Worker {
     const auto result=result_;
     if (profile_.optics.liftDarkPaper) image["metadata"]["paper_exposure"] = exposure_.info(lightRequestedUs_);
     exportCancel_=false;exportStartedUs_=clockUs();
-    exportTask_=std::async(std::launch::async,[this,result,image,b]() mutable {
+    const auto encoding=profile_.platform==PlatformKind::Cvi?PngEncoding::Fast:PngEncoding::Standard;
+    exportTask_=std::async(std::launch::async,[this,result,image,b,encoding]() mutable {
       try {
 #ifdef SCANNER_TEST_SOURCE
         if(mock_)if(const char *delay=getenv("PENCHAT_TEST_SCAN_EXPORT_MS")) {
@@ -672,12 +673,21 @@ class Worker {
         const int w=std::max(1,int(b.width*scale)),h=std::max(1,int(b.height*scale));
         PngTiming originalTiming,previewTiming;int64_t rowUs=0;
         const auto originalStart=clockUs();
-        writeGrayPng(image["path"],b.width,b.height,[&](int y,uint8_t *pixels) {
+        const auto readRow=[&](int y,uint8_t *pixels) {
           const auto started=clockUs();
           if(exportCancel_ || result->readRow(y,pixels,mask.data(),b.width)!=Code::Ok)
             throw std::runtime_error("scan image preparation cancelled or unavailable");
           rowUs+=clockUs()-started;
-        },&originalTiming);
+        };
+        bool triedStandard=false;
+        try {
+          writeGrayPng(image["path"],b.width,b.height,readRow,&originalTiming,encoding);
+        } catch (const PngSizeLimit &) {
+          if(encoding==PngEncoding::Standard || exportCancel_)throw;
+          // Do not reject a scan that previously fit the size limit.
+          triedStandard=true;
+          writeGrayPng(image["path"],b.width,b.height,readRow,&originalTiming);
+        }
         const auto originalDone=clockUs();
         if(exportCancel_)throw std::runtime_error("scan image preparation cancelled");
         const auto previewStart=clockUs();
@@ -688,10 +698,10 @@ class Worker {
         writeGrayPng(image["previewPath"],w,h,[&](int y,uint8_t *row) {
           if(exportCancel_)throw std::runtime_error("scan image preparation cancelled");
           memcpy(row,preview.data()+size_t(y)*w,w);
-        },&previewTiming);
+        },&previewTiming,encoding);
         if(exportCancel_)throw std::runtime_error("scan image preparation cancelled");
         image["_prepare_timing"]={{"row_us",rowUs},{"original_us",originalDone-originalStart},
-          {"original_png_rows_us",originalTiming.rowsUs},{"original_sync_us",originalTiming.syncUs},
+          {"original_png_rows_us",originalTiming.rowsUs},{"original_sync_us",originalTiming.syncUs},{"standard_retry",triedStandard},
           {"preview_read_us",previewReadUs},{"preview_png_rows_us",previewTiming.rowsUs},
           {"preview_sync_us",previewTiming.syncUs}};
         return image;

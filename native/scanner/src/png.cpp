@@ -11,11 +11,14 @@ namespace {
 struct Output {
   int fd;
   size_t bytes;
+  volatile bool *limited;
 };
 void output(png_structp png, png_bytep bytes, png_size_t count) {
   auto &o = *static_cast<Output *>(png_get_io_ptr(png));
-  if (count > 16 * 1024 * 1024 - o.bytes)
+  if (count > 16 * 1024 * 1024 - o.bytes) {
+    *o.limited = true;
     png_error(png, "PNG exceeds 16 MiB");
+  }
   while (count) {
     auto n = ::write(o.fd, bytes, count);
     if (n < 0 && errno == EINTR)
@@ -30,7 +33,7 @@ void output(png_structp png, png_bytep bytes, png_size_t count) {
 } // namespace
 void writeGrayPng(const std::string &path, int w, int h,
                   const std::function<void(int, uint8_t *)> &row,
-                  PngTiming *timing) {
+                  PngTiming *timing, PngEncoding encoding) {
   const auto now=[] {return uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());};
   if(timing)*timing={};
   if (w < 1 || h < 1 || w > 1024 * 1024)
@@ -42,11 +45,17 @@ void writeGrayPng(const std::string &path, int w, int h,
   auto png =
       png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
   auto info = png ? png_create_info_struct(png) : nullptr;
-  Output out{fd, 0};
+  volatile bool limited = false;
+  Output out{fd, 0, &limited};
   std::vector<uint8_t> pixels(w);
   bool okay = false;
   if (png && info && !setjmp(png_jmpbuf(png))) {
     png_set_write_fn(png, &out, output, nullptr);
+    if (encoding == PngEncoding::Fast) {
+      // Choose one cheap predictor instead of scoring every filter per row.
+      png_set_filter(png, PNG_FILTER_TYPE_BASE, PNG_FILTER_SUB);
+      png_set_compression_level(png, 1);
+    }
     png_set_IHDR(png, info, w, h, 8, PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
     png_write_info(png, info);
@@ -78,7 +87,8 @@ void writeGrayPng(const std::string &path, int w, int h,
     okay = false;
   if (!okay) {
     unlink(part.c_str());
-    throw std::runtime_error("scan PNG failed or exceeds 16 MiB");
+    if (limited) throw PngSizeLimit();
+    throw std::runtime_error("scan PNG failed");
   }
 }
 } // namespace penchat_scan

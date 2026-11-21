@@ -24,7 +24,7 @@
     "src/memory_policy.hpp": "ad5ca5cb32d7debc4e0009a89f8d892ca6ee4b520de4c4b0790f5362f6077886",
     "src/runtime_io.hpp": "1920f786a5faf268e9f14a21274690b8c280fa5006a234d1a9c251e4f857ef94",
     "src/runtime_guard.cpp": "2866a54afd4e71a58e84e8362392cc462cbadebda95cdcd85f32514a30c50fb9",
-    "src/main.cpp": "de62e4ba937641180ae7b0faf937362485a04db8a879392e5be74710d5f324cf",
+    "src/main.cpp": "36b5e9ec15aaa6e80de3b3d9fa09e4aed848cec03f6c2593208f3e1ad0d8a3b9",
     "runtime-symbols.list": "868ca8503bbdbfab6029fe3fca3aceb20e76b4908f63be8bfdcf0f9c9ac92951",
     "tests/test_runtime_io.cpp": "726a9a9e417ad3520743a286ae755f0c857a7b164d74b7b9ea22525c31fd7d05",
     "src/hardware.cpp": "965465ba63282b955d5b51531cf50ca01ce3fbe861f339e2380ae59a49881895",
@@ -59,8 +59,8 @@
     "src/capture_owner.hpp": "9787070779126f9ca472b94d849bb76f2784bebe6676513d064c7b6396fc5555",
     "tests/test_capture_contract.cpp": "b196033a0b94d151ac923c761c6d8b2d5cd20b67b319fad40a548802561738cd",
     "tests/test_canvas_rows.cpp": "fbd6eaee44192abf19b4422db2d3a703247366acd36b033c9fac26427ff9601a",
-    "src/png.hpp": "664b7ab5e273e5c3472d4f6ef80b43fe8bb21503326c2a7cc9b5da3d5be6d9c8",
-    "src/png.cpp": "c6309fc8430d61a1ff27757384e1a121dba4282650ff03878bd491e654c75edd"
+    "src/png.hpp": "c29f406d344d6b670b3a97f996ff20d97d05d71f29d4c8a2636fc4a6fc38fc82",
+    "src/png.cpp": "189c1756dc35b71fbde4e850ec71f47d2cb605960b2167596ec9c00d673093d4"
   },
   "resources": {
     "pintu_32.rknn": {

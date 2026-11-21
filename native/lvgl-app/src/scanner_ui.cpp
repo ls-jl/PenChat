@@ -247,7 +247,8 @@ void App::scanEvent(const Event &event) {
     scanResult_ = Json::object();
     scanConfirming_ = false;
     scanOriginalPath_.clear();scanOriginalKey_.clear();scanFinishedAt_=scanPreparedAt_=scanDecodedAt_=scanViewClickedAt_=scanViewLoadedAt_=0;
-    scanConfirmClickedAt_=scanStoredAt_=scanExportUs_=0;
+    scanConfirmClickedAt_=scanExportedAt_=scanStoredAt_=scanChatBuiltAt_=scanExportUs_=0;
+    scanExportTiming_=Json::object();
     show("scan");
     return;
   }
@@ -268,7 +269,8 @@ void App::scanEvent(const Event &event) {
   if(event.type=="scan_prepared") {
     scanOriginalPath_=j.at("image").at("path").get<std::string>();
     scanPreparedAt_=ticks();scanExportUs_=j.value("prepare_us",uint64_t(0));
-    scanResult_["preparation"]=j.value("timing",Json::object());
+    scanExportTiming_=j.value("timing",Json::object());
+    scanResult_["preparation"]=scanExportTiming_;
     if(pageVisible_&&pageAttached_&&!scanConfirming_)
       scanOriginalKey_=images_.request(scanOriginalPath_,32768,32768);
     return;
@@ -302,10 +304,11 @@ void App::scanEvent(const Event &event) {
     build();
   } else if (event.type == "scan_exported" && scanConfirming_ &&
              scanConfirmed_ != scanId_) {
+    scanExportedAt_=ticks();
     try {
       auto image = j.at("image");
-      auto model = currentModel();
-      bindPreferences(model);
+      if(sessionPreferences_.value("model_id",std::string()).empty())
+        bindPreferences(currentModel());
       const auto scan = scanId_;
       const auto session = session_;
       storeImage(image, [this, scan, session](bool ok) {
@@ -320,6 +323,7 @@ void App::scanEvent(const Event &event) {
         chatFollowing_ = true;
         messageOffset_ = 0;
         show("chat");
+        scanChatBuiltAt_=ticks();
         if (db_.settings()
                 .value("penchat_settings", Json::object())
                 .value("autoSendCapturedContent", false) &&
