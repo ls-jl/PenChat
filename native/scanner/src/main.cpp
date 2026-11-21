@@ -8,6 +8,7 @@
 #include "protocol.hpp"
 #include "sequence_gap.hpp"
 #include "capture_timing.hpp"
+#include "dark_paper.hpp"
 #include <array>
 #include <algorithm>
 #include <chrono>
@@ -59,6 +60,7 @@ class Light {
   bool desired_ = false, stopped_ = false;
   uint64_t requested_ = 0, done_ = 0;
   std::string error_;
+  std::atomic<int64_t> onAt_{0};
   bool mock_;
   std::function<void(bool)> switch_;
   std::thread thread_;
@@ -81,6 +83,7 @@ public:
             try {
               if (!mock_)
                 switch_(on);
+              if (on) onAt_.store(clockUs());
             } catch (const std::exception &e) {
               error = e.what();
             }
@@ -124,6 +127,34 @@ public:
   std::string error() {
     std::lock_guard<std::mutex> l(mutex_);
     return error_;
+  }
+  int64_t onAt() const { return onAt_.load(); }
+};
+
+// Sample only the admitted paper ROI. Report aggregate luma before and
+// after the lamp write, without retaining sensor frames or delaying capture.
+struct PaperExposure {
+  struct Sample {
+    PaperHistogram histogram;
+    unsigned frames = 0;
+    void observe(const FrameView &paper) {
+      for (int y = 0; y < paper.height; y += 8)
+        for (int x = 0; x < paper.width; x += 8)
+          histogram.add(paper.y[size_t(y) * paper.stride + x]);
+      ++frames;
+    }
+    Json info() const {
+      return {{"frames",frames},{"p10",histogram.percentile(10)},
+              {"p50",histogram.percentile(50)},{"p95",histogram.percentile(95)}};
+    }
+  };
+  Sample standby, before, early, settled;
+  int64_t standbyAt = 0;
+  int64_t onAt = 0;
+  Json info(int64_t requestedAt) const {
+    return {{"lamp_write_us",onAt ? onAt - requestedAt : -1},
+            {"lamp_off",standby.info()},{"before_write",before.info()},
+            {"first_120ms",early.info()},{"after_120ms",settled.info()}};
   }
 };
 #ifdef SCANNER_TEST_SOURCE
@@ -243,6 +274,7 @@ class Worker {
   bool engineSealed_ = false, reclaimed_ = false;
   uint64_t discardedBacklog_ = 0;
   Light light_;
+  PaperExposure exposure_;
   Config config_;
   std::unique_ptr<Engine> engine_;
   ResultHandle result_;
@@ -436,6 +468,17 @@ class Worker {
     draining_ = false;
     state_ = "capturing";
     lightRequestedUs_ = clockUs();
+    if (profile_.optics.liftDarkPaper) {
+      // Keep only a fresh lamp-off sample, typically from the immediately
+      // preceding standby period on the same piece of paper.
+      auto previous = exposure_.standby;
+      const auto previousAt = exposure_.standbyAt;
+      exposure_ = {};
+      if (previousAt && lightRequestedUs_ - previousAt <= 250000) {
+        exposure_.standby = previous;
+        exposure_.standbyAt = previousAt;
+      }
+    }
     light_.request(true);
     emit("started",
          {{"pressedUs", pressTime_}, {"lightRequestedUs", lightRequestedUs_}});
@@ -507,7 +550,8 @@ class Worker {
     if (!r)
       return;
     const auto generation = generation_, scan = scan_;
-    preview_.request([r, generation, scan] {
+    const bool lift = final && profile_.optics.liftDarkPaper;
+    preview_.request([r, generation, scan, lift] {
       auto b = r->bounds();
       if (b.width < 1 || b.height < 1)
         return std::unique_ptr<PreviewFrame>{};
@@ -525,6 +569,9 @@ class Worker {
       if (r->readPreview(frame->width, frame->height, frame->pixels.data(),
                           mask.data(), frame->pixels.size()) != Code::Ok)
         return std::unique_ptr<PreviewFrame>{};
+      if (lift)
+        DarkPaperTone::estimate(frame->pixels.data(), mask.data(), mask.size())
+          .apply(frame->pixels.data(), mask.data(), mask.size());
       return frame;
     }, final);
   }
@@ -610,8 +657,10 @@ class Worker {
           {"captureEndedUs", sourceCutoffUs_},
           {"releaseObservedUs", releaseObservedUs_}}}};
     const auto result=result_;
+    const bool lift = profile_.optics.liftDarkPaper;
+    if (lift) image["metadata"]["paper_exposure"] = exposure_.info(lightRequestedUs_);
     exportCancel_=false;exportStartedUs_=clockUs();
-    exportTask_=std::async(std::launch::async,[this,result,image,b]() mutable {
+    exportTask_=std::async(std::launch::async,[this,result,image,b,lift]() mutable {
       try {
 #ifdef SCANNER_TEST_SOURCE
         if(mock_)if(const char *delay=getenv("PENCHAT_TEST_SCAN_EXPORT_MS")) {
@@ -620,22 +669,39 @@ class Worker {
         }
 #endif
         std::vector<uint8_t> mask(b.width);
+        const double scale=std::min(1.,std::min(double(PreviewWidth)/b.width,double(PreviewHeight)/b.height));
+        const int w=std::max(1,int(b.width*scale)),h=std::max(1,int(b.height*scale));
+        std::vector<uint8_t> preview,valid;
+        int64_t previewReadUs = 0;
+        auto readPreview = [&] {
+          const auto start = clockUs();
+          preview.resize(size_t(w)*h);
+          valid.resize(preview.size());
+          if (exportCancel_ || result->readPreview(w,h,preview.data(),valid.data(),preview.size())!=Code::Ok)
+            throw std::runtime_error("scan preview unavailable");
+          previewReadUs = clockUs() - start;
+        };
+        DarkPaperTone tone;
+        if (lift) {
+          // The finished review and export use the same nearest-sampled
+          // sealed canvas, validity mask, and tone curve.
+          readPreview();
+          tone = DarkPaperTone::estimate(preview.data(),valid.data(),valid.size());
+          tone.apply(preview.data(),valid.data(),valid.size());
+          image["metadata"]["dark_paper"]={{"p95",tone.paper},{"target",tone.target}};
+        }
         PngTiming originalTiming,previewTiming;int64_t rowUs=0;
         const auto originalStart=clockUs();
         writeGrayPng(image["path"],b.width,b.height,[&](int y,uint8_t *pixels) {
           const auto started=clockUs();
           if(exportCancel_ || result->readRow(y,pixels,mask.data(),b.width)!=Code::Ok)
             throw std::runtime_error("scan image preparation cancelled or unavailable");
+          if (lift) tone.apply(pixels,mask.data(),mask.size());
           rowUs+=clockUs()-started;
         },&originalTiming);
         const auto originalDone=clockUs();
         if(exportCancel_)throw std::runtime_error("scan image preparation cancelled");
-        const double scale=std::min(1.,std::min(1024./b.width,256./b.height));
-        const int w=std::max(1,int(b.width*scale)),h=std::max(1,int(b.height*scale));
-        std::vector<uint8_t> preview(size_t(w)*h),valid(preview.size());
-        if(result->readPreview(w,h,preview.data(),valid.data(),preview.size())!=Code::Ok)
-          throw std::runtime_error("scan preview unavailable");
-        const auto previewRead=clockUs();
+        if (!lift) readPreview();
         writeGrayPng(image["previewPath"],w,h,[&](int y,uint8_t *row) {
           if(exportCancel_)throw std::runtime_error("scan image preparation cancelled");
           memcpy(row,preview.data()+size_t(y)*w,w);
@@ -643,8 +709,9 @@ class Worker {
         if(exportCancel_)throw std::runtime_error("scan image preparation cancelled");
         image["_prepare_timing"]={{"row_us",rowUs},{"original_us",originalDone-originalStart},
           {"original_png_rows_us",originalTiming.rowsUs},{"original_sync_us",originalTiming.syncUs},
-          {"preview_read_us",previewRead-originalDone},{"preview_png_rows_us",previewTiming.rowsUs},
+          {"preview_read_us",previewReadUs},{"preview_png_rows_us",previewTiming.rowsUs},
           {"preview_sync_us",previewTiming.syncUs}};
+        if (lift) image["_prepare_timing"]["dark_paper"] = image["metadata"]["dark_paper"];
         return image;
       } catch(...) {
         for(const char *key:{"path","previewPath"}) {
@@ -810,11 +877,12 @@ public:
         if (down!=keyDown_) { keyDown_=down;++observedKeyEdges_;if(down)++ocrSequence_; if(!overlayPaused_)emit("ocr_key",{{"down",down},{"sequence",ocrSequence_}}); }
       } else keyEvent(j.value("pressed", false));
     } else if (mock_ && type == "test.frame" && capturing_) {
-      std::vector<uint8_t> pixels(size_t(profile_.width) * profile_.height, 210);
+      const bool dark = j.value("darkPaper", false);
+      std::vector<uint8_t> pixels(size_t(profile_.width) * profile_.height, dark ? 37 : 210);
       for (int y = 20; y < profile_.height - 20; ++y)
         for (int x = 20; x < profile_.width - 20; ++x)
           if ((x + y) % 11 < 3)
-            pixels[size_t(y) * profile_.width + x] = 30;
+            pixels[size_t(y) * profile_.width + x] = dark ? 6 : 30;
       frame({pixels.data(),pixels.size(),profile_.width,profile_.height,profile_.width,
             j.value("rawSequence", haveSequence_ ? lastSequence_ + 1 : uint64_t(0)),
             j.value("rawTimestamp", clockUs())});
@@ -826,8 +894,14 @@ public:
     const auto sequence=source.sequence;
     const auto timestamp=source.timestamp;
     lastFrame_ = clockUs();
-    if (!capturing_)
+    if (!capturing_) {
+      if (profile_.optics.liftDarkPaper && !scan_ && lastFrame_ - exposure_.standbyAt >= 100000) {
+        exposure_.standby = {};
+        exposure_.standby.observe(paperFrame(source,profile_));
+        exposure_.standbyAt = lastFrame_;
+      }
       return;
+    }
     if (!mock_ && timestamp < pressTime_)
       return;
     if (!mock_ && afterReleasedFrame(timestamp, sourceCutoffUs_, draining_, profile_.gatesExposure())) {
@@ -870,6 +944,13 @@ public:
     framesSinceGap_ = std::min(16u, framesSinceGap_ + 1);
     const bool wasDraining = draining_;
     const auto paper=paperFrame(source,profile_);
+    if (profile_.optics.liftDarkPaper) {
+      const auto applied = light_.onAt();
+      if (applied >= lightRequestedUs_) exposure_.onAt = applied;
+      auto &sample = !exposure_.onAt || timestamp < exposure_.onAt ? exposure_.before :
+                     timestamp - exposure_.onAt < 120000 ? exposure_.early : exposure_.settled;
+      if (sample.frames < 4) sample.observe(paper);
+    }
     const auto pushed=engine_->pushFrame(scan_,paper.y,paper.width,paper.height,paper.stride,sequence,timestamp);
 #ifdef SCANNER_DIAGNOSTIC_TRACE
     if(pushed.accepted)trace_.append(source.y,source.stride,sequence,timestamp);
@@ -1000,7 +1081,7 @@ public:
               {"elapsed_us", gap.elapsedUs}, {"stable_frames", gap.stableFrames},
               {"recovered", gap.recovered}});
         }
-        emit("finished",
+        Json resultInfo =
              {{"frame_gaps", gaps}, {"memory_at_stop", memoryAtStop_},
               {"status", captureFailure_.empty() ? int(result_->status())
                                                  : int(Status::Segmented)},
@@ -1016,7 +1097,10 @@ public:
               {"maxCaptureLoopUs", maxCaptureLoopUs_},
               {"captureEndedUs", sourceCutoffUs_},
               {"releaseObservedUs", releaseObservedUs_},
-              {"lastSourceFrameUs", lastRawTimestamp_}});
+              {"lastSourceFrameUs", lastRawTimestamp_}};
+        if (profile_.optics.liftDarkPaper)
+          resultInfo["paper_exposure"] = exposure_.info(lightRequestedUs_);
+        emit("finished",std::move(resultInfo));
         // Derived row-PNGs stay private/temporary until explicit confirmation.
         // Start only after all accepted work is sealed; never read the canvas
         // in the capture loop or delay the finished notification on file IO.

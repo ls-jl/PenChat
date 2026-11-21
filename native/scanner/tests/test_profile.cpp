@@ -1,4 +1,5 @@
 #include "board_config.hpp"
+#include "dark_paper.hpp"
 #include "start_policy.hpp"
 #include <cassert>
 #include <iostream>
@@ -20,6 +21,22 @@ int main() {
   assert(sensorRegion(y02).width==640&&sensorRegion(y02).height==480);
   assert(sensorRegion(orange).width==496&&sensorRegion(orange).height==360);
   const auto y07=scanProfile("Rockchip RK3562 Y07 LP4 V10 Board","sc2356");
+  assert(s6.optics.liftDarkPaper && !orange.optics.liftDarkPaper &&
+         !y02.optics.liftDarkPaper && !y07.optics.liftDarkPaper);
+  {
+    std::array<uint8_t, 512> image, mask;
+    image.fill(255); mask.fill(0);
+    std::fill_n(mask.begin(),256,255);
+    std::fill_n(image.begin(),256,37);
+    std::fill_n(image.begin(),64,6);
+    const auto tone=DarkPaperTone::estimate(image.data(),mask.data(),image.size());
+    assert(tone.enabled() && tone.paper==37 && tone.target==148);
+    tone.apply(image.data(),mask.data(),image.size());
+    assert(image[0]==24 && image[64]==148 && image[256]==255);
+    assert(!DarkPaperTone::estimate(image.data(),mask.data(),image.size()).enabled());
+    image.fill(4);
+    assert(!DarkPaperTone::estimate(image.data(),mask.data(),image.size()).enabled());
+  }
   assert(y07.id=="y07-sc2356"&&y07.width==752&&y07.height==440);
   assert(y07.light==ScanLight::LedClass&&!y07.ledBrightness.empty());
   assert(y07.ledOnValue=="1"); // Vendor white-light mode, never LED_FULL (255).
