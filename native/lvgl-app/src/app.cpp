@@ -1881,6 +1881,21 @@ void App::toggleReasoning(const std::string &id, bool expanded) {
   if (found == reasoningControls_.end()) return;
   auto &control = found->second;
   if (expanded) expandedReasoning_.insert(id); else expandedReasoning_.erase(id);
+  if (expanded && view_=="chat" && generating_ && id==assistant_) {
+    const auto search=reasoningSearchText(reasoningMetadata_,true);
+    if (control.text!=reasoning_ || control.searchText!=search) {
+      if (control.detail) {
+        motion::cancel(control.detail);
+        rasters_.erase(std::remove_if(rasters_.begin(),rasters_.end(),[&](const Raster &r) {
+          return r.owner==control.detail;
+        }),rasters_.end());
+        lv_obj_delete(control.detail);
+        control.detail=nullptr;
+      }
+      control.text=reasoning_;
+      control.searchText=search;
+    }
+  }
   if (!control.detail) {
     control.detail = box(control.wrap, 0, 0, control.width, LV_SIZE_CONTENT);
     lv_obj_set_scrollable(control.detail, false);
@@ -4094,12 +4109,35 @@ void App::tick() {
                e.type == "cancelled" || e.type == "network_error") {
       if (e.data.value("generation", -1) != networkGeneration_ || !generating_)
         continue;
+      bool redraw=true;
       if (e.type == "response_state") {
-        output_ = e.data.value("output", std::string());
-        reasoning_ = e.data.value("reasoning", std::string());
-        reasoningMetadata_ = e.data.value("metadata", Json::object());
+        auto output=e.data.value("output", std::string());
+        auto reasoning=e.data.value("reasoning", std::string());
+        auto metadata=e.data.value("metadata", Json::object());
+        const auto control=reasoningControls_.find(assistant_);
+        if (control!=reasoningControls_.end() && !control->second.expanded &&
+            output==output_ && !reasoning.empty() && !reasoning_.empty()) {
+          redraw=false;
+          for (const auto key:{"reasoning_observed","reasoning_complete","stream_waiting",
+                               "web_pending","web_records","web_sources","web_images",
+                               "web_image_inspection_required","imported_reference"}) {
+            const auto old=reasoningMetadata_.find(key), next=metadata.find(key);
+            if ((old==reasoningMetadata_.end())!=(next==metadata.end()) ||
+                (old!=reasoningMetadata_.end() && *old!=*next)) {redraw=true;break;}
+          }
+          if (!output.empty() && metadata.value("reasoning_complete",false) &&
+              !metadata.value("web_pending",false)) {
+            const auto seconds=[](const Json &m)->int64_t {
+              return m.contains("reasoning_duration_ms")?m.at("reasoning_duration_ms").get<int64_t>()/1000:-1;
+            };
+            redraw=redraw || seconds(reasoningMetadata_)!=seconds(metadata);
+          }
+        }
+        output_=std::move(output);
+        reasoning_=std::move(reasoning);
+        reasoningMetadata_=std::move(metadata);
       }
-      dirty_ = true;
+      dirty_=dirty_ || redraw;
       persistDirty_ = true;
       if (e.type == "done" || e.type == "cancelled" ||
           e.type == "network_error") {
