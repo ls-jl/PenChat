@@ -322,6 +322,31 @@ int main() {
     assert(imported.find("remaining") != std::string::npos);
     assert(imported.find("tool checkpoint") != std::string::npos);
   }
+  {
+    auto visionModel = model;
+    visionModel["capabilities_json"] = Json{{"vision", true}};
+    visionModel["web_enabled"] = true;
+    const Json toolResult = {{"type", "function_call_output"}, {"call_id", "checked"},
+      {"output", Json::array({{{"type", "input_text"}, {"text", "retained tool text"}},
+                              {{"type", "input_image"}, {"image_url", "/legacy-web.png"}}})}};
+    const Json metadata = {{"web_images", Json::array({{{"path", "/legacy-web.png"},
+      {"source_url", "https://example.org/image-source"}}})},
+      {"replay_identity", replayIdentity(visionModel)},
+      {"tool_replay_input", Json::array({toolResult})}};
+    Json rows = Json::array({
+      {{"seq", 1}, {"role", "user"}, {"status", "complete"}, {"output_text", "Question"},
+       {"parts", Json::array({{{"type", "image"}, {"path", "/user-attachment.png"}}})}},
+      {{"seq", 2}, {"role", "assistant"}, {"status", "complete"}, {"output_text", "Answer"},
+       {"metadata_json", metadata.dump()}}});
+    const auto replayInput = contextInput(rows,0,2,visionModel).dump();
+    assert(replayInput.find("retained tool text") != std::string::npos);
+    assert(replayInput.find("/legacy-web.png") == std::string::npos);
+    assert(replayInput.find("/user-attachment.png") != std::string::npos);
+    const auto textInput = contextInput(rows,0,2,visionModel,true).dump();
+    assert(textInput.find("https://example.org/image-source") != std::string::npos);
+    assert(textInput.find("/legacy-web.png") == std::string::npos);
+    assert(publicToolMaterial(Json::array({toolResult})).dump().find("/legacy-web.png") == std::string::npos);
+  }
   std::cout << "context snapshots, 106 messages, atomic rollback, shared assets and "
                "preset reset passed\n";
 }

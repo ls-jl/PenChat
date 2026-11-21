@@ -3,10 +3,18 @@
 Uses a local AI fixture and an isolated fake worker; never contacts search engines.
 """
 import base64, hashlib, http.server, json, os, pathlib, socket, struct, subprocess
-import re, tempfile, threading, unittest
+import re, tempfile, threading, unittest, zlib
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 PROBE=ROOT/'build/host/penchat-network-probe'
 PNG=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7V8AAAAASUVORK5CYII=')
+def large_png():
+    def chunk(kind, data):
+        return struct.pack('!I', len(data)) + kind + data + struct.pack('!I', zlib.crc32(kind + data))
+    rows = b''.join(b'\0' + bytes([y % 256, 105, 180]) * 1024 for y in range(768))
+    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('!2I5B',1024,768,8,2,0,0,0)) + chunk(b'IDAT',zlib.compress(rows)) + chunk(b'IEND',b'')
+
+LARGE_PNG = large_png()
+
 class Fixture(http.server.BaseHTTPRequestHandler):
     requests=[]; mode='normal'; protocol='responses'
     def log_message(self,*args): pass
@@ -26,10 +34,21 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             self.send_response(400);self.send_header('Content-Type','application/json')
             self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
             return
-        if not compression and ((number==1 and self.mode not in ('direct','syntax')) or (self.mode=='long' and number<=26) or (self.mode=='compact' and number<=4)):
+        if not compression and ((number==1 and self.mode not in ('direct','syntax')) or (self.mode=='long' and number<=26) or (self.mode=='compact' and number<=4) or (self.mode=='image-budget' and number==2)):
             if anthropic: answer={'type':'message','role':'assistant','content':[{'type':'tool_use','id':'call_1','name':name,'input':arguments}],'stop_reason':'tool_use','usage':{'input_tokens':8,'output_tokens':2}}
             elif chat: answer={'choices':[{'index':0,'message':{'role':'assistant','content':None,'tool_calls':[{'id':'call_1','type':'function','function':{'name':name,'arguments':json.dumps(arguments)}}]},'finish_reason':'tool_calls'}],'usage':{'prompt_tokens':8,'completion_tokens':2}}
             else:answer={'status':'completed','output':[{'type':'function_call','id':'fc1','call_id':'call_1','name':name,'arguments':json.dumps(arguments)}],'usage':{'input_tokens':8,'output_tokens':2}}
+            if self.mode=='image-budget':
+                if anthropic:
+                    calls=answer['content'];calls[0]['id']='call_'+str(number)
+                    if number==1:calls.append(dict(calls[0],id='call_extra',input={'page_id':1,'link_id':2}))
+                elif chat:
+                    calls=answer['choices'][0]['message']['tool_calls'];calls[0]['id']='call_'+str(number)
+                    if number==1:
+                        calls.append(dict(calls[0],id='call_extra',function={'name':name,'arguments':json.dumps({'page_id':1,'link_id':2})}))
+                else:
+                    calls=answer['output'];calls[0].update(id='fc'+str(number),call_id='call_'+str(number))
+                    if number==1:calls.append(dict(calls[0],id='fc_extra',call_id='call_extra',arguments=json.dumps({'page_id':1,'link_id':2})))
             if self.mode in ('long', 'compact'):
                 if anthropic:answer['content'][0]['id']='call_'+str(number)
                 elif chat:answer['choices'][0]['message']['tool_calls'][0]['id']='call_'+str(number)
@@ -100,6 +119,8 @@ while True:
  data=json.dumps({'request':q['request'],'ok':True,'result':r}).encode();s.sendall(struct.pack('!I',len(data))+data)
 ''');worker.chmod(0o700)
             if mode != 'compact':worker.write_text(worker.read_text().replace("'Reference text' * 500", "'Reference text'"))
+            if mode=='image-large':
+                worker.write_text(worker.read_text().replace(base64.b64encode(PNG).decode(),base64.b64encode(LARGE_PNG).decode()))
             if mode=='image-invalid':
                 worker.write_text(worker.read_text().replace(base64.b64encode(PNG).decode(), 'aW52YWxpZA=='))
             Fixture.requests=[];Fixture.protocol=protocol;Fixture.mode=mode
@@ -163,6 +184,18 @@ while True:
             self.assertFalse(state['metadata'].get('web_pending',False))
             self.assertTrue(state['metadata']['web_image_inspection_required'])
             if mode == 'compact':return
+            if mode=='image-budget':
+                self.assertEqual(len(Fixture.requests),3)
+                token=base64.b64encode(PNG).decode()
+                self.assertEqual([json.dumps(r).count(token) for r in Fixture.requests],[0,1,0])
+                records=state['metadata']['web_records']
+                self.assertEqual([r['status'] for r in records],['complete','error','complete'])
+                self.assertTrue(records[2]['result']['already_inspected'])
+                self.assertFalse(records[2]['result']['pixels_supplied'])
+                self.assertEqual(records[0]['result']['image_ref'],records[2]['result']['image_ref'])
+                self.assertEqual(len(state['metadata']['web_images']),1)
+                self.assertNotIn('input_image',json.dumps(state['metadata']['tool_replay_input']))
+                return
             self.assertEqual(len(Fixture.requests),1 if mode=='direct' else 2)
             self.assertNotIn('fake-key',json.dumps(state))
             self.assertEqual(len(state['metadata']['web_records']),0 if mode=='direct' else 1)
@@ -170,7 +203,7 @@ while True:
                 self.assertEqual(state['metadata']['usage']['output_tokens'],6)
                 second=Fixture.requests[1]
                 if protocol=='chat':
-                    tool=second['messages'][-2 if mode in ('image','image-omit') else -1]
+                    tool=second['messages'][-2 if mode in ('image','image-omit','image-large') else -1]
                     self.assertEqual(tool['role'],'tool');self.assertEqual(tool['tool_call_id'],'call_1')
                 elif protocol=='anthropic':self.assertEqual(second['messages'][-1]['content'][0]['tool_use_id'],'call_1')
                 else:self.assertEqual(second['input'][-1]['call_id'],'call_1');self.assertFalse(second['store'])
@@ -183,6 +216,18 @@ while True:
                 self.assertEqual(pathlib.Path(image['path']).read_bytes(),PNG)
                 self.assertEqual(image['sha256'],hashlib.sha256(PNG).hexdigest())
                 self.assertNotIn(base64.b64encode(PNG).decode(),json.dumps(state))
+            elif mode=='image-large':
+                outgoing=json.dumps(Fixture.requests[1])
+                self.assertNotIn(base64.b64encode(LARGE_PNG).decode(),outgoing)
+                payload=re.search(r'data:image/jpeg;base64,([A-Za-z0-9+/=]+)',outgoing)
+                self.assertIsNotNone(payload)
+                jpeg=base64.b64decode(payload.group(1))
+                pos=jpeg.index(b'\xff\xc0')
+                self.assertEqual(struct.unpack_from('!HH',jpeg,pos+5),(384,512))
+                image=state['metadata']['web_images'][0]
+                self.assertEqual(pathlib.Path(image['path']).read_bytes(),LARGE_PNG)
+                self.assertEqual((image['height'],image['width']),(768,1024))
+                self.assertNotIn(payload.group(1),json.dumps(state))
             elif mode in ('image-text','image-invalid'):
                 self.assertEqual(state['metadata']['web_images'],[])
                 self.assertEqual(state['metadata']['web_records'][0]['status'],'error')
@@ -205,6 +250,12 @@ while True:
                 self.run_case(protocol,mode='image')
                 self.run_case(protocol,False,mode='image-omit')
                 self.run_case(protocol,mode='image-text')
+    def test_image_batches_use_one_preview_and_never_resend_it(self):
+        for protocol in ('responses','chat','anthropic'):
+            with self.subTest(protocol=protocol):
+                self.run_case(protocol,False,mode='image-budget')
+    def test_large_image_uses_small_preview_and_retains_original(self):
+        self.run_case('responses',mode='image-large')
     def test_unsupported_image_has_no_reference(self):
         self.run_case('responses',mode='image-invalid')
     def test_failed_visual_round_does_not_promote_image(self):
