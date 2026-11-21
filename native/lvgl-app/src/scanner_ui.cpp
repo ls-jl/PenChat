@@ -40,10 +40,11 @@ void App::syncScanner() {
     }
     return;
   }
-  if(active&&scanConfirming_) {
-    // The DB worker still reads the private PNGs. Gate new presses, retaining
-    // their owner until the save acknowledgement; a progress modal is no
-    // reason to tear down/rearm capture or delete the files being copied.
+  const bool reviewDialog=modal_ && scanResult_.value("type",std::string())=="finished" &&
+    scanResult_.value("usable",false);
+  if(active&&(scanConfirming_ || reviewDialog)) {
+    // Keep the pending result alive while reading its details or saving it.
+    // Block new pen presses until the foreground review is interactive again.
     scanner_.eligible(true,session_,false,false);
     return;
   }
@@ -84,8 +85,13 @@ void App::scanPage() {
   scanHolder_=holder;
   scanWarning_=label(body_,"",workspace.warning.x,workspace.warning.y,workspace.warning.width,
     uiMetrics_.fontSize(UiFont::FormHint),theme::palette().danger);
-  lv_label_set_long_mode(scanWarning_,LV_LABEL_LONG_MODE_WRAP);
   lv_obj_set_hidden(scanWarning_,true);
+  lv_obj_add_event_cb(scanWarning_,[](lv_event_t *event) {
+    auto self=static_cast<App *>(lv_event_get_user_data(event));
+    if (self->view_=="scan" && !self->scanConfirming_ && !self->scanCancelPending_ &&
+        !self->scanWarningText_.empty())
+      self->modal("扫描详情",self->scanWarningText_);
+  },LV_EVENT_CLICKED,this);
   lv_obj_set_clickable(holder,true);
   lv_obj_add_event_cb(holder, [](lv_event_t *e) {
     auto self=static_cast<App *>(lv_event_get_user_data(e));
@@ -154,15 +160,33 @@ void App::updateScanWarning(const Json &counts) {
     if (!warning.empty()) warning+='\n';
     warning+="本次漏采"+std::to_string(lost)+"帧，请放大检查是否有缺字、重影或错位。";
   }
-  if (warning==lv_label_get_text(scanWarning_)) return;
-  lv_label_set_text(scanWarning_,warning.c_str());
-  lv_obj_set_hidden(scanWarning_,warning.empty());
-  lv_obj_update_layout(scanWarning_);
+  if (warning==scanWarningText_) return;
+  scanWarningText_=warning;
+  const bool compact=scanResult_.empty() || scanResult_.value("usable",false);
+  const bool showDetails=compact && !scanResult_.empty() && !warning.empty();
+  std::string summary=warning;
+  if (compact && !warning.empty()) {
+    if (scanResult_.contains("error")) summary="扫描异常";
+    else if (scanResult_.value("status",1)!=1) summary="扫描不完整";
+    else summary="漏采 "+std::to_string(lost)+" 帧";
+    if (showDetails) summary+=" · 详情";
+  }
   const auto workspace=layout().scanWorkspace();
-  const int minimumPreview=std::min(workspace.preview.height,uiMetrics_.dp(72));
-  const int warningBottom=workspace.warning.y+lv_obj_get_height(scanWarning_)+uiMetrics_.dp(8);
-  const int holderTop=warning.empty()?workspace.preview.y:
-    std::min(workspace.previewBottom-minimumPreview,warningBottom);
+  const auto noticeFont=font(uiMetrics_.fontSize(compact?UiFont::Badge:UiFont::FormHint));
+  const int lineHeight=noticeFont->line_height;
+  const int noticeHeight=std::max(UiMetrics::minimumTouchTarget(),lineHeight);
+  lv_label_set_long_mode(scanWarning_,compact?LV_LABEL_LONG_MODE_DOTS:LV_LABEL_LONG_MODE_WRAP);
+  lv_obj_set_height(scanWarning_,compact?noticeHeight:LV_SIZE_CONTENT);
+  lv_obj_set_style_text_font(scanWarning_,noticeFont,0);
+  lv_obj_set_style_pad_top(scanWarning_,compact?(noticeHeight-lineHeight)/2:0,0);
+  lv_obj_set_style_text_align(scanWarning_,LV_TEXT_ALIGN_CENTER,0);
+  lv_label_set_text(scanWarning_,summary.c_str());
+  lv_obj_set_clickable(scanWarning_,showDetails);
+  lv_obj_set_hidden(scanWarning_,warning.empty());
+  // A usable image gives up at most one short notice row. An empty result
+  // can use the full reader to explain the failure and how to try again.
+  const int holderTop=warning.empty()?workspace.preview.y:!compact?workspace.previewBottom:
+    std::min(workspace.previewBottom-1,workspace.warning.y+noticeHeight);
   lv_obj_set_height(body_,holderTop);
   const auto area=layout().scanPreview(holderTop,workspace.previewBottom);
   lv_obj_set_pos(scanHolder_,area.x,area.y);

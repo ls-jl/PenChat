@@ -257,6 +257,7 @@ class App {
   std::string scanOriginalPath_,scanOriginalKey_;
   uint64_t scanFinishedAt_=0,scanPreparedAt_=0,scanDecodedAt_=0,scanViewClickedAt_=0,scanViewLoadedAt_=0;
   uint64_t scanConfirmClickedAt_=0,scanStoredAt_=0,scanExportUs_=0;
+  std::string scanWarningText_;
   lv_obj_t *scanWarning_ = nullptr, *scanHolder_ = nullptr;
   void updateScanWarning(const Json &);
   void viewScanResult();

@@ -38,6 +38,17 @@ def run():
                             if w>h:
                                 assert preview[0]==0 and preview[2]==w-1
                                 if not partial: assert preview[1]<=round(4*scale/100)
+                            if partial:
+                                notice=d['scan_warning_bounds']
+                                assert notice[3]<preview[1]<=round(4*scale/100)+44,(notice,preview)
+                                app.tap((notice[0]+notice[2])//2,(notice[1]+notice[3])//2)
+                                opened=app.diag()
+                                assert opened['modal'] and opened['scan_id']==d['scan_id']
+                                # Close the existing landscape details dialog.
+                                app.tap(w-round(68*scale/100),h-round(44*scale/100))
+                                closed=app.diag()
+                                assert not closed['modal'] and closed['scan_preview_area']==preview
+                                assert closed['scanner']['generation']==d['scanner']['generation']
                             assert h-u[3]<=max(80,h//10)
                             image=folder/'lvgl-diagnostic.png';app.process.send_signal(signal.SIGUSR1)
                             t.wait_for(lambda:image.exists() and image.read_bytes().endswith(b'IEND\xaeB`\x82'))
