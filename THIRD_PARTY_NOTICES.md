@@ -26,7 +26,7 @@ PenChat 自有代码、文档、测试及原创图形采用 [Apache-2.0](LICENSE
 | stb_image / stb_image_write | **选择 MIT 分支** | `native/camera/third_party/stb/` 保留内嵌许可；JPEG 位移使用无符号运算的本地修复及摘要见 `native/camera/stb-adaptation.json`；许可副本为 `licenses/stb-*.txt` |
 | OpenCV 3.4.3（扫描运行库） | BSD-3-Clause | `licenses/opencv-3.4.3.txt`；不使用不对应版本的 Debian OpenCV 4.6 声明代替它 |
 | Carotene resize 参考实现 | BSD-3-Clause | `native/scanner/NOTICE` 与 `licenses/scanner-NOTICE.txt`；保留 NVIDIA 声明 |
-| libpng 1.6.37 / zlib 1.2.11 | Libpng / Zlib | `licenses/libpng.txt`、`licenses/zlib.txt`；实际二进制哈希在扫描锁文件 |
+| libpng 1.6.37 / zlib 1.2.11 | Libpng / Zlib | `licenses/libpng.txt`、`licenses/zlib.txt`；编译头使用固定的 AOSP 来源，实际设备二进制摘要在扫描锁文件 |
 | libdrm 2.4.124 开发头文件 | MIT 等文件内许可 | `licenses/libdrm.txt`；构建时下载锁定源码，动态库由设备系统提供 |
 | libstdc++ / libgcc | GPL-3.0-or-later WITH GCC-exception-3.1（适用文件） | `licenses/GPL-3.0.txt`、`licenses/GCC-Runtime-Library-Exception-3.1.txt`；见下方二进制来源限制 |
 

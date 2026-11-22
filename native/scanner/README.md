@@ -139,8 +139,10 @@ ORANGE配置为 sc2356、/dev/video23、/dev/v4l-subdev2、496×360 NV12，以�
 ## 依赖与构建
 
 engine 中保存必要生产源码、契约测试及公开RKNN头文件；源码、模型、冻结光照表、
-板端OpenCV 3.4.3及私有运行库的指纹在 dependencies.lock.json。PNG固定1.6.37，
-同时锁定SDK中的源码指纹并保留许可。模型和共享库在生成的 assets/scanner，保持Git忽略。
+板端 OpenCV 3.4.3 及私有运行库的指纹在 dependencies.lock.json。PNG 1.6.37
+与 zlib 1.2.11 的编译头默认从固定的 AOSP 提交获取，并逐文件核对摘要。
+模型和共享库在生成的 assets/scanner，保持 Git 忽略。获取和配置说明见
+[README 的自行编译章节](../../README.md#自行编译)。
 ONNX、历史数据、研究工具链和旧拼接库不进入仓库/生产包。
 
 默认资源包：

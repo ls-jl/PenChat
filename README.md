@@ -160,10 +160,11 @@ aiot-cli check
 | 依赖 | 获取与配置 |
 | --- | --- |
 | **RK 和 CVI 基础工具链** | 两个平台的 AMR 都构建双架构急救桥，因此需要 Linaro GCC **6.3.1 / 2017.05** 的两套 Linux 工具链及各自随附的 sysroot。可在 [Arm 旧版工具链档案](https://developer.arm.com/Downloads/-/Legacy%20Linaro%20GNU%20Toolchains) 按版本查找。旧 `releases.linaro.org` 下载链接已重定向到联系页，可向板卡厂商获取配套 BSP，或使用 Firefly 的同版本 [AArch64](https://gitlab.com/firefly-linux/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu) 和 [ARM hard-float](https://gitlab.com/firefly-linux/prebuilts/gcc/linux-x86/arm/gcc-linaro-6.3.1-2017.05-x86_64_arm-linux-gnueabihf) 工具链库。分别配置 `JSAPI_TOOLCHAIN_ROOT`、`PENCHAT_CV1826_TOOLCHAIN`，路径指向包含 `bin/` 及对应目标 `libc/` 的工具链根目录。 |
-| **联网搜索编译** | 使用 [Clang 18](https://packages.ubuntu.com/noble/clang-18)（脚本查找 `/usr/lib/llvm-18/bin/clang++`）和 GCC 12 的目标 C++ 头文件。按目标从 Debian 获取 [arm64](https://packages.debian.org/bookworm/libstdc++-12-dev-arm64-cross) 或 [armhf](https://packages.debian.org/bookworm/libstdc++-12-dev-armhf-cross) 开发包，将 `PENCHAT_EDGE_CXX_HEADERS` 指向其中的 `usr/<目标三元组>/include/c++/12`。切换目标时切换该变量。 |
-| **RK 完整扫描器** | 从 Rockchip 或板卡厂商获取配套的 **RK3562 Android 13 SDK/BSP**（参见 [Rockchip 技术支持](https://redmine.rock-chips.com/)）。`RK_SDK_ROOT` 指向含 `external/libpng`、`external/zlib` 的 SDK 根目录，PNG 文件必须通过[扫描依赖锁](native/scanner/dependencies.lock.json)校验。用 [Debian GCC 12 AArch64 交叉包](https://packages.debian.org/bookworm/g++-12-aarch64-linux-gnu)及其配套开发包准备扫描编译器，按[目录示例](docs/DEVELOPMENT.md#设备构建变量与缓存)配置 `PENCHAT_SCAN_CROSS_ROOT`；也可用 `PENCHAT_SCAN_TOOLCHAIN_FILE` 指定兼容的 CMake 工具链。 |
+| **联网搜索编译** | 使用 [Clang 18](https://packages.ubuntu.com/noble/clang-18)（脚本查找 `/usr/lib/llvm-18/bin/clang++`）和 GCC 12 的目标 C++ 头文件。按目标从 Debian 获取 [arm64](https://packages.debian.org/bookworm/libstdc++-12-dev-arm64-cross) 和 [armhf](https://packages.debian.org/bookworm/libstdc++-12-dev-armhf-cross) 开发包。脚本识别系统的 `/usr/<目标三元组>/include/c++/12`；解压在其他位置时，分别设置 `PENCHAT_EDGE_CXX_HEADERS_RK3562`、`PENCHAT_EDGE_CXX_HEADERS_CV1826_S`。 |
+| **公开扫描依赖** | RK 和 S6 的 PNG／zlib 开发头文件可从公开 AOSP 获取，脚本按[扫描依赖锁](native/scanner/dependencies.lock.json)自动下载并校验。已有厂商 SDK 时，RK 可用 `RK_SDK_ROOT` 指定其中的 `external/libpng`、`external/zlib`，S6 可用 `PENCHAT_CV1826_PNG_INCLUDE` 指定 PNG 头文件目录。S6 的 [OpenCV 3.4.3](https://github.com/opencv/opencv/releases/tag/3.4.3) 也会自动下载校验；离线可用 `PENCHAT_CV1826_OPENCV_ARCHIVE` 指向相同归档。 |
+| **RK 扫描器工具链** | 用 [Debian GCC 12 AArch64 交叉包](https://packages.debian.org/bookworm/g++-12-aarch64-linux-gnu)及其配套开发包准备扫描编译器，按[目录示例](docs/DEVELOPMENT.md#设备构建变量与缓存)配置 `PENCHAT_SCAN_CROSS_ROOT`；也可用 `PENCHAT_SCAN_TOOLCHAIN_FILE` 指定兼容的 CMake 工具链。两套 GCC 6 工具链已单独配置时，编译 PenChat 无需准备完整 RK Android SDK 源码。 |
 | **RK 私有扫描资源** | `PENCHAT_SCAN_BUNDLE` 指向含锁定模型、平场校准和 OpenCV 的 `stream32_complete_20261018` 资源包，`PENCHAT_SCAN_BOARD_LIBS` 指向含锁定板端 PNG、zlib、libstdc++ 的目录。模型和校准没有公开下载，需从资源提供方取得授权副本。构建会按[依赖锁](native/scanner/dependencies.lock.json)从 [RKNN 上游](https://github.com/airockchip/rknn-toolkit2/tree/b25dadacc24b88eb7dfcaa47c9c525ecca89b319)获取并校验 RKNN 1.6.0 运行库。 |
-| **S6/CVI 完整扫描器** | 下载 [OpenCV 3.4.3 源码归档](https://github.com/opencv/opencv/archive/refs/tags/3.4.3.tar.gz)，配置 `PENCHAT_CV1826_OPENCV_ARCHIVE`。使用 Clang 18 和 ARM hard-float sysroot，必要时用 `PENCHAT_CV1826_CLANG` 指定编译器。用 `PENCHAT_CV1826_PNG_INCLUDE` 指向包含锁定 PNG 头的目录，通常为配套 SDK 的 `external/libpng`。用 `PENCHAT_CVI_SCAN_BUNDLE` 指向 `cv1826_int8_complete_20261018` 授权资源副本，此包没有公开下载。其余编译用的 S6 固件库从匹配的 S6 通过 ADB 准备并校验，来源见 [CVI 模型锁](native/scanner/cvi-dependencies.lock.json)和 [CVI 媒体锁](native/scanner/cvi-media.lock.json)。 |
+| **S6/CVI 完整扫描器** | 使用 Clang 18 和 ARM hard-float sysroot，必要时用 `PENCHAT_CV1826_CLANG` 指定编译器。若仅取得授权的锁定模型文件，用 `PENCHAT_CVI_SCAN_MODEL` 指向该文件；若取得完整资源包，用 `PENCHAT_CVI_SCAN_BUNDLE` 指向 `cv1826_int8_complete_20261018`。模型和资源包没有公开下载。编译用的固件库由脚本从用户自己的匹配 S6 通过 ADB 准备并校验，来源见 [CVI 模型锁](native/scanner/cvi-dependencies.lock.json)和 [CVI 媒体锁](native/scanner/cvi-media.lock.json)。 |
 | **设备系统链接库与字体** | `PENCHAT_ADB_SERIAL` 指定自己的匹配设备，或按[缓存目录说明](docs/DEVELOPMENT.md#设备构建变量与缓存)准备来自同目标固件的 SQLite、OpenSSL 1.1、zlib 链接库与字体。RK 与 CVI 的库不可混用。 |
 
 配置好对应依赖后，在仓库根目录选择一组命令。只想编译 LVGL 主程序和启动桥，可以先执行各组第一行；完整 AMR 需要该平台的扫描资源。
@@ -181,7 +182,7 @@ bash scripts/build-scanner.sh cv1826-s
 python3 scripts/package-cv1826-s-dev.py --no-build
 ```
 
-工具链、设备库、模型和生成物留在本地。完整设备包仍依赖相应的授权扫描资源；只有公开源码和公共工具链时，可以先构建 Linux 主机版。变量示例、缓存布局及校验方法见[开发说明](docs/DEVELOPMENT.md#设备构建变量与缓存)。
+工具链、设备库、模型和生成物留在本地。完整设备包仍依赖相应的授权扫描资源。请通过资源或设备提供方获取可使用的副本，脚本会核对锁文件中的精确大小或 SHA-256。已有通用 SDK、同版本 OpenCV 或相同芯片，不代表其设备二进制与项目锁定输入一致。只有公开源码和公共工具链时，可以先构建 Linux 主机版。私有文件清单、变量示例、缓存布局及校验方法见[开发说明](docs/DEVELOPMENT.md#设备构建变量与缓存)。
 
 ### GitHub 开发构建
 

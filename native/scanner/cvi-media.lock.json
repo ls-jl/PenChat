@@ -72,7 +72,7 @@
     "version": "3.4.3",
     "sha256": "4eef85759d5450b183459ff216b4c0fa43e87a4f6aa92c8af649f89336f002ec",
     "bytes": 87598899,
-    "url": "https://github.com/opencv/opencv/archive/refs/tags/3.4.3.tar.gz"
+    "url": "https://codeload.github.com/opencv/opencv/tar.gz/refs/tags/3.4.3"
   },
   "png": {
     "include/png.h": {

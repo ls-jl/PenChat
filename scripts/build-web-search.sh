@@ -29,7 +29,22 @@ PREFIX="$ROOT/.deps/web-search-$TARGET"
 ARGS=()
 if [ "$TARGET" != host ]; then
   export PENCHAT_WEB_GCC="$PENCHAT_BUILD_GCC" PENCHAT_WEB_TRIPLE="$PENCHAT_BUILD_TRIPLE"
-  export PENCHAT_WEB_CXX_HEADERS="${PENCHAT_EDGE_CXX_HEADERS:-/home/ls-jl/Documents/ChatGPT/web search/edge-search/.host-deps/cross/root/usr/$PENCHAT_BUILD_TRIPLE/include/c++/12}"
+  if [ "$TARGET" = rk3562 ]; then
+    HEADERS=${PENCHAT_EDGE_CXX_HEADERS_RK3562:-${PENCHAT_EDGE_CXX_HEADERS:-}}
+  else
+    HEADERS=${PENCHAT_EDGE_CXX_HEADERS_CV1826_S:-${PENCHAT_EDGE_CXX_HEADERS:-}}
+  fi
+  if [ -z "$HEADERS" ]; then
+    HEADERS="/usr/$PENCHAT_BUILD_TRIPLE/include/c++/12"
+    if [ ! -f "$HEADERS/$PENCHAT_BUILD_TRIPLE/bits/c++config.h" ]; then
+      HEADERS="/home/ls-jl/Documents/ChatGPT/web search/edge-search/.host-deps/cross/root$HEADERS"
+    fi
+  fi
+  if [ ! -f "$HEADERS/$PENCHAT_BUILD_TRIPLE/bits/c++config.h" ]; then
+    printf 'Missing GCC 12 headers for %s. Set PENCHAT_EDGE_CXX_HEADERS or the target-specific variable from README.\n' "$PENCHAT_BUILD_TRIPLE" >&2
+    exit 2
+  fi
+  export PENCHAT_WEB_CXX_HEADERS="$HEADERS"
   TOOLCHAIN="$ROOT/.deps/web-search-$TARGET-toolchain.cmake"
   cat > "$TOOLCHAIN" <<CMAKE
 set(CMAKE_SYSTEM_NAME Linux)

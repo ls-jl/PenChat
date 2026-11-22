@@ -54,25 +54,29 @@ export JSAPI_TOOLCHAIN_ROOT=/opt/toolchains/gcc-linaro-6.3.1-2017.05-x86_64_aarc
 export PENCHAT_CV1826_TOOLCHAIN=/opt/toolchains/gcc-linaro-6.3.1-2017.05-x86_64_arm-linux-gnueabihf
 
 # RK 扫描
-export RK_SDK_ROOT=/opt/vendor/RK3562_Android13.0_SDK
 export PENCHAT_SCAN_BUNDLE=/opt/penchat-inputs/stream32_complete_20261018
 export PENCHAT_SCAN_CROSS_ROOT=/opt/penchat-inputs/arm-cross
 export PENCHAT_SCAN_BOARD_LIBS=/opt/penchat-inputs/rk-board-libs
-export PENCHAT_EDGE_CXX_HEADERS=/usr/aarch64-linux-gnu/include/c++/12
+export PENCHAT_EDGE_CXX_HEADERS_RK3562=/usr/aarch64-linux-gnu/include/c++/12
 
-# S6 扫描与联网搜索用的 ARM C++ 头，运行 S6 构建前设置
+# S6 扫描与联网搜索用的 ARM C++ 头
 export PENCHAT_CVI_SCAN_BUNDLE=/opt/penchat-inputs/cv1826_int8_complete_20261018
-export PENCHAT_CV1826_OPENCV_ARCHIVE=/opt/penchat-inputs/opencv-3.4.3.tar.gz
-export PENCHAT_CV1826_PNG_INCLUDE="$RK_SDK_ROOT/external/libpng"
-export PENCHAT_EDGE_CXX_HEADERS=/usr/arm-linux-gnueabihf/include/c++/12
+export PENCHAT_EDGE_CXX_HEADERS_CV1826_S=/usr/arm-linux-gnueabihf/include/c++/12
 ```
 
-上面两行 `PENCHAT_EDGE_CXX_HEADERS` 分别用于各自的构建，取当前目标对应的值。OpenCV 归档可用 `sha256sum` 对照 [`cvi-media.lock.json`](../native/scanner/cvi-media.lock.json)；使用该锁定归档，源目录会生成到 `.deps/opencv-cv1826-s-source/`。
+PNG／zlib 开发头默认从 [AOSP libpng](https://android.googlesource.com/platform/external/libpng/+/e092d5b1d64af9c37324c947e39a9860cc080575/) 和 [AOSP zlib](https://android.googlesource.com/platform/external/zlib/+/f5ce96f26d2db8f4f3e64ce9ec231c19c7ee1041/) 获取，校验通过后进入 `.deps/scanner-public-headers/`。OpenCV 默认缓存到 `.deps/opencv-3.4.3.tar.gz`，可用 `PENCHAT_CV1826_OPENCV_ARCHIVE` 指向预先下载的归档，并以 [`cvi-media.lock.json`](../native/scanner/cvi-media.lock.json) 的大小与 SHA-256 核对。
 
 - RK 扫描默认用 GCC 12 编译 C++17，再用 GCC 6 和板端 ABI 链接。将 Debian 的 amd64 交叉编译器和匹配的 GCC/C++ 开发包用 `dpkg-deb -x <包文件> "$PENCHAT_SCAN_CROSS_ROOT/root"` 解到同一个根目录。包装器读取 `root/usr/bin/aarch64-linux-gnu-g++-12`、`root/usr/aarch64-linux-gnu/include/c++/12` 和 `root/usr/lib/gcc-cross/aarch64-linux-gnu/12/include`。开发机仍需提供对应的宿主共享库和交叉汇编器。目录结构与自定义工具链接口见 [`scanner-cxx.py`](../scripts/scanner-cxx.py)。
 - RK 的 `PENCHAT_SCAN_BUNDLE` 中，主机扫描器读取 `third_party/opencv-host/`，设备扫描器读取 `third_party/opencv-arm/`。后者的 OpenCV 3.4.3 二进制指纹与板端库原始文件名见 [`dependencies.lock.json`](../native/scanner/dependencies.lock.json)。相同版本号的通用 OpenCV 包不保证这些指纹一致。
 - 检查资源包配置可运行 `python3 scripts/prepare-scanner.py` 和 `python3 scripts/prepare-scanner-cvi.py`。这两条命令读取对应环境变量；带 `--bundle <目录>` 时以参数为准。RK 用 `--cross` 进一步检验 PNG SDK 资源和板端链接库。联网搜索源码由脚本下载校验，缓存默认在 `.deps/edge-source-cache/`，可用 `PENCHAT_EDGE_SOURCE_CACHE` 指向已有缓存。
 - 私有反馈配置可选，普通自编译使用默认未配置状态。第三方申请或设备提取的私有材料不进入 Git。
+
+### 完整扫描包所需的私有文件
+
+| 目标 | 需要自备的文件 |
+| --- | --- |
+| RK | `PENCHAT_SCAN_BUNDLE` 下的 `models/rknn/pintu_32.rknn`、`resources/illumination/demo_gain.json`、`resources/illumination/demo_gain_160x288.f32`，以及 `third_party/opencv-arm/` 下的头文件和对应的 OpenCV 3.4.3 库。 `PENCHAT_SCAN_BOARD_LIBS` 下需放有锁定的 `libpng16.so.16.37.0`、`libz.so.1.2.11`、`libstdc++.so.6.0.29`。原始文件名及摘要在 [RK 扫描依赖锁](../native/scanner/dependencies.lock.json) 的 `resources` 和 `runtime` 字段。 |
+| CVI | 指定 `PENCHAT_CVI_SCAN_MODEL` 时只需提供 `pintu_rgb32_int8_experimental.cvimodel` 的授权副本，脚本按锁文件核对大小和摘要。指定整个 `PENCHAT_CVI_SCAN_BUNDLE` 时还会校验清单里的接口头、运行库参考及来源记录。CVI runtime 在设备上加载；媒体库由 ADB 从匹配固件读取为链接参考。 |
 
 冷缓存交叉构建会通过 ADB 从用户自己的匹配设备读取系统库和字体。先用 `adb devices` 获取设备序列，再设置 `PENCHAT_ADB_SERIAL`。当前 RK SQLite 自动准备有 ORANGE 板型检查，CVI 媒体自动准备有 S6 固件检查。已有匹配固件导出的链接文件时，可按下表备好本地缓存，再运行构建。把 `<目标>` 替换为 `rk3562` 或 `cv1826-s`。
 

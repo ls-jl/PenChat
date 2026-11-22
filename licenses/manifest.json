@@ -114,12 +114,12 @@
     },
     {
       "file": "libpng.txt",
-      "source": "RK SDK external/libpng/LICENSE (local build prerequisite)",
+      "source": "AOSP external/libpng/LICENSE at e092d5b1d64af9c37324c947e39a9860cc080575",
       "sha256": "bf5e22b9dce8464064ae17a48ea1133c3369ac9e1d80ef9e320e5219aa14ea9b"
     },
     {
       "file": "zlib.txt",
-      "source": "RK SDK external/zlib/LICENSE (local build prerequisite)",
+      "source": "AOSP external/zlib/LICENSE at f5ce96f26d2db8f4f3e64ce9ec231c19c7ee1041",
       "sha256": "942755efa272dbfbcd7afea7a38556801e36c16dcad002d572378367094a2593"
     },
     {
