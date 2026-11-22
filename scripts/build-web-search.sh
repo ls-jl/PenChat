@@ -5,7 +5,7 @@ TARGET=${1:-host}
 source "$ROOT/scripts/native-target.sh" "$TARGET"
 python3 "$ROOT/scripts/prepare-web-search.py"
 SOURCE="$ROOT/.deps/edge-curl-impersonate-source"
-CACHE=${PENCHAT_EDGE_SOURCE_CACHE:-/home/ls-jl/Documents/ChatGPT/web search/edge-search/.host-deps/impersonate-source-cache}
+CACHE=${PENCHAT_EDGE_SOURCE_CACHE:-$ROOT/.deps/edge-source-cache}
 if [ ! -f "$SOURCE/CMakeLists.txt" ]; then
   python3 "$ROOT/native/web-search/upstream/tools/prepare_impersonate_source.py" --cache-dir "$CACHE" --output-dir "$ROOT/.deps/edge-source-bundles"
   python3 - "$ROOT" <<'PY'

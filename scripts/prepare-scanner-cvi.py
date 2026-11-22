@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 
@@ -12,7 +13,8 @@ DEFAULT = Path('/home/ls-jl/Documents/ChatGPT/词典笔扫描拼接/deliverables
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--bundle', type=Path, default=DEFAULT)
+    parser.add_argument('--bundle', type=Path, default=os.environ.get('PENCHAT_CVI_SCAN_BUNDLE') or DEFAULT,
+                        help='S6 scan resources (default: PENCHAT_CVI_SCAN_BUNDLE)')
     parser.add_argument('--stage', type=Path, help='Explicit private/generated destination')
     args = parser.parse_args()
     lock_path = ROOT / 'native/scanner/cvi-dependencies.lock.json'
