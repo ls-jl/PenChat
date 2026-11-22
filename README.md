@@ -189,6 +189,20 @@ python3 scripts/package-cv1826-s-dev.py --no-build
 
 要保留一份可公开下载的预发布，从 Actions 手动运行该工作流，选择 `main`，并勾选 **Publish the verified Linux build as a GitHub pre-release**。每次发布使用独立的 `dev-linux-*` 标签，正式更新源与现有 AMR 保持原样。此工作流的产物用于 Linux 主机调试。RK/CVI 安装包仍需上文所列的设备 SDK、固件库与扫描资源。
 
+### 从本机发布词典笔 Dev 包
+
+在已经配置两套设备构建环境的可信 Linux 主机上，提交当前改动，再执行以下命令。
+
+```bash
+# 编译并校验两套完整 AMR，结果保存在 .work/dev-amr/
+bash scripts/publish-dev-amr.sh
+
+# 同一流程完成后，用本机已登录的 gh 发布 GitHub Dev Pre-release
+bash scripts/publish-dev-amr.sh --publish
+```
+
+发布使用单独的 `dev-amr-<版本>-<源码提交>` 标签，附件按 RK3562 和 S6/CVI 标明目标。流程在草稿阶段回读核对 SHA-256，校验通过后公开为 Pre-release。应用内版本沿用 `package.json`，Dev 包用于手动安装；普通更新源、回退目录和已有正式附件不参与这条流程。公开 Dev 构建禁用本机的私有反馈配置。
+
 ## 开发与许可
 
 想参与开发或了解实现？请看[开发说明](docs/DEVELOPMENT.md)，其中整理了构建、架构、设备边界与专题文档。
