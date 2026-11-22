@@ -5,7 +5,8 @@ import urllib.request
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT = pathlib.Path('/home/ls-jl/Documents/ChatGPT/词典笔扫描拼接/deliverables/stream32_complete_20261018')
 p = argparse.ArgumentParser()
-p.add_argument('--bundle', type=pathlib.Path, default=DEFAULT)
+p.add_argument('--bundle', type=pathlib.Path, default=os.environ.get('PENCHAT_SCAN_BUNDLE') or DEFAULT,
+               help='RK scan resources (default: PENCHAT_SCAN_BUNDLE)')
 p.add_argument('--stage', action='store_true')
 p.add_argument('--cross', action='store_true')
 a = p.parse_args()

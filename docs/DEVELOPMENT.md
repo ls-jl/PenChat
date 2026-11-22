@@ -24,16 +24,16 @@ LVGL 调用只在 UI 线程执行。网络、数据库、解码和采集使用�
 
 ### 环境与资源
 
-构建环境需要 Node.js/npm、aiot-cli、Python 3、CMake、主机 C/C++ 工具链，以及渲染和 HTTP 依赖构建使用的 Meson、Ninja、pkg-config 等工具。AArch64 构建还需要 RK SDK、交叉工具链和扫描资源包。
-
-- `RK_SDK_ROOT`：RK SDK 根目录；`JSAPI_TOOLCHAIN_ROOT`：AArch64 GCC 工具链目录。原生构建脚本中的默认路径属于原开发环境，其他机器需按实际位置配置。
-- `PENCHAT_SCAN_BUNDLE`：扫描资源包目录；可使用 `PENCHAT_SCAN_TOOLCHAIN_FILE` 指定扫描交叉工具链文件。SDK/模型及宿主和设备 OpenCV 资源要求见[扫描模块说明](../native/scanner/README.md)。
-- 拼音、字体、渲染和网络依赖按源码锁准备，来源及校验以各模块锁文件为准。公开仓库不包含全部设备资源，先核对[第三方许可与未解决授权](../THIRD_PARTY_NOTICES.md)。
+主机和设备的工具链、下载来源及构建命令见[自行编译](../README.md#自行编译)。
+公开依赖按各模块锁文件准备；设备私有资源的许可范围见[第三方声明](../THIRD_PARTY_NOTICES.md)。
 
 在仓库根目录执行：
 
 ```bash
-# 主机构建与回归
+# 主机 LVGL 构建
+bash scripts/build-lvgl.sh host
+
+# 同时构建主机扫描器，再运行完整回归
 npm run build:host
 npm test
 npm run test:sanitize
@@ -44,6 +44,44 @@ npm run check
 npm run build:prod
 npm run check:package
 ```
+
+### 设备构建变量与缓存
+
+在仓库根目录配置以下变量，将示例路径替换为实际位置。两种设备 AMR 都需要两套 GCC 6 工具链来生成急救桥。
+
+```bash
+export JSAPI_TOOLCHAIN_ROOT=/opt/toolchains/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu
+export PENCHAT_CV1826_TOOLCHAIN=/opt/toolchains/gcc-linaro-6.3.1-2017.05-x86_64_arm-linux-gnueabihf
+
+# RK 扫描
+export RK_SDK_ROOT=/opt/vendor/RK3562_Android13.0_SDK
+export PENCHAT_SCAN_BUNDLE=/opt/penchat-inputs/stream32_complete_20261018
+export PENCHAT_SCAN_CROSS_ROOT=/opt/penchat-inputs/arm-cross
+export PENCHAT_SCAN_BOARD_LIBS=/opt/penchat-inputs/rk-board-libs
+export PENCHAT_EDGE_CXX_HEADERS=/usr/aarch64-linux-gnu/include/c++/12
+
+# S6 扫描与联网搜索用的 ARM C++ 头，运行 S6 构建前设置
+export PENCHAT_CVI_SCAN_BUNDLE=/opt/penchat-inputs/cv1826_int8_complete_20261018
+export PENCHAT_CV1826_OPENCV_ARCHIVE=/opt/penchat-inputs/opencv-3.4.3.tar.gz
+export PENCHAT_CV1826_PNG_INCLUDE="$RK_SDK_ROOT/external/libpng"
+export PENCHAT_EDGE_CXX_HEADERS=/usr/arm-linux-gnueabihf/include/c++/12
+```
+
+上面两行 `PENCHAT_EDGE_CXX_HEADERS` 分别用于各自的构建，取当前目标对应的值。OpenCV 归档可用 `sha256sum` 对照 [`cvi-media.lock.json`](../native/scanner/cvi-media.lock.json)；使用该锁定归档，源目录会生成到 `.deps/opencv-cv1826-s-source/`。
+
+- RK 扫描默认用 GCC 12 编译 C++17，再用 GCC 6 和板端 ABI 链接。将 Debian 的 amd64 交叉编译器和匹配的 GCC/C++ 开发包用 `dpkg-deb -x <包文件> "$PENCHAT_SCAN_CROSS_ROOT/root"` 解到同一个根目录。包装器读取 `root/usr/bin/aarch64-linux-gnu-g++-12`、`root/usr/aarch64-linux-gnu/include/c++/12` 和 `root/usr/lib/gcc-cross/aarch64-linux-gnu/12/include`。开发机仍需提供对应的宿主共享库和交叉汇编器。目录结构与自定义工具链接口见 [`scanner-cxx.py`](../scripts/scanner-cxx.py)。
+- RK 的 `PENCHAT_SCAN_BUNDLE` 中，主机扫描器读取 `third_party/opencv-host/`，设备扫描器读取 `third_party/opencv-arm/`。后者的 OpenCV 3.4.3 二进制指纹与板端库原始文件名见 [`dependencies.lock.json`](../native/scanner/dependencies.lock.json)。相同版本号的通用 OpenCV 包不保证这些指纹一致。
+- 检查资源包配置可运行 `python3 scripts/prepare-scanner.py` 和 `python3 scripts/prepare-scanner-cvi.py`。这两条命令读取对应环境变量；带 `--bundle <目录>` 时以参数为准。RK 用 `--cross` 进一步检验 PNG SDK 资源和板端链接库。联网搜索源码由脚本下载校验，缓存默认在 `.deps/edge-source-cache/`，可用 `PENCHAT_EDGE_SOURCE_CACHE` 指向已有缓存。
+- 私有反馈配置可选，普通自编译使用默认未配置状态。第三方申请或设备提取的私有材料不进入 Git。
+
+冷缓存交叉构建会通过 ADB 从用户自己的匹配设备读取系统库和字体。先用 `adb devices` 获取设备序列，再设置 `PENCHAT_ADB_SERIAL`。当前 RK SQLite 自动准备有 ORANGE 板型检查，CVI 媒体自动准备有 S6 固件检查。已有匹配固件导出的链接文件时，可按下表备好本地缓存，再运行构建。把 `<目标>` 替换为 `rk3562` 或 `cv1826-s`。
+
+| 本地路径 | 来源 |
+| --- | --- |
+| `.deps/<目标>-libs/libsqlite3.so.0` | 对应固件的 `/usr/lib/libsqlite3.so.0`。SQLite 开发头从主机 `/usr/include` 读取，也可指定 `SQLITE_INCLUDE_DIR`。 |
+| `.deps/http-system-<目标>/lib/` | 对应固件 `/usr/lib/` 中的 `libssl.so.1.1`、`libcrypto.so.1.1`、`libz.so.1`。 |
+| `.deps/chinese.ttf` | 自有设备的 `/etc/miniapp/resources/fonts/HarmonyOS_Sans_SC_Regular.ttf`，或用 `PENCHAT_TEST_FONT` 给设备构建准备一个自有、可使用的替代测试字体。仅做主机 LVGL 字体验收时，可直接将测试字体复制到这个缓存路径。 |
+| `.deps/cv1826-s-media/` 和 `.deps/cv1826-s-png/` | S6 完整扫描器的媒体链接参考、PNG 头和 ARM32 运行库。文件名、固件路径和哈希见 [`cvi-media.lock.json`](../native/scanner/cvi-media.lock.json)。 |
 
 `npm run check` 目前会提示可选 cnpm 工具。生产包位于 `dist/`，文件名由配置中的 AppID 和版本生成。原生源码变更后必须重新构建、暂存生成资源，再打包；不要手工修改二进制。
 

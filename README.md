@@ -26,7 +26,7 @@
 
 ### 获取与安装
 
-本仓库提供 PenChat 源码，构建后得到 `.amr` 安装包。首次安装需要使用设备支持的 MiniApp 安装工具；自行构建请看[开发说明](docs/DEVELOPMENT.md#构建与检查)。
+本仓库提供 PenChat 源码，构建后得到 `.amr` 安装包。首次安装需要使用设备支持的 MiniApp 安装工具；自行构建请看[下方的构建与依赖说明](#自行编译)。
 
 已经安装 PenChat 的用户，可以在 **设置 → 检查更新** 查看可用新版，阅读更新说明后选择更新或稍后处理。0.2.20 及更早版本需要先手动安装支持在线更新的版本。
 
@@ -129,6 +129,59 @@ PenChat/
 可以从 **设置 → 问题反馈** 描述问题、预览诊断后提交，也可以在 [GitHub Issues](https://github.com/ls-jl/PenChat/issues) 反馈。请写明设备型号、复现步骤和看到的错误，避免附上 API Key 等凭据。
 
 愿意帮助适配其他机型时，可在反馈页勾选“帮助开发者适配更多机型”，按向导采集按键信息。
+
+## 自行编译
+
+GitHub 仓库已有 [Falcon/JQ 启动桥所需的头文件和源码](native/vendor/iot-miniapp-sdk)。安装已发布的 AMR 无需准备开发 SDK。自行编译时，**Linux 主机版和词典笔安装包所需的依赖不同**。
+
+### Linux 主机版
+
+验收环境为 x86_64 Linux。准备 C/C++ 编译器、Git、Python 3.12、CMake 3.x（设备包用 3.20 或以上）、Meson、Ninja、pkg-config、Make，以及 SQLite、OpenSSL、zlib 开发包。以下命令使用 Debian/Ubuntu 的包名。
+
+```bash
+sudo apt install build-essential git cmake meson ninja-build pkg-config \
+  libsqlite3-dev libssl-dev zlib1g-dev
+python3 --version
+bash scripts/build-lvgl.sh host
+```
+
+用 `python3` 运行完整构建脚本时，确保系统提供 Python 3.12。上面的命令构建主机版 LVGL 和相关原生测试。LVGL、渲染库和 [libdrm 2.4.124](https://dri.freedesktop.org/libdrm/) 等公开源由脚本按 [依赖锁](native/lvgl-app/dependencies.lock.json) 下载并校验，放入 `.deps/`。需要自选 DRM 头文件时，可在首次配置前把 `LIBDRM_DIR` 指向包含 `xf86drm.h` 和 `include/drm/drm.h` 的 libdrm 源码树。完整的 `npm run build:host` 还会构建扫描器，因此也需要下表中的 RK 扫描资源包和其中的主机 OpenCV。
+
+### RK3562 与 S6/CVI 设备包
+
+在主机工具之外，准备 Node.js/npm（验收使用 Node.js 20）、[ADB Platform-Tools](https://developer.android.com/tools/releases/platform-tools)、Perl 和 patch。打包 CLI 的 npm 包名为 [`aiot-vue-cli`](https://registry.npmjs.org/aiot-vue-cli/1.0.32)。
+
+```bash
+npm ci
+npm install -g aiot-vue-cli@1.0.32
+aiot-cli check
+```
+
+| 依赖 | 获取与配置 |
+| --- | --- |
+| **RK 和 CVI 基础工具链** | 两个平台的 AMR 都构建双架构急救桥，因此需要 Linaro GCC **6.3.1 / 2017.05** 的两套 Linux 工具链及各自随附的 sysroot。可在 [Arm 旧版工具链档案](https://developer.arm.com/Downloads/-/Legacy%20Linaro%20GNU%20Toolchains) 按版本查找。旧 `releases.linaro.org` 下载链接已重定向到联系页，可向板卡厂商获取配套 BSP，或使用 Firefly 的同版本 [AArch64](https://gitlab.com/firefly-linux/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu) 和 [ARM hard-float](https://gitlab.com/firefly-linux/prebuilts/gcc/linux-x86/arm/gcc-linaro-6.3.1-2017.05-x86_64_arm-linux-gnueabihf) 工具链库。分别配置 `JSAPI_TOOLCHAIN_ROOT`、`PENCHAT_CV1826_TOOLCHAIN`，路径指向包含 `bin/` 及对应目标 `libc/` 的工具链根目录。 |
+| **联网搜索编译** | 使用 [Clang 18](https://packages.ubuntu.com/noble/clang-18)（脚本查找 `/usr/lib/llvm-18/bin/clang++`）和 GCC 12 的目标 C++ 头文件。按目标从 Debian 获取 [arm64](https://packages.debian.org/bookworm/libstdc++-12-dev-arm64-cross) 或 [armhf](https://packages.debian.org/bookworm/libstdc++-12-dev-armhf-cross) 开发包，将 `PENCHAT_EDGE_CXX_HEADERS` 指向其中的 `usr/<目标三元组>/include/c++/12`。切换目标时切换该变量。 |
+| **RK 完整扫描器** | 从 Rockchip 或板卡厂商获取配套的 **RK3562 Android 13 SDK/BSP**（参见 [Rockchip 技术支持](https://redmine.rock-chips.com/)）。`RK_SDK_ROOT` 指向含 `external/libpng`、`external/zlib` 的 SDK 根目录，PNG 文件必须通过[扫描依赖锁](native/scanner/dependencies.lock.json)校验。用 [Debian GCC 12 AArch64 交叉包](https://packages.debian.org/bookworm/g++-12-aarch64-linux-gnu)及其配套开发包准备扫描编译器，按[目录示例](docs/DEVELOPMENT.md#设备构建变量与缓存)配置 `PENCHAT_SCAN_CROSS_ROOT`；也可用 `PENCHAT_SCAN_TOOLCHAIN_FILE` 指定兼容的 CMake 工具链。 |
+| **RK 私有扫描资源** | `PENCHAT_SCAN_BUNDLE` 指向含锁定模型、平场校准和 OpenCV 的 `stream32_complete_20261018` 资源包，`PENCHAT_SCAN_BOARD_LIBS` 指向含锁定板端 PNG、zlib、libstdc++ 的目录。模型和校准没有公开下载，需从资源提供方取得授权副本。构建会按[依赖锁](native/scanner/dependencies.lock.json)从 [RKNN 上游](https://github.com/airockchip/rknn-toolkit2/tree/b25dadacc24b88eb7dfcaa47c9c525ecca89b319)获取并校验 RKNN 1.6.0 运行库。 |
+| **S6/CVI 完整扫描器** | 下载 [OpenCV 3.4.3 源码归档](https://github.com/opencv/opencv/archive/refs/tags/3.4.3.tar.gz)，配置 `PENCHAT_CV1826_OPENCV_ARCHIVE`。使用 Clang 18 和 ARM hard-float sysroot，必要时用 `PENCHAT_CV1826_CLANG` 指定编译器。用 `PENCHAT_CV1826_PNG_INCLUDE` 指向包含锁定 PNG 头的目录，通常为配套 SDK 的 `external/libpng`。用 `PENCHAT_CVI_SCAN_BUNDLE` 指向 `cv1826_int8_complete_20261018` 授权资源副本，此包没有公开下载。其余编译用的 S6 固件库从匹配的 S6 通过 ADB 准备并校验，来源见 [CVI 模型锁](native/scanner/cvi-dependencies.lock.json)和 [CVI 媒体锁](native/scanner/cvi-media.lock.json)。 |
+| **设备系统链接库与字体** | `PENCHAT_ADB_SERIAL` 指定自己的匹配设备，或按[缓存目录说明](docs/DEVELOPMENT.md#设备构建变量与缓存)准备来自同目标固件的 SQLite、OpenSSL 1.1、zlib 链接库与字体。RK 与 CVI 的库不可混用。 |
+
+配置好对应依赖后，在仓库根目录选择一组命令。只想编译 LVGL 主程序和启动桥，可以先执行各组第一行；完整 AMR 需要该平台的扫描资源。
+
+```bash
+# RK3562，输出 dist/*-rk3562.amr
+bash scripts/build-lvgl.sh rk3562
+bash scripts/build-web-search.sh rk3562
+npm run build:prod
+
+# S6 / CV1826，输出 build/package-cv1826-s/*-cv1826-s.amr
+bash scripts/build-lvgl.sh cv1826-s
+bash scripts/build-web-search.sh cv1826-s
+bash scripts/build-scanner.sh cv1826-s
+python3 scripts/package-cv1826-s-dev.py --no-build
+```
+
+工具链、设备库、模型和生成物留在本地。完整设备包仍依赖相应的授权扫描资源；只有公开源码和公共工具链时，可以先构建 Linux 主机版。变量示例、缓存布局及校验方法见[开发说明](docs/DEVELOPMENT.md#设备构建变量与缓存)。
 
 ## 开发与许可
 

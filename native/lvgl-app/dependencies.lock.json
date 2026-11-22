@@ -1,6 +1,12 @@
 {
   "dependencies": [
     {
+      "name": "libdrm",
+      "revision": "2.4.124",
+      "url": "https://dri.freedesktop.org/libdrm/libdrm-2.4.124.tar.xz",
+      "sha256": "ac36293f61ca4aafaf4b16a2a7afff312aa4f5c37c9fbd797de9e3c0863ca379"
+    },
+    {
       "name": "lvgl",
       "revision": "80ca777e37a2b176770726a02e07a6fb79ef0b39",
       "url": "https://codeload.github.com/lvgl/lvgl/tar.gz/80ca777e37a2b176770726a02e07a6fb79ef0b39",
