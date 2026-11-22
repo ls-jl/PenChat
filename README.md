@@ -184,6 +184,20 @@ python3 scripts/package-cv1826-s-dev.py --no-build
 
 工具链、设备库、模型和生成物留在本地。完整设备包仍依赖相应的授权扫描资源。请通过资源或设备提供方获取可使用的副本，脚本会核对锁文件中的精确大小或 SHA-256。已有通用 SDK、同版本 OpenCV 或相同芯片，不代表其设备二进制与项目锁定输入一致。只有公开源码和公共工具链时，可以先构建 Linux 主机版。私有文件清单、变量示例、缓存布局及校验方法见[开发说明](docs/DEVELOPMENT.md#设备构建变量与缓存)。
 
+### RKNN 运行库和 pintu 模型
+
+RK3562 构建使用 [Rockchip RKNN Toolkit2 v1.6.0](https://github.com/airockchip/rknn-toolkit2/releases/tag/v1.6.0) 的 **Linux AArch64** 运行库。在线构建会从[锁定的上游文件](https://github.com/airockchip/rknn-toolkit2/blob/b25dadacc24b88eb7dfcaa47c9c525ecca89b319/rknpu2/runtime/Linux/librknn_api/aarch64/librknnrt.so)下载并验证。离线时，可以提前下载[运行库和原版许可归档](https://github.com/ls-jl/PenChat/releases/download/sdk-rknn-runtime-v1.6.0/rknn-runtime-v1.6.0-linux-aarch64.tar.gz)，在仓库根目录执行以下命令。
+
+```bash
+mkdir -p .deps/scanner-rknn/v1.6.0
+tar -xzf /path/to/rknn-runtime-v1.6.0-linux-aarch64.tar.gz -C .deps/scanner-rknn/v1.6.0
+(cd .deps/scanner-rknn/v1.6.0 && sha256sum -c SHA256SUMS)
+```
+
+该归档只提供锁定的运行库。SDK 的 C 接口位置见 [Rockchip v1.6.0 SDK](https://github.com/airockchip/rknn-toolkit2/tree/b25dadacc24b88eb7dfcaa47c9c525ecca89b319/rknpu2/runtime/Linux/librknn_api)，需完整 SDK 或 SDK 文件授权时请联系 Rockchip。PenChat 构建会使用仓库中现有的 C 接口头文件。
+
+项目使用的 `pintu_32.rknn` 没有获授权的公开下载。向模型权利人取得可使用的资源副本后，将模型放在 `$PENCHAT_SCAN_BUNDLE/models/rknn/pintu_32.rknn`，并按[私有文件清单](docs/DEVELOPMENT.md#完整扫描包所需的私有文件)准备配套校准和其他构建文件。运行 `python3 scripts/prepare-scanner.py --cross` 可依锁文件验证。S6 使用独立的 CVI 模型和设备自带运行库。
+
 ### GitHub 开发构建
 
 `main` 或 `dev` 有推送时，[PenChat Dev Build](https://github.com/ls-jl/PenChat/actions/workflows/dev-build.yml) 用 GitHub 的 Ubuntu runner 编译 Linux x86_64 无窗口版本。通过定向测试后，在该次运行的 **Artifacts** 下载压缩包、渲染示例和 SHA-256 校验文件，保留 14 天。压缩包中的 `SOURCE_COMMIT` 标识对应源码。
@@ -211,7 +225,7 @@ bash scripts/publish-dev-amr.sh --publish
 PenChat 自有代码采用 [Apache-2.0](LICENSE)，第三方材料保留原许可。
 
 **Fork 和商业使用代码不等于获得 PenChat 名称及官方图标的使用许可。** 非官方发布版本必须使用可区分的应用名称和图标，不得冒充“PenChat 原版”“PenChat 官方版”“PenChat 最新版”等；正常注明“基于 PenChat 开发”不受影响。详见[名称与图标使用政策](TRADEMARKS.md)。
-**RKNN SDK/运行库、扫描模型及随附校准资源未获授权，不属于 Apache-2.0 授权范围；部分 Falcon/JQ SDK 文件的授权也尚未确认。** 构建成功不代表这些材料可以公开再分发。完整说明见[第三方声明](THIRD_PARTY_NOTICES.md)和 [NOTICE](NOTICE)。
+**RKNN SDK 头文件、扫描模型及随附校准资源的使用／再分发授权仍未取得；部分 Falcon/JQ SDK 文件的授权也尚未确认。** 锁定的 RKNN 1.6.0 Linux AArch64 运行库随附其上游 BSD 许可。完整说明见[第三方声明](THIRD_PARTY_NOTICES.md)和 [NOTICE](NOTICE)。
 
 作者：**ls-jl** · AI 协作：**Codex（OpenAI）**
 

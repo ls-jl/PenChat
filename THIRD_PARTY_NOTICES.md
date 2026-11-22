@@ -80,14 +80,13 @@ PenChat 0.2.12 起源码构建并静态链接 **libcurl 8.17.0**，使用 curl �
 SQLite、glibc、系统输入法/OCR与Falcon宿主也由设备提供；PenChat不打包这些系统动态库。
 SQLite主项目为公有领域，glibc有LGPL义务；设备提供者的分发义务不由本项目Apache声明替代。
 
-## RKNN 与扫描资源：未获授权
+## RKNN 与扫描资源
 
-**本项目未取得 Rockchip RKNN SDK 头文件、RKNN 运行库，以及扫描模型和校准资源的
-使用/再分发授权。PenChat 的 Apache-2.0 不覆盖也不授予这些材料的任何权利。**
+**Rockchip RKNN SDK 头文件、扫描模型和校准资源的使用／再分发授权仍未取得。PenChat 的 Apache-2.0 不授予第三方材料的权利。**
 
 - `native/scanner/engine/include/rknn/rknn_api.h` 原文明确声明专有、保密，要求
   Rockchip 明确书面许可。保留该原文不是获得授权；Git 可见也不等于可自由使用。
-- ORANGE、Y02、Y07 使用包内独立 RKNN 1.6.0，统一文件名为 `librknnrt-rk3562.so`（官方提交和SHA-256见扫描依赖锁）。该文件与Y07从0.2.26起为规避固件1.4.0 MaxPool中止而使用的运行库内容相同；ORANGE和Y02在固定输入对照及采集交接验证后切换。MELON仍使用设备运行库，等待授权实机验证。该库不覆盖系统文件、不进入Git；本项目仍未取得其使用/再分发授权，不能将可下载或设备已安装视为获授权。
+- Y01、Y02、Y07 使用包内独立 RKNN 1.6.0，文件名为 `librknnrt-rk3562.so`。锁定的 Linux AArch64 `librknnrt.so` 与 Rockchip 上游 `b25dadacc24b88eb7dfcaa47c9c525ecca89b319` 的文件逐字节相同。该版本的 BSD-3-Clause 许可原文保存在 `licenses/rknn-runtime-v1.6.0.txt`，单独分发时随附。此记录限该运行库与版本。MELON 仍使用设备运行库。
 - `pintu_32.rknn`、`demo_gain.json`、`demo_gain_160x288.f32` 从本地外部资源包准备，
   只记录来源路径和校验值，未取得开源或再分发授权。它们不进入 Git。
 - 本地生产构建仍会包含扫描模型与校准资源。**这样的 AMR 不应作为已获授权的公开
@@ -97,7 +96,7 @@ SQLite主项目为公有领域，glibc有LGPL义务；设备提供者的分发�
 
 本次工作明确许可范围并补齐已有原文，不把“能构建”当作“获得全部分发授权”：
 
-1. RKNN、扫描资源和未明确授权的 Falcon/JQ SDK：取得有效授权或替换/移除。
+1. RKNN SDK 头文件、扫描资源和未明确授权的 Falcon/JQ SDK：取得有效授权或替换／移除。
 2. 扫描所用板端 `libstdc++.so.6.0.29` 的精确构建来源及对应源码尚未确认；旧脚本
    使用的 Debian GCC 12 copyright 不能证明该库的来源，本次不再采用该错误归属。
    GCC Runtime Exception 允许符合条件的应用链接，不免除分发运行库本身的源码义务。

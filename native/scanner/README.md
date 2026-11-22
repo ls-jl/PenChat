@@ -203,8 +203,8 @@ tests/device/scanner_replay.py（主机需Pillow和NumPy），传入资源包内
 ## 许可边界
 
 扫描自有代码采用根目录 Apache-2.0；Carotene 派生部分保留 NOTICE 中的 BSD 声明。
-RKNN SDK 头文件、RKNN 运行库、模型及校准资源均未取得本项目使用/再分发授权，
-不在 Apache-2.0 范围内。保留头文件的原始限制声明，不将本地构建视为公开发布授权。
+RKNN SDK 头文件、模型及校准资源的使用／再分发授权仍未取得。精确锁定的
+RKNN 1.6.0 Linux AArch64 运行库随附原版 BSD-3-Clause 许可。这些材料均按原许可处理。
 完整范围及运行库来源限制见 [第三方声明](../../THIRD_PARTY_NOTICES.md)。
 
 ## Y02 原图采集适配（0.2.18）

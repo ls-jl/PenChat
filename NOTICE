@@ -11,10 +11,10 @@ calibration resources and platform/toolchain libraries. Third-party-derived
 portions retain their original notices, including native/scanner/NOTICE.
 
 RKNN: this project has NOT obtained authorization for the Rockchip RKNN SDK
-header, runtime, or the scanning model/calibration resources. No permission to
-use or redistribute those materials is granted by PenChat's Apache-2.0 license.
-The RKNN header's original restrictive notice remains in force. Locally having
-these resources or producing a working package is not redistribution permission.
+header or the scanning model/calibration resources. The SDK header retains its
+own restrictive notice. The exact pinned v1.6.0 Linux AArch64 runtime is supplied
+with the upstream BSD notice in licenses/rknn-runtime-v1.6.0.txt.
+PenChat's Apache-2.0 license grants no rights to these third-party materials.
 
 Falcon/JQ SDK: some files carry explicit MIT or Apache-2.0 notices; permission
 for the remaining SDK files has not been established. PenChat grants no license

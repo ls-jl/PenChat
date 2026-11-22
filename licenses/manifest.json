@@ -3,6 +3,11 @@
   "description": "Exact upstream license/notice copies; source revisions are in native dependency locks. License inventory is in THIRD_PARTY_NOTICES.md. No grant is inferred for unresolved components.",
   "files": [
     {
+      "file": "rknn-runtime-v1.6.0.txt",
+      "source": "https://raw.githubusercontent.com/airockchip/rknn-toolkit2/b25dadacc24b88eb7dfcaa47c9c525ecca89b319/LICENSE",
+      "sha256": "7fc60f3387179291c6f781d9e0931a30c710e34131699b7f5d3dfa2cfa5bb0c0"
+    },
+    {
       "file": "lvgl.txt",
       "source": ".deps/lvgl/LICENCE.txt",
       "sha256": "27a80bd36832ab42d35ad60c08b2b230a807a9bc0d58e94ec1531543dc49cbe8"
