@@ -183,6 +183,12 @@ python3 scripts/package-cv1826-s-dev.py --no-build
 
 工具链、设备库、模型和生成物留在本地。完整设备包仍依赖相应的授权扫描资源；只有公开源码和公共工具链时，可以先构建 Linux 主机版。变量示例、缓存布局及校验方法见[开发说明](docs/DEVELOPMENT.md#设备构建变量与缓存)。
 
+### GitHub 开发构建
+
+`main` 或 `dev` 有推送时，[PenChat Dev Build](https://github.com/ls-jl/PenChat/actions/workflows/dev-build.yml) 用 GitHub 的 Ubuntu runner 编译 Linux x86_64 无窗口版本。通过定向测试后，在该次运行的 **Artifacts** 下载压缩包、渲染示例和 SHA-256 校验文件，保留 14 天。压缩包中的 `SOURCE_COMMIT` 标识对应源码。
+
+要保留一份可公开下载的预发布，从 Actions 手动运行该工作流，选择 `main`，并勾选 **Publish the verified Linux build as a GitHub pre-release**。每次发布使用独立的 `dev-linux-*` 标签，正式更新源与现有 AMR 保持原样。此工作流的产物用于 Linux 主机调试。RK/CVI 安装包仍需上文所列的设备 SDK、固件库与扫描资源。
+
 ## 开发与许可
 
 想参与开发或了解实现？请看[开发说明](docs/DEVELOPMENT.md)，其中整理了构建、架构、设备边界与专题文档。

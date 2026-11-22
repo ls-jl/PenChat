@@ -1,0 +1,97 @@
+name: PenChat Dev Build
+
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+    inputs:
+      publish_prerelease:
+        description: Publish the verified Linux build as a GitHub pre-release (main only)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux x86_64 development build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      JOBS: '3'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Install public build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake meson ninja-build pkg-config patch \
+            libsqlite3-dev libssl-dev zlib1g-dev fonts-wqy-zenhei
+      - name: Compile and run targeted checks
+        run: |
+          bash scripts/build-lvgl.sh host
+          node --test tests/js/*.test.cjs
+          ctest --test-dir build/host --output-on-failure --no-tests=error \
+            -R '^penchat-(api|anthropic|context|transfer|cvi-compatibility|ui-metrics|pinyin)$'
+          python3 tests/check_licenses.py
+      - name: Verify a headless frame and package the Linux build
+        run: |
+          test -x build/host/penchat-lvgl
+          mkdir -p build/dev-preview/{bundle/assets/fonts,download,data}
+          printf '%s\n' '{"screen":{"width":960,"height":266,"direction":0}}' > build/dev-preview/screen.json
+          build/host/penchat-lvgl --headless --workspace "$PWD" \
+            --screen-config build/dev-preview/screen.json --data-dir build/dev-preview/data \
+            --font /usr/share/fonts/truetype/wqy/wqy-zenhei.ttc \
+            --tex-resources .deps/microtex/res --demo-markdown tests/markdown-demo.md \
+            --frames 12 --screenshot build/dev-preview/download/preview.png
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+
+          image = Path('build/dev-preview/download/preview.png').read_bytes()
+          assert image.startswith(b'\x89PNG\r\n\x1a\n')
+          assert struct.unpack_from('>II', image, 16) == (960, 266)
+          PY
+          install -m 755 build/host/penchat-lvgl build/dev-preview/bundle/penchat-lvgl
+          cp assets/fonts/{DejaVuSans.ttf,LICENSE.txt} build/dev-preview/bundle/assets/fonts/
+          cp -r assets/pinyin build/dev-preview/bundle/assets/
+          python3 scripts/stage-licenses.py
+          cp -r assets/licenses build/dev-preview/bundle/assets/
+          git rev-parse HEAD > build/dev-preview/bundle/SOURCE_COMMIT
+          tar -C build/dev-preview/bundle -czf build/dev-preview/download/penchat-linux-dev-x86_64.tar.gz .
+          cd build/dev-preview/download
+          sha256sum penchat-linux-dev-x86_64.tar.gz preview.png > SHA256SUMS
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: penchat-linux-dev-x86_64
+          path: build/dev-preview/download/
+          if-no-files-found: error
+          retention-days: 14
+
+  prerelease:
+    name: Publish Linux pre-release
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_prerelease && github.ref == 'refs/heads/main'
+    needs: linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: penchat-linux-dev-x86_64
+          path: download
+      - name: Publish a unique pre-release for this run
+        working-directory: download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum -c SHA256SUMS
+          tag="dev-linux-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --latest=false --title "PenChat Linux Dev · ${GITHUB_SHA:0:7}" \
+            --notes "Linux x86_64 headless development build. Source: $GITHUB_SHA. Build: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID." \
+            penchat-linux-dev-x86_64.tar.gz preview.png SHA256SUMS
