@@ -48,9 +48,13 @@ target_include_directories(penchat_zip PUBLIC "${DEPS}/miniz" "${CMAKE_CURRENT_B
 target_compile_definitions(penchat_zip PUBLIC MINIZ_NO_ZLIB_COMPATIBLE_NAMES)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(PENCHAT_FEEDBACK_CONFIG "$ENV{PENCHAT_FEEDBACK_CONFIG}" CACHE FILEPATH "Private feedback configuration (never committed)")
-set(FEEDBACK_CONFIG "${PENCHAT_FEEDBACK_CONFIG}")
-if(NOT FEEDBACK_CONFIG AND EXISTS "${ROOT}/.work/private/feedback.json")
-  set(FEEDBACK_CONFIG "${ROOT}/.work/private/feedback.json")
+if("$ENV{PENCHAT_PUBLIC_DEV_BUILD}" STREQUAL "1")
+  set(FEEDBACK_CONFIG "")
+else()
+  set(FEEDBACK_CONFIG "${PENCHAT_FEEDBACK_CONFIG}")
+  if(NOT FEEDBACK_CONFIG AND EXISTS "${ROOT}/.work/private/feedback.json")
+    set(FEEDBACK_CONFIG "${ROOT}/.work/private/feedback.json")
+  endif()
 endif()
 execute_process(COMMAND "${Python3_EXECUTABLE}" "${ROOT}/scripts/feedback-config.py"
   "${FEEDBACK_CONFIG}" "${CMAKE_CURRENT_BINARY_DIR}/generated/feedback_private.hpp"
